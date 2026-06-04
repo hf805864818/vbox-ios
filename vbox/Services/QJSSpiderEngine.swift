@@ -10,7 +10,9 @@ class QJSSpiderEngine {
     
     init() {
         rt = QJSBridge_createRuntime()
-        ctx = QJSBridge_createContext(rt)
+        if let rt = rt {
+            ctx = QJSBridge_createContext(rt)
+        }
         setupBridge()
         onLog?("✅ QuickJS 引擎初始化完成")
     }
