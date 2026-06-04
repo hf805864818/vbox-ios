@@ -144,7 +144,7 @@ struct LiquidBackground: View {
         GeometryReader { geometry in
             ZStack {
                 // 动态流动的渐变
-                ForEach(0..<3) { index in
+                ForEach(0..<count, id: \.self) { index in
                     Circle()
                         .fill(
                             LinearGradient(
@@ -176,53 +176,74 @@ struct LiquidBackground: View {
 
 // MARK: - 首页视图
 struct HomeView: View {
+    @StateObject private var spiderManager = SpiderManager.shared
     @State private var videos: [VodItem] = []
     @State private var isLoading = true
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                // 顶部搜索栏
                 SearchBarHeader()
 
-                // 推荐视频轮播
-                FeaturedCarousel()
-
-                // 热门推荐
-                SectionHeader(title: "热门推荐", icon: "flame.fill")
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(mockVideos.prefix(6)) { video in
-                        VideoCard(video: video)
+                if isLoading {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .padding(.top, 60)
+                        Text("正在加载...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
                     }
-                }
-                .padding(.horizontal, 16)
-
-                // 最新更新
-                SectionHeader(title: "最新更新", icon: "clock.fill")
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(mockVideos.dropFirst(6).prefix(6)) { video in
-                        VideoCard(video: video)
+                } else if videos.isEmpty {
+                    VStack(spacing: 20) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 50))
+                            .foregroundColor(.gray.opacity(0.5))
+                            .padding(.top, 80)
+                        Text("暂无首页数据")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Text("请先在「设置」中添加订阅源")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
+                        if spiderManager.subscribedSites.isEmpty {
+                            VStack(spacing: 8) {
+                                Text(spiderManager.errorMessage ?? "")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.orange)
+                                Text("已加载 \(spiderManager.loadedSiteCount) 个站点")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
+                } else {
+                    FeaturedCarousel(videos: Array(videos.prefix(5)))
+
+                    SectionHeader(title: "热门推荐", icon: "flame.fill")
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                        ForEach(videos.prefix(6)) { video in VideoCard(video: video) }
+                    }.padding(.horizontal, 16)
+
+                    SectionHeader(title: "最新更新", icon: "clock.fill")
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                        ForEach(videos.dropFirst(6).prefix(6)) { video in VideoCard(video: video) }
+                    }.padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
             }
             .padding(.bottom, 100)
         }
         .background(Color(hex: "000000"))
+        .onAppear { loadData() }
+    }
+
+    private func loadData() {
+        isLoading = true
+        Task {
+            await spiderManager.initialize()
+            videos = spiderManager.homeVideos
+            isLoading = false
+        }
     }
 }
 
@@ -305,7 +326,7 @@ struct FeaturedCarousel: View {
 
     var body: some View {
         TabView(selection: $currentIndex) {
-            ForEach(0..<3) { index in
+            ForEach(0..<count, id: \.self) { index in
                 FeaturedCard(video: mockVideos[index])
                     .tag(index)
             }
@@ -317,7 +338,7 @@ struct FeaturedCarousel: View {
 
         // 页面指示器
         HStack(spacing: 8) {
-            ForEach(0..<3) { index in
+            ForEach(0..<count, id: \.self) { index in
                 Circle()
                     .fill(currentIndex == index ? Color(hex: "E11D48") : Color.white.opacity(0.3))
                     .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
