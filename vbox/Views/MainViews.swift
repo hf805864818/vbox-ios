@@ -61,45 +61,16 @@ struct GlassBottomTabBar: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(0..<tabs.count, id: \.self) { index in
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        selectedTab = index
-                    }
-                }) {
-                    VStack(spacing: 4) {
-                        ZStack {
-                            if selectedTab == index {
-                                // 液态背景效果
-                                LiquidBackground()
-                                    .frame(width: 44, height: 44)
-                                    .blur(radius: 8)
-                            }
-
-                            Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(
-                                    selectedTab == index
-                                        ? LinearGradient(
-                                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                        : Color.secondary
-                                )
+                GlassTabItem(
+                    tab: tabs[index],
+                    index: index,
+                    isSelected: selectedTab == index,
+                    action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedTab = index
                         }
-                        .frame(height: 44)
-
-                        Text(tabs[index].title)
-                            .font(.system(size: 10, weight: selectedTab == index ? .semibold : .regular))
-                            .foregroundColor(
-                                selectedTab == index
-                                    ? Color(hex: "E11D48")
-                                    : Color.secondary
-                            )
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PlainButtonStyle())
+                )
             }
         }
         .padding(.horizontal, 16)
@@ -141,6 +112,47 @@ struct GlassBottomTabBar: View {
         )
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
+    }
+}
+
+// 单个Tab按钮组件 - 拆出来避免类型检查超时
+struct GlassTabItem: View {
+    let tab: (icon: String, iconFilled: String, title: String)
+    let index: Int
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                ZStack {
+                    if isSelected {
+                        LiquidBackground()
+                            .frame(width: 44, height: 44)
+                            .blur(radius: 8)
+                    }
+
+                    Image(systemName: isSelected ? tab.iconFilled : tab.icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(
+                            isSelected
+                                ? LinearGradient(
+                                    colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                : Color.secondary
+                        )
+                }
+                .frame(height: 44)
+
+                Text(tab.title)
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? Color(hex: "E11D48") : Color.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

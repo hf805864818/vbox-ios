@@ -325,7 +325,8 @@ struct EpisodeButton: View {
                         }
 
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(isSelected ? Color(hex: "E11D48") : .ultraThinMaterial)
+                            .fill(isSelected ? Color(hex: "E11D48") : Color.clear)
+                            .background(isSelected ? nil : .ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                 )
         }
