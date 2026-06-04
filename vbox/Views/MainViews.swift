@@ -287,7 +287,7 @@ struct SearchBarHeader: View {
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(Color.black.opacity(0.2))
+                            .fill(.regularMaterial)
                     )
             }
         }
@@ -495,7 +495,7 @@ struct VideoCard: View {
             .background(
                 // 毛玻璃卡片背景
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.black.opacity(0.2))
+                    .fill(.regularMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -702,7 +702,7 @@ struct KeywordButton: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(Color.black.opacity(0.2))
+                        .fill(.regularMaterial)
                 )
                 .overlay(
                     Capsule()
@@ -899,7 +899,7 @@ struct CategoryCard: View {
             .padding(.vertical, 20)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.black.opacity(0.2))
+                    .fill(.regularMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -1120,7 +1120,6 @@ extension UIApplication {
 }
 
 // 流式布局
-@available(iOS 16.0, *)
 struct FlowLayout: Layout {
     var spacing: CGFloat = 10
 
