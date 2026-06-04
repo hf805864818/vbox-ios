@@ -75,7 +75,8 @@ class SpiderRepository {
             filterable: 0,
             ext: nil,
             playerType: nil,
-            jar: nil
+            jar: nil,
+            changeable: nil
         ))
     }
     
