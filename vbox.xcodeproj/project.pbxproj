@@ -21,9 +21,12 @@
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
-		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
+		A10014 /* CloudDriveManager.swift in Sources */
+					A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */
+					B10019 /* SpiderManager.swift */; };
 		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
-		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
+		A10016 /* libquickjs.a in Frameworks */
+			A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; }; = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,9 +46,11 @@
 		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
 		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
 		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
-		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
+		B10016 /* CloudDriveManager.swift */
+					B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
-		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
+		B10018 /* QuickJSBridge.h */
+			B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; }; = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -89,7 +94,8 @@
 				B10007 /* SpiderRepository.swift */,
 				B10011 /* QJSSpiderEngine.swift */,
 				B10015 /* SubscriptionManager.swift */,
-				B10016 /* CloudDriveManager.swift */,
+				B10016 /* CloudDriveManager.swift */
+					B10019 /* SpiderManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -99,7 +105,8 @@
 			children = (
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
-				B10018 /* QuickJSBridge.h */,
+				B10018 /* QuickJSBridge.h */
+			B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
@@ -192,7 +199,8 @@
 				A10011 /* QJSSpiderEngine.swift in Sources */,
 				A10012 /* QuickJSBridge.m in Sources */,
 				A10013 /* SubscriptionManager.swift in Sources */,
-				A10014 /* CloudDriveManager.swift in Sources */,
+				A10014 /* CloudDriveManager.swift in Sources */
+					A10017 /* SpiderManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -203,7 +211,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10016 /* libquickjs.a in Frameworks */,
+				A10016 /* libquickjs.a in Frameworks */
+			A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
