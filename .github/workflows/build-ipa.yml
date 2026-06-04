@@ -38,12 +38,14 @@ jobs:
 
       - name: 🏗️ Build (signed Release)
         run: |
+          # -allowProvisioningUpdates 让Xcode自动请求签名证书
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
             -configuration Release \
             -arch arm64 \
             -derivedDataPath ./Build \
+            -allowProvisioningUpdates \
             build 2>&1 | tee build.log | tail -30
 
       - name: 📦 Package IPA
