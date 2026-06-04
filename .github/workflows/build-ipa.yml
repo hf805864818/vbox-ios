@@ -55,3 +55,20 @@ jobs:
           name: vbox-ipa
           path: vbox.ipa
           compression-level: 0
+
+      - name: 🚀 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.MARKETING_VERSION }}
+          name: v${{ env.MARKETING_VERSION }}
+          body: |
+            版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})
+
+            [查看commit](https://github.com/hf805864818/vbox-ios/commit/${{ github.sha }})
+          draft: false
+          prerelease: true
+          files: vbox.ipa
+          overwrite: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
