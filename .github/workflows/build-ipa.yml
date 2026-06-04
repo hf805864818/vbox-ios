@@ -24,9 +24,8 @@ jobs:
           import struct, zlib
           def png(w,h,c=(25,25,35)):
               r=b''
-              for y in range(h):
-                  r+=b'\x00'
-                  for x in range(w): r+=bytes([c[0],c[1],c[2],255])
+              for y in range(h): r+=b'\x00'
+              for x in range(w): r+=bytes([c[0],c[1],c[2],255])
               def ck(t,d):
                   ct=t+d
                   return struct.pack('>I',len(d))+ct+struct.pack('>I',zlib.crc32(ct)&0xFFFFFFFF)
@@ -37,77 +36,32 @@ jobs:
           print('AppIcon OK')
           "
 
-      - name: 🏗️ Build signed first
+      - name: 🏗️ Build (Debug)
         run: |
-          # 第一步：用默认签名编译（使用 Automatic 签名）
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
-            -configuration Release \
+            -configuration Debug \
             -arch arm64 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
             -derivedDataPath ./Build \
-            build 2>&1 | tee build.log | tail -20
-          
-          echo "=== Checking build output ==="
-          ls -la ./Build/Build/Products/Release-iphoneos/ 2>/dev/null
-          
-          APP="./Build/Build/Products/Release-iphoneos/vbox.app"
-          if [ -d "$APP" ]; then
-            echo "=== App contents ==="
-            ls -la "$APP/"
-            if [ -f "$APP/vbox" ]; then
-              echo "✅ EXECUTABLE FOUND: $(file "$APP/vbox")"
-              echo "Size: $(ls -lh "$APP/vbox" | awk '{print $5}')"
-            else
-              echo "❌ No vbox executable"
-              find "$APP" -type f
-            fi
-          else
-            echo "❌ No .app found"
-            find ./Build -name "*.app" -type d
-          fi
-
-      - name: 🔓 Strip signing for TrollStore
-        run: |
-          APP="./Build/Build/Products/Release-iphoneos/vbox.app"
-          
-          if [ ! -d "$APP" ]; then
-            echo "❌ No app found"
-            exit 1
-          fi
-          
-          # 如果有签名，去掉
-          if [ -d "$APP/_CodeSignature" ]; then
-            rm -rf "$APP/_CodeSignature"
-            echo "Removed _CodeSignature"
-          fi
-          
-          if [ -f "$APP/archived-expanded-entitlements.xcent" ]; then
-            rm -f "$APP/archived-expanded-entitlements.xcent"
-          fi
-          
-          # 确认可执行文件存在
-          echo "=== Final app ==="
-          ls -la "$APP/"
-          
-          EXEC=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist" 2>/dev/null)
-          echo "CFBundleExecutable = $EXEC"
-          
-          if [ -f "$APP/$EXEC" ]; then
-            echo "✅ Binary $EXEC exists!"
-            file "$APP/$EXEC"
-          else
-            echo "❌ Binary $EXEC NOT FOUND!"
-            # 尝试找任何可执行文件
-            find "$APP" -type f -exec sh -c 'file "$1" | grep -q "Mach-O"' _ {} \; -print
-            exit 1
-          fi
+            build 2>&1 | tee build.log | tail -30
 
       - name: 📦 Package IPA
         run: |
+          APP=$(find ./Build -name "vbox.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "No .app!"; find ./Build -name "*.app" -type d; tail -50 build.log; exit 1
+          fi
+          echo "App: $APP"
+          ls -la "$APP/"
+          rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
           mkdir -p Payload
-          cp -R ./Build/Build/Products/Release-iphoneos/vbox.app Payload/
-          zip -r vbox.ipa Payload/
+          cp -R "$APP" Payload/
+          cd Payload && zip -r ../vbox.ipa vbox.app && cd ..
           echo "✅ IPA: $(ls -lh vbox.ipa)"
 
       - name: 📤 Upload IPA
@@ -116,9 +70,3 @@ jobs:
           name: vbox-ipa
           path: vbox.ipa
           compression-level: 0
-
-      - name: ℹ️ Summary
-        run: |
-          echo "## ✅ vbox IPA" >> $GITHUB_STEP_SUMMARY
-          echo "⬇️ 下载 vbox-ipa 工件" >> $GITHUB_STEP_SUMMARY
-          echo "📱 TrollStore 安装" >> $GITHUB_STEP_SUMMARY
