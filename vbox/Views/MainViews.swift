@@ -301,12 +301,13 @@ struct SearchBarHeader: View {
 
 // 推荐轮播
 struct FeaturedCarousel: View {
+    let videos: [VodItem]
     @State private var currentIndex = 0
 
     var body: some View {
         TabView(selection: $currentIndex) {
-            ForEach(0..<3) { index in
-                FeaturedCard(video: mockVideos[index])
+            ForEach(0..<min(5, videos.count), id: \.self) { index in
+                FeaturedCard(video: videos[index])
                     .tag(index)
             }
         }
@@ -315,16 +316,17 @@ struct FeaturedCarousel: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
 
-        // 页面指示器
-        HStack(spacing: 8) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(currentIndex == index ? Color(hex: "E11D48") : Color.white.opacity(0.3))
-                    .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
-                    .animation(.spring(response: 0.3), value: currentIndex)
+        if !videos.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(0..<min(5, videos.count), id: \.self) { index in
+                    Circle()
+                        .fill(currentIndex == index ? Color(hex: "E11D48") : Color.white.opacity(0.3))
+                        .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
+                        .animation(.spring(response: 0.3), value: currentIndex)
+                }
             }
+            .padding(.bottom, 8)
         }
-        .padding(.bottom, 8)
     }
 }
 
