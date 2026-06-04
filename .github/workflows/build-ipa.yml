@@ -22,8 +22,7 @@ jobs:
       - name: 🏗️ Build
         run: |
           BUILD_NUM=$(git rev-list --count HEAD)
-          echo "Build number: $BUILD_NUM  Version: ${{ env.MARKETING_VERSION }}"
-          
+          echo "Build: $BUILD_NUM  Version: ${{ env.MARKETING_VERSION }}"
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
@@ -42,29 +41,17 @@ jobs:
       - name: 📦 Package IPA
         run: |
           APP=$(find ./Build -name "vbox.app" -type d | head -1)
-          if [ -z "$APP" ]; then echo "No .app!"; exit 1; fi
+          [ -z "$APP" ] && echo "No .app!" && exit 1
           rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
           [ ! -f "$APP/vbox" ] && echo "No vbox!" && exit 1
-          BUILD_NUM=$(git rev-list --count HEAD)
-          IPA_NAME="vbox-${{ env.MARKETING_VERSION }}(build_$BUILD_NUM).ipa"
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -r "$IPA_NAME" Payload/
-          echo "IPA: $(ls -lh $IPA_NAME)"
-          echo "IPA_NAME=$IPA_NAME" >> $GITHUB_ENV
+          zip -r vbox.ipa Payload/
+          echo "IPA: $(ls -lh vbox.ipa)"
 
-      - name: 📤 Upload to Release
-        uses: softprops/action-gh-release@v2
+      - name: 📤 Upload IPA
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ env.MARKETING_VERSION }}
-          name: v${{ env.MARKETING_VERSION }}
-          body: |
-            版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})
-            
-            **最新改动:**
-            - 查看 [commit](https://github.com/hf805864818/vbox-ios/commit/${{ github.sha }})
-          draft: false
-          prerelease: true
-          files: ${{ env.IPA_NAME }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: vbox-ipa
+          path: vbox.ipa
+          compression-level: 0
