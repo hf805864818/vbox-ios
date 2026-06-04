@@ -25,6 +25,8 @@
 		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
+		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
+		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +50,8 @@
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
+		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
+		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -89,6 +93,7 @@
 				B10005 /* JSSpiderEngine.swift */,
 				B10006 /* JSHTTPBridge.swift */,
 				B10007 /* SpiderRepository.swift */,
+				B10020 /* UpdateManager.swift */,
 				B10011 /* QJSSpiderEngine.swift */,
 				B10019 /* SpiderManager.swift */,
 				B10015 /* SubscriptionManager.swift */,
@@ -114,6 +119,7 @@
 				B10008 /* MainViews.swift */,
 				B10009 /* PlayerViews.swift */,
 				B10010 /* SettingsViews.swift */,
+				B10021 /* UpdateSheet.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -197,6 +203,8 @@
 				A10013 /* SubscriptionManager.swift in Sources */,
 				A10014 /* CloudDriveManager.swift in Sources */,
 				A10017 /* SpiderManager.swift in Sources */,
+				A10019 /* UpdateSheet.swift in Sources */,
+				A10018 /* UpdateManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
