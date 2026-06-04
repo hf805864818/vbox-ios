@@ -189,10 +189,25 @@
 				A10008 /* MainViews.swift in Sources */,
 				A10009 /* PlayerViews.swift in Sources */,
 				A10010 /* SettingsViews.swift in Sources */,
+				A10011 /* QJSSpiderEngine.swift in Sources */,
+				A10012 /* QuickJSBridge.m in Sources */,
+				A10013 /* SubscriptionManager.swift in Sources */,
+				A10014 /* CloudDriveManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		P20003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10016 /* libquickjs.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		P20002 /* Resources */ = {
