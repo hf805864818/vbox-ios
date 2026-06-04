@@ -3,60 +3,48 @@ name: Build IPA (巨魔安装版)
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-15  # macOS Sequoia + Xcode 16
+    runs-on: macos-15
 
     steps:
-      # 1. 拉取代码
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      # 2. 选择 Xcode 版本
       - name: 🔧 Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
 
-      # 3. 创建 AppIcon（用一张纯色图代替，避免缺少图标编译失败）
-      - name: 🎨 Generate placeholder AppIcon
+      - name: 🎨 Generate AppIcon
         run: |
-          # 生成 1024x1024 的深色图标
           python3 -c "
           import struct, zlib
           def create_png(width, height, color=(30, 30, 30)):
-              import io
-              # 简易PNG生成
               raw = b''
               for y in range(height):
-                  raw += b'\x00'  # filter byte
+                  raw += b'\x00'
                   for x in range(width):
                       raw += bytes([color[0], color[1], color[2], 255])
-              
               def chunk(chunk_type, data):
                   c = chunk_type + data
                   crc = struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
                   return struct.pack('>I', len(data)) + c + crc
-              
               sig = b'\x89PNG\r\n\x1a\n'
               ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
               compressed = zlib.compress(raw)
-              
               return sig + chunk(b'IHDR', ihdr) + chunk(b'IDAT', compressed) + chunk(b'IEND', b'')
-          
           icon = create_png(1024, 1024)
           with open('vbox/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png', 'wb') as f:
               f.write(icon)
-          print(f'✅ AppIcon generated: {len(icon)} bytes')
+          print(f'✅ AppIcon: {len(icon)} bytes')
           "
 
-      # 4. 编译项目（模拟器架构 arm64，巨魔可直接安装）
-      - name: 🏗️ Build for TrollStore (arm64 only)
+      - name: 🏗️ Build for TrollStore
         run: |
-          xcodebuild clean build \
-            -project vbox.xcodeproj \
+          xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
             -configuration Release \
@@ -65,21 +53,25 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
-            -derivedDataPath ./Build
+            -derivedDataPath ./Build 2>&1 | tee build.log | tail -30
 
-      # 5. 生成 .app 包并打包成 .ipa
       - name: 📦 Package IPA
         run: |
-          # 找到编译出的 .app
+          # 查找编译出的 .app
           APP_PATH=$(find ./Build -name "*.app" -type d | head -1)
           echo "Found .app at: $APP_PATH"
           
           if [ -z "$APP_PATH" ]; then
-            echo "❌ .app not found"
+            echo "❌ .app not found! Checking build log..."
+            tail -100 build.log
             exit 1
           fi
           
-          # 创建 Payload 目录
+          # 确认app内容
+          echo "App contents:"
+          ls -la "$APP_PATH"
+          
+          # 创建 Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           
@@ -88,16 +80,14 @@ jobs:
           
           echo "✅ IPA size: $(ls -lh vbox.ipa | awk '{print $5}')"
 
-      # 6. 上传 .ipa 到 Actions 页面
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: vbox-ipa
           path: vbox.ipa
-          compression-level: 0  # ipa 已经是压缩的
+          compression-level: 0
 
-      # 7. 显示编译产物信息
-      - name: ℹ️ Show build summary
+      - name: ℹ️ Summary
         run: |
           echo "## ✅ vbox IPA 编译完成" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -105,8 +95,6 @@ jobs:
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
           echo "| Bundle ID | \`com.vbox.iosplayer\` |" >> $GITHUB_STEP_SUMMARY
           echo "| 版本 | 1.0 |" >> $GITHUB_STEP_SUMMARY
-          echo "| 签名 | 无 (巨魔安装) |" >> $GITHUB_STEP_SUMMARY
-          echo "| 架构 | arm64 |" >> $GITHUB_STEP_SUMMARY
           echo "| 最低iOS | 15.0 |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "⬇️ 下载 **vbox-ipa** 工件中的 \`vbox.ipa\` 文件" >> $GITHUB_STEP_SUMMARY
