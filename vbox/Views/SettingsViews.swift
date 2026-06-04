@@ -179,13 +179,27 @@ struct SettingsView: View {
 
                     // 其他设置
                     SettingsSection(title: "其他") {
-                        SettingsNavigationRow(
-                            title: "关于",
-                            subtitle: "版本 1.0.0",
-                            icon: "info.circle.fill"
-                        ) {
-                            // 关于页面
+                        HStack {
+                            Text("版本")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3")
+                                .foregroundColor(.secondary)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(Color.primary.opacity(0.05))
+
+                        HStack {
+                            Text("构建")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(Color.primary.opacity(0.05))
 
                         SettingsNavigationRow(
                             title: "隐私政策",

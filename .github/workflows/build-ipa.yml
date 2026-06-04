@@ -5,6 +5,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+env:
+  MARKETING_VERSION: "0.3"
+
 jobs:
   build:
     runs-on: macos-15
@@ -18,6 +21,10 @@ jobs:
 
       - name: 🏗️ Build
         run: |
+          # 获取git提交计数作为build号
+          BUILD_NUM=$(git rev-list --count HEAD)
+          echo "Build number: $BUILD_NUM  Version: ${{ env.MARKETING_VERSION }}"
+          
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
@@ -29,6 +36,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_STYLE=Manual \
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
+            MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
+            CURRENT_PROJECT_VERSION=$BUILD_NUM \
             build 2>&1
 
       - name: 📦 Package IPA
