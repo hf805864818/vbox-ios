@@ -22,28 +22,25 @@ jobs:
         run: |
           python3 -c "
           import struct, zlib
-          def create_png(width, height, color=(30, 30, 30)):
+          def create_png(w, h, c=(30,30,30)):
               raw = b''
-              for y in range(height):
+              for y in range(h):
                   raw += b'\x00'
-                  for x in range(width):
-                      raw += bytes([color[0], color[1], color[2], 255])
-              def chunk(chunk_type, data):
-                  c = chunk_type + data
-                  crc = struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
-                  return struct.pack('>I', len(data)) + c + crc
-              sig = b'\x89PNG\r\n\x1a\n'
-              ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
-              compressed = zlib.compress(raw)
-              return sig + chunk(b'IHDR', ihdr) + chunk(b'IDAT', compressed) + chunk(b'IEND', b'')
-          icon = create_png(1024, 1024)
-          with open('vbox/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png', 'wb') as f:
-              f.write(icon)
-          print(f'✅ AppIcon: {len(icon)} bytes')
+                  for x in range(w): raw += bytes([c[0],c[1],c[2],255])
+              def ck(t,d):
+                  ct=t+d; crc=struct.pack('>I',zlib.crc32(ct)&0xFFFFFFFF)
+                  return struct.pack('>I',len(d))+ct+crc
+              s=b'\x89PNG\r\n\x1a\n'
+              ih=struct.pack('>IIBBBBB',w,h,8,6,0,0,0)
+              return s+ck(b'IHDR',ih)+ck(b'IDAT',zlib.compress(raw))+ck(b'IEND',b'')
+          with open('vbox/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png','wb') as f:
+              f.write(create_png(1024,1024))
+          print('✅ AppIcon generated')
           "
 
-      - name: 🏗️ Build for TrollStore
+      - name: 🏗️ Build
         run: |
+          # 使用更稳定的构建方式
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
@@ -52,33 +49,69 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
-            -derivedDataPath ./Build 2>&1 | tee build.log | tail -30
-
-      - name: 📦 Package IPA
-        run: |
-          # 查找编译出的 .app
-          APP_PATH=$(find ./Build -name "*.app" -type d | head -1)
-          echo "Found .app at: $APP_PATH"
+            -derivedDataPath ./Build \
+            -quiet 2>&1 || true
           
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ .app not found! Checking build log..."
-            tail -100 build.log
+          # 查看编译结果
+          echo "=== Build result ==="
+          ls -la ./Build/Build/Products/Release-iphoneos/ 2>/dev/null || echo "No release output"
+          
+          # 查找编译产物
+          APP=""
+          if [ -d "./Build/Build/Products/Release-iphoneos/vbox.app" ]; then
+            APP="./Build/Build/Products/Release-iphoneos/vbox.app"
+          elif [ -d "./Build/Products/Release-iphoneos/vbox.app" ]; then
+            APP="./Build/Products/Release-iphoneos/vbox.app"
+          fi
+          
+          if [ -z "$APP" ]; then
+            echo "❌ Cannot find .app!"
+            find ./Build -name "*.app" -type d 2>/dev/null
             exit 1
           fi
           
-          # 确认app内容
-          echo "App contents:"
-          ls -la "$APP_PATH"
+          echo "✅ Found app at: $APP"
+          echo "Contents:"
+          ls -la "$APP/"
           
-          # 创建 Payload
+          # 检查是否有可执行文件
+          if [ -f "$APP/vbox" ]; then
+            echo "✅ Executable found: $(file "$APP/vbox")"
+          else
+            echo "⚠️ No executable named 'vbox', listing all files:"
+            find "$APP" -type f
+          fi
+
+      - name: 📦 Package IPA
+        run: |
+          APP="./Build/Build/Products/Release-iphoneos/vbox.app"
+          if [ ! -d "$APP" ]; then
+            APP="./Build/Products/Release-iphoneos/vbox.app"
+          fi
+          
+          # 确保可执行文件存在
+          if [ ! -f "$APP/vbox" ]; then
+            echo "⚠️ No executable 'vbox' found. Checking binary..."
+            BIN=$(find "$APP" -type f -perm +111 -o -type f -name "vbox" | head -1)
+            if [ -z "$BIN" ]; then
+              BIN=$(find "$APP" -type f | grep -v '\.plist\|\.png\|\.car\|\.lproj' | head -1)
+            fi
+            echo "Best binary candidate: $BIN"
+          fi
+          
+          # 打包 IPA
           mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          
-          # 压缩成 ipa
+          cp -R "$APP" Payload/
+          cd Payload
+          # 巨魔需要 Info.plist 中的 CFBundleExecutable
+          echo "Checking Info.plist:"
+          /usr/libexec/PlistBuddy -c "Print" vbox.app/Info.plist 2>/dev/null | head -20
+          cd ..
           zip -r vbox.ipa Payload/
-          
-          echo "✅ IPA size: $(ls -lh vbox.ipa | awk '{print $5}')"
+          echo "✅ IPA: $(ls -lh vbox.ipa)"
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
@@ -89,13 +122,11 @@ jobs:
 
       - name: ℹ️ Summary
         run: |
-          echo "## ✅ vbox IPA 编译完成" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ vbox IPA" >> $GITHUB_STEP_SUMMARY
           echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
           echo "| Bundle ID | \`com.vbox.iosplayer\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 版本 | 1.0 |" >> $GITHUB_STEP_SUMMARY
           echo "| 最低iOS | 15.0 |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "⬇️ 下载 **vbox-ipa** 工件中的 \`vbox.ipa\` 文件" >> $GITHUB_STEP_SUMMARY
-          echo "📱 用 TrollStore 打开安装" >> $GITHUB_STEP_SUMMARY
+          echo "⬇️ 下载 vbox-ipa 工件" >> $GITHUB_STEP_SUMMARY
+          echo "📱 用 TrollStore 安装" >> $GITHUB_STEP_SUMMARY
