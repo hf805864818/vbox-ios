@@ -1,20 +1,6 @@
 import SwiftUI
 
-@main
-struct MyappApp: App {
-    @State private var isDarkMode = true
-
-    var body: some Scene {
-        WindowGroup {
-            MainTabView()
-                .preferredColorScheme(isDarkMode ? .dark : .light)
-                .onAppear {
-                    // 检测系统深色模式设置
-                    isDarkMode = UITraitCollection.current.userInterfaceStyle == .dark
-                }
-        }
-    }
-}
+// vbox 主入口在 App/VBoxApp.swift
 
 // 主标签视图
 struct MainTabView: View {
@@ -198,7 +184,7 @@ struct LiquidBackground: View {
 
 // MARK: - 首页视图
 struct HomeView: View {
-    @State private var videos: [VideoItem] = []
+    @State private var videos: [VodItem] = []
     @State private var isLoading = true
 
     var body: some View {
@@ -352,12 +338,12 @@ struct FeaturedCarousel: View {
 
 // 推荐卡片
 struct FeaturedCard: View {
-    let video: VideoItem
+    let video: VodItem
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // 封面图片
-            AsyncImage(url: URL(string: video.cover)) { phase in
+            AsyncImage(url: URL(string: video.vodPic)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -391,7 +377,7 @@ struct FeaturedCard: View {
             // 信息内容
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(video.title)
+                    Text(video.vodName)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
@@ -414,7 +400,7 @@ struct FeaturedCard: View {
 
                 HStack(spacing: 8) {
                     Label(video.year, systemImage: "calendar")
-                    Label(video.type, systemImage: "film")
+                    Label(video.vodRemarks ?? "", systemImage: "film")
                 }
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.8))
@@ -441,14 +427,14 @@ struct FeaturedCard: View {
 
 // 视频卡片
 struct VideoCard: View {
-    let video: VideoItem
+    let video: VodItem
 
     var body: some View {
         Button(action: {}) {
             VStack(alignment: .leading, spacing: 10) {
                 // 封面
                 ZStack(alignment: .topTrailing) {
-                    AsyncImage(url: URL(string: video.cover)) { phase in
+                    AsyncImage(url: URL(string: video.vodPic)) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -484,14 +470,14 @@ struct VideoCard: View {
 
                 // 标题和信息
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(video.title)
+                    Text(video.vodName)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
                     HStack(spacing: 8) {
-                        Text(video.type)
+                        Text(video.vodRemarks ?? "")
                             .font(.system(size: 11))
                             .foregroundColor(Color.secondary)
 
@@ -558,7 +544,7 @@ struct SectionHeader: View {
 struct SearchView: View {
     @State private var searchText = ""
     @State private var isSearching = false
-    @State private var searchResults: [VideoItem] = []
+    @State private var searchResults: [VodItem] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -765,7 +751,7 @@ struct RecentSearchRow: View {
 
 // 搜索结果视图
 struct SearchResultsView: View {
-    let results: [VideoItem]
+    let results: [VodItem]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -782,12 +768,12 @@ struct SearchResultsView: View {
 
 // 搜索结果行
 struct SearchResultRow: View {
-    let video: VideoItem
+    let video: VodItem
 
     var body: some View {
         HStack(spacing: 12) {
             // 缩略图
-            AsyncImage(url: URL(string: video.cover)) { phase in
+            AsyncImage(url: URL(string: video.vodPic)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -809,13 +795,13 @@ struct SearchResultRow: View {
 
             // 信息
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.title)
+                Text(video.vodName)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(2)
 
                 HStack(spacing: 8) {
-                    Text(video.type)
+                    Text(video.vodRemarks ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
 
@@ -1088,29 +1074,20 @@ struct ProfileMenuItem: View {
 }
 
 // MARK: - 数据模型
-struct VideoItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let cover: String
-    let type: String
-    let year: String
-    let duration: String
-}
-
 // Mock数据
-let mockVideos: [VideoItem] = [
-    VideoItem(title: "三体", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2023", duration: "45:00"),
-    VideoItem(title: "狂飙", cover: "https://via.placeholder.com/300x200", type: "犯罪", year: "2023", duration: "50:00"),
-    VideoItem(title: "庆余年", cover: "https://via.placeholder.com/300x200", type: "古装", year: "2019", duration: "45:00"),
-    VideoItem(title: "繁花", cover: "https://via.placeholder.com/300x200", type: "剧情", year: "2023", duration: "60:00"),
-    VideoItem(title: "肖申克的救赎", cover: "https://via.placeholder.com/300x200", type: "剧情", year: "1994", duration: "142:00"),
-    VideoItem(title: "黑袍纠察队", cover: "https://via.placeholder.com/300x200", type: "动作", year: "2019", duration: "60:00"),
-    VideoItem(title: "权力的游戏", cover: "https://via.placeholder.com/300x200", type: "奇幻", year: "2011", duration: "60:00"),
-    VideoItem(title: "绝命毒师", cover: "https://via.placeholder.com/300x200", type: "犯罪", year: "2008", duration: "45:00"),
-    VideoItem(title: "复仇者联盟", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2012", duration: "143:00"),
-    VideoItem(title: "泰坦尼克号", cover: "https://via.placeholder.com/300x200", type: "爱情", year: "1997", duration: "194:00"),
-    VideoItem(title: "盗梦空间", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2010", duration: "148:00"),
-    VideoItem(title: "星际穿越", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2014", duration: "169:00")
+let mockVideos: [VodItem] = [
+    VodItem(vodId: "test_001", vodName: "三体", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2023"),
+    VodItem(vodId: "test_002", vodName: "狂飙", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "50:00", vodYear: "2023"),
+    VodItem(vodId: "test_003", vodName: "庆余年", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2019"),
+    VodItem(vodId: "test_004", vodName: "繁花", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2023"),
+    VodItem(vodId: "test_005", vodName: "肖申克的救赎", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "142:00", vodYear: "1994"),
+    VodItem(vodId: "test_006", vodName: "黑袍纠察队", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2019"),
+    VodItem(vodId: "test_007", vodName: "权力的游戏", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2011"),
+    VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2008"),
+    VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "143:00", vodYear: "2012"),
+    VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "194:00", vodYear: "1997"),
+    VodItem(title: "盗梦空间", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2010", duration: "148:00"),
+    VodItem(title: "星际穿越", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2014", duration: "169:00")
 ]
 
 // MARK: - 辅助扩展

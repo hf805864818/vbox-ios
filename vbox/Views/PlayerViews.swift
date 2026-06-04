@@ -4,7 +4,7 @@ import AVFoundation
 
 // MARK: - 视频详情视图
 struct VideoDetailView: View {
-    let video: VideoItem
+    let video: VodItem
     @State private var showPlayer = false
     @State private var isFavorite = false
 
@@ -13,7 +13,7 @@ struct VideoDetailView: View {
             VStack(spacing: 0) {
                 // 封面和播放按钮
                 ZStack(alignment: .bottomLeading) {
-                    AsyncImage(url: URL(string: video.cover)) { phase in
+                    AsyncImage(url: URL(string: video.vodPic)) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -97,12 +97,12 @@ struct VideoDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // 标题和标签
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(video.title)
+                        Text(video.vodName)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.primary)
 
                         HStack(spacing: 12) {
-                            TagLabel(text: video.type)
+                            TagLabel(text: video.vodRemarks ?? "")
                             TagLabel(text: video.year)
                             TagLabel(text: "高清")
                         }
@@ -352,11 +352,11 @@ struct RelatedVideosView: View {
 
 // 相关视频行
 struct RelatedVideoRow: View {
-    let video: VideoItem
+    let video: VodItem
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: video.cover)) { phase in
+            AsyncImage(url: URL(string: video.vodPic)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -377,13 +377,13 @@ struct RelatedVideoRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(video.title)
+                Text(video.vodName)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(2)
 
                 HStack(spacing: 8) {
-                    Text(video.type)
+                    Text(video.vodRemarks ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
 
@@ -413,7 +413,7 @@ struct RelatedVideoRow: View {
 
 // MARK: - 视频播放器视图
 struct VideoPlayerView: View {
-    let video: VideoItem
+    let video: VodItem
     @State private var player: AVPlayer?
     @State private var isPlaying = true
     @State private var showControls = true
@@ -462,7 +462,7 @@ struct VideoPlayerView: View {
                 VStack(spacing: 0) {
                     // 顶部控制栏
                     TopControlBar(
-                        title: video.title,
+                        title: video.vodName,
                         isPlaying: $isPlaying,
                         isMuted: $isMuted,
                         volume: $volume,
@@ -755,7 +755,7 @@ struct BottomControlBar: View {
                 endPoint: .bottom
             )
         )
-        .onChange(of: currentTime) { _, newValue in
+        .onChange(// iOS 17+: of: currentTime) { _, newValue in
             if !isDragging {
                 sliderValue = newValue
             }
@@ -839,6 +839,7 @@ class PlayerTimeObserver: ObservableObject {
 }
 
 // 画中画控制器包装
+@available(iOS 16.0, *)
 struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPictureInPictureController {
         // 实现画中画控制器
