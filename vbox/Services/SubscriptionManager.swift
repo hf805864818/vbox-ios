@@ -1,7 +1,6 @@
 import Foundation
 
 /// 订阅源管理器 — 负责加载/解析/缓存 TVBox 订阅源 JSON
-/// 兼容 TVBox 标准格式和 CatVOD 扩展格式
 class SubscriptionManager: ObservableObject {
     
     @Published var config: SubscribeConfig?
@@ -18,8 +17,6 @@ class SubscriptionManager: ObservableObject {
         configURLs = defaults.stringArray(forKey: urlsKey) ?? []
         loadCachedConfig()
     }
-    
-    // MARK: - 加载订阅源
     
     func loadConfig(from urlString: String) async {
         await MainActor.run {
@@ -57,7 +54,6 @@ class SubscriptionManager: ObservableObject {
                     self.configURLs.append(urlString)
                     self.defaults.set(self.configURLs, forKey: self.urlsKey)
                 }
-                
                 self.cacheConfig(rawData: cleanData)
             }
             
@@ -70,30 +66,18 @@ class SubscriptionManager: ObservableObject {
         }
     }
     
-    /// 移除订阅源 URL
     func removeURL(_ url: String) {
         configURLs.removeAll { $0 == url }
         defaults.set(configURLs, forKey: urlsKey)
     }
     
-    // MARK: - 辅助方法
-    
-    /// 清理JSON数据：去掉注释和非JSON头部内容
+    /// 清理JSON数据：去掉单行注释、提取标准JSON
     private func cleanJSONData(_ data: Data) throws -> Data {
         guard var text = String(data: data, encoding: .utf8) else {
             throw JSONError.invalidEncoding
         }
         
-        // 找JSON开始的第一个 {
-        if let startIndex = text.firstIndex(of: "{") {
-            text = String(text[startIndex...])
-        } else if let startIndex = text.firstIndex(of: "[") {
-            text = String(text[startIndex...])
-        } else {
-            throw JSONError.invalidFormat
-        }
-        
-        // 去掉单行注释 //
+        // 1. 逐行处理，去掉以//开头的行
         var lines = text.components(separatedBy: "\n")
         lines = lines.filter { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -101,31 +85,61 @@ class SubscriptionManager: ObservableObject {
         }
         text = lines.joined(separator: "\n")
         
-        // 去掉行尾注释 // （但保留字符串内的 //）
+        // 2. 找第一个{或[，去掉前面所有内容
+        if let start = text.firstIndex(of: "{") {
+            text = String(text[start...])
+        } else if let start = text.firstIndex(of: "[") {
+            text = String(text[start...])
+        } else {
+            throw JSONError.invalidFormat
+        }
+        
+        // 3. 去掉行内注释(//)，但保留字符串内的
         var result = ""
         var inString = false
+        var escape = false
         var i = text.startIndex
+        
         while i < text.endIndex {
             let char = text[i]
+            
+            if escape {
+                result.append(char)
+                escape = false
+                i = text.index(after: i)
+                continue
+            }
+            
+            if char == "\\" && inString {
+                escape = true
+                result.append(char)
+                i = text.index(after: i)
+                continue
+            }
+            
             if char == "\"" {
                 inString = !inString
                 result.append(char)
-            } else if char == "/" && !inString {
+                i = text.index(after: i)
+                continue
+            }
+            
+            if char == "/" && !inString {
                 let next = text.index(after: i)
                 if next < text.endIndex && text[next] == "/" {
-                    // 跳过这一行剩下的
+                    // 跳过到行尾
                     while i < text.endIndex && text[i] != "\n" {
                         i = text.index(after: i)
                     }
                     if i < text.endIndex {
-                        result.append(text[i])
+                        result.append(text[i]) // 保留换行
                     }
-                } else {
-                    result.append(char)
+                    i = text.index(after: i)
+                    continue
                 }
-            } else {
-                result.append(char)
             }
+            
+            result.append(char)
             i = text.index(after: i)
         }
         
@@ -155,28 +169,16 @@ class SubscriptionManager: ObservableObject {
     private func setError(_ msg: String) {
         errorMessage = msg
         isLoading = false
-        print("❌ 订阅源加载失败: \(msg)")
     }
     
-    // MARK: - 获取站点列表
-    
-    var jsSites: [SiteConfig] {
-        config?.sites.filter { $0.type == 3 } ?? []
-    }
-    
-    var apiSites: [SiteConfig] {
-        config?.sites.filter { $0.type != 3 } ?? []
-    }
-    
-    var allSites: [SiteConfig] {
-        config?.sites ?? []
-    }
+    var jsSites: [SiteConfig] { config?.sites.filter { $0.type == 3 } ?? [] }
+    var apiSites: [SiteConfig] { config?.sites.filter { $0.type != 3 } ?? [] }
+    var allSites: [SiteConfig] { config?.sites ?? [] }
 }
 
 enum JSONError: Error, LocalizedError {
     case invalidEncoding
     case invalidFormat
-    
     var errorDescription: String? {
         switch self {
         case .invalidEncoding: return "编码格式错误"

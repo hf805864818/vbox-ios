@@ -12,6 +12,7 @@ struct SiteConfig: Codable {
     let ext: String?
     let playerType: Int?
     let jar: String?
+    let changeable: Int?
 }
 
 struct SubscribeConfig: Codable {

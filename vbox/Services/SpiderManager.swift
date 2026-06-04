@@ -13,6 +13,7 @@ class SpiderManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var isInitialized = false
     @Published var subscribedSites: [String] = []
+    @Published var loadedSiteCount: Int = 0
     
     private let subManager = SubscriptionManager()
     private var engines: [String: QJSSpiderEngine] = [:]
@@ -22,7 +23,6 @@ class SpiderManager: ObservableObject {
     func initialize() async {
         guard !isInitialized else { return }
         isInitialized = true
-        print("[SpiderManager] 初始化")
         if subManager.isLoaded {
             await loadSitesFromSubscription()
         }
@@ -42,16 +42,39 @@ class SpiderManager: ObservableObject {
     }
     
     private func loadSitesFromSubscription() async {
-        guard let config = subManager.config else { return }
-        for site in config.sites where site.type == 3 {
-            if let extURL = site.ext, !extURL.isEmpty {
+        guard let config = subManager.config else {
+            errorMessage = "订阅源配置为空"
+            return
+        }
+        
+        let allSites = config.sites
+        loadedSiteCount = allSites.count
+        
+        if allSites.isEmpty {
+            errorMessage = "订阅源中没有任何站点"
+            return
+        }
+        
+        print("[SpiderManager] 订阅源: \(allSites.count) 个站点")
+        
+        // TVBox站点的JS蜘蛛一般通过 api 或 ext 字段获取
+        // api通常是内置蜘蛛名(csp_xxx)，ext可能是jar/JS URL
+        // 现在我们只处理 ext 字段是HTTP URL的站点
+        var loadedCount = 0
+        for site in allSites {
+            // 尝试 ext 字段作为JS脚本URL
+            if let jsURL = site.ext, jsURL.hasPrefix("http"), !jsURL.isEmpty {
                 do {
-                    try await loadSiteEngine(site: site, jsURL: extURL)
+                    try await loadSiteEngine(site: site, jsURL: jsURL)
+                    loadedCount += 1
                 } catch {
-                    print("[SpiderManager] 站点 \(site.name) 引擎加载失败: \(error.localizedDescription)")
+                    print("[SpiderManager] \(site.name) 加载失败: \(error.localizedDescription)")
                 }
             }
         }
+        
+        print("[SpiderManager] 成功加载 \(loadedCount)/\(allSites.count) 个站点引擎")
+        
         await loadHomeData()
     }
     
@@ -64,45 +87,44 @@ class SpiderManager: ObservableObject {
             if !subscribedSites.contains(site.key) {
                 subscribedSites.append(site.key)
             }
-            print("[SpiderManager] 站点 \(site.name) 引擎就绪")
+            print("[SpiderManager] ✅ \(site.name)")
         }
     }
     
     private func downloadScript(url: String) async throws -> String {
         guard let urlObj = URL(string: url) else {
-            throw QJSError(message: "无效的脚本URL: \(url)")
+            throw QJSError(message: "无效脚本URL: \(url)")
         }
         let (data, _) = try await URLSession.shared.data(from: urlObj)
         guard let script = String(data: data, encoding: .utf8) else {
-            throw QJSError(message: "脚本编码错误: \(url)")
+            throw QJSError(message: "脚本编码错误")
         }
         return script
     }
     
     func loadHomeData() async {
-        guard !engines.isEmpty else { return }
+        guard !engines.isEmpty else {
+            print("[SpiderManager] 没有引擎，无法加载首页")
+            return
+        }
         if let (_, engine) = engines.first {
             do {
                 let result = try engine.callHomeContent()
                 self.categories = result.class ?? []
                 self.homeVideos = result.list ?? []
-                print("[SpiderManager] 首页: \(homeVideos.count) 视频, \(categories.count) 分类")
+                print("[SpiderManager] 首页: \(homeVideos.count)视频 \(categories.count)分类")
             } catch {
-                print("[SpiderManager] 首页加载失败: \(error.localizedDescription)")
+                print("[SpiderManager] 首页失败: \(error.localizedDescription)")
             }
         }
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
-        var allResults: [VodItem] = []
+        var all: [VodItem] = []
         for (_, engine) in engines {
-            do {
-                if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
-                    allResults.append(contentsOf: items)
-                }
-            } catch { continue }
+            do { if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list { all.append(contentsOf: items) } } catch { continue }
         }
-        return allResults
+        return all
     }
     
     func getDetail(ids: String) async -> VodItem? {
@@ -119,16 +141,10 @@ class SpiderManager: ObservableObject {
         return nil
     }
     
-    func getSavedSubscriptionURLs() -> [String] {
-        return subManager.configURLs
-    }
-    
+    func getSavedSubscriptionURLs() -> [String] { subManager.configURLs }
     func saveSubscriptionURL(_ url: String) {
         subManager.configURLs.append(url)
         UserDefaults.standard.set(subManager.configURLs, forKey: "subscribed_config_urls")
     }
-    
-    func removeSubscriptionURL(_ url: String) {
-        subManager.removeURL(url)
-    }
+    func removeSubscriptionURL(_ url: String) { subManager.removeURL(url) }
 }
