@@ -49,6 +49,8 @@ jobs:
           cp -R "$APP" Payload/
           cd Payload && zip -r ../vbox.ipa vbox.app && cd ..
           echo "IPA: $(ls -lh vbox.ipa)"
+          # 验证IPA结构
+          unzip -l vbox.ipa | grep "Payload/vbox.app/" || { echo "ERROR: Invalid IPA structure!"; exit 1; }
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
