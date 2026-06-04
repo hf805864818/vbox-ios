@@ -325,7 +325,7 @@ struct EpisodeButton: View {
                         }
 
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(isSelected ? Color(hex: "E11D48") : Color.clear).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .fill(isSelected ? Color(hex: "E11D48") : .ultraThinMaterial)
                     }
                 )
         }
@@ -840,20 +840,20 @@ class PlayerTimeObserver: ObservableObject {
 
 // 画中画控制器包装
 @available(iOS 16.0, *)
+@available(iOS 16.0, *)
 struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = context.coordinator.player
-        return controller
+    func makeUIViewController(context: Context) -> AVPictureInPictureController {
+        // 实现画中画控制器
+        AVPictureInPictureController(playerLayerProxy: context.coordinator.playerLayer)
     }
 
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: AVPictureInPictureController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     class Coordinator {
-        var player: AVPlayer?
+        let playerLayer = AVPlayerLayer()
     }
 }
