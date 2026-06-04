@@ -1,3 +1,5 @@
+import SwiftUI
+
 // MARK: - 更新弹窗
 struct UpdateSheet: View {
     @Environment(\.dismiss) private var dismiss
