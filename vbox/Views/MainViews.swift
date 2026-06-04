@@ -287,7 +287,7 @@ struct SearchBarHeader: View {
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(.regularMaterial)
+                            .fill(Color.black.opacity(0.2))
                     )
             }
         }
@@ -495,7 +495,7 @@ struct VideoCard: View {
             .background(
                 // 毛玻璃卡片背景
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(Color.black.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -702,7 +702,7 @@ struct KeywordButton: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(.regularMaterial)
+                        .fill(Color.black.opacity(0.2))
                 )
                 .overlay(
                     Capsule()
@@ -899,7 +899,7 @@ struct CategoryCard: View {
             .padding(.vertical, 20)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(Color.black.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -1076,18 +1076,18 @@ struct ProfileMenuItem: View {
 // MARK: - 数据模型
 // Mock数据
 let mockVideos: [VodItem] = [
-    VodItem(vodId: "test_001", vodName: "三体", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2023"),
-    VodItem(vodId: "test_002", vodName: "狂飙", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "50:00", vodYear: "2023"),
-    VodItem(vodId: "test_003", vodName: "庆余年", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2019"),
-    VodItem(vodId: "test_004", vodName: "繁花", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2023"),
-    VodItem(vodId: "test_005", vodName: "肖申克的救赎", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "142:00", vodYear: "1994"),
-    VodItem(vodId: "test_006", vodName: "黑袍纠察队", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2019"),
-    VodItem(vodId: "test_007", vodName: "权力的游戏", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "60:00", vodYear: "2011"),
-    VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2008"),
-    VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "143:00", vodYear: "2012"),
-    VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "194:00", vodYear: "1997"),
-    VodItem(title: "盗梦空间", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2010", duration: "148:00"),
-    VodItem(title: "星际穿越", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2014", duration: "169:00")
+    VodItem(vodId: "test_001", vodName: "三体", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_002", vodName: "狂飙", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_003", vodName: "庆余年", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_004", vodName: "繁花", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_005", vodName: "肖申克的救赎", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_006", vodName: "黑袍纠察队", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_007", vodName: "权力的游戏", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_011", vodName: "盗梦空间", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_012", vodName: "星际穿越", vodPic: "https://via.placeholder.com/300x200"),
 ]
 
 // MARK: - 辅助扩展
@@ -1120,6 +1120,7 @@ extension UIApplication {
 }
 
 // 流式布局
+@available(iOS 16.0, *)
 struct FlowLayout: Layout {
     var spacing: CGFloat = 10
 

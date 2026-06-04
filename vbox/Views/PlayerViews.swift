@@ -839,6 +839,8 @@ class PlayerTimeObserver: ObservableObject {
 }
 
 // 画中画控制器包装
+@available(iOS 16.0, *)
+@available(iOS 16.0, *)
 struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPictureInPictureController {
         // 实现画中画控制器
