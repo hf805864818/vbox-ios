@@ -60,24 +60,6 @@ struct VodItem: Codable, Identifiable {
     let vodPlayFrom: String?
     let vodPlayUrl: String?
     
-    // 自定义初始化方法，支持只传必需参数
-    init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
-         vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,
-         vodActor: String? = nil, vodContent: String? = nil, vodPlayFrom: String? = nil,
-         vodPlayUrl: String? = nil) {
-        self.vodId = vodId
-        self.vodName = vodName
-        self.vodPic = vodPic
-        self.vodRemarks = vodRemarks
-        self.vodYear = vodYear
-        self.vodArea = vodArea
-        self.vodDirector = vodDirector
-        self.vodActor = vodActor
-        self.vodContent = vodContent
-        self.vodPlayFrom = vodPlayFrom
-        self.vodPlayUrl = vodPlayUrl
-    }
-    
     enum CodingKeys: String, CodingKey {
         case vodId = "vod_id"
         case vodName = "vod_name"

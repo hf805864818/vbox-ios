@@ -287,7 +287,7 @@ struct SearchBarHeader: View {
                     .frame(width: 40, height: 40)
                     .background(
                         Circle()
-                            .fill(.regularMaterial)
+                            .fill(Color.black.opacity(0.2))
                     )
             }
         }
@@ -399,7 +399,7 @@ struct FeaturedCard: View {
                 }
 
                 HStack(spacing: 8) {
-                    Label(video.year, systemImage: "calendar")
+                    Label(video.vodYear ?? "", systemImage: "calendar")
                     Label(video.vodRemarks ?? "", systemImage: "film")
                 }
                 .font(.system(size: 12))
@@ -455,7 +455,7 @@ struct VideoCard: View {
                     .clipped()
 
                     // 播放时长
-                    Text(video.duration)
+                    Text(video.vodRemarks ?? "")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.horizontal, 6)
@@ -485,7 +485,7 @@ struct VideoCard: View {
                             .font(.system(size: 11))
                             .foregroundColor(Color.secondary)
 
-                        Text(video.year)
+                        Text(video.vodYear ?? "")
                             .font(.system(size: 11))
                             .foregroundColor(Color.secondary)
                     }
@@ -495,7 +495,7 @@ struct VideoCard: View {
             .background(
                 // 毛玻璃卡片背景
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(Color.black.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -702,7 +702,7 @@ struct KeywordButton: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(.regularMaterial)
+                        .fill(Color.black.opacity(0.2))
                 )
                 .overlay(
                     Capsule()
@@ -809,7 +809,7 @@ struct SearchResultRow: View {
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
 
-                    Text(video.year)
+                    Text(video.vodYear ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
                 }
@@ -899,7 +899,7 @@ struct CategoryCard: View {
             .padding(.vertical, 20)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.regularMaterial)
+                    .fill(Color.black.opacity(0.2))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -1086,8 +1086,8 @@ let mockVideos: [VodItem] = [
     VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2008"),
     VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "143:00", vodYear: "2012"),
     VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "194:00", vodYear: "1997"),
-    VodItem(vodId: "test_011", vodName: "盗梦空间", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "148:00", vodYear: "2010"),
-    VodItem(vodId: "test_012", vodName: "星际穿越", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "169:00", vodYear: "2014")
+    VodItem(title: "盗梦空间", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2010", duration: "148:00"),
+    VodItem(title: "星际穿越", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2014", duration: "169:00")
 ]
 
 // MARK: - 辅助扩展
@@ -1120,6 +1120,7 @@ extension UIApplication {
 }
 
 // 流式布局
+@available(iOS 16.0, *)
 struct FlowLayout: Layout {
     var spacing: CGFloat = 10
 

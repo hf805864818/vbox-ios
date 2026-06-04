@@ -103,7 +103,7 @@ struct VideoDetailView: View {
 
                         HStack(spacing: 12) {
                             TagLabel(text: video.vodRemarks ?? "")
-                            TagLabel(text: video.year)
+                            TagLabel(text: video.vodYear ?? "")
                             TagLabel(text: "高清")
                         }
                     }
@@ -219,7 +219,7 @@ struct TagLabel: View {
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(.regularMaterial)
+                    .fill(.ultraThinMaterial)
             )
             .overlay(
                 Capsule()
@@ -325,7 +325,7 @@ struct EpisodeButton: View {
                         }
 
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(isSelected ? Color(hex: "E11D48") : .regularMaterial)
+                            .fill(isSelected ? Color(hex: "E11D48") : .ultraThinMaterial)
                     }
                 )
         }
@@ -391,7 +391,7 @@ struct RelatedVideoRow: View {
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
 
-                    Text(video.year)
+                    Text(video.vodYear ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(Color.secondary)
                 }
@@ -839,6 +839,7 @@ class PlayerTimeObserver: ObservableObject {
 }
 
 // 画中画控制器包装
+@available(iOS 16.0, *)
 @available(iOS 16.0, *)
 struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPictureInPictureController {
