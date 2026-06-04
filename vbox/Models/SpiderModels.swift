@@ -1,5 +1,29 @@
 import Foundation
 
+// MARK: - AnyCodable: 兼容 String / 对象 / 数组 多种类型
+struct AnyCodable: Codable {
+    var value: Any
+    
+    init(_ value: Any) { self.value = value }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let string = try? container.decode(String.self) { value = string }
+        else if let int = try? container.decode(Int.self) { value = int }
+        else if let dict = try? container.decode([String: AnyCodable].self) { value = dict.mapValues { $0.value } }
+        else if let array = try? container.decode([AnyCodable].self) { value = array.map { $0.value } }
+        else if let bool = try? container.decode(Bool.self) { value = bool }
+        else { value = "" }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let s = value as? String { try container.encode(s) }
+        else if let i = value as? Int { try container.encode(i) }
+        else { try container.encode("") }
+    }
+}
+
 // MARK: - 站点配置
 struct SiteConfig: Codable {
     let key: String
@@ -13,6 +37,49 @@ struct SiteConfig: Codable {
     let playerType: Int?
     let jar: String?
     let changeable: Int?
+    
+    init(key: String, name: String, type: Int, api: String? = nil,
+         searchable: Int? = nil, quickSearch: Int? = nil, filterable: Int? = nil,
+         ext: String? = nil, playerType: Int? = nil, jar: String? = nil,
+         changeable: Int? = nil) {
+        self.key = key
+        self.name = name
+        self.type = type
+        self.api = api
+        self.searchable = searchable
+        self.quickSearch = quickSearch
+        self.filterable = filterable
+        self.ext = ext
+        self.playerType = playerType
+        self.jar = jar
+        self.changeable = changeable
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        name = try container.decode(String.self, forKey: .name)
+        type = try container.decode(Int.self, forKey: .type)
+        api = try? container.decode(String.self, forKey: .api)
+        searchable = try? container.decode(Int.self, forKey: .searchable)
+        quickSearch = try? container.decode(Int.self, forKey: .quickSearch)
+        filterable = try? container.decode(Int.self, forKey: .filterable)
+        jar = try? container.decode(String.self, forKey: .jar)
+        playerType = try? container.decode(Int.self, forKey: .playerType)
+        changeable = try? container.decode(Int.self, forKey: .changeable)
+        
+        // ext：兼容字符串和对象
+        if let extStr = try? container.decode(String.self, forKey: .ext) {
+            ext = extStr
+        } else if let extObj = try? container.decode([String: AnyCodable].self, forKey: .ext) {
+            // ext是对象时，取第一个字符串值
+            ext = extObj.compactMap { $0.value as? String }.first
+        } else if let extArr = try? container.decode([String].self, forKey: .ext) {
+            ext = extArr.first
+        } else {
+            ext = nil
+        }
+    }
 }
 
 struct SubscribeConfig: Codable {
@@ -57,7 +124,6 @@ struct VodCategory: Codable, Identifiable {
     var id: String { typeId }
     let typeId: String
     let typeName: String
-    
     enum CodingKeys: String, CodingKey {
         case typeId = "type_id"
         case typeName = "type_name"
