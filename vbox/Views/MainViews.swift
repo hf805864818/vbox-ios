@@ -176,53 +176,76 @@ struct LiquidBackground: View {
 
 // MARK: - 首页视图
 struct HomeView: View {
-    @State private var videos: [VodItem] = []
+    @StateObject private var spiderManager = SpiderManager.shared
     @State private var isLoading = true
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                // 顶部搜索栏
                 SearchBarHeader()
 
-                // 推荐视频轮播
-                FeaturedCarousel(videos: [])
-
-                // 热门推荐
-                SectionHeader(title: "热门推荐", icon: "flame.fill")
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(mockVideos.prefix(6)) { video in
-                        VideoCard(video: video)
+                if isLoading {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .padding(.top, 100)
+                        Text("正在加载...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
                     }
-                }
-                .padding(.horizontal, 16)
-
-                // 最新更新
-                SectionHeader(title: "最新更新", icon: "clock.fill")
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(mockVideos.dropFirst(6).prefix(6)) { video in
-                        VideoCard(video: video)
+                } else if spiderManager.homeVideos.isEmpty {
+                    VStack(spacing: 20) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 50))
+                            .foregroundColor(.gray.opacity(0.5))
+                            .padding(.top, 80)
+                        Text("暂无首页数据")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(.secondary)
+                        if spiderManager.loadedSiteCount > 0 {
+                            Text("已加载 \(spiderManager.loadedSiteCount) 个站点，等待引擎响应")
+                                .font(.system(size: 14))
+                                .foregroundColor(.orange)
+                                .padding(.top, 4)
+                        } else {
+                            Text("请先在「设置」中添加订阅源")
+                                .font(.system(size: 14))
+                                .foregroundColor(.gray)
+                        }
+                        if let err = spiderManager.errorMessage {
+                            Text(err)
+                                .font(.system(size: 12))
+                                .foregroundColor(.red)
+                                .padding(.top, 8)
+                        }
                     }
+                } else {
+                    let v = spiderManager.homeVideos
+                    FeaturedCarousel(videos: Array(v.prefix(5)))
+
+                    SectionHeader(title: "热门推荐", icon: "flame.fill")
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                        ForEach(Array(v.prefix(6))) { video in VideoCard(video: video) }
+                    }.padding(.horizontal, 16)
+
+                    SectionHeader(title: "最新更新", icon: "clock.fill")
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                        ForEach(Array(v.dropFirst(6).prefix(6))) { video in VideoCard(video: video) }
+                    }.padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
             }
             .padding(.bottom, 100)
         }
         .background(Color(hex: "000000"))
+        .onAppear { loadData() }
+    }
+
+    private func loadData() {
+        isLoading = true
+        Task {
+            await spiderManager.initialize()
+            isLoading = false
+        }
     }
 }
 
