@@ -36,17 +36,13 @@ jobs:
           print('AppIcon OK')
           "
 
-      - name: 🏗️ Build (Debug)
+      - name: 🏗️ Build (signed Release)
         run: |
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
-            -configuration Debug \
+            -configuration Release \
             -arch arm64 \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
             -derivedDataPath ./Build \
             build 2>&1 | tee build.log | tail -30
 
@@ -58,7 +54,8 @@ jobs:
           fi
           echo "App: $APP"
           ls -la "$APP/"
-          rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
+          
+          # 巨魔可以安装签名版，保留签名
           mkdir -p Payload
           cp -R "$APP" Payload/
           cd Payload && zip -r ../vbox.ipa vbox.app && cd ..
@@ -70,3 +67,4 @@ jobs:
           name: vbox-ipa
           path: vbox.ipa
           compression-level: 0
+
