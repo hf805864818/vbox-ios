@@ -15,9 +15,7 @@ class SubscriptionManager: ObservableObject {
     private let cacheKey = "cached_subscribe_config"
     
     init() {
-        // 加载已保存的 URL 列表
         configURLs = defaults.stringArray(forKey: urlsKey) ?? []
-        // 加载缓存配置
         loadCachedConfig()
     }
     
@@ -47,22 +45,20 @@ class SubscriptionManager: ObservableObject {
                 return
             }
             
-            let rawJSON = try parseJSON(from: data)
-            let config = try JSONDecoder().decode(SubscribeConfig.self, from: rawJSON)
+            let cleanData = try cleanJSONData(data)
+            let config = try JSONDecoder().decode(SubscribeConfig.self, from: cleanData)
             
             await MainActor.run {
                 self.config = config
                 self.isLoaded = true
                 self.isLoading = false
                 
-                // 保存 URL
                 if !self.configURLs.contains(urlString) {
                     self.configURLs.append(urlString)
                     self.defaults.set(self.configURLs, forKey: self.urlsKey)
                 }
                 
-                // 缓存配置
-                self.cacheConfig(rawData: data)
+                self.cacheConfig(rawData: cleanData)
             }
             
             print("✅ 加载订阅源成功: \(config.sites.count) 个站点")
@@ -82,10 +78,62 @@ class SubscriptionManager: ObservableObject {
     
     // MARK: - 辅助方法
     
-    private func parseJSON(from data: Data) throws -> Data {
-        // TVBox 订阅源 JSON 格式标准
-        // 可能是直接的 JSON，也可能是包含 Unicode escapes 的
-        return data
+    /// 清理JSON数据：去掉注释和非JSON头部内容
+    private func cleanJSONData(_ data: Data) throws -> Data {
+        guard var text = String(data: data, encoding: .utf8) else {
+            throw JSONError.invalidEncoding
+        }
+        
+        // 找JSON开始的第一个 {
+        if let startIndex = text.firstIndex(of: "{") {
+            text = String(text[startIndex...])
+        } else if let startIndex = text.firstIndex(of: "[") {
+            text = String(text[startIndex...])
+        } else {
+            throw JSONError.invalidFormat
+        }
+        
+        // 去掉单行注释 //
+        var lines = text.components(separatedBy: "\n")
+        lines = lines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return !trimmed.hasPrefix("//")
+        }
+        text = lines.joined(separator: "\n")
+        
+        // 去掉行尾注释 // （但保留字符串内的 //）
+        var result = ""
+        var inString = false
+        var i = text.startIndex
+        while i < text.endIndex {
+            let char = text[i]
+            if char == "\"" {
+                inString = !inString
+                result.append(char)
+            } else if char == "/" && !inString {
+                let next = text.index(after: i)
+                if next < text.endIndex && text[next] == "/" {
+                    // 跳过这一行剩下的
+                    while i < text.endIndex && text[i] != "\n" {
+                        i = text.index(after: i)
+                    }
+                    if i < text.endIndex {
+                        result.append(text[i])
+                    }
+                } else {
+                    result.append(char)
+                }
+            } else {
+                result.append(char)
+            }
+            i = text.index(after: i)
+        }
+        
+        guard let cleanData = result.data(using: .utf8) else {
+            throw JSONError.invalidEncoding
+        }
+        
+        return cleanData
     }
     
     private func loadCachedConfig() {
@@ -112,17 +160,27 @@ class SubscriptionManager: ObservableObject {
     
     // MARK: - 获取站点列表
     
-    /// JS 类型站点（需要蜘蛛引擎）
     var jsSites: [SiteConfig] {
         config?.sites.filter { $0.type == 3 } ?? []
     }
     
-    /// JSON/XML 类型站点（直接 HTTP 调用）
     var apiSites: [SiteConfig] {
         config?.sites.filter { $0.type != 3 } ?? []
     }
     
     var allSites: [SiteConfig] {
         config?.sites ?? []
+    }
+}
+
+enum JSONError: Error, LocalizedError {
+    case invalidEncoding
+    case invalidFormat
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidEncoding: return "编码格式错误"
+        case .invalidFormat: return "JSON格式错误"
+        }
     }
 }
