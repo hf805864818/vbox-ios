@@ -839,21 +839,23 @@ class PlayerTimeObserver: ObservableObject {
 }
 
 // 画中画控制器包装
-@available(iOS 16.0, *)
-@available(iOS 16.0, *)
 struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> AVPictureInPictureController {
-        // 实现画中画控制器
-        AVPictureInPictureController(playerLayerProxy: context.coordinator.playerLayer)
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = context.coordinator.player
+        controller.updatesNowPlayingInfoCenter = false
+        controller.showsPlaybackControls = false
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        return controller
     }
 
-    func updateUIViewController(_ uiViewController: AVPictureInPictureController, context: Context) {}
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     class Coordinator {
-        let playerLayer = AVPlayerLayer()
+        var player: AVPlayer?
     }
 }
