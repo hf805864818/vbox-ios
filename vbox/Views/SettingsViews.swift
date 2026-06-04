@@ -2,6 +2,7 @@ import SwiftUI
 
 // MARK: - 设置视图
 struct SettingsView: View {
+    @StateObject private var spiderManager = SpiderManager.shared
     @State private var autoPlayNext = true
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
@@ -9,6 +10,7 @@ struct SettingsView: View {
     @State private var selectedSpeed = 1.0
     @State private var showCacheAlert = false
     @State private var cacheSize: String = "256 MB"
+    @State private var newURL = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -24,72 +26,29 @@ struct SettingsView: View {
                 VStack(spacing: 20) {
                     // 订阅源管理
                     SettingsSection(title: "订阅源管理") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                TextField("输入订阅源JSON地址...", text: $newURL)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .font(.system(size: 14))
-                                    .autocapitalization(.none)
-                                    .disableAutocorrection(true)
-                                
-                                Button(action: addSubscription) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(Color(hex: "E11D48"))
-                                }
-                                .disabled(newURL.trimmingCharacters(in: .whitespaces).isEmpty)
-                            }
-                            
-                            if spiderManager.isLoading {
-                                HStack {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                    Text("加载中...")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            
-                            if let error = spiderManager.errorMessage {
-                                Text(error)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.red)
-                            }
-                            
-                            if !spiderManager.getSavedSubscriptionURLs().isEmpty {
-                                Text("已保存的订阅源")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                    .padding(.top, 4)
-                                
-                                ForEach(spiderManager.getSavedSubscriptionURLs(), id: \.self) { url in
-                                    HStack {
-                                        Image(systemName: "link")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                        Text(url)
-                                            .font(.system(size: 11))
-                                            .lineLimit(1)
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        Button(action: { spiderManager.removeSubscriptionURL(url) }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.gray)
-                                        }
-                                    }
-                                    .padding(.vertical, 4)
-                                }
-                            }
-                            
-                            if spiderManager.isInitialized {
-                                Text("已加载 \(spiderManager.subscribedSites.count) 个站点")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.green)
-                            }
+                        SettingsNavigationRow(
+                            title: "订阅源配置",
+                            subtitle: "管理视频源订阅",
+                            icon: "link"
+                        ) {
+                            // 跳转到订阅配置页面
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+
+                        SettingsNavigationRow(
+                            title: "源管理",
+                            subtitle: "已配置 3 个源",
+                            icon: "list.bullet"
+                        ) {
+                            // 显示源列表
+                        }
+
+                        SettingsNavigationRow(
+                            title: "添加新源",
+                            subtitle: "从URL添加视频源",
+                            icon: "plus.circle.fill"
+                        ) {
+                            // 添加新源
+                        }
                     }
 
                     // 播放设置
@@ -130,6 +89,32 @@ struct SettingsView: View {
                     }
 
                     // 订阅管理
+                    SettingsSection(title: "订阅管理") {
+                        SettingsNavigationRow(
+                            title: "订阅源配置",
+                            subtitle: "管理视频源订阅",
+                            icon: "link"
+                        ) {
+                            // 跳转到订阅配置页面
+                        }
+
+                        SettingsNavigationRow(
+                            title: "源管理",
+                            subtitle: "已配置 3 个源",
+                            icon: "list.bullet"
+                        ) {
+                            // 显示源列表
+                        }
+
+                        SettingsNavigationRow(
+                            title: "添加新源",
+                            subtitle: "从URL添加视频源",
+                            icon: "plus.circle.fill"
+                        ) {
+                            // 添加新源
+                        }
+                    }
+
                     // 存储管理
                     SettingsSection(title: "存储管理") {
                         SettingsNavigationRow(
@@ -202,16 +187,6 @@ struct SettingsView: View {
             }
         } message: {
             Text("确定要清理所有缓存吗？这将删除所有已缓存的视频数据。")
-        }
-    }
-    
-    private func addSubscription() {
-        let url = newURL.trimmingCharacters(in: .whitespaces)
-        guard !url.isEmpty else { return }
-        spiderManager.saveSubscriptionURL(url)
-        Task {
-            await spiderManager.loadSubscribeConfig(from: url)
-            newURL = ""
         }
     }
 }
