@@ -14,54 +14,41 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 🔧 Select Xcode
-        run: |
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-          xcodebuild -version
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
-      - name: 🎨 Generate AppIcon
+      - name: 🏗️ Build
         run: |
-          python3 -c "
-          import struct, zlib
-          def png(w,h,c=(25,25,35)):
-              r=b''
-              for y in range(h): r+=b'\x00'
-              for x in range(w): r+=bytes([c[0],c[1],c[2],255])
-              def ck(t,d):
-                  ct=t+d
-                  return struct.pack('>I',len(d))+ct+struct.pack('>I',zlib.crc32(ct)&0xFFFFFFFF)
-              s=b'\x89PNG\r\n\x1a\n'; ih=struct.pack('>IIBBBBB',w,h,8,2,0,0,0)
-              return s+ck(b'IHDR',ih)+ck(b'IDAT',zlib.compress(r))+ck(b'IEND',b'')
-          with open('vbox/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png','wb') as f:
-              f.write(png(1024,1024))
-          print('AppIcon OK')
-          "
-
-      - name: 🏗️ Build (signed Release)
-        run: |
-          # -allowProvisioningUpdates 让Xcode自动请求签名证书
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
             -configuration Release \
             -arch arm64 \
             -derivedDataPath ./Build \
-            -allowProvisioningUpdates \
-            build 2>&1 | tee build.log | tail -30
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_STYLE=Manual \
+            PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
+            build 2>&1
 
       - name: 📦 Package IPA
         run: |
           APP=$(find ./Build -name "vbox.app" -type d | head -1)
           if [ -z "$APP" ]; then
-            echo "No .app!"; find ./Build -name "*.app" -type d; tail -50 build.log; exit 1
+            echo "No .app found!"
+            exit 1
           fi
           echo "App: $APP"
-          ls -la "$APP/"
-          
-          # 巨魔可以安装签名版，保留签名
+          ls -laR "$APP"
+          rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
+          if [ ! -f "$APP/vbox" ]; then
+            echo "ERROR: No vbox executable!"
+            exit 1
+          fi
           mkdir -p Payload
           cp -R "$APP" Payload/
           cd Payload && zip -r ../vbox.ipa vbox.app && cd ..
-          echo "✅ IPA: $(ls -lh vbox.ipa)"
+          echo "IPA: $(ls -lh vbox.ipa)"
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
@@ -69,4 +56,3 @@ jobs:
           name: vbox-ipa
           path: vbox.ipa
           compression-level: 0
-
