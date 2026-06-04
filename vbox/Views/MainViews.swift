@@ -1086,8 +1086,8 @@ let mockVideos: [VodItem] = [
     VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "45:00", vodYear: "2008"),
     VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "143:00", vodYear: "2012"),
     VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "194:00", vodYear: "1997"),
-    VodItem(title: "盗梦空间", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2010", duration: "148:00"),
-    VodItem(title: "星际穿越", cover: "https://via.placeholder.com/300x200", type: "科幻", year: "2014", duration: "169:00")
+    VodItem(vodId: "test_011", vodName: "盗梦空间", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "148:00", vodYear: "2010"),
+    VodItem(vodId: "test_012", vodName: "星际穿越", vodPic: "https://via.placeholder.com/300x200", vodRemarks: "169:00", vodYear: "2014")
 ]
 
 // MARK: - 辅助扩展

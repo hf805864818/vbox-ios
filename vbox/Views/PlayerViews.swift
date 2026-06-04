@@ -755,7 +755,7 @@ struct BottomControlBar: View {
                 endPoint: .bottom
             )
         )
-        .onChange(// iOS 17+: of: currentTime) { _, newValue in
+        .onChange(of: currentTime) { newValue in
             if !isDragging {
                 sliderValue = newValue
             }
