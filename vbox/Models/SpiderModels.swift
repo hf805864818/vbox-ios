@@ -84,34 +84,15 @@ struct SiteConfig: Codable {
 
 struct SubscribeConfig: Codable {
     let sites: [SiteConfig]
-    let parsers: [ParserConfig]?
-    let ads: [AdConfig]?
-    let flags: [String]?
-    let banned: [String]?
     let spider: String?
     let wallpaper: String?
     let lives: [LiveConfig]?
+    let flags: [String]?
+    let banned: [String]?
     
     enum CodingKeys: String, CodingKey {
-        case sites, flags, banned, spider, wallpaper, lives
-        case parsers = "parses"
-        case ads
+        case sites, spider, wallpaper, lives, flags, banned
     }
-}
-
-struct ParserConfig: Codable {
-    let key: String?
-    let name: String?
-    let type: Int?
-    let url: String?
-    let ext: String?
-    let playerType: Int?
-}
-
-struct AdConfig: Codable {
-    let name: String?
-    let url: String?
-    let enabled: Bool?
 }
 
 struct LiveConfig: Codable {
