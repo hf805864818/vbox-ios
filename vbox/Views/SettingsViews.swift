@@ -232,6 +232,16 @@ struct SettingsView: View {
             Text("确定要清理所有缓存吗？这将删除所有已缓存的视频数据。")
         }
     }
+    
+    private func addSubscription() {
+        let url = newURL.trimmingCharacters(in: .whitespaces)
+        guard !url.isEmpty else { return }
+        spiderManager.saveSubscriptionURL(url)
+        Task {
+            await spiderManager.loadSubscribeConfig(from: url)
+            newURL = ""
+        }
+    }
 }
 
 // 设置区块
