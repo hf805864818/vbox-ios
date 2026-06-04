@@ -134,15 +134,11 @@ struct GlassTabItem: View {
 
                     Image(systemName: isSelected ? tab.iconFilled : tab.icon)
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(
-                            isSelected
-                                ? LinearGradient(
+                        .foregroundStyle(isSelected ? AnyShapeStyle(LinearGradient(
                                     colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
                                     startPoint: .top,
                                     endPoint: .bottom
-                                )
-                                : Color.secondary
-                        )
+                                )) : AnyShapeStyle(Color.secondary))
                 }
                 .frame(height: 44)
 
