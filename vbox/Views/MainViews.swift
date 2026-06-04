@@ -77,7 +77,15 @@ struct GlassBottomTabBar: View {
 
                             Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
                                 .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(selectedTab == index ? Color(hex: "E11D48") : .secondary)
+                                .foregroundStyle(
+                                    selectedTab == index
+                                        ? LinearGradient(
+                                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                        : Color.secondary
+                                )
                         }
                         .frame(height: 44)
 

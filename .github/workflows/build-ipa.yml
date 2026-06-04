@@ -47,7 +47,8 @@ jobs:
           fi
           mkdir -p Payload
           cp -R "$APP" Payload/
-          cd Payload && zip -r ../vbox.ipa vbox.app && cd ..
+          zip -r vbox.ipa Payload/
+          zip -r vbox.ipa Payload/
           echo "IPA: $(ls -lh vbox.ipa)"
 
       - name: 📤 Upload IPA
