@@ -4,34 +4,51 @@ import Foundation
 struct SiteConfig: Codable {
     let key: String
     let name: String
-    let type: Int       // 0=JSON, 1=XML, 2=HTML, 3=JS
+    let type: Int
     let api: String?
-    let searchable: Int
-    let quickSearch: Int
-    let filterable: Int
-    let ext: String?      // JS蜘蛛文件URL
+    let searchable: Int?
+    let quickSearch: Int?
+    let filterable: Int?
+    let ext: String?
     let playerType: Int?
+    let jar: String?
 }
 
 struct SubscribeConfig: Codable {
     let sites: [SiteConfig]
     let parsers: [ParserConfig]?
-    let ads: AdConfig?
+    let ads: [AdConfig]?
     let flags: [String]?
     let banned: [String]?
+    let spider: String?
+    let wallpaper: String?
+    let lives: [LiveConfig]?
+    
+    enum CodingKeys: String, CodingKey {
+        case sites, flags, banned, spider, wallpaper, lives
+        case parsers = "parses"
+        case ads
+    }
 }
 
 struct ParserConfig: Codable {
-    let key: String
-    let name: String
-    let type: Int
+    let key: String?
+    let name: String?
+    let type: Int?
     let url: String?
     let ext: String?
     let playerType: Int?
 }
 
 struct AdConfig: Codable {
+    let name: String?
+    let url: String?
     let enabled: Bool?
+}
+
+struct LiveConfig: Codable {
+    let name: String?
+    let urls: [String]?
 }
 
 // MARK: - 视频数据模型
