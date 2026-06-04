@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var selectedSpeed = 1.0
     @State private var showCacheAlert = false
     @State private var cacheSize: String = "256 MB"
+    @State private var showUpdateSheet = false
+    @StateObject private var updateManager = UpdateManager.shared
+    @State private var isChecking = false
     @State private var newURL = ""
 
     var body: some View {
