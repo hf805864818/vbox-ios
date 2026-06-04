@@ -3,8 +3,8 @@ import Foundation
 /// QuickJS 蜘蛛引擎 — 真正的 TVBox 蜘蛛执行环境
 class QJSSpiderEngine {
     
-    private var rt: OpaquePointer?
-    private var ctx: OpaquePointer?
+    private var rt: UnsafeMutableRawPointer?
+    private var ctx: UnsafeMutableRawPointer?
     
     var onLog: ((String) -> Void)?
     
