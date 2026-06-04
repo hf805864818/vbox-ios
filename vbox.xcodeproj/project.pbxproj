@@ -18,6 +18,12 @@
 		A10009 /* PlayerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* PlayerViews.swift */; };
 		A10010 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* SettingsViews.swift */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
+		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
+		A10013 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
+		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
+		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +40,12 @@
 		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
+		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
+		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
+		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
+		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -45,6 +57,7 @@
 				G10004 /* Services */,
 				G10010 /* Views */,
 				G10011 /* Resources */,
+				G10020 /* Libraries */,
 				B10014 /* Info.plist */,
 			);
 			path = vbox;
@@ -74,8 +87,21 @@
 				B10005 /* JSSpiderEngine.swift */,
 				B10006 /* JSHTTPBridge.swift */,
 				B10007 /* SpiderRepository.swift */,
+				B10011 /* QJSSpiderEngine.swift */,
+				B10015 /* SubscriptionManager.swift */,
+				B10016 /* CloudDriveManager.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		G10020 /* Libraries */ = {
+			isa = PBXGroup;
+			children = (
+				B10012 /* QuickJSBridge.m */,
+				B10017 /* libquickjs.a */,
+				B10018 /* QuickJSBridge.h */,
+			);
+			path = Libraries;
 			sourceTree = "<group>";
 		};
 		G10010 /* Views */ = {
@@ -136,6 +162,7 @@
 			buildConfigurationList = C10002 /* Build configuration list for PBXNativeTarget "vbox" */;
 			buildPhases = (
 				P20001 /* Sources */,
+				P20003 /* Frameworks */,
 				P20002 /* Resources */,
 			);
 			buildRules = ();
