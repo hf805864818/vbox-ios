@@ -13,12 +13,15 @@ class SpiderManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var isInitialized = false
     @Published var subscribedSites: [String] = []
+    @Published var savedURLs: [String] = []
     @Published var loadedSiteCount: Int = 0
     
     private let subManager = SubscriptionManager()
     private var engines: [String: QJSSpiderEngine] = [:]
     
-    private init() {}
+    private init() {
+        savedURLs = subManager.configURLs
+    }
     
     func initialize() async {
         guard !isInitialized else { return }
@@ -38,6 +41,7 @@ class SpiderManager: ObservableObject {
             return
         }
         await loadSitesFromSubscription()
+        savedURLs = subManager.configURLs
         isLoading = false
     }
     
@@ -145,6 +149,10 @@ class SpiderManager: ObservableObject {
     func saveSubscriptionURL(_ url: String) {
         subManager.configURLs.append(url)
         UserDefaults.standard.set(subManager.configURLs, forKey: "subscribed_config_urls")
+        savedURLs = subManager.configURLs
     }
-    func removeSubscriptionURL(_ url: String) { subManager.removeURL(url) }
+    func removeSubscriptionURL(_ url: String) {
+        subManager.removeURL(url)
+        savedURLs = subManager.configURLs
+    }
 }

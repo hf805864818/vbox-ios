@@ -61,13 +61,13 @@ struct SettingsView: View {
                                     .foregroundColor(.red)
                             }
                             
-                            if !spiderManager.getSavedSubscriptionURLs().isEmpty {
+                            if !spiderManager.savedURLs.isEmpty {
                                 Text("已保存的订阅源")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.secondary)
                                     .padding(.top, 4)
                                 
-                                ForEach(spiderManager.getSavedSubscriptionURLs(), id: \.self) { url in
+                                ForEach(spiderManager.savedURLs, id: \.self) { url in
                                     HStack {
                                         Image(systemName: "link")
                                             .font(.system(size: 12))
