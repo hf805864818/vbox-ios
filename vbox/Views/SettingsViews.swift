@@ -845,19 +845,34 @@ let mockSubscribeSources: [SubscribeSource] = [
 
 let recommendedSources: [RecommendedSource] = [
     RecommendedSource(
-        name: "TVBox官方源",
-        url: "https://tvbox.github.io/config.json",
-        description: "官方维护的稳定源，包含大量优质视频站点"
+        name: "王二小放牛娃 (推荐)",
+        url: "https://9280.kstore.space/wex.json",
+        description: "78个站点，含豆瓣热播、B站等，更新活跃"
     ),
     RecommendedSource(
-        name: "影视聚合源",
-        url: "https://movie.example.com/aggregation.json",
-        description: "聚合多个影视站点的配置，内容丰富"
+        name: "主流聚合源",
+        url: "https://raw.liucn.cc/box/m.json",
+        description: "234个站点，涵盖影视、短剧、有声小说"
     ),
     RecommendedSource(
-        name: "高清4K源",
-        url: "https://4k.example.com/config.json",
-        description: "专注于4K高清视频内容"
+        name: "TVBox多仓",
+        url: "https://dxawi.github.io/0/0.json",
+        description: "多仓库聚合源，含直播频道"
+    ),
+    RecommendedSource(
+        name: "NXOG源",
+        url: "http://tv.nxog.top/m/111.php",
+        description: "轻量影视源，适合网速一般的用户"
+    ),
+    RecommendedSource(
+        name: "Top98仓库",
+        url: "http://home.jundie.top:81/top98.json",
+        description: "含直播+点播的综合源"
+    ),
+    RecommendedSource(
+        name: "饭太硬TV",
+        url: "http://www.饭太硬.com/tv",
+        description: "经典影视源（可能需要代理访问）"
     )
 ]
 // 导航栏组件
