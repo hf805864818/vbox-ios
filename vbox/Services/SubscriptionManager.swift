@@ -58,8 +58,8 @@ class SubscriptionManager: ObservableObject {
             text = lines.joined(separator: "\n")
             
             // 找第一个{
-            if let idx = text.firstIndex(of: "{") {
-                text = String(text[idx...])
+            if let range = text.range(of: "{") {
+                text = String(text[range.lowerBound...])
             }
             
             guard let jsonData = text.data(using: .utf8) else {
