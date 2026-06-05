@@ -116,7 +116,7 @@ struct VodItem: Codable, Identifiable {
     let vodId: String
     let vodName: String
     let vodPic: String
-    let vodRemarks: String?
+    var vodRemarks: String?
     let vodYear: String?
     let vodArea: String?
     let vodDirector: String?
