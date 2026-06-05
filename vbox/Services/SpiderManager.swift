@@ -53,9 +53,115 @@ class SpiderManager: ObservableObject {
         }
     }
     
-    /// 获取内置蜘蛛 JS 代码（最简版）
+    /// 获取内置蜘蛛 JS 代码 — 乌云影视直连搜索（同步版）
     private func getBuiltinSpiderJS() -> String {
-        return "var _spider = { homeContent: function() { return JSON.stringify({ class: [], list: [] }); }, searchContent: function(k, p) { return JSON.stringify({ list: [] }); }, detailContent: function(id) { return JSON.stringify({ list: [] }); }, playerContent: function(v,f,u) { return JSON.stringify({ parse: 0, url: u }); } }; globalThis.__JS_SPIDER__ = _spider;"
+        return """
+// 基础辅助类
+function VideoDetail() { this.vod_id = ""; this.vod_name = ""; this.vod_pic = ""; this.vod_remarks = ""; }
+function RepVideoList() { this.data = []; this.total = 0; this.error = ""; }
+function RepVideoClassList() { this.data = []; this.error = ""; }
+
+// req 包装 — http() 是同步的，直接用
+function req(url, options) {
+    var opts = options || {};
+    var jsonResult = http(url, JSON.stringify({
+        method: opts.method || 'GET',
+        headers: opts.headers || {},
+        data: opts.data || '',
+        timeout: 15
+    }));
+    var resp = JSON.parse(jsonResult);
+    resp.data = resp.content;
+    return resp;
+}
+
+// 乌云影视搜索蜘蛛 — 全部同步
+var wooyun = {
+    webSite: 'https://wooyun.tv',
+    getHeaders: function() {
+        return {
+            Referer: this.webSite,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+    },
+    search: function(keyword, page) {
+        var back = new RepVideoList();
+        if (!keyword) { back.data = []; return JSON.stringify(back); }
+        try {
+            var url = this.webSite + '/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch';
+            var body = JSON.stringify({
+                menuCodeList: [],
+                pageIndex: String(page || 1),
+                pageSize: 10,
+                searchKey: keyword,
+                topCode: ''
+            });
+            var resp = req(url, { method: 'POST', headers: this.getHeaders(), data: body });
+            if (!resp.ok) { back.error = 'HTTP ' + resp.status; return JSON.stringify(back); }
+            var json = JSON.parse(resp.data || '{}');
+            var records = (json.data && json.data.records) ? json.data.records : [];
+            back.total = (json.data && json.data.total) ? json.data.total : 0;
+            for (var i = 0; i < records.length; i++) {
+                var item = records[i];
+                var v = new VideoDetail();
+                v.vod_id = String(item.id || '');
+                v.vod_name = item.title || '';
+                v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
+                v.vod_remarks = item.episodeStatus || '';
+                back.data.push(v);
+            }
+        } catch(e) { back.error = String(e); }
+        return JSON.stringify(back);
+    },
+    home: function() {
+        var web = this.webSite;
+        try {
+            var url = web + '/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch';
+            var body = JSON.stringify({ menuCodeList: [], pageIndex: '1', pageSize: 10, searchKey: '', sortCode: 'newest', topCode: 'movie' });
+            var resp = req(url, { method: 'POST', headers: this.getHeaders(), data: body });
+            var json = JSON.parse(resp.data || '{}');
+            var records = (json.data && json.data.records) ? json.data.records : [];
+            var list = [];
+            for (var i = 0; i < records.length; i++) {
+                var item = records[i];
+                var v = new VideoDetail();
+                v.vod_id = String(item.id || '');
+                v.vod_name = item.title || '';
+                v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
+                v.vod_remarks = item.episodeStatus || '';
+                list.push(v);
+            }
+            return JSON.stringify({
+                class: [
+                    { type_id: '1', type_name: '电影' },
+                    { type_id: '2', type_name: '电视剧' },
+                    { type_id: '3', type_name: '综艺' },
+                    { type_id: '4', type_name: '动漫' }
+                ],
+                list: list
+            });
+        } catch(e) {
+            return JSON.stringify({ class: [], list: [] });
+        }
+    },
+    detail: function(ids) {
+        return JSON.stringify({ list: [] });
+    },
+    player: function(vodId, flag, url) {
+        return JSON.stringify({ parse: 0, url: url });
+    }
+};
+
+// 注册蜘蛛
+var _spider = {
+    homeContent: function() { return wooyun.home(); },
+    searchContent: function(keyword, page) { return wooyun.search(keyword, page); },
+    detailContent: function(ids) { return wooyun.detail(ids); },
+    playerContent: function(vodId, flag, url) { return wooyun.player(vodId, flag, url); }
+};
+globalThis.__JS_SPIDER__ = _spider;
+console.log('蜘蛛注册完成: 乌云影视 v1');
+"""
     }
     
     func loadSubscribeConfig(from url: String) async {
