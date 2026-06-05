@@ -160,7 +160,7 @@ globalThis.__JS_SPIDER__ = _spider;
         for site in jsSites.prefix(10) {
             guard let jsURL = site.api, let url = URL(string: jsURL) else { continue }
             let key = site.key.isEmpty ? site.name : site.key
-            if engines[key] != nil { continue } // 已加载
+            if engines[key] != nil { continue }
 
             do {
                 var req = URLRequest(url: url)
@@ -180,6 +180,42 @@ globalThis.__JS_SPIDER__ = _spider;
             } catch {
                 jsSpiderFailed += 1
                 print("[SpiderManager] JS蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
+            }
+        }
+
+        // 3. 加载 zhanyuan (type=2) 站源 — 用 cheerio + zhanyuan 引擎
+        let zhanSites = config.sites.filter { $0.type == 2 && $0.api != nil && !$0.api!.isEmpty }
+        print("[SpiderManager] 发现 \(zhanSites.count) 个 zhanyuan 站源")
+        for site in zhanSites.prefix(10) {
+            let key = site.key.isEmpty ? site.name : site.key
+            guard engines[key] == nil else { continue }
+            let configJSON = site.ext ?? "{}"
+            let escapedName = site.name.replacingOccurrences(of: "'", with: "\\'")
+            let zhanJS = """
+            (function() {
+                try {
+                    var config = JSON.parse('\(configJSON.replacingOccurrences(of: "'", with: "\\'"))');
+                    config.name = config.name || '\(escapedName)';
+                    config.searchUrl = config.searchUrl || '';
+                    var spider = globalThis.__createZhanyuanSpider(config);
+                    globalThis.__JS_SPIDER__ = spider;
+                } catch(e) { print('[Zhanyuan] 创建蜘蛛失败: ' + e); }
+            })();
+            """
+            do {
+                let engine = JSSpiderEngine()
+                engine.onLog = { msg in print("[Zhanyuan|\(key)] \(msg)") }
+                try await injectSpiderLibraries(engine: engine)
+                try engine.loadScript(zhanJS)
+                if engine.isSpiderReady {
+                    engines[key] = engine
+                    if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                    jsSpiderLoaded += 1
+                    print("[SpiderManager] ✅ zhanyuan 就绪: \(site.name)")
+                }
+            } catch {
+                jsSpiderFailed += 1
+                print("[SpiderManager] ❌ zhanyuan 失败: \(site.name): \(error)")
             }
         }
 
@@ -226,11 +262,23 @@ globalThis.__JS_SPIDER__ = _spider;
         try engine.loadLibrary("""
         let req = (url, options) => http(url, Object.assign({ async: false }, options));
         """)
-        // 2. 模板引擎 — 如果 Bundle 中有模板.js 则加载
+        // 2. 加载 cheerio (HTML 解析器)
+        if let cheerioPath = Bundle.main.path(forResource: "cheerio.min", ofType: "js"),
+           let cheerioJs = try? String(contentsOfFile: cheerioPath, encoding: .utf8) {
+            try engine.loadLibrary(cheerioJs)
+            print("[SpiderManager] ✅ cheerio 已注入")
+        }
+        // 3. 模板引擎
         if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js"),
            let tmplJs = try? String(contentsOfFile: tmplPath, encoding: .utf8) {
             try engine.loadLibrary(tmplJs)
             print("[SpiderManager] ✅ 模板引擎已注入")
+        }
+        // 4. zhanyuan 蜘蛛引擎 (HTML 站源)
+        if let zhanPath = Bundle.main.path(forResource: "zhanyuan_spider", ofType: "js"),
+           let zhanJs = try? String(contentsOfFile: zhanPath, encoding: .utf8) {
+            try engine.loadLibrary(zhanJs)
+            print("[SpiderManager] ✅ zhanyuan 蜘蛛引擎已注入")
         }
         print("[SpiderManager] ✅ JS 库注入完成")
     }

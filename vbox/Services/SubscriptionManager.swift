@@ -158,16 +158,20 @@ class SubscriptionManager: ObservableObject {
                         }
                     }
                 }
-                // 从 zhanyuan 转换（但 zhanyuan 需要 spider 引擎，type=2 标记为蜘蛛站）
+                // 从 zhanyuan 转换（完整配置存到 ext）
                 if let zhanyuan = jsonDict["zhanyuan"] as? [[String: Any]] {
                     print("[SubscriptionManager] 从 zhanyuan 转换 \(zhanyuan.count) 个蜘蛛站")
                     for item in zhanyuan {
                         if let name = item["name"] as? String,
                            let searchUrl = item["searchUrl"] as? String {
                             let key = "zhan_\(sites.count + 1)"
-                            let site = SiteConfig(key: key, name: name, type: 2, api: searchUrl)
-                            if !sites.contains(where: { $0.name == name }) {
-                                sites.append(site)
+                            // 把完整 zhanyuan 配置编码到 ext
+                            if let extData = try? JSONSerialization.data(withJSONObject: item),
+                               let extStr = String(data: extData, encoding: .utf8) {
+                                let site = SiteConfig(key: key, name: name, type: 2, api: searchUrl, ext: extStr)
+                                if !sites.contains(where: { $0.name == name }) {
+                                    sites.append(site)
+                                }
                             }
                         }
                     }
