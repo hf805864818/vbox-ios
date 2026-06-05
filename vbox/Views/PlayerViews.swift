@@ -496,6 +496,30 @@ struct VideoPlayerView: View {
             let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? ""
             if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
         }
+
+        // Step 4: 检查是否是网盘分享链接
+        let playUrlToCheck = video.vodPlayUrl ?? nd?.vodPlayUrl ?? ""
+        if !playUrlToCheck.isEmpty, let driveType = CloudDriveManager.detectDrive(from: playUrlToCheck) {
+            log("🎯 检测到 \(driveType.displayName) 分享链接，尝试网盘解析...")
+            let tokens = CloudDriveManager.shared.tokens(for: driveType)
+            if let token = tokens.first {
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
+                    log("✅ 网盘解析成功: \(result.url.prefix(60))...")
+                    if let url = URL(string: result.url) {
+                        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
+                        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                        p.play(); player = p; isPlaying = true; isLoading = false
+                        return
+                    }
+                } catch {
+                    log("❌ 网盘解析失败: \(error.localizedDescription)")
+                }
+            } else {
+                log("⚠️ 未配置 \(driveType.displayName) Token，请在设置中配置")
+            }
+        }
+
         await MainActor.run { isLoading = false; loadError = "无法获取播放地址" }
     }
 

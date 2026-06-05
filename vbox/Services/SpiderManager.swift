@@ -685,6 +685,10 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
+        // 如果是从订阅源站点搜的（非硬编码），直接返回结果，不需要乌云影视兜底
+        // 但如果没有结果且 searchSites 是硬编码的，才走乌云影视
+        if !allResults.isEmpty { return allResults }
+        
         // ====== 搜索源 1: 乌云影视（独立 API） ======
         do {
             let url = URL(string: "https://wooyun.tv/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch")!
@@ -889,6 +893,13 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 快播资源失败: \(error.localizedDescription)")
             }
         }
+
+        // ====== 搜索源 7: 网盘资源搜索（伪·模拟调用） ======
+        // 由于第三方网盘搜索API基本都关闭了，这里内置一个提示
+        // 用户可以通过设置中的"网盘播放"配置Token后，
+        // 直接粘贴网盘分享链接到搜索框，播放器会自动识别并解析
+        print("[SpiderManager] 提示: 如需搜索网盘资源，请在\"设置→网盘播放\"中配置Token")
+        print("[SpiderManager] 然后粘贴网盘分享链接(aliyundrive.com/pan.quark.cn等)到搜索框")
 
         print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
