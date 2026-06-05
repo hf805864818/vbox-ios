@@ -69,21 +69,36 @@ struct SettingsView: View {
                             }
 
                             if !spiderManager.savedURLs.isEmpty {
-                                Text("已保存的订阅源")
+                                Text("已保存的订阅源 (\(spiderManager.savedURLs.count) 个)")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.secondary)
                                     .padding(.top, 4)
 
-                                ForEach(spiderManager.savedURLs, id: \.self) { url in
+                                ForEach(Array(spiderManager.savedURLs.enumerated()), id: \.offset) { index, url in
                                     HStack {
-                                        Image(systemName: "link")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                        Text(url)
-                                            .font(.system(size: 11))
-                                            .lineLimit(1)
-                                            .foregroundColor(.primary)
+                                        // 激活指示器
+                                        Button(action: {
+                                            if index != spiderManager.subManager.activeURLIndex {
+                                                spiderManager.switchToSubscription(at: index)
+                                            }
+                                        }) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: index == spiderManager.subManager.activeURLIndex
+                                                    ? "checkmark.circle.fill"
+                                                    : "circle")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(index == spiderManager.subManager.activeURLIndex
+                                                        ? Color(hex: "E11D48") : .gray)
+                                                Text(url)
+                                                    .font(.system(size: 11))
+                                                    .lineLimit(1)
+                                                    .foregroundColor(.primary)
+                                            }
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+
                                         Spacer()
+
                                         Button(action: { spiderManager.removeSubscriptionURL(url) }) {
                                             Image(systemName: "xmark.circle.fill")
                                                 .font(.system(size: 16))

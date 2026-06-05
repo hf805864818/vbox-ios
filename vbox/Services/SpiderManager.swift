@@ -20,7 +20,7 @@ class SpiderManager: ObservableObject {
     @Published var customParsers: [ParseConfig] = []  // 用户自定义解析器
     var enginesCount: Int { engines.count }
 
-    private let subManager = SubscriptionManager()
+    let subManager = SubscriptionManager()
     private var engines: [String: JSSpiderEngine] = [:]
 
     private init() {
@@ -66,9 +66,13 @@ class SpiderManager: ObservableObject {
         // 尝试加载 QuickJS 内置蜘蛛
         await loadBuiltinEngineIfNeeded()
 
-        // 如果有已保存的订阅源，则加载
-        if subManager.isLoaded {
-            await loadSitesFromSubscription()
+        // 加载激活的订阅源
+        if let activeURL = subManager.activeURL {
+            print("[SpiderManager] 加载激活的订阅源: \(activeURL)")
+            await subManager.loadConfig(from: activeURL)
+            if subManager.config != nil {
+                await loadSitesFromSubscription()
+            }
         }
 
         print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(subManager.config?.sites.count ?? 0)")
@@ -140,6 +144,7 @@ globalThis.__JS_SPIDER__ = _spider;
 """
     }
 
+    /// 加载指定 URL 的订阅源（添加新订阅时用）
     func loadSubscribeConfig(from url: String) async {
         isLoading = true
         errorMessage = nil
@@ -149,9 +154,42 @@ globalThis.__JS_SPIDER__ = _spider;
             isLoading = false
             return
         }
+        // 新加载的设为激活
+        if let idx = subManager.configURLs.firstIndex(of: url) {
+            subManager.switchToSubscription(at: idx)
+        }
         await loadSitesFromSubscription()
         savedURLs = subManager.configURLs
         isLoading = false
+    }
+
+    /// 加载当前激活的订阅源
+    func loadActiveSubscription() async {
+        guard let activeURL = subManager.activeURL else {
+            print("[SpiderManager] 没有激活的订阅源")
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        await subManager.loadConfig(from: activeURL)
+        if let error = subManager.errorMessage {
+            errorMessage = error
+            isLoading = false
+            return
+        }
+        await loadSitesFromSubscription()
+        savedURLs = subManager.configURLs
+        isLoading = false
+    }
+
+    /// 切换激活的订阅源
+    func switchToSubscription(at index: Int) {
+        subManager.switchToSubscription(at: index)
+        engines.removeAll()
+        subscribedSites.removeAll()
+        allSites = []
+        loadedSiteCount = 0
+        Task { await loadActiveSubscription() }
     }
 
     private func loadSitesFromSubscription() async {

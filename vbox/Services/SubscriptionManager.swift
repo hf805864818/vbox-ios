@@ -8,14 +8,45 @@ class SubscriptionManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var configURLs: [String] = []
     @Published var parses: [ParseConfig] = []  // 解析器列表
+    @Published var activeURLIndex: Int = 0   // 当前激活的订阅源索引
 
     private let defaults = UserDefaults.standard
     private let urlsKey = "subscribed_config_urls"
+    private let activeKey = "active_subscription_index"
     private let cacheKey = "cached_subscribe_config"
 
     init() {
         configURLs = defaults.stringArray(forKey: urlsKey) ?? []
+        activeURLIndex = defaults.integer(forKey: activeKey)
+        if activeURLIndex >= configURLs.count { activeURLIndex = 0 }
         loadCachedConfig()
+    }
+
+    /// 当前激活的订阅源 URL
+    var activeURL: String? {
+        guard activeURLIndex >= 0, activeURLIndex < configURLs.count else { return nil }
+        return configURLs[activeURLIndex]
+    }
+
+    /// 切换到指定索引的订阅源
+    func switchToSubscription(at index: Int) {
+        guard index >= 0, index < configURLs.count, index != activeURLIndex else { return }
+        activeURLIndex = index
+        defaults.set(index, forKey: activeKey)
+        // 清空当前配置，触发重新加载
+        config = nil
+        isLoaded = false
+        parses = []
+    }
+
+    /// 删除指定订阅源
+    func removeURL(_ url: String) {
+        configURLs.removeAll { $0 == url }
+        defaults.set(configURLs, forKey: urlsKey)
+        if activeURLIndex >= configURLs.count {
+            activeURLIndex = max(0, configURLs.count - 1)
+            defaults.set(activeURLIndex, forKey: activeKey)
+        }
     }
 
     func loadConfig(from urlString: String) async {
