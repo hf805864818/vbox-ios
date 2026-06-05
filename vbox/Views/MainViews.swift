@@ -549,7 +549,6 @@ struct VideoCard: View {
             .fullScreenCover(isPresented: $showDetail) {
                 VideoDetailView(video: video)
             }
-        }
     }
 }
 
