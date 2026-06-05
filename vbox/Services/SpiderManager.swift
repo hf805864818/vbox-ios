@@ -80,21 +80,8 @@ class SpiderManager: ObservableObject {
             }
         }
         
-        // 2. 如果还没有内置蜘蛛，使用内置蜘蛛
-        if engines["builtin"] == nil, !spiderLoaded {
-            print("[SpiderManager] 使用内置蜘蛛引擎")
-            let builtinSite = SiteConfig(key: "builtin", name: "内置搜索", type: 3, api: "builtin", ext: nil)
-            self.allSites.insert(builtinSite, at: 0)
-            loadedSiteCount = allSites.count
-            do {
-                try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
-                spiderLoaded = true
-                print("[SpiderManager] ✅ 内置蜘蛛加载成功")
-            } catch {
-                print("[SpiderManager] ❌ 内置蜘蛛加载失败: \(error.localizedDescription)")
-                errorMessage = "蜘蛛加载失败"
-            }
-        }
+        // 2. QuickJS 引擎暂不在这里加载，搜索时走 nativeSearch 兜底
+        // 后续接入稳定数据源后再启用蜘蛛引擎
         
         // 3. 尝试加载每个站点的 ext 字段（如果是 JS 的话）
         for site in allSites where site.key != "builtin" {
