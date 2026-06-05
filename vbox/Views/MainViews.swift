@@ -575,7 +575,6 @@ struct SearchView: View {
                         if spiderManager.enginesCount > 0 {
                             Text("蜘蛛引擎: " + String(spiderManager.enginesCount)).font(.system(size: 12)).foregroundColor(.green)
                         }
-                        }
                     }
                 } else {
                     SearchResultsView(results: searchResults)
