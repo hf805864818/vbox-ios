@@ -87,33 +87,6 @@ struct SiteConfig: Codable {
         }
     }
 }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        key = try container.decode(String.self, forKey: .key)
-        name = try container.decode(String.self, forKey: .name)
-        type = try container.decode(Int.self, forKey: .type)
-        api = try? container.decode(String.self, forKey: .api)
-        searchable = try? container.decode(Int.self, forKey: .searchable)
-        quickSearch = try? container.decode(Int.self, forKey: .quickSearch)
-        filterable = try? container.decode(Int.self, forKey: .filterable)
-        jar = try? container.decode(String.self, forKey: .jar)
-        playerType = try? container.decode(Int.self, forKey: .playerType)
-        changeable = try? container.decode(Int.self, forKey: .changeable)
-        
-        // ext：兼容字符串和对象
-        if let extStr = try? container.decode(String.self, forKey: .ext) {
-            ext = extStr
-        } else if let extObj = try? container.decode([String: AnyCodable].self, forKey: .ext) {
-            // ext是对象时，取第一个字符串值
-            ext = extObj.compactMap { $0.value as? String }.first
-        } else if let extArr = try? container.decode([String].self, forKey: .ext) {
-            ext = extArr.first
-        } else {
-            ext = nil
-        }
-    }
-}
 
 struct SubscribeConfig: Codable {
     let sites: [SiteConfig]
@@ -266,7 +239,6 @@ extension Color {
         )
     }
 }
-
 
 // MARK: - UIApplication 扩展
 extension UIApplication {

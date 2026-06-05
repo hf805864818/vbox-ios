@@ -192,7 +192,6 @@ struct VideoDetailView: View {
         .zIndex(1000)
     }  // ZStack
 }  // VideoDetailView
-}
 
 // 液态光晕效果
 struct LiquidGlow: View {
@@ -1434,5 +1433,4 @@ struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_: AVPlayerViewController, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator() }
     class Coordinator { var player: AVPlayer? }
-}
 }
