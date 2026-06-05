@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  MARKETING_VERSION: "3.14"
+  MARKETING_VERSION: "3.16"
 
 jobs:
   build:
@@ -65,3 +65,4 @@ jobs:
             vbox.ipa
         env:
           GH_TOKEN: ${{ github.token }}
+
