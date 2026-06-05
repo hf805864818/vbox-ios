@@ -59,6 +59,39 @@ struct SiteConfig: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         key = try container.decode(String.self, forKey: .key)
         name = try container.decode(String.self, forKey: .name)
+        // type 兼容整数和字符串
+        if let typeInt = try? container.decode(Int.self, forKey: .type) {
+            type = typeInt
+        } else if let typeStr = try? container.decode(String.self, forKey: .type) {
+            type = Int(typeStr) ?? 0
+        } else {
+            type = 0
+        }
+        api = try? container.decode(String.self, forKey: .api)
+        searchable = try? container.decode(Int.self, forKey: .searchable)
+        quickSearch = try? container.decode(Int.self, forKey: .quickSearch)
+        filterable = try? container.decode(Int.self, forKey: .filterable)
+        jar = try? container.decode(String.self, forKey: .jar)
+        playerType = try? container.decode(Int.self, forKey: .playerType)
+        changeable = try? container.decode(Int.self, forKey: .changeable)
+        
+        // ext：兼容字符串和对象
+        if let extStr = try? container.decode(String.self, forKey: .ext) {
+            ext = extStr
+        } else if let extObj = try? container.decode([String: AnyCodable].self, forKey: .ext) {
+            ext = extObj.compactMap { $0.value as? String }.first
+        } else if let extArr = try? container.decode([String].self, forKey: .ext) {
+            ext = extArr.first
+        } else {
+            ext = nil
+        }
+    }
+}
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        name = try container.decode(String.self, forKey: .name)
         type = try container.decode(Int.self, forKey: .type)
         api = try? container.decode(String.self, forKey: .api)
         searchable = try? container.decode(Int.self, forKey: .searchable)
@@ -89,9 +122,34 @@ struct SubscribeConfig: Codable {
     let lives: [LiveConfig]?
     let flags: [String]?
     let banned: [String]?
+    // 解析器配置
+    let parses: [ParseConfig]?
     
     enum CodingKeys: String, CodingKey {
-        case sites, spider, wallpaper, lives, flags, banned
+        case sites, spider, wallpaper, lives, flags, banned, parses
+    }
+}
+
+struct ParseConfig: Codable {
+    let name: String
+    let url: String
+    let type: Int?  // 0=未知，1=JSON API，2=Web 解析器
+    
+    init(name: String, url: String, type: Int? = nil) {
+        self.name = name
+        self.url = url
+        self.type = type
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        url = try container.decode(String.self, forKey: .url)
+        type = try? container.decode(Int.self, forKey: .type)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case name, url, type
     }
 }
 

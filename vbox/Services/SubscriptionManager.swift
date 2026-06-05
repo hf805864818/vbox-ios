@@ -6,6 +6,7 @@ class SubscriptionManager: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var configURLs: [String] = []
+    @Published var parses: [ParseConfig] = []  // 解析器列表
     
     private let defaults = UserDefaults.standard
     private let urlsKey = "subscribed_config_urls"
@@ -99,8 +100,20 @@ class SubscriptionManager: ObservableObject {
             let cleanData = try JSONSerialization.data(withJSONObject: jsonDict)
             let config = try JSONDecoder().decode(SubscribeConfig.self, from: cleanData)
             
+            // 提取解析器配置
+            let parses = jsonDict["parses"] as? [[String: Any]] ?? []
+            var parseConfigs: [ParseConfig] = []
+            for parse in parses {
+                if let name = parse["name"] as? String,
+                   let url = parse["url"] as? String {
+                    let type = parse["type"] as? Int
+                    parseConfigs.append(ParseConfig(name: name, url: url, type: type))
+                }
+            }
+            
             await MainActor.run {
                 self.config = config
+                self.parses = parseConfigs
                 self.isLoaded = true
                 self.isLoading = false
                 if !self.configURLs.contains(urlString) {
@@ -108,6 +121,7 @@ class SubscriptionManager: ObservableObject {
                     self.defaults.set(self.configURLs, forKey: self.urlsKey)
                 }
                 self.cacheConfig(rawData: jsonData)
+                print("[SubscriptionManager] ✅ 加载 \(parseConfigs.count) 个解析器")
             }
             
         } catch {
