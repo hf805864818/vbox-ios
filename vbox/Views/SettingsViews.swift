@@ -532,10 +532,10 @@ struct SubscribeConfigView: View {
         isLoading = true
         
         Task {
-            await spiderManager.loadSubscribeConfig(from: subscribeURL)
+            await SpiderManager.shared.loadSubscribeConfig(from: subscribeURL)
             await MainActor.run {
                 isLoading = false
-                if let error = spiderManager.errorMessage {
+                if let error = SpiderManager.shared.errorMessage {
                     errorMessage = error
                     showErrorAlert = true
                 } else {
