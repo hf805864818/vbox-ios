@@ -7,10 +7,12 @@ struct VideoDetailView: View {
     let video: VodItem
     @State private var showPlayer = false
     @State private var isFavorite = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
+        ZStack(alignment: .topLeading) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
                 // 封面和播放按钮
                 ZStack(alignment: .bottomLeading) {
                     AsyncImage(url: URL(string: video.vodPic)) { phase in
@@ -167,9 +169,25 @@ struct VideoDetailView: View {
         }
         .background(Color(hex: "000000"))
         .ignoresSafeArea()
-        .navigationBarHidden(true)
         .fullScreenCover(isPresented: $showPlayer) {
             VideoPlayerView(video: video)
+        }
+        
+        // 返回按钮（悬浮在左上角）
+        VStack {
+            HStack {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .padding(.leading, 16)
+                .padding(.top, 8)
+                Spacer()
+            }
+            Spacer()
         }
     }
 }
@@ -585,7 +603,7 @@ struct VideoPlayerView: View {
 
         // 蜘蛛解析失败，尝试 nativeDetail
         log("3/3 尝试 nativeDetail(订阅源)...")
-        let nativeDetail = await spider.nativeDetail(ids: video.vodId)
+        let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nativeDetail {
             log("nativeDetail 返回: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil")")
             if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty,

@@ -453,45 +453,108 @@ globalThis.__JS_SPIDER__ = _spider;
     }
     
     /// 通过订阅源的 type=1 站点获取详情+播放地址
-    func nativeDetail(ids: String) async -> VodItem? {
+    /// 先用 ids 查，失败则用 name 搜索匹配
+    func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
-        if apiSites.isEmpty { return nil }
+        if apiSites.isEmpty { 
+            print("[SpiderManager] nativeDetail 失败: 无订阅源 apiSites")
+            return nil 
+        }
+        print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用apiSites=\(apiSites.count)个")
         
         for site in apiSites {
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
             let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
-            guard let detailURL = URL(string: "\(api)?ac=videolist&ids=\(ids)") else { continue }
             
-            do {
-                var req = URLRequest(url: detailURL)
-                req.timeoutInterval = 10
-                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-                let (data, _) = try await URLSession.shared.data(for: req)
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let list = json["list"] as? [[String: Any]],
-                   let first = list.first {
-                    let item = VodItem(
-                        vodId: String(describing: first["vod_id"] ?? ""),
-                        vodName: (first["vod_name"] as? String) ?? "",
-                        vodPic: (first["vod_pic"] as? String) ?? "",
-                        vodRemarks: site.name,
-                        vodYear: first["vod_year"] as? String,
-                        vodDirector: first["vod_director"] as? String,
-                        vodActor: first["vod_actor"] as? String,
-                        vodContent: first["vod_content"] as? String,
-                        vodPlayFrom: first["vod_play_from"] as? String,
-                        vodPlayUrl: first["vod_play_url"] as? String
-                    )
-                    if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
-                        print("[SpiderManager] nativeDetail 成功: \(site.name)")
-                        return item
-                    }
+            // 先尝试用 ids
+            if let detailURL = URL(string: "\(api)?ac=videolist&ids=\(ids)") {
+                if let result = await fetchDetail(url: detailURL, siteName: site.name) {
+                    return result
                 }
-            } catch {
-                print("[SpiderManager] nativeDetail \(site.name) 失败: \(error.localizedDescription)")
+            }
+            
+            // ids 失败，用名称搜索
+            if let n = name, !n.isEmpty,
+               let encN = n.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let searchURL = URL(string: "\(api)?ac=detail&wd=\(encN)") {
+                if let result = await fetchDetailFromSearchList(url: searchURL, siteName: site.name, targetName: n) {
+                    return result
+                }
             }
         }
+        print("[SpiderManager] nativeDetail 全部站点均失败")
         return nil
+    }
+    
+    private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]],
+               let first = list.first {
+                let item = Self.makeVodItem(from: first, siteName: siteName)
+                if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
+                    print("[SpiderManager] nativeDetail(ids) 成功: \(siteName)")
+                    return item
+                }
+                print("[SpiderManager] nativeDetail(ids) \(siteName): 有记录但无vod_play_url/vod_play_from")
+            } else {
+                // 记录原始响应以辅助调试
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print("[SpiderManager] nativeDetail(ids) \(siteName): 响应无list, keys=\(json.keys.sorted())")
+                } else {
+                    print("[SpiderManager] nativeDetail(ids) \(siteName): 非JSON或空响应")
+                }
+            }
+        } catch {
+            print("[SpiderManager] nativeDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
+        }
+        return nil
+    }
+    
+    private func fetchDetailFromSearchList(url: URL, siteName: String, targetName: String) async -> VodItem? {
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]] {
+                // 按名称匹配
+                for item in list {
+                    let itemName = (item["vod_name"] as? String) ?? ""
+                    if itemName.contains(targetName) || targetName.contains(itemName) {
+                        let vod = Self.makeVodItem(from: item, siteName: siteName)
+                        if vod.vodPlayUrl != nil || vod.vodPlayFrom != nil {
+                            print("[SpiderManager] nativeDetail(name) 匹配成功: \(siteName)")
+                            return vod
+                        }
+                    }
+                }
+                print("[SpiderManager] nativeDetail(name) \(siteName): 搜索到\(list.count)条但无名称匹配或无播放地址")
+            }
+        } catch {
+            print("[SpiderManager] nativeDetail(name) \(siteName) 失败: \(error.localizedDescription)")
+        }
+        return nil
+    }
+    
+    private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
+        VodItem(
+            vodId: String(describing: dict["vod_id"] ?? ""),
+            vodName: (dict["vod_name"] as? String) ?? "",
+            vodPic: (dict["vod_pic"] as? String) ?? "",
+            vodRemarks: siteName,
+            vodYear: dict["vod_year"] as? String,
+            vodDirector: dict["vod_director"] as? String,
+            vodActor: dict["vod_actor"] as? String,
+            vodContent: dict["vod_content"] as? String,
+            vodPlayFrom: dict["vod_play_from"] as? String,
+            vodPlayUrl: dict["vod_play_url"] as? String
+        )
     }
 }
 
