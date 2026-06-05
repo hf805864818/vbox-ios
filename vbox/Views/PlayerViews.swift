@@ -636,19 +636,47 @@ struct VideoPlayerView: View {
             if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
                 // 检查是否为 HTTP/HTTPS 直链
                 if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
-                    if let url = URL(string: playUrl) {
-                        log("✅ nativeDetail 直链播放地址就绪")
-                        await MainActor.run { initPlayer(url: url) }
-                        return
+                    // 检查是否为视频直链格式
+                    if playUrl.hasSuffix(".m3u8") || playUrl.hasSuffix(".mp4") || playUrl.contains(".m3u8?") {
+                        if let url = URL(string: playUrl) {
+                            log("✅ nativeDetail 检测到视频直链")
+                            await MainActor.run { initPlayer(url: url) }
+                            return
+                        }
+                    } else {
+                        // 可能是HTML播放页，尝试解析
+                        log("⚠️ nativeDetail 检测到HTML播放页，尝试解析器...")
+                        if let parsedUrl = await spider.parsePlayUrl(from: playUrl) {
+                            log("✅ 解析器成功解析出视频直链")
+                            if let url = URL(string: parsedUrl) {
+                                await MainActor.run { initPlayer(url: url) }
+                                return
+                            }
+                        }
                     }
                 }
 
                 // 尝试解析 TVBox 格式的播放地址
                 let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: playUrl)
-                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
-                    log("✅ nativeDetail 解析出播放地址")
-                    await MainActor.run { initPlayer(url: url) }
-                    return
+                if let firstUrl = urls.first {
+                    // 检查第一集URL是否为HTML播放页
+                    if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
+                        if let url = URL(string: firstUrl) {
+                            log("✅ nativeDetail 解析出视频直链")
+                            await MainActor.run { initPlayer(url: url) }
+                            return
+                        }
+                    } else {
+                        // 尝试解析HTML播放页
+                        log("⚠️ nativeDetail 第一集为HTML播放页，尝试解析器...")
+                        if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
+                            log("✅ 解析器成功解析出第一集视频直链")
+                            if let url = URL(string: parsedUrl) {
+                                await MainActor.run { initPlayer(url: url) }
+                                return
+                            }
+                        }
+                    }
                 }
             }
 
@@ -656,10 +684,25 @@ struct VideoPlayerView: View {
             if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty,
                let playUrlRaw = nd.vodPlayUrl, !playUrlRaw.isEmpty {
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
-                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
-                    log("✅ nativeDetail 从 vodPlayFrom 提取播放地址")
-                    await MainActor.run { initPlayer(url: url) }
-                    return
+                if let firstUrl = urls.first {
+                    // 检查是否为HTML播放页
+                    if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
+                        if let url = URL(string: firstUrl) {
+                            log("✅ nativeDetail 从 vodPlayFrom 提取视频直链")
+                            await MainActor.run { initPlayer(url: url) }
+                            return
+                        }
+                    } else {
+                        // 尝试解析HTML播放页
+                        log("⚠️ nativeDetail vodPlayFrom第一集为HTML播放页，尝试解析器...")
+                        if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
+                            log("✅ 解析器成功解析出vodPlayFrom视频直链")
+                            if let url = URL(string: parsedUrl) {
+                                await MainActor.run { initPlayer(url: url) }
+                                return
+                            }
+                        }
+                    }
                 }
             }
 

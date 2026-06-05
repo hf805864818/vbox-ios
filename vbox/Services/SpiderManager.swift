@@ -244,47 +244,77 @@ globalThis.__JS_SPIDER__ = _spider;
     
     func loadHomeData() async {
         var videos: [VodItem] = []
+        
+        print("[SpiderManager] ========== 开始加载首页数据 ==========")
+        print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
+        print("[SpiderManager] 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
 
         // 1. 尝试从 QuickJS 蜘蛛获取
         if !engines.isEmpty {
+            print("[SpiderManager] 尝试从蜘蛛引擎获取首页数据...")
             for (key, engine) in engines {
                 do {
+                    print("[SpiderManager] 调用蜘蛛引擎[\(key)]...")
                     let result = try engine.callHomeContent()
-                    self.categories = result.class ?? []
+                    print("[SpiderManager] 蜘蛛[\(key)]返回分类: \(result.class?.count ?? 0)个, 列表: \(result.list?.count ?? 0)个")
+                    
+                    if let categories = result.class, !categories.isEmpty {
+                        self.categories = categories
+                    }
+                    
                     if let list = result.list, !list.isEmpty {
                         videos.append(contentsOf: list)
-                        print("[SpiderManager] 首页[\(key)]: \(list.count)视频")
-                        if videos.count >= 20 { break }
+                        print("[SpiderManager] ✅ 首页[\(key)]: \(list.count)视频")
+                        if videos.count >= 20 { 
+                            print("[SpiderManager] 蜘蛛数据已足够，停止加载")
+                            break 
+                        }
                     }
                 } catch {
-                    print("[SpiderManager] 首页[\(key)]失败: \(error)")
+                    print("[SpiderManager] ❌ 首页[\(key)]失败: \(error)")
                 }
             }
+        } else {
+            print("[SpiderManager] ⚠️ 没有可用的蜘蛛引擎")
         }
 
         // 2. 蜘蛛没数据，用热门关键词走 nativeSearch 填充首页
         if videos.isEmpty {
-            print("[SpiderManager] 蜘蛛首页为空，用热门关键词拉取...")
+            print("[SpiderManager] ⚠️ 蜘蛛首页为空，使用热门关键词通过nativeSearch拉取数据...")
             let hotKeywords = [
                 "热播", "电影", "电视剧", "综艺", "动漫", "2026", "最新",
                 "热门", "高分", "经典", "动作", "喜剧", "爱情", "科幻",
                 "悬疑", "犯罪", "战争", "古装", "现代", "都市"
             ]
-            for kw in hotKeywords {
+            
+            for (index, kw) in hotKeywords.enumerated() {
+                print("[SpiderManager] [\(index+1)/\(hotKeywords.count)] 搜索关键词: \(kw)")
                 let results = await nativeSearch(keyword: kw)
                 print("[SpiderManager] 热门关键词[\(kw)]: \(results.count)条")
                 videos.append(contentsOf: results)
-                if videos.count >= 50 { break }
+                
+                if videos.count >= 50 { 
+                    print("[SpiderManager] ✅ 已收集\(videos.count)条视频，停止搜索")
+                    break 
+                }
+                
+                // 避免请求过快
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5秒延迟
             }
+        } else {
+            print("[SpiderManager] ✅ 蜘蛛数据已收集\(videos.count)条")
         }
 
         // 去重
         var seen = Set<String>()
+        let originalCount = videos.count
         videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
+        print("[SpiderManager] 去重前: \(originalCount)条, 去重后: \(videos.count)条")
 
         await MainActor.run {
             self.homeVideos = videos
             if self.categories.isEmpty {
+                print("[SpiderManager] 使用默认分类")
                 self.categories = [
                     VodCategory(typeId: "movie", typeName: "电影"),
                     VodCategory(typeId: "tv", typeName: "电视剧"),
@@ -292,6 +322,12 @@ globalThis.__JS_SPIDER__ = _spider;
                     VodCategory(typeId: "anime", typeName: "动漫"),
                     VodCategory(typeId: "documentary", typeName: "纪录片"),
                     VodCategory(typeId: "live", typeName: "直播")
+                ]
+            }
+            print("[SpiderManager] ========== 首页数据加载完成 ==========")
+            print("[SpiderManager] 最终结果: \(videos.count)视频, \(categories.count)分类")
+        }
+    }
                 ]
             }
         }
@@ -592,10 +628,14 @@ globalThis.__JS_SPIDER__ = _spider;
         let detailSites = apiSites.isEmpty
             ? allSites.filter { ($0.type == 1 || $0.type == 0) && $0.api != nil && !$0.api!.isEmpty }
             : apiSites
+            
         if detailSites.isEmpty {
             print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
+            print("[SpiderManager] 可用站点总数: \(allSites.count)")
+            print("[SpiderManager] apiSites: \(apiSites.count)")
             return nil
         }
+        
         print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用站点=\(detailSites.count)个")
 
         for site in detailSites {
@@ -633,7 +673,118 @@ globalThis.__JS_SPIDER__ = _spider;
         return nil
     }
     
-private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
+// 解析器体系 - 将HTML播放页解析为视频直链
+    func parsePlayUrl(from playPageUrl: String) async -> String? {
+        // 1. 检查是否已经是直链
+        if playPageUrl.hasSuffix(".m3u8") || playPageUrl.hasSuffix(".mp4") {
+            return playPageUrl
+        }
+        
+        print("[SpiderManager] 开始解析播放页: \(playPageUrl.prefix(60))...")
+        
+        // 2. 尝试多个公共解析器
+        let parsers = [
+            "https://jx.xmflv.com/?url=",
+            "https://jx.quankan.app/?url=",
+            "https://jx.aidouer.net/?url=",
+            "https://jx.m3u8.tv/jiexi/?url=",
+            "https://jx.xmflv.com/?url="
+        ]
+        
+        for parser in parsers {
+            if let parsedUrl = await tryParser(parser, url: playPageUrl) {
+                print("[SpiderManager] ✅ 解析器成功: \(parser)")
+                print("[SpiderManager] 解析结果: \(parsedUrl.prefix(80))...")
+                return parsedUrl
+            }
+        }
+        
+        print("[SpiderManager] ❌ 所有解析器均失败")
+        return nil
+    }
+    
+    private func tryParser(_ parserBase: String, url: String) async -> String? {
+        let parseUrl = "\(parserBase)\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
+        
+        guard let requestUrl = URL(string: parseUrl) else { return nil }
+        
+        do {
+            var request = URLRequest(url: requestUrl)
+            request.timeoutInterval = 8
+            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            
+            // 尝试从响应中提取m3u8/mp4链接
+            if let responseStr = String(data: data, encoding: .utf8) {
+                // 正则匹配视频链接
+                let patterns = [
+                    "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*",
+                    "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*",
+                    "\"url\":\\s*\"([^\"]+)\""
+                ]
+                
+                for pattern in patterns {
+                    if let regex = try? NSRegularExpression(pattern: pattern),
+                       let match = regex.firstMatch(in: responseStr, range: NSRange(responseStr.startIndex..., in: responseStr)) {
+                        
+                        let result = (responseStr as NSString).substring(with: match.range(at: match.numberOfRanges - 1))
+                        
+                        // 清理JSON格式的URL
+                        if result.hasPrefix("\"") && result.hasSuffix("\"") {
+                            let cleaned = String(result.dropFirst().dropLast())
+                            if cleaned.hasPrefix("http") {
+                                return cleaned
+                            }
+                        } else if result.hasPrefix("http") {
+                            return result
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[SpiderManager] 解析器请求失败: \(error.localizedDescription)")
+        }
+        
+        return nil
+    }
+    
+    // 从vodPlayUrl中提取第一集URL
+    private func extractFirstPlayableUrl(from vodPlayUrl: String?) -> String? {
+        guard let playUrl = vodPlayUrl, !playUrl.isEmpty else {
+            return nil
+        }
+        
+        // 格式：第1集$http://...#第2集$http://...
+        let episodes = playUrl.components(separatedBy: "#")
+        
+        for episode in episodes {
+            // 提取URL部分
+            if let urlRange = episode.range(of: "http") {
+                let url = String(episode[urlRange.lowerBound...])
+                // 清理可能的尾部字符
+                if let endRange = url.range(of: ["$", "&", "?"].map { String($0) }, options: .regularExpression) {
+                    return String(url[..<endRange.lowerBound])
+                }
+                return url
+            }
+        }
+        
+        // 如果没有#分隔符，直接检查是否包含http
+        if playUrl.contains("http") {
+            if let urlRange = playUrl.range(of: "http") {
+                let url = String(playUrl[urlRange.lowerBound...])
+                if let endRange = url.range(of: ["$", "&", "?"].map { String($0) }, options: .regularExpression) {
+                    return String(url[..<endRange.lowerBound])
+                }
+                return url
+            }
+        }
+        
+        return nil
+    }
+
+    private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
     do {
         var req = URLRequest(url: url)
         req.timeoutInterval = 10
@@ -709,17 +860,50 @@ private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
     }
     
     private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
-        VodItem(
-            vodId: String(describing: dict["vod_id"] ?? ""),
-            vodName: (dict["vod_name"] as? String) ?? "",
-            vodPic: (dict["vod_pic"] as? String) ?? "",
-            vodRemarks: siteName,
-            vodYear: dict["vod_year"] as? String,
-            vodDirector: dict["vod_director"] as? String,
-            vodActor: dict["vod_actor"] as? String,
-            vodContent: dict["vod_content"] as? String,
-            vodPlayFrom: dict["vod_play_from"] as? String,
-            vodPlayUrl: dict["vod_play_url"] as? String
+        // 兼容多种字段名变体
+        let vodId = String(describing: dict["vod_id"] ?? dict["id"] ?? "")
+        let vodName = (dict["vod_name"] as? String) ?? (dict["name"] as? String) ?? ""
+        let vodPic = (dict["vod_pic"] as? String) ?? (dict["pic"] as? String) ?? ""
+        let vodRemarks = siteName
+        let vodYear = dict["vod_year"] as? String
+        let vodDirector = dict["vod_director"] as? String
+        let vodActor = dict["vod_actor"] as? String
+        let vodContent = dict["vod_content"] as? String
+        
+        // 处理vodPlayFrom - 兼容多种字段名
+        var vodPlayFrom: String?
+        if let from = dict["vod_play_from"] as? String, !from.isEmpty {
+            vodPlayFrom = from
+        } else if let from = dict["play_from"] as? String, !from.isEmpty {
+            vodPlayFrom = from
+        } else if let from = dict["from"] as? String, !from.isEmpty {
+            vodPlayFrom = from
+        }
+        
+        // 处理vodPlayUrl - 兼容多种字段名，包括拼写错误
+        var vodPlayUrl: String?
+        if let url = dict["vod_play_url"] as? String, !url.isEmpty {
+            vodPlayUrl = url
+        } else if let url = dict["play_url"] as? String, !url.isEmpty {
+            vodPlayUrl = url
+        } else if let url = dict["url"] as? String, !url.isEmpty {
+            vodPlayUrl = url
+        } else if let url = dict["vodPrayUrt"] as? String, !url.isEmpty {
+            // 修复拼写错误：vodPrayUrt → vodPlayUrl
+            vodPlayUrl = url
+        }
+        
+        return VodItem(
+            vodId: vodId,
+            vodName: vodName,
+            vodPic: vodPic,
+            vodRemarks: vodRemarks,
+            vodYear: vodYear,
+            vodDirector: vodDirector,
+            vodActor: vodActor,
+            vodContent: vodContent,
+            vodPlayFrom: vodPlayFrom,
+            vodPlayUrl: vodPlayUrl
         )
     }
 }
