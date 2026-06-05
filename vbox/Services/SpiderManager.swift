@@ -243,20 +243,52 @@ globalThis.__JS_SPIDER__ = _spider;
     }
     
     func loadHomeData() async {
-        guard !engines.isEmpty else {
-            print("[SpiderManager] 没有引擎，无法加载首页")
-            return
-        }
-        if let (_, engine) = engines.first {
-            do {
-                let result = try engine.callHomeContent()
-                self.categories = result.class ?? []
-                self.homeVideos = result.list ?? []
-                print("[SpiderManager] 首页: \(homeVideos.count)视频 \(categories.count)分类")
-            } catch {
-                print("[SpiderManager] 首页失败: \(error.localizedDescription)")
+        var videos: [VodItem] = []
+        
+        // 1. 尝试从 QuickJS 蜘蛛获取
+        if !engines.isEmpty {
+            for (key, engine) in engines {
+                do {
+                    let result = try engine.callHomeContent()
+                    self.categories = result.class ?? []
+                    if let list = result.list, !list.isEmpty {
+                        videos.append(contentsOf: list)
+                        print("[SpiderManager] 首页[\(key)]: \(list.count)视频")
+                        if videos.count >= 20 { break }
+                    }
+                } catch {
+                    print("[SpiderManager] 首页[\(key)]失败: \(error)")
+                }
             }
         }
+        
+        // 2. 蜘蛛没数据，用热门关键词走 nativeSearch 填充首页
+        if videos.isEmpty {
+            print("[SpiderManager] 蜘蛛首页为空，用热门关键词拉取...")
+            let hotKeywords = ["热播", "电影", "电视剧", "综艺", "动漫", "2026", "最新"]
+            for kw in hotKeywords {
+                let results = await nativeSearch(keyword: kw)
+                videos.append(contentsOf: results)
+                if videos.count >= 30 { break }
+            }
+        }
+        
+        // 去重
+        var seen = Set<String>()
+        videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
+        
+        await MainActor.run {
+            self.homeVideos = videos
+            if self.categories.isEmpty {
+                self.categories = [
+                    VodCategory(typeId: "movie", typeName: "电影"),
+                    VodCategory(typeId: "tv", typeName: "电视剧"),
+                    VodCategory(typeId: "variety", typeName: "综艺"),
+                    VodCategory(typeId: "anime", typeName: "动漫")
+                ]
+            }
+        }
+        print("[SpiderManager] 首页: \(homeVideos.count)视频 \(categories.count)分类")
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
@@ -481,13 +513,17 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 先用 ids 查，失败则用 name 搜索匹配
     func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
-        if apiSites.isEmpty { 
-            print("[SpiderManager] nativeDetail 失败: 无订阅源 apiSites")
+        // 如果 apiSites 为空，降级用 allSites 中的 type=1 站点
+        let detailSites = apiSites.isEmpty 
+            ? allSites.filter { $0.type == 1 && $0.api != nil && !$0.api!.isEmpty } 
+            : apiSites
+        if detailSites.isEmpty { 
+            print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
             return nil 
         }
-        print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用apiSites=\(apiSites.count)个")
+        print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用站点=\(detailSites.count)个")
         
-        for site in apiSites {
+        for site in detailSites {
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
             let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
             
@@ -523,11 +559,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 // 打印完整字段名以便调试
                 print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
                 let item = Self.makeVodItem(from: first, siteName: siteName)
-                if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
-                    print("[SpiderManager] nativeDetail(ids) 成功: \(siteName)")
-                    return item
-                }
-                print("[SpiderManager] nativeDetail(ids) \(siteName): 有记录但无vod_play_url/vod_play_from, keys=\(first.keys.sorted())")
+                print("[SpiderManager] nativeDetail(ids) \(siteName): vodPlayUrl=\(item.vodPlayUrl?.prefix(30) ?? \"nil\"), vodPlayFrom=\(item.vodPlayFrom?.prefix(30) ?? \"nil\")")
+                return item
             } else {
                 if let rawStr = String(data: data, encoding: .utf8) {
                     let preview = String(rawStr.prefix(200))
@@ -553,10 +586,8 @@ globalThis.__JS_SPIDER__ = _spider;
                     let itemName = (item["vod_name"] as? String) ?? ""
                     if itemName.contains(targetName) || targetName.contains(itemName) {
                         let vod = Self.makeVodItem(from: item, siteName: siteName)
-                        if vod.vodPlayUrl != nil || vod.vodPlayFrom != nil {
-                            print("[SpiderManager] nativeDetail(name) 匹配成功: \(siteName)")
-                            return vod
-                        }
+                        print("[SpiderManager] nativeDetail(name) 匹配成功: \(siteName)")
+                        return vod
                     }
                 }
                 print("[SpiderManager] nativeDetail(name) \(siteName): 搜索到\(list.count)条但无名称匹配或无播放地址")
