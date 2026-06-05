@@ -186,68 +186,35 @@ struct HomeView: View {
 
                 if isLoading {
                     VStack(spacing: 20) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .padding(.top, 100)
-                        Text("正在加载...")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
+                        ProgressView().scaleEffect(1.5).padding(.top, 100)
+                        Text("正在加载...").font(.system(size: 14)).foregroundColor(.secondary)
                     }
                 } else if spiderManager.homeVideos.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: 50))
-                            .foregroundColor(.gray.opacity(0.5))
-                            .padding(.top, 80)
-                        Text("暂无首页数据")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.secondary)
-                        if spiderManager.loadedSiteCount > 0 {
-                            Text("已加载 \(spiderManager.loadedSiteCount) 个站点")
-                                .font(.system(size: 14))
-                                .foregroundColor(.orange)
-                                .padding(.top, 4)
-                            
-                            LazyVStack(spacing: 8) {
-                                ForEach(spiderManager.allSites.prefix(50), id: \.key) { site in
-                                    HStack {
-                                        Text(site.name)
-                                            .font(.system(size: 13))
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Text(site.type == 3 ? "JS" : "API")
-                                            .font(.system(size: 10))
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Color(hex: "E11D48"))
-                                            .cornerRadius(4)
-                                    }
-                                    .padding(.horizontal, 16).padding(.vertical, 6)
-                                }
+                    FeaturedCarousel(videos: mockVideos.prefix(5).map{ $0 })
+                    
+                    SectionHeader(title: "站点列表 (" + String(spiderManager.loadedSiteCount) + ")", icon: "antenna.radiowaves.left.and.right")
+                    LazyVStack(spacing: 6) {
+                        ForEach(spiderManager.allSites.prefix(30), id: \.key) { site in
+                            HStack {
+                                Text(site.name).font(.system(size: 14)).lineLimit(1)
+                                Spacer()
+                                Text(site.type == 3 ? "JS" : "API").font(.system(size: 10)).foregroundColor(.white)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Color(hex: "E11D48").opacity(0.8))
+                                    .cornerRadius(4)
                             }
-                            .padding(.top, 8)
-                                .foregroundColor(.orange)
-                                .padding(.top, 4)
-                        } else {
-                            Text("请先在「设置」中添加订阅源")
-                                .font(.system(size: 14))
-                                .foregroundColor(.gray)
-                        }
-                        if let err = spiderManager.errorMessage {
-                            Text(err)
-                                .font(.system(size: 12))
-                                .foregroundColor(.red)
-                                .padding(.top, 8)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(Color.white.opacity(0.03))
                         }
                     }
+                    .padding(.horizontal, 16)
                 } else {
                     let v = spiderManager.homeVideos
                     FeaturedCarousel(videos: Array(v.prefix(5)))
-
                     SectionHeader(title: "热门推荐", icon: "flame.fill")
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
                         ForEach(Array(v.prefix(6))) { video in VideoCard(video: video) }
                     }.padding(.horizontal, 16)
-
                     SectionHeader(title: "最新更新", icon: "clock.fill")
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
                         ForEach(Array(v.dropFirst(6).prefix(6))) { video in VideoCard(video: video) }
@@ -579,18 +546,33 @@ struct SectionHeader: View {
 
 // MARK: - 搜索视图
 struct SearchView: View {
+    @StateObject private var spiderManager = SpiderManager.shared
     @State private var searchText = ""
     @State private var isSearching = false
     @State private var searchResults: [VodItem] = []
+    @State private var isSearchLoading = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // 搜索栏
-            SearchBar(searchText: $searchText, isSearching: $isSearching)
-
-            // 搜索内容
+            SearchBar(searchText: $searchText, isSearching: $isSearching, onSearch: performSearch)
+            
             if isSearching {
-                SearchResultsView(results: searchResults)
+                if isSearchLoading {
+                    VStack(spacing: 20) {
+                        ProgressView().scaleEffect(1.5).padding(.top, 80)
+                        Text("搜索中...").font(.system(size: 14)).foregroundColor(.secondary)
+                    }
+                } else if searchResults.isEmpty {
+                    VStack(spacing: 20) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
+                        Text("未找到结果").font(.system(size: 16)).foregroundColor(.secondary)
+                        if spiderManager.loadedSiteCount > 0 {
+                            Text("已加载 " + String(spiderManager.loadedSiteCount) + " 个站点").font(.system(size: 13)).foregroundColor(.orange)
+                        }
+                    }
+                } else {
+                    SearchResultsView(results: searchResults)
+                }
             } else {
                 SearchSuggestionsView()
             }
@@ -598,12 +580,25 @@ struct SearchView: View {
         .background(Color(hex: "000000"))
         .ignoresSafeArea(.keyboard)
     }
+    
+    private func performSearch() {
+        guard !searchText.isEmpty else { return }
+        isSearching = true
+                onSearch?()
+        isSearchLoading = true
+        Task {
+            let results = await spiderManager.search(keyword: searchText)
+            self.searchResults = results
+            self.isSearchLoading = false
+        }
+    }
 }
 
 // 搜索栏
 struct SearchBar: View {
     @Binding var searchText: String
     @Binding var isSearching: Bool
+    var onSearch: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -676,6 +671,7 @@ struct SearchBar: View {
     private func performSearch() {
         guard !searchText.isEmpty else { return }
         isSearching = true
+                onSearch?()
     }
 }
 
