@@ -823,9 +823,6 @@ struct KeywordButton: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .fullScreenCover(isPresented: $showDetail) {
-            VideoDetailView(video: video)
-        }
     }
 }
 

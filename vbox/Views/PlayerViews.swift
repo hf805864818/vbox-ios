@@ -719,7 +719,7 @@ struct VideoPlayerView: View {
                 if playUrl.count <= 300 {
                     for (index, char) in playUrl.enumerated() {
                         if index % 50 == 0 {
-                            log("       第\(index)字符起: '\(String(playUrl.suffix(from: index).prefix(50)))'")
+                            log("       第\(index)字符起: '\(String(playUrl.dropFirst(index).prefix(50)))'")
                         }
                     }
                 } else {
@@ -964,7 +964,7 @@ struct VideoPlayerView: View {
                         var url = String(playUrl[range])
 
                         // 清理尾部
-                        let stopChars = ["\"", "'", "<", ">", "\n", "\r"]
+                        let stopChars: Set<Character> = ["\"", "'", "<", ">", "\n", "\r"]
                         while let last = url.last, stopChars.contains(last) {
                             url.removeLast()
                         }
