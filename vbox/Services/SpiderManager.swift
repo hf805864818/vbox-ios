@@ -193,8 +193,23 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     private func loadSitesFromSubscription() async {
+        // 如果 subManager.config 为空但之前通过 apiyuan 转换过站点，
+        // 从 subManager 的内部加载
         guard let config = subManager.config else {
-            errorMessage = "订阅源配置为空"
+            // 检查是否通过 apiyuan/zhanyuan 转换加载过站点
+            if subManager.isLoaded, !subManager.allSites.isEmpty {
+                self.allSites = subManager.allSites
+                loadedSiteCount = allSites.count
+                print("[SpiderManager] 从 subManager.allSites 加载 \(loadedSiteCount) 个站点")
+            } else {
+                errorMessage = "订阅源配置为空"
+                return
+            }
+            // 没有 config 但有站点，继续加载引擎
+            await loadBuiltinEngineIfNeeded()
+            let totalSites = allSites.count
+            print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
+            print("[SpiderManager] 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
             return
         }
 
