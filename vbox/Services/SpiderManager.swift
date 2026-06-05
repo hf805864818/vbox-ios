@@ -451,5 +451,46 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
     }
+    
+    /// 通过订阅源的 type=1 站点获取详情+播放地址
+    func nativeDetail(ids: String) async -> VodItem? {
+        let apiSites = subManager.apiSites
+        if apiSites.isEmpty { return nil }
+        
+        for site in apiSites {
+            let api = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
+            guard let detailURL = URL(string: "\(api)?ac=videolist&ids=\(ids)") else { continue }
+            
+            do {
+                var req = URLRequest(url: detailURL)
+                req.timeoutInterval = 10
+                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                let (data, _) = try await URLSession.shared.data(for: req)
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let list = json["list"] as? [[String: Any]],
+                   let first = list.first {
+                    let item = VodItem(
+                        vodId: String(describing: first["vod_id"] ?? ""),
+                        vodName: (first["vod_name"] as? String) ?? "",
+                        vodPic: (first["vod_pic"] as? String) ?? "",
+                        vodRemarks: site.name,
+                        vodPlayFrom: first["vod_play_from"] as? String,
+                        vodPlayUrl: first["vod_play_url"] as? String,
+                        vodContent: first["vod_content"] as? String,
+                        vodYear: first["vod_year"] as? String,
+                        vodDirector: first["vod_director"] as? String,
+                        vodActor: first["vod_actor"] as? String
+                    )
+                    if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
+                        print("[SpiderManager] nativeDetail 成功: \(site.name)")
+                        return item
+                    }
+                }
+            } catch {
+                print("[SpiderManager] nativeDetail \(site.name) 失败: \(error.localizedDescription)")
+            }
+        }
+        return nil
+    }
 }
 

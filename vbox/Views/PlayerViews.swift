@@ -425,6 +425,8 @@ struct VideoPlayerView: View {
     @State private var isFullscreen = true
     @State private var isPictureInPicture = false
     @State private var controlsOpacity: Double = 1.0
+    @State private var isLoading = true
+    @State private var loadError: String?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playerTimeObserver = PlayerTimeObserver()
@@ -434,16 +436,30 @@ struct VideoPlayerView: View {
             Color.black
                 .ignoresSafeArea()
 
-            if let player = player {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    Text("加载中...")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+            } else if let error = loadError {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Button("返回") { dismiss() }
+                        .foregroundColor(Color(hex: "E11D48"))
+                }
+            } else if let player = player {
                 VideoPlayer(player: player)
-                    .onAppear {
-                        setupPlayer()
-                    }
-                    .onDisappear {
-                        player.pause()
-                    }
                     .overlay(
-                        // 点击显示/隐藏控制
                         Color.black.opacity(0.01)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -452,15 +468,11 @@ struct VideoPlayerView: View {
                                 }
                             }
                     )
-            } else {
-                ProgressView()
-                    .scaleEffect(1.5)
             }
 
             // 控制层
-            if showControls {
+            if showControls && !isLoading && loadError == nil {
                 VStack(spacing: 0) {
-                    // 顶部控制栏
                     TopControlBar(
                         title: video.vodName,
                         isPlaying: $isPlaying,
@@ -473,7 +485,6 @@ struct VideoPlayerView: View {
 
                     Spacer()
 
-                    // 底部控制栏
                     BottomControlBar(
                         currentTime: currentTime,
                         duration: duration,
@@ -487,7 +498,6 @@ struct VideoPlayerView: View {
                     .opacity(controlsOpacity)
                 }
                 .background(
-                    // 毛玻璃效果
                     LinearGradient(
                         colors: [
                             Color.black.opacity(0.7),
@@ -501,58 +511,115 @@ struct VideoPlayerView: View {
             }
         }
         .statusBar(hidden: isFullscreen)
+        .onAppear {
+            setupPlayer()
+        }
+        .onDisappear {
+            player?.pause()
+        }
     }
 
     private func setupPlayer() {
-        // 这里使用示例URL，实际应用中应该使用视频的真实URL
-        guard let url = URL(string: "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4") else { return }
-
-        player = AVPlayer(url: url)
-
-        // 观察播放状态
-        player?.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
-            queue: .main
-        ) { [self] time in
-            currentTime = time.seconds
+        // 优先使用已有的播放地址
+        let urlString = video.vodPlayUrl ?? ""
+        if !urlString.isEmpty, let url = URL(string: urlString) {
+            initPlayer(url: url)
+            return
         }
 
-        // 获取视频时长
-        player?.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration"]) {
-            DispatchQueue.main.async {
-                if let duration = player?.currentItem?.asset.duration {
-                    self.duration = CMTimeGetSeconds(duration)
+        // 没有播放地址，通过蜘蛛获取
+        isLoading = true
+        Task {
+            await resolvePlayUrl()
+        }
+    }
+
+    private func resolvePlayUrl() async {
+        let spider = SpiderManager.shared
+        // 用 vodId 获取详情（含播放地址）
+        if let detail = await spider.getDetail(ids: video.vodId) {
+            if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty,
+               let url = URL(string: playUrl) {
+                await MainActor.run { initPlayer(url: url) }
+                return
+            }
+            // 尝试从 vodPlayFrom + vodPlayUrl 解析
+            if let playFrom = detail.vodPlayFrom, let playUrlRaw = detail.vodPlayUrl {
+                let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
+                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
+                    await MainActor.run { initPlayer(url: url) }
+                    return
                 }
             }
         }
 
-        player?.play()
+        // 蜘蛛解析失败，尝试 nativeDetail
+        let nativeDetail = await spider.nativeDetail(ids: video.vodId)
+        if let playUrl = nativeDetail?.vodPlayUrl, !playUrl.isEmpty,
+           let url = URL(string: playUrl) {
+            await MainActor.run { initPlayer(url: url) }
+            return
+        }
+
+        await MainActor.run {
+            isLoading = false
+            loadError = "无法获取播放地址\n请尝试其他来源"
+        }
+    }
+
+    private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
+        // TVBox 格式: playFrom = "线路1$$$线路2"  playUrl = "第1集$url1#第2集$url2$$$第1集$url3"
+        // 简化：提取所有 http 开头的 URL
+        var results: [String] = []
+        let pattern = #"https?://[^\s#]+"#
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            let range = NSRange(playUrl.startIndex..., in: playUrl)
+            let matches = regex.matches(in: playUrl, range: range)
+            for m in matches {
+                if let r = Range(m.range, in: playUrl) {
+                    results.append(String(playUrl[r]))
+                }
+            }
+        }
+        return results
+    }
+
+    private func initPlayer(url: URL) {
+        let p = AVPlayer(url: url)
+        p.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
+            queue: .main
+        ) { [weak p] time in
+            currentTime = time.seconds
+        }
+        p.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration"]) {
+            DispatchQueue.main.async {
+                if let d = p.currentItem?.asset.duration {
+                    duration = CMTimeGetSeconds(d)
+                }
+            }
+        }
+        p.play()
+        player = p
+        isPlaying = true
+        isLoading = false
     }
 
     private func togglePlayPause() {
         guard let player = player else { return }
-
-        if isPlaying {
-            player.pause()
-        } else {
-            player.play()
-        }
+        if isPlaying { player.pause() } else { player.play() }
         isPlaying.toggle()
     }
 
     private func seekTo(_ time: Double) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-        player?.seek(to: cmTime)
+        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
     }
 
     private func changePlaybackSpeed(_ speed: Double) {
         player?.rate = Float(speed)
     }
 
-    private func togglePictureInPicture() {
-        // 实现画中画功能
-        isPictureInPicture.toggle()
-    }
+    private func togglePictureInPicture() { isPictureInPicture.toggle() }
 }
 
 // 顶部控制栏
