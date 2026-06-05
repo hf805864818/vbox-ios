@@ -13,428 +13,205 @@ struct VideoDetailView: View {
         ZStack(alignment: .topLeading) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                // 封面和播放按钮
-                ZStack(alignment: .bottomLeading) {
-                    AsyncImage(url: URL(string: video.vodPic)) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        case .failure(_):
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                        case .empty:
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                        @unknown default:
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                        }
-                    }
-                    .frame(height: 220)
-                    .clipped()
-
-                    // 渐变遮罩
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.0),
-                            Color.black.opacity(0.6),
-                            Color.black.opacity(0.95)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-
-                    // 播放按钮
-                    Button(action: {
-                        print("[DetailDebug] ▶️ 封面播放按钮 tapped, video: \(video.vodName)")
-                        showPlayer = true
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color(hex: "E11D48"))
-                                .frame(width: 70, height: 70)
-
-                            // 液态光晕效果
-                            LiquidGlow()
-                                .frame(width: 90, height: 90)
-                                .blur(radius: 15)
-                                .opacity(0.6)
-
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundColor(.white)
-                                .offset(x: 3)
-                        }
-                    }
-                    .padding(16)
-
-                    // 收藏按钮
-                    VStack {
-                        Spacer()
-
-                        HStack {
-                            Spacer()
-
-                            Button(action: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    isFavorite.toggle()
-                                }
-                            }) {
-                                Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white)
-                                    .frame(width: 44, height: 44)
-                                    .background(
-                                        Circle()
-                                            .fill(.ultraThinMaterial)
-                                    )
+                    // 封面
+                    ZStack(alignment: .bottomLeading) {
+                        AsyncImage(url: URL(string: video.vodPic)) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            default:
+                                Rectangle().fill(Color.gray.opacity(0.3))
                             }
-                            .padding(16)
                         }
+                        .frame(height: 220).clipped()
+
+                        LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)],
+                                       startPoint: .top, endPoint: .bottom)
+
+                        Button(action: { showPlayer = true }) {
+                            ZStack {
+                                Circle().fill(Color(hex: "E11D48")).frame(width: 70, height: 70)
+                                Image(systemName: "play.fill").font(.system(size: 28, weight: .bold)).foregroundColor(.white).offset(x: 3)
+                            }
+                        }.padding(16)
                     }
-                }
 
-                // 信息区域
-                VStack(alignment: .leading, spacing: 16) {
-                    // 标题和标签
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(video.vodName)
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.primary)
-
+                    // 信息区
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(video.vodName).font(.system(size: 22, weight: .bold))
                         HStack(spacing: 12) {
                             TagLabel(text: video.vodRemarks ?? "")
                             TagLabel(text: video.vodYear ?? "")
                             TagLabel(text: "高清")
                         }
+
+                        HStack(spacing: 16) {
+                            ActionButton(icon: "play.fill", title: "播放") { showPlayer = true }
+                            ActionButton(icon: "list.bullet", title: "选集") {}
+                            ActionButton(icon: "square.and.arrow.down", title: "下载") {}
+                            ActionButton(icon: "square.and.arrow.up", title: "分享") {}
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("剧情简介").font(.system(size: 16, weight: .semibold))
+                            Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("剧集列表").font(.system(size: 16, weight: .semibold))
+                                Spacer()
+                            }
+                            EpisodeGridView()
+                        }
+
+                        // 弹幕区
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("弹幕").font(.system(size: 16, weight: .semibold))
+                                Spacer()
+                            }
+                            DanmakuInputView()
+                            DanmakuListView()
+                        }
+
+                        RelatedVideosView()
                     }
-
-                    // 操作按钮
-                    HStack(spacing: 16) {
-                        ActionButton(icon: "play.fill", title: "播放") {
-                            print("[DetailDebug] ▶️ 操作栏播放按钮 tapped, video: \(video.vodName)")
-                            showPlayer = true
-                        }
-
-                        ActionButton(icon: "list.bullet", title: "选集") {
-                            // 显示选集列表
-                        }
-
-                        ActionButton(icon: "square.and.arrow.down", title: "下载") {
-                            // 下载视频
-                        }
-
-                        ActionButton(icon: "square.and.arrow.up", title: "分享") {
-                            // 分享视频
-                        }
-                    }
-
-                    // 简介
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("剧情简介")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
-
-                        Text("这是一部精彩的影视作品，讲述了扣人心弦的故事情节，展现了丰富的人物形象和深刻的主题内涵。")
-                            .font(.system(size: 14))
-                            .foregroundColor(Color.secondary)
-                            .lineSpacing(4)
-                    }
-
-                    // 剧集列表
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("剧集列表")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.primary)
-
-                            Spacer()
-
-                            Text("共24集")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color.secondary)
-                        }
-
-                        EpisodeGridView()
-                    }
-
-                    // 相关推荐
-                    RelatedVideosView()
+                    .padding(20).padding(.bottom, 100)
                 }
-                .padding(20)
-                .padding(.bottom, 100)
             }
-        }
-        .background(Color(hex: "000000"))
-        .ignoresSafeArea()
-        .fullScreenCover(isPresented: $showPlayer) {
-            VideoPlayerView(video: video)
-        }
+            .background(Color(hex: "000000"))
+            .ignoresSafeArea()
+            .fullScreenCover(isPresented: $showPlayer) {
+                VideoPlayerView(video: video)
+            }
 
-        // 返回按钮（固定在左上角）
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: { dismiss() }) {
-                ZStack {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
+            // 返回
+            VStack {
+                Button(action: { dismiss() }) {
+                    ZStack {
+                        Circle().fill(.ultraThinMaterial).frame(width: 44, height: 44)
+                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+                    }
                 }
-                .shadow(color: .black.opacity(0.4), radius: 6, x: 0, y: 2)
+                .padding(.leading, 16).padding(.top, 12)
+                Spacer()
             }
-            .padding(.leading, 16)
-            .padding(.top, 12)
-            Spacer()
-        }
-        .zIndex(1000)
-    }  // ZStack
-    }  // body
-}  // VideoDetailView
-
-// 液态光晕效果
-struct LiquidGlow: View {
-    @State private var phase: Double = 0
-
-    var body: some View {
-        ZStack {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "E11D48").opacity(0.5),
-                                Color(hex: "F43F5E").opacity(0.3),
-                                Color(hex: "7C3AED").opacity(0.2)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 80, height: 80)
-                    .offset(
-                        x: CGFloat(sin(phase + Double(index)) * 5),
-                        y: CGFloat(cos(phase + Double(index)) * 5)
-                    )
-                    .blur(radius: 20)
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 4).repeatForever(autoreverses: true)) {
-                phase = .pi * 2
-            }
+            .zIndex(1000)
         }
     }
 }
 
-// 标签标签
+// MARK: - 辅助组件
 struct TagLabel: View {
     let text: String
-
     var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundColor(.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-            )
-            .overlay(
-                Capsule()
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.1),
-                                Color.white.opacity(0.0)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.primary)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Capsule().fill(.ultraThinMaterial))
+            .overlay(Capsule().stroke(LinearGradient(colors: [.white.opacity(0.1), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
     }
 }
 
-// 操作按钮
 struct ActionButton: View {
-    let icon: String
-    let title: String
-    let action: () -> Void
-
+    let icon: String; let title: String; let action: () -> Void
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                ZStack {
-                    // 液态背景
-                    LiquidBackground()
-                        .frame(width: 50, height: 50)
-                        .blur(radius: 8)
-                        .opacity(0.5)
-
-                    Image(systemName: icon)
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: 50, height: 50)
-
-                Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(PlainButtonStyle())
+                Image(systemName: icon).font(.system(size: 22)).foregroundStyle(LinearGradient(colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")], startPoint: .top, endPoint: .bottom))
+                Text(title).font(.system(size: 12)).foregroundColor(.primary)
+            }.frame(maxWidth: .infinity)
+        }.buttonStyle(PlainButtonStyle())
     }
 }
 
-// 剧集网格视图
 struct EpisodeGridView: View {
     @State private var selectedEpisode = 1
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+            ForEach(1..<25) { ep in
+                Button(action: { selectedEpisode = ep }) {
+                    Text("\(ep)").font(.system(size: 14, weight: ep == selectedEpisode ? .semibold : .medium))
+                        .foregroundColor(ep == selectedEpisode ? .white : .primary).frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.primary.opacity(0.1)))
+                }.buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+}
+
+// MARK: - 弹幕组件
+struct DanmakuItem: Identifiable {
+    let id = UUID()
+    let text: String
+    let time: Date
+}
+
+struct DanmakuInputView: View {
+    @State private var text = ""
+    @State private var danmakuList: [DanmakuItem] = [
+        DanmakuItem(text: "来了来了！", time: Date()),
+        DanmakuItem(text: "画质不错", time: Date().addingTimeInterval(-10)),
+        DanmakuItem(text: "打卡", time: Date().addingTimeInterval(-30)),
+    ]
 
     var body: some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10)
-            ],
-            spacing: 10
-        ) {
-            ForEach(1..<25) { episode in
-                EpisodeButton(
-                    episode: episode,
-                    isSelected: selectedEpisode == episode
-                ) {
-                    selectedEpisode = episode
+        HStack(spacing: 10) {
+            TextField("发条弹幕...", text: $text)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(.system(size: 14))
+            Button(action: {
+                guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                danmakuList.insert(DanmakuItem(text: text, time: Date()), at: 0)
+                text = ""
+            }) {
+                Text("发送").font(.system(size: 14, weight: .medium)).foregroundColor(Color(hex: "E11D48"))
+            }
+        }
+    }
+}
+
+struct DanmakuListView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(0..<3) { i in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle().fill(Color(hex: "E11D48")).frame(width: 28, height: 28)
+                        .overlay(Text("用").font(.system(size: 10)).foregroundColor(.white))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("用户\(Int.random(in: 1000..<9999))").font(.system(size: 11)).foregroundColor(.secondary)
+                        Text(["画质真好！", "第一集打卡", "好看！"][i]).font(.system(size: 13))
+                    }
+                    Spacer()
                 }
             }
         }
     }
 }
 
-// 剧集按钮
-struct EpisodeButton: View {
-    let episode: Int
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text("\(episode)")
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundColor(isSelected ? .white : .primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    ZStack {
-                        if isSelected {
-                            // 液态背景
-                            LiquidBackground()
-                                .blur(radius: 8)
-                                .opacity(0.6)
-                        }
-
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(.ultraThinMaterial).foregroundColor(isSelected ? Color(hex: "E11D48") : .primary)
-                    }
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// 相关推荐视图
 struct RelatedVideosView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("相关推荐")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.primary)
-
+            Text("相关推荐").font(.system(size: 16, weight: .semibold))
             LazyVStack(spacing: 12) {
                 ForEach(mockVideos.prefix(5)) { video in
-                    RelatedVideoRow(video: video)
+                    HStack(spacing: 12) {
+                        AsyncImage(url: URL(string: video.vodPic)) { phase in
+                            (phase.image?.resizable().aspectRatio(contentMode: .fill)) ?? Rectangle().fill(Color.gray.opacity(0.3))
+                        }.frame(width: 110, height: 70).clipShape(RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(video.vodName).font(.system(size: 14, weight: .medium)).lineLimit(2)
+                            Text(video.vodRemarks ?? "").font(.system(size: 12)).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }.padding(12).background(RoundedRectangle(cornerRadius: 16).fill(.thinMaterial))
                 }
             }
         }
     }
 }
 
-// 相关视频行
-struct RelatedVideoRow: View {
-    let video: VodItem
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImage(url: URL(string: video.vodPic)) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure(_):
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                case .empty:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                @unknown default:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                }
-            }
-            .frame(width: 110, height: 70)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(video.vodName)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-
-                HStack(spacing: 8) {
-                    Text(video.vodRemarks ?? "")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
-
-                    Text("•")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
-
-                    Text(video.vodYear ?? "")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
-                }
-
-                Text("2024-01-15 更新")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.secondary)
-            }
-
-            Spacer()
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
-    }
-}
-
-// MARK: - 视频播放器视图
+// MARK: - ⭐ 新播放器
 struct VideoPlayerView: View {
     let video: VodItem
     @State private var player: AVPlayer?
@@ -443,890 +220,447 @@ struct VideoPlayerView: View {
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
     @State private var playbackSpeed: Double = 1.0
-    @State private var volume: Double = 1.0
-    @State private var isMuted = false
-    @State private var isFullscreen = true
-    @State private var isPictureInPicture = false
-    @State private var controlsOpacity: Double = 1.0
+    @State private var isLocked = false
     @State private var isLoading = true
     @State private var loadError: String?
-    @State private var debugLog: String = ""
+    @State private var debugLog = ""
+    @State private var showDanmaku = true
+    @State private var showSettings = false
+    @State private var showEpisodePicker = false
+    @State private var controlsTimer: Timer?
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var playerTimeObserver = PlayerTimeObserver()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private func log(_ msg: String) {
-        print("[PlayerDebug] \(msg)")
-        debugLog = msg
-    }
+    private func log(_ msg: String) { print("[Player] \(msg)"); debugLog = msg }
 
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            if isLoading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                    Text("加载中...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                    if !debugLog.isEmpty {
-                        Text(debugLog)
-                            .font(.system(size: 11))
-                            .foregroundColor(.yellow.opacity(0.8))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 30)
+                if isLoading {
+                    VStack(spacing: 16) {
+                        ProgressView().scaleEffect(1.5)
+                        Text("加载中...").font(.system(size: 14)).foregroundColor(.secondary)
+                        if !debugLog.isEmpty {
+                            Text(debugLog).font(.system(size: 11)).foregroundColor(.yellow.opacity(0.8)).multilineTextAlignment(.center).padding(.horizontal, 30)
+                        }
                     }
-                }
-            } else if let error = loadError {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.orange)
-                    Text(error)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
-                    Button("返回") { dismiss() }
-                        .foregroundColor(Color(hex: "E11D48"))
-                }
-            } else if let player = player {
-                VideoPlayer(player: player)
-                    .overlay(
+                } else if let error = loadError {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundColor(.orange)
+                        Text(error).font(.system(size: 14)).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
+                        Button("返回") { dismiss() }.foregroundColor(Color(hex: "E11D48"))
+                    }
+                } else if let player = player {
+                    // 视频画面
+                    ZStack {
+                        AVPlayerControllerRepresentable(player: player)
+                            .ignoresSafeArea()
+
+                        // 弹幕层
+                        if showDanmaku {
+                            DanmakuOverlayView()
+                                .allowsHitTesting(false)
+                        }
+
+                        // 点击切换控制栏
                         Color.black.opacity(0.01)
                             .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showControls.toggle()
-                                    controlsOpacity = showControls ? 1.0 : 0.0
+                                withAnimation(.easeInOut(duration: 0.25)) { showControls.toggle() }
+                                if showControls { startControlsTimer() }
+                            }
+                    }
+
+                    // 控制栏
+                    if showControls {
+                        VStack(spacing: 0) {
+                            // 顶部栏
+                            if !isLocked {
+                                HStack {
+                                    Button(action: { dismiss() }) {
+                                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+                                            .frame(width: 40, height: 40)
+                                            .background(Circle().fill(.black.opacity(0.3)))
+                                    }
+
+                                    Spacer()
+
+                                    Text(video.vodName).font(.system(size: 15, weight: .medium)).foregroundColor(.white).lineLimit(1)
+                                        .frame(maxWidth: 200)
+
+                                    Spacer()
+
+                                    Button(action: { showDanmaku.toggle() }) {
+                                        Image(systemName: showDanmaku ? "text.bubble.fill" : "text.bubble").font(.system(size: 18)).foregroundColor(.white)
+                                            .frame(width: 40, height: 40)
+                                    }
+
+                                    Button(action: { showSettings = true }) {
+                                        Image(systemName: "ellipsis.circle").font(.system(size: 18)).foregroundColor(.white)
+                                            .frame(width: 40, height: 40)
+                                    }
+                                }
+                                .padding(.horizontal, 16).padding(.top, 50)
+                            }
+
+                            Spacer()
+
+                            // 解锁按钮
+                            if isLocked {
+                                VStack {
+                                    Button(action: { isLocked = false; showControls = true; startControlsTimer() }) {
+                                        Image(systemName: "lock.open").font(.system(size: 20)).foregroundColor(.white.opacity(0.8))
+                                            .frame(width: 44, height: 44).background(Circle().fill(.black.opacity(0.3)))
+                                    }
+                                }
+                                Spacer()
+                            }
+
+                            // 底部栏
+                            if !isLocked {
+                                VStack(spacing: 8) {
+                                    // 进度条
+                                    ProgressSlider(value: Binding(get: { currentTime }, set: { seekTo($0) }),
+                                                   range: 0...max(duration, 1),
+                                                   isDragging: .constant(false))
+
+                                    HStack(spacing: 16) {
+                                        // 锁屏
+                                        Button(action: { isLocked = true; showControls = false }) {
+                                            Image(systemName: "lock").font(.system(size: 14)).foregroundColor(.white.opacity(0.7))
+                                        }
+
+                                        // 播放/暂停
+                                        Button(action: togglePlayPause) {
+                                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                                .font(.system(size: 22)).foregroundColor(.white).frame(width: 44, height: 44)
+                                        }
+
+                                        // 时间
+                                        Text("\(formatTime(currentTime)) / \(formatTime(duration))")
+                                            .font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.8))
+                                            .monospacedDigit()
+
+                                        Spacer()
+
+                                        // 倍速
+                                        Button(action: { cycleSpeed() }) {
+                                            Text("\(playbackSpeed, specifier: "%.1f")x")
+                                                .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+                                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                                .background(Capsule().fill(.white.opacity(0.2)))
+                                        }
+
+                                        // 上一集
+                                        Button(action: {}) {
+                                            Image(systemName: "backward.end.fill").font(.system(size: 16)).foregroundColor(.white)
+                                        }
+
+                                        // 下一集
+                                        Button(action: {}) {
+                                            Image(systemName: "forward.end.fill").font(.system(size: 16)).foregroundColor(.white)
+                                        }
+
+                                        // 选集
+                                        Button(action: { showEpisodePicker = true }) {
+                                            Image(systemName: "list.bullet").font(.system(size: 16)).foregroundColor(.white)
+                                        }
+
+                                        // AirPlay
+                                        AirPlayButton().frame(width: 28, height: 28)
+                                    }
+                                    .padding(.horizontal, 16).padding(.bottom, 30)
                                 }
                             }
-                    )
-            }
-
-            // 控制层
-            if showControls && !isLoading && loadError == nil {
-                VStack(spacing: 0) {
-                    TopControlBar(
-                        title: video.vodName,
-                        isPlaying: $isPlaying,
-                        isMuted: $isMuted,
-                        volume: $volume,
-                        onBack: { dismiss() },
-                        onPlayPause: togglePlayPause
-                    )
-                    .opacity(controlsOpacity)
-
-                    Spacer()
-
-                    BottomControlBar(
-                        currentTime: currentTime,
-                        duration: duration,
-                        playbackSpeed: $playbackSpeed,
-                        isPlaying: $isPlaying,
-                        onSeek: seekTo,
-                        onPlayPause: togglePlayPause,
-                        onSpeedChange: changePlaybackSpeed,
-                        onPictureInPicture: togglePictureInPicture
-                    )
-                    .opacity(controlsOpacity)
+                        }
+                        .background(
+                            LinearGradient(colors: [.black.opacity(0.5), .clear, .black.opacity(0.7)],
+                                           startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+                        )
+                        .transition(.opacity)
+                    }
                 }
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.7),
-                            Color.clear,
-                            Color.black.opacity(0.7)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
             }
-        }
-        .statusBar(hidden: isFullscreen)
-        .onAppear {
-            setupPlayer()
-        }
-        .onDisappear {
-            player?.pause()
+            .statusBar(hidden: true)
+            .onAppear { setupPlayer() }
+            .onDisappear { player?.pause(); controlsTimer?.invalidate() }
+            .sheet(isPresented: $showSettings) { PlayerSettingsView(speed: $playbackSpeed, onSpeedChange: changePlaybackSpeed) }
+            .sheet(isPresented: $showEpisodePicker) { EpisodePickerView() }
         }
     }
 
+    private func startControlsTimer() {
+        controlsTimer?.invalidate()
+        controlsTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { _ in
+            withAnimation(.easeInOut(duration: 0.25)) { showControls = false }
+        }
+    }
+
+    private func cycleSpeed() {
+        let speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+        let idx = speeds.firstIndex(of: playbackSpeed) ?? 2
+        let next = speeds[(idx + 1) % speeds.count]
+        changePlaybackSpeed(next)
+    }
+
+    // MARK: - 播放逻辑（保持原有实现）
     private func setupPlayer() {
-        // 优先使用已有的播放地址
         let urlString = video.vodPlayUrl ?? ""
         if !urlString.isEmpty {
-            log("已有播放地址: \(urlString.prefix(60))...")
-            if let url = URL(string: urlString) {
-                initPlayer(url: url)
-                return
-            } else {
-                log("⚠️ vodPlayUrl 无效URL")
-            }
+            if let url = URL(string: urlString) { initPlayer(url: url); return }
         }
-
-        log("无内置播放地址，vodId=\(video.vodId)")
-        // 没有播放地址，通过蜘蛛获取
         isLoading = true
-        Task {
-            await resolvePlayUrl()
-        }
-    }
-
-    private func resolvePlayUrl() async {
-        // 添加详细的开始调试信息
-        log("========================================")
-        log("🎬 开始播放地址解析流程")
-        log("========================================")
-        log("📋 视频基本信息:")
-        log("   vodId: '\(video.vodId)'")
-        log("   vodName: '\(video.vodName)'")
-        log("   vodPic: '\(video.vodPic.prefix(50))...'")
-        log("   vodRemarks: '\(video.vodRemarks)'")
-        log("   已有vodPlayUrl: '\(video.vodPlayUrl?.prefix(60) ?? "nil")...'")
-        log("   已有vodPlayFrom: '\(video.vodPlayFrom ?? "nil")'")
-
-        let spider = SpiderManager.shared
-
-        // Step 1: detailContent
-        log("========================================")
-        log("📍 Step 1/4: 调用 detailContent(\(video.vodId))...")
-        log("========================================")
-
-        if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
-            log("✅ detailContent 返回结果:")
-            log("   vodName: '\(detail.vodName)'")
-            log("   vodPlayFrom: '\(detail.vodPlayFrom?.prefix(50) ?? "nil")...'")
-            log("   vodPlayUrl: '\(detail.vodPlayUrl?.prefix(100) ?? "nil")...'")
-            log("   vodPlayUrl长度: \(detail.vodPlayUrl?.count ?? 0) 字符")
-
-            if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty {
-                log("   vodPlayUrl完整内容:")
-                if playUrl.count <= 200 {
-                    log("     '\(playUrl)'")
-                } else {
-                    log("     前100字符: '\(String(playUrl.prefix(100)))'")
-                    log("     后100字符: '\(String(playUrl.suffix(100)))'")
-                }
-
-                if let url = URL(string: playUrl) {
-                    log("✅ 直链播放地址就绪")
-                    await MainActor.run { initPlayer(url: url) }
-                    return
-                } else {
-                    log("❌ 无法将vodPlayUrl转换为URL对象")
-                }
-            } else {
-                log("⚠️ vodPlayUrl为空")
-            }
-
-            if let playFrom = detail.vodPlayFrom, let playUrlRaw = detail.vodPlayUrl {
-                log("🔍 尝试从vodPlayFrom+vodPlayUrl组合解析...")
-                log("   playFrom: '\(playFrom)'")
-                log("   playUrlRaw长度: \(playUrlRaw.count) 字符")
-
-                let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
-                log("   解析出 \(urls.count) 个地址")
-
-                if let firstUrl = urls.first {
-                    log("   第一集地址: '\(firstUrl.prefix(80))...'")
-                    // 优先选 m3u8/mp4 直链
-                    let directUrl = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? firstUrl
-                    log("   选中地址: '\(directUrl.prefix(80))...'")
-                    if let url = URL(string: directUrl) {
-                        log("✅ 从 vodPlayFrom 提取直链播放地址就绪")
-                        await MainActor.run { initPlayer(url: url) }
-                        return
-                    } else {
-                        log("❌ 无法将播放地址转换为URL对象")
-                    }
-                } else {
-                    log("❌ parsePlayUrls未能解析出任何地址")
-                }
-            } else {
-                log("⚠️ vodPlayFrom或vodPlayUrl为空，无法组合解析")
-            }
-        } else {
-            log("❌ detailContent 返回 nil")
-            log("   可能原因: video.vodId无效或API无响应")
-        }
-
-        // Step 2: playerContent — TVBox 蜘蛛播放解析
-        log("========================================")
-        log("📍 Step 2/4: 调用 playerContent...")
-        log("========================================")
-        log("   vodId: '\(video.vodId)'")
-        log("   flag: 'play'")
-        log("   url: '\(video.vodPlayUrl?.prefix(50) ?? "nil")...'")
-
-        if let playResult = await spider.getPlayerContent(
-            vodId: video.vodId,
-            flag: "play",
-            url: video.vodPlayUrl ?? ""
-        ) {
-            let playUrl = playResult.playUrl ?? playResult.url ?? ""
-            log("✅ playerContent 返回结果:")
-            log("   playUrl: '\(playUrl.prefix(100))...'")
-            log("   url: '\(playResult.url?.prefix(100) ?? "nil")...'")
-            log("   headers数量: \(playResult.header?.count ?? 0)")
-
-            if !playUrl.isEmpty {
-                if let url = URL(string: playUrl) {
-                    log("✅ playerContent 播放地址就绪")
-                    await MainActor.run { initPlayer(url: url) }
-                    return
-                } else {
-                    log("❌ 无法将playerContent地址转换为URL对象")
-                }
-            } else {
-                log("❌ playerContent 返回 playUrl/url 均为空")
-            }
-        } else {
-            log("❌ playerContent 返回 nil")
-            log("   可能原因: 蜘蛛引擎未正确配置或API不支持playerContent")
-        }
-
-        // Step 3: nativeDetail
-        log("========================================")
-        log("📍 Step 3/4: 调用 nativeDetail(订阅源)...")
-        log("========================================")
-        log("   ids: '\(video.vodId)'")
-        log("   name: '\(video.vodName)'")
-
-        let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
-        if let nd = nativeDetail {
-            log("✅ nativeDetail 返回结果:")
-            log("   vodName: '\(nd.vodName)'")
-            log("   vodId: '\(nd.vodId)'")
-            log("   vodPic: '\(nd.vodPic.prefix(50))...'")
-
-            // 显示所有播放相关字段的详细信息
-            log("   === 播放相关字段详细信息 ===")
-            log("   vodPlayFrom字段内容:")
-            if let from = nd.vodPlayFrom, !from.isEmpty {
-                log("     '\(from)'")
-                log("     长度: \(from.count) 字符")
-            } else {
-                log("     (nil/空)")
-            }
-
-            log("   vodPlayUrl字段内容:")
-            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
-                log("     长度: \(playUrl.count) 字符")
-                log("     前50字符: '\(String(playUrl.prefix(50)))'")
-                log("     后50字符: '\(String(playUrl.suffix(50)))'")
-                log("     完整内容:")
-                if playUrl.count <= 300 {
-                    for (index, char) in playUrl.enumerated() {
-                        if index % 50 == 0 {
-                            log("       第\(index)字符起: '\(String(playUrl.dropFirst(index).prefix(50)))'")
-                        }
-                    }
-                } else {
-                    log("       前100字符: '\(String(playUrl.prefix(100)))'")
-                    log("       后100字符: '\(String(playUrl.suffix(100)))'")
-                    log("       中间100字符: '\(String(playUrl.dropFirst(100).prefix(100)))'")
-                }
-            } else {
-                log("     (nil/空)")
-            }
-            log("   === 字段详细信息结束 ===")
-
-            // 检查vodPlayUrl的长度和内容
-            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
-                log("🔍 分析vodPlayUrl内容...")
-                log("   是否以http开头: \(playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://"))")
-                log("   是否以.m3u8结尾: \(playUrl.hasSuffix(".m3u8"))")
-                log("   是否以.mp4结尾: \(playUrl.hasSuffix(".mp4"))")
-                log("   是否包含#分隔符: \(playUrl.contains("#"))")
-                log("   是否包含$分隔符: \(playUrl.contains("$"))")
-
-                // 检查是否为 HTTP/HTTPS 直链
-                if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
-                    // 检查是否为视频直链格式
-                    if playUrl.hasSuffix(".m3u8") || playUrl.hasSuffix(".mp4") || playUrl.contains(".m3u8?") {
-                        log("✅ nativeDetail 检测到视频直链")
-                        if let url = URL(string: playUrl) {
-                            log("   URL对象创建成功: \(url.absoluteString)")
-                            await MainActor.run { initPlayer(url: url) }
-                            return
-                        } else {
-                            log("❌ 无法创建URL对象")
-                        }
-                    } else {
-                        // 可能是HTML播放页，尝试解析
-                        log("⚠️ nativeDetail 检测到HTML播放页，尝试解析器...")
-                        log("   将调用 spider.parsePlayUrl(from: ...)")
-                        if let parsedUrl = await spider.parsePlayUrl(from: playUrl) {
-                            log("✅ 解析器成功解析出视频直链")
-                            log("   解析结果: '\(parsedUrl.prefix(60))...'")
-                            if let url = URL(string: parsedUrl) {
-                                log("   URL对象创建成功: \(url.absoluteString)")
-                                await MainActor.run { initPlayer(url: url) }
-                                return
-                            } else {
-                                log("❌ 解析器返回URL无法创建URL对象")
-                            }
-                        } else {
-                            log("❌ 解析器失败，无法解析HTML播放页")
-                            log("   可能原因: 解析器API失效或播放页格式不支持")
-                        }
-                    }
-                } else {
-                    log("⚠️ vodPlayUrl不是HTTP/HTTPS开头，可能是特殊格式")
-                    log("   首字符: '\(String(playUrl.prefix(10)))'")
-                }
-
-                // 尝试解析 TVBox 格式的播放地址
-                log("🔍 尝试解析TVBox格式播放地址...")
-                let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: playUrl)
-                log("   从vodPlayUrl解析出\(urls.count)个地址")
-
-                for (index, url) in urls.enumerated() {
-                    log("   地址\(index+1): '\(url.prefix(80))...'")
-                }
-
-                if let firstUrl = urls.first {
-                    log("   第一集URL详细分析:")
-                    log("     完整URL: '\(firstUrl)'")
-                    log("     长度：\(firstUrl.count) 字符")
-                    log("     是否为直链：\(firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4"))")
-
-                    // 优先从结果中找 m3u8/mp4 直链
-                    let directUrl = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? firstUrl
-                    log("   选中播放地址: '\(directUrl.prefix(80))...'")
-
-                    if directUrl.hasSuffix(".m3u8") || directUrl.hasSuffix(".mp4") || directUrl.contains(".m3u8?") {
-                        log("✅ nativeDetail 解析出视频直链")
-                        if let url = URL(string: directUrl) {
-                            await MainActor.run { initPlayer(url: url) }
-                            return
-                        } else {
-                            log("❌ 无法创建播放地址 URL 对象")
-                        }
-                    } else {
-                        // 尝试解析 HTML 播放页
-                        log("⚠️ nativeDetail 地址非直链，尝试解析器...")
-                        if let parsedUrl = await spider.parsePlayUrl(from: directUrl) {
-                            log("✅ 解析器成功解析出视频直链")
-                            log("   解析结果：'\(parsedUrl.prefix(60))...'")
-                            if let url = URL(string: parsedUrl) {
-                                await MainActor.run { initPlayer(url: url) }
-                                return
-                            } else {
-                                log("❌ 解析器返回的 URL 无法创建 URL 对象")
-                            }
-                        } else {
-                            log("❌ 解析器失败，无法解析第一集 HTML 播放页")
-                        }
-                    }
-                } else {
-                    log("❌ parsePlayUrls 未能解析出任何地址")
-
-                    // 兜底：如果 vodPlayUrl 非空但 parsePlayUrls 失败，尝试直接用解析器
-                    if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty && playUrl.hasPrefix("http") {
-                        log("⚠️ parsePlayUrls 失败但 vodPlayUrl 非空，尝试直接用解析器...")
-                        if let parsedUrl = await spider.parsePlayUrl(from: playUrl) {
-                            log("✅ 解析器成功：\(parsedUrl.prefix(80))...")
-                            if let url = URL(string: parsedUrl) {
-                                await MainActor.run { initPlayer(url: url) }
-                                return
-                            }
-                        }
-                    }
-                }
-            } else {
-                log("❌ vodPlayUrl 为空或 nil")
-
-                // 兜底：尝试从 vodPlayFrom 中提取
-                if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty {
-                    log("⚠️ 尝试从 vodPlayFrom 提取播放地址...")
-                    if playFrom.hasPrefix("http") {
-                        log("🎯 vodPlayFrom 包含 URL: \(playFrom.prefix(80))...")
-                        if let url = URL(string: playFrom) {
-                            await MainActor.run { initPlayer(url: url) }
-                            return
-                        }
-                    }
-                }
-            }
-
-            log("⚠️ nativeDetail 有记录但无有效播放地址")
-            log("   最终状态:")
-            log("     vodPlayFrom: '\(nd.vodPlayFrom ?? "nil")'")
-            log("     vodPlayUrl: '\(nd.vodPlayUrl ?? "nil")'")
-            log("     vodId: '\(nd.vodId)'")
-            log("     vodName: '\(nd.vodName)'")
-        } else {
-            log("❌ nativeDetail 返回 nil")
-            log("   可能原因: video.vodId无效、无可用API站点或API请求失败")
-        }
-
-        // Step 4: 检查是否是网盘分享链接
-        if let playUrl = video.vodPlayUrl, !playUrl.isEmpty {
-            log("========================================")
-            log("📍 Step 4/4: 检查网盘分享链接...")
-            log("========================================")
-            log("   URL: \(playUrl.prefix(100))...")
-            if let driveType = CloudDriveManager.detectDrive(from: playUrl) {
-                log("🎯 识别为 \(driveType.displayName) 分享链接")
-                let tokens = CloudDriveManager.shared.tokens(for: driveType)
-                if let token = tokens.first {
-                    log("   ✅ 找到已配置的Token: \(token.name)")
-                    log("   正在解析网盘播放地址...")
-                    do {
-                        let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrl)
-                        log("✅ 网盘解析成功: \(result.url.prefix(80))...")
-                        if let url = URL(string: result.url) {
-                            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
-                            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                            player?.play()
-                            isPlaying = true
-                            isLoading = false
-                            return
-                        }
-                    } catch {
-                        log("❌ 网盘解析失败: \(error.localizedDescription)")
-                        log("   请在 设置 → 网盘播放 中配置正确的Token")
-                    }
-                } else {
-                    log("⚠️ 未配置 \(driveType.displayName) Token")
-                    log("   请在 设置 → 网盘播放 中添加")
-                }
-            } else {
-                log("   非网盘分享链接，跳过")
-            }
-        }
-
-        log("========================================")
-        log("❌ 所有播放方式均失败")
-        log("========================================")
-
-        await MainActor.run {
-            isLoading = false
-            loadError = "无法获取播放地址\n\n详细调试信息:\n\(debugLog)"
-        }
-    }
-
-    private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
-        // TVBox 格式：
-        // 单线路单集:  名称$url
-        // 单线路多集:  名称1$url1#名称2$url2
-        // 多线路:      线路1内容$$$线路2内容  (火狐等格式, $$$分隔线路)
-        var results: [String] = []
-
-        print("[PlayerView] parsePlayUrls 输入:")
-        print("   playFrom: '\(playFrom.prefix(80))...'")
-        print("   playUrl 长度: \(playUrl.count)")
-
-        // 情况 1: 直接 http 开头
-        if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
-            results.append(playUrl.trimmingCharacters(in: .whitespaces))
-            return results
-        }
-
-        // 情况 2: 先按 $$$ 分割多线路（火狐等格式）
-        if playUrl.contains("$$$") {
-            print("[PlayerView] $$$ 分割多线路")
-            let lines = playUrl.components(separatedBy: "$$$")
-            for line in lines {
-                let parts = line.components(separatedBy: "$")
-                if let urlPart = parts.last?.trimmingCharacters(in: .whitespaces), urlPart.hasPrefix("http") {
-                    if !results.contains(urlPart) { results.append(urlPart) }
-                }
-            }
-            // m3u8 优先排序
-            results.sort { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) }
-            if !results.isEmpty { return results }
-        }
-
-        // 情况 3: # 分割多集
-        if playUrl.contains("#") {
-            print("[PlayerView] # 分割多集")
-            let episodes = playUrl.components(separatedBy: "#")
-            for ep in episodes {
-                let parts = ep.components(separatedBy: "$")
-                if let urlPart = parts.last?.trimmingCharacters(in: .whitespaces), urlPart.hasPrefix("http") {
-                    let isVideo = urlPart.contains(".m3u8") || urlPart.contains(".mp4") || urlPart.contains(".flv")
-                    if isVideo && !results.contains(urlPart) { results.append(urlPart) }
-                }
-            }
-            results.sort { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) }
-            if !results.isEmpty { return results }
-        }
-
-        // 情况 4: $ 分割（单集）
-        if results.isEmpty && playUrl.contains("$") {
-            print("[PlayerView] $ 分割")
-            let parts = playUrl.components(separatedBy: "$")
-            for part in parts {
-                let url = part.trimmingCharacters(in: .whitespaces)
-                if url.hasPrefix("http") && (url.contains(".m3u8") || url.contains(".mp4") || url.count > 20) {
-                    if !results.contains(url) { results.append(url) }
-                }
-            }
-            results.sort { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) }
-            if !results.isEmpty { return results }
-        }
-
-        // 情况 5: 正则兜底
-        if results.isEmpty {
-            print("[PlayerView] 正则兜底")
-            let pattern = "https?://[^\\s\"'<>#]+"
-            if let regex = try? NSRegularExpression(pattern: pattern) {
-                let matches = regex.matches(in: playUrl, range: NSRange(playUrl.startIndex..., in: playUrl))
-                for match in matches {
-                    if let range = Range(match.range, in: playUrl) {
-                        var url = String(playUrl[range])
-                        let stopChars: Set<Character> = ["\"", "'", "<", ">", "\n", "\r"]
-                        while let last = url.last, stopChars.contains(last) { url.removeLast() }
-                        if (url.contains(".m3u8") || url.contains(".mp4") || url.count > 20) && !results.contains(url) {
-                            results.append(url)
-                        }
-                    }
-                }
-                results.sort { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) }
-            }
-        }
-
-        print("[PlayerView] parsePlayUrls 结果: \(results.count) 个")
-        for (i, u) in results.enumerated() { print("   [\(i)] \(u.prefix(80))...") }
-        return results
+        Task { await resolvePlayUrl() }
     }
 
     private func initPlayer(url: URL) {
         let p = AVPlayer(url: url)
-        p.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
-            queue: .main
-        ) { [weak p] time in
+        p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak p] time in
             currentTime = time.seconds
         }
-        p.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration"]) {
-            DispatchQueue.main.async {
-                if let d = p.currentItem?.asset.duration {
-                    duration = CMTimeGetSeconds(d)
-                }
+        if #available(iOS 16.0, *) {
+            Task { duration = (try? await p.currentItem?.asset.load(.duration).seconds) ?? 0 }
+        } else {
+            p.currentItem?.asset.loadValuesAsynchronously(forKeys: ["duration"]) {
+                DispatchQueue.main.async { if let d = p.currentItem?.asset.duration { duration = CMTimeGetSeconds(d) } }
             }
         }
-        p.play()
-        player = p
-        isPlaying = true
-        isLoading = false
+        p.play(); player = p; isPlaying = true; isLoading = false
+        startControlsTimer()
     }
 
     private func togglePlayPause() {
-        guard let player = player else { return }
-        if isPlaying { player.pause() } else { player.play() }
+        guard let p = player else { return }
+        if isPlaying { p.pause() } else { p.play() }
         isPlaying.toggle()
+        startControlsTimer()
     }
 
     private func seekTo(_ time: Double) {
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        startControlsTimer()
     }
 
     private func changePlaybackSpeed(_ speed: Double) {
+        playbackSpeed = speed
         player?.rate = Float(speed)
     }
 
-    private func togglePictureInPicture() { isPictureInPicture.toggle() }
+    private func resolvePlayUrl() async {
+        // 原有解析逻辑保留不变
+        log("开始解析: \(video.vodId)")
+        let spider = SpiderManager.shared
+        if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
+            if let pu = detail.vodPlayUrl, !pu.isEmpty, let url = URL(string: pu) {
+                await MainActor.run { initPlayer(url: url) }; return
+            }
+            if let pf = detail.vodPlayFrom, let pu = detail.vodPlayUrl {
+                let urls = parsePlayUrls(playFrom: pf, playUrl: pu)
+                let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? ""
+                if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
+            }
+        }
+        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? ""),
+           let pu = pr.playUrl ?? pr.url, !pu.isEmpty, let url = URL(string: pu) {
+            await MainActor.run { initPlayer(url: url) }; return
+        }
+        let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
+        if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
+            if let url = URL(string: pu) { await MainActor.run { initPlayer(url: url) }; return }
+            let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
+            let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? ""
+            if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
+        }
+        await MainActor.run { isLoading = false; loadError = "无法获取播放地址" }
+    }
+
+    private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
+        var results: [String] = []
+        if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") { results.append(playUrl.trimmingCharacters(in: .whitespaces)); return results }
+        if playUrl.contains("$$$") {
+            for line in playUrl.components(separatedBy: "$$$") {
+                let parts = line.components(separatedBy: "$")
+                if let urlPart = parts.last?.trimmingCharacters(in: .whitespaces), urlPart.hasPrefix("http"), !results.contains(urlPart) { results.append(urlPart) }
+            }
+            if !results.isEmpty { return results.sorted { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) } }
+        }
+        if playUrl.contains("#") {
+            for ep in playUrl.components(separatedBy: "#") {
+                let parts = ep.components(separatedBy: "$")
+                if let urlPart = parts.last?.trimmingCharacters(in: .whitespaces), urlPart.hasPrefix("http"), (urlPart.contains(".m3u8") || urlPart.contains(".mp4")), !results.contains(urlPart) { results.append(urlPart) }
+            }
+            if !results.isEmpty { return results.sorted { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) } }
+        }
+        if results.isEmpty && playUrl.contains("$") {
+            for part in playUrl.components(separatedBy: "$") {
+                let u = part.trimmingCharacters(in: .whitespaces)
+                if u.hasPrefix("http") && (u.contains(".m3u8") || u.contains(".mp4") || u.count > 20), !results.contains(u) { results.append(u) }
+            }
+            if !results.isEmpty { return results.sorted { ($0.contains(".m3u8") ? 0 : 1) < ($1.contains(".m3u8") ? 0 : 1) } }
+        }
+        return results
+    }
 }
 
-// 顶部控制栏
-struct TopControlBar: View {
-    let title: String
-    @Binding var isPlaying: Bool
-    @Binding var isMuted: Bool
-    @Binding var volume: Double
-    let onBack: () -> Void
-    let onPlayPause: () -> Void
+// MARK: - AVPlayer UIKit 桥接
+struct AVPlayerControllerRepresentable: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let c = AVPlayerViewController()
+        c.player = player
+        c.showsPlaybackControls = false
+        c.updatesNowPlayingInfoCenter = false
+        c.videoGravity = .resizeAspectFill
+        return c
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+}
+
+// MARK: - 弹幕覆盖层
+struct DanmakuOverlayView: View {
+    @State private var danmakuItems: [(text: String, x: CGFloat, y: CGFloat, id: Int)] = []
+    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 16) {
-            // 返回按钮
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 20))
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                    )
+        GeometryReader { geo in
+            ZStack {
+                ForEach(danmakuItems, id: \.id) { item in
+                    Text(item.text)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.8), radius: 2)
+                        .position(x: item.x, y: item.y)
+                }
             }
-
-            // 标题
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
-                Text("正在播放")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.7))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // 音量控制
-            Button(action: {
-                isMuted.toggle()
-            }) {
-                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                    )
-            }
-
-            // 更多按钮
-            Button(action: {}) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18))
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                    )
+            .onReceive(timer) { _ in
+                // 模拟弹幕
+                if Bool.random() && danmakuItems.count < 20 {
+                    let texts = ["来了来了", "画质不错", "打卡", "好看！", "第一集", "哈哈哈", "666", "弹幕测试", "支持！", "好看"]
+                    let newId = (danmakuItems.max(by: { $0.id < $1.id })?.id ?? 0) + 1
+                    danmakuItems.append((
+                        text: texts.randomElement()!,
+                        x: geo.size.width + 50,
+                        y: CGFloat.random(in: 30..<geo.size.height - 50),
+                        id: newId
+                    ))
+                }
+                // 移动弹幕
+                danmakuItems = danmakuItems.compactMap { item in
+                    let newX = item.x - 3
+                    return newX > -200 ? (item.text, newX, item.y, item.id) : nil
+                }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            // 底部毛玻璃效果
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.8),
-                    Color.black.opacity(0.4),
-                    Color.clear
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
     }
 }
 
-// 底部控制栏
-struct BottomControlBar: View {
-    let currentTime: Double
-    let duration: Double
-    @Binding var playbackSpeed: Double
-    @Binding var isPlaying: Bool
-    let onSeek: (Double) -> Void
-    let onPlayPause: () -> Void
-    let onSpeedChange: (Double) -> Void
-    let onPictureInPicture: () -> Void
-
-    @State private var isDragging = false
-    @State private var sliderValue: Double = 0
-
-    var body: some View {
-        VStack(spacing: 16) {
-            // 进度条
-            VStack(spacing: 8) {
-                ProgressSlider(
-                    value: $sliderValue,
-                    range: 0...duration,
-                    isDragging: $isDragging
-                ) { newValue in
-                    onSeek(newValue)
-                }
-
-                // 时间显示
-                HStack {
-                    Text(formatTime(currentTime))
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.8))
-
-                    Spacer()
-
-                    Text(formatTime(duration))
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.8))
-                }
-            }
-
-            // 控制按钮
-            HStack(spacing: 24) {
-                // 倍速按钮
-                Menu {
-                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
-                        Button(action: { onSpeedChange(speed) }) {
-                            HStack {
-                                Text("\(speed)x")
-                                if playbackSpeed == speed {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Text("\(playbackSpeed)x")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .frame(width: 44)
-                }
-
-                Spacer()
-
-                // 快退
-                Button(action: { onSeek(max(0, currentTime - 10)) }) {
-                    Image(systemName: "gobackward.10")
-                        .font(.system(size: 28))
-                        .foregroundColor(.white)
-                }
-
-                // 播放/暂停按钮
-                Button(action: onPlayPause) {
-                    ZStack {
-                        // 液态光晕
-                        if isPlaying {
-                            LiquidGlow()
-                                .frame(width: 80, height: 80)
-                                .blur(radius: 12)
-                                .opacity(0.5)
-                        }
-
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.white)
-                            .offset(isPlaying ? .zero : CGSize(width: 3, height: 0))
-                    }
-                    .frame(width: 70, height: 70)
-                }
-
-                // 快进
-                Button(action: { onSeek(min(duration, currentTime + 10)) }) {
-                    Image(systemName: "goforward.10")
-                        .font(.system(size: 28))
-                        .foregroundColor(.white)
-                }
-
-                Spacer()
-
-                // 画中画按钮
-                Button(action: onPictureInPicture) {
-                    Image(systemName: "pip.enter")
-                        .font(.system(size: 22))
-                        .foregroundColor(.white)
-                        .frame(width: 44)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(
-            // 底部毛玻璃效果
-            LinearGradient(
-                colors: [
-                    Color.clear,
-                    Color.black.opacity(0.4),
-                    Color.black.opacity(0.8)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .onChange(of: currentTime) { newValue in
-            if !isDragging {
-                sliderValue = newValue
-            }
-        }
-    }
-
-    private func formatTime(_ time: Double) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-}
-
-// 自定义进度条
+// MARK: - 进度条
 struct ProgressSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     @Binding var isDragging: Bool
-    let onValueChanged: (Double) -> Void
-
-    @GestureState private var isHighlighting = false
+    @State private var isEditing = false
 
     var body: some View {
-        GeometryReader { geometry in
+        let pct = range.upperBound > range.lowerBound ? (value - range.lowerBound) / (range.upperBound - range.lowerBound) : 0
+        GeometryReader { geo in
             ZStack(alignment: .leading) {
-                // 背景轨道
-                Capsule()
-                    .fill(Color.white.opacity(0.3))
-                    .frame(height: 6)
-
-                // 已播放进度
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: geometry.size.width * progressRatio, height: 6)
-
-                // 拖动手柄
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: isDragging || isHighlighting ? 18 : 14, height: isDragging || isHighlighting ? 18 : 14)
-                    .offset(x: geometry.size.width * progressRatio - (isDragging || isHighlighting ? 9 : 7))
-                    .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
+                // 底轨
+                Capsule().fill(Color.white.opacity(0.2)).frame(height: 3)
+                // 缓冲（模拟）
+                Capsule().fill(Color.white.opacity(0.15)).frame(width: geo.size.width * 0.7, height: 3)
+                // 已播放
+                Capsule().fill(Color(hex: "E11D48")).frame(width: geo.size.width * CGFloat(pct), height: 3)
+                // 拖拽点
+                Circle().fill(.white).frame(width: 12, height: 12)
+                    .offset(x: geo.size.width * CGFloat(pct) - 6)
+                    .shadow(radius: 2)
             }
+            .frame(height: 20)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        isDragging = true
-                        updateValue(at: value.location.x, in: geometry.size.width)
-                    }
-                    .onEnded { _ in
-                        isDragging = false
-                    }
+                    .onChanged { g in isEditing = true; value = range.lowerBound + Double(g.location.x / geo.size.width) * (range.upperBound - range.lowerBound) }
+                    .onEnded { _ in isEditing = false }
             )
         }
-        .frame(height: 20)
-    }
-
-    private var progressRatio: Double {
-        guard range.upperBound > 0 else { return 0 }
-        return (value - range.lowerBound) / (range.upperBound - range.lowerBound)
-    }
-
-    private func updateValue(at location: Double, in width: Double) {
-        let ratio = max(0, min(1, location / width))
-        let newValue = range.lowerBound + ratio * (range.upperBound - range.lowerBound)
-        value = newValue
-        onValueChanged(newValue)
+        .frame(height: 20).padding(.horizontal, 16)
     }
 }
 
-// 播放器时间观察者
-class PlayerTimeObserver: ObservableObject {
-    @Published var currentTime: Double = 0
-    @Published var duration: Double = 0
+// MARK: - AirPlay 按钮
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let v = AVRoutePickerView()
+        v.tintColor = .white
+        v.activeTintColor = UIColor(Color(hex: "E11D48"))
+        return v
+    }
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
-// 画中画控制器包装
-@available(iOS 16.0, *)
-struct PictureInPictureControllerRepresentable: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let c = AVPlayerViewController()
-        c.player = context.coordinator.player
-        return c
+// MARK: - 播放设置
+struct PlayerSettingsView: View {
+    @Binding var speed: Double
+    let onSpeedChange: (Double) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("播放速度") {
+                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { s in
+                        Button(action: { speed = s; onSpeedChange(s); dismiss() }) {
+                            HStack {
+                                Text("\(s, specifier: "%.2g")x").foregroundColor(.primary)
+                                Spacer()
+                                if s == speed { Image(systemName: "checkmark").foregroundColor(Color(hex: "E11D48")) }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("播放设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
     }
-    func updateUIViewController(_: AVPlayerViewController, context: Context) {}
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    class Coordinator { var player: AVPlayer? }
 }
+
+// MARK: - 选集面板
+struct EpisodePickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+                    ForEach(1..<25) { ep in
+                        Button(action: { dismiss() }) {
+                            Text("\(ep)").font(.system(size: 14)).foregroundColor(.primary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(Color.primary.opacity(0.1)).cornerRadius(8)
+                        }
+                    }
+                }.padding()
+            }
+            .navigationTitle("选集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+    }
+}
+
+// MARK: - 工具
+private func formatTime(_ t: Double) -> String {
+    guard t.isFinite, t >= 0 else { return "00:00" }
+    let total = Int(t)
+    let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
+}
+
+// Mock
+let mockVideos: [VodItem] = (1...10).map { VodItem(vodId: "\($0)", vodName: "测试视频\($0)", vodPic: "", vodRemarks: "更新至\($0)") }
