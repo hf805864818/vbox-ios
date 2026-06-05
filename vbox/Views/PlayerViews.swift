@@ -197,7 +197,11 @@ struct RelatedVideosView: View {
                 ForEach(mockVideos.prefix(5)) { video in
                     HStack(spacing: 12) {
                         AsyncImage(url: URL(string: video.vodPic)) { phase in
-                            (phase.image?.resizable().aspectRatio(contentMode: .fill)) ?? Rectangle().fill(Color.gray.opacity(0.3))
+                            if let image = phase.image {
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            } else {
+                                Rectangle().fill(Color.gray.opacity(0.3))
+                            }
                         }.frame(width: 110, height: 70).clipShape(RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 6) {
                             Text(video.vodName).font(.system(size: 14, weight: .medium)).lineLimit(2)
@@ -555,7 +559,7 @@ struct DanmakuOverlayView: View {
             .onReceive(timer) { _ in
                 while currentIndex < allDanmaku.count {
                     let dm = allDanmaku[currentIndex]
-                    if dm.time <= Date().timeIntervalSinceReferenceNow.truncatingRemainder(dividingBy: 3600) {
+                    if dm.time <= Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600) {
                         let newId = (danmakuItems.max(by: { $0.id < $1.id })?.id ?? 0) + 1
                         danmakuItems.append((text: dm.text, x: geo.size.width + 50, y: CGFloat.random(in: 30..<geo.size.height - 50), id: newId))
                         currentIndex += 1
@@ -686,5 +690,67 @@ private func formatTime(_ t: Double) -> String {
     return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
 }
 
-// Mock
-let mockVideos: [VodItem] = (1...10).map { VodItem(vodId: "\($0)", vodName: "测试视频\($0)", vodPic: "", vodRemarks: "更新至\($0)") }
+// MARK: - LogVar 弹幕 API 服务
+class DanmakuService {
+    static let shared = DanmakuService()
+    private let baseURL = "https://uzdm.616222.xyz/api/v2"
+
+    struct Anime: Codable {
+        let animeId: Int; let animeTitle: String; let type: String?; let year: String?; let season: Int?
+    }
+    struct Episode: Codable {
+        let episodeId: Int; let episodeTitle: String?
+    }
+    struct Danmaku: Codable {
+        let id: Int?; let cid: Int?; let p: String?; let m: String?; let content: String?
+        var time: Double {
+            if let p = p, let first = p.components(separatedBy: ",").first, let t = Double(first) { return t }
+            return 0
+        }
+        var text: String { m ?? content ?? "" }
+    }
+
+    func searchAnime(keyword: String) async throws -> [Anime] {
+        guard let url = URL(string: "\(baseURL)/search/anime?keyword=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)&from=10") else { throw DanmakuError.invalidURL }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let r = try JSONDecoder().decode(AnimeSearchResponse.self, from: data)
+        return r.animeList ?? []
+    }
+
+    func searchEpisodes(animeId: Int) async throws -> [Episode] {
+        guard let url = URL(string: "\(baseURL)/search/episodes?animeId=\(animeId)") else { throw DanmakuError.invalidURL }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let r = try JSONDecoder().decode(EpisodeSearchResponse.self, from: data)
+        return r.episodes ?? []
+    }
+
+    func fetchDanmaku(episodeId: Int, segmentIndex: Int = 0) async throws -> [Danmaku] {
+        guard let url = URL(string: "\(baseURL)/segmentcomment?episodeId=\(episodeId)&segmentIndex=\(segmentIndex)") else { throw DanmakuError.invalidURL }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let r = try JSONDecoder().decode(DanmakuSegmentResponse.self, from: data)
+        return r.comments ?? []
+    }
+
+    func fetchDanmakuForVideo(videoName: String, episodeIndex: Int = 1) async throws -> [Danmaku] {
+        let animes = try await searchAnime(keyword: videoName)
+        guard let first = animes.first else { throw DanmakuError.notFound }
+        let episodes = try await searchEpisodes(animeId: first.animeId)
+        let targetEp = episodes.first { $0.episodeTitle?.contains("\(episodeIndex)") ?? false } ?? episodes.first
+        guard let ep = targetEp else { throw DanmakuError.notFound }
+        return try await fetchDanmaku(episodeId: ep.episodeId)
+    }
+}
+
+struct AnimeSearchResponse: Codable { let errorCode: Int?; let animeList: [DanmakuService.Anime]? }
+struct EpisodeSearchResponse: Codable { let errorCode: Int?; let episodes: [DanmakuService.Episode]? }
+struct DanmakuSegmentResponse: Codable { let errorCode: Int?; let comments: [DanmakuService.Danmaku]? }
+
+enum DanmakuError: LocalizedError {
+    case invalidURL; case notFound; case networkError(String)
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: return "无效URL"; case .notFound: return "未找到弹幕"
+        case .networkError(let m): return m
+        }
+    }
+}
