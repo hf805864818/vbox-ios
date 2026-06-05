@@ -600,15 +600,8 @@ struct SearchView: View {
         isSearching = true
         isSearchLoading = true
         Task {
-            // 引擎为空时，按站点名筛选
-            if spiderManager.enginesCount == 0 {
-                let keyword = searchText.lowercased()
-                let matched = spiderManager.allSites.filter { $0.name.lowercased().contains(keyword) || $0.key.lowercased().contains(keyword) }
-                self.searchResults = matched.map { VodItem(vodId: $0.key, vodName: $0.name, vodPic: "") }
-            } else {
-                let results = await spiderManager.search(keyword: searchText)
-                self.searchResults = results
-            }
+            let results = await spiderManager.search(keyword: searchText)
+            self.searchResults = results
             self.isSearchLoading = false
         }
     }

@@ -33,8 +33,11 @@ class SpiderManager: ObservableObject {
         do {
             try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
             print("[SpiderManager] ✅ 内置蜘蛛启动加载成功")
+            // 试加载首页
+            await loadHomeData()
         } catch {
             print("[SpiderManager] ❌ 内置蜘蛛启动加载失败: \(error.localizedDescription)")
+            errorMessage = "蜘蛛引擎加载失败: \(error.localizedDescription)"
         }
         
         // 如果有已保存的订阅源，则加载
@@ -184,6 +187,17 @@ class SpiderManager: ObservableObject {
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
+        // 如果引擎为空，尝试实时加载内置蜘蛛
+        if engines.isEmpty {
+            do {
+                try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
+                print("[SpiderManager] 搜索时实时加载内置蜘蛛成功")
+            } catch {
+                print("[SpiderManager] 搜索时实时加载内置蜘蛛失败: \(error.localizedDescription)")
+                return []
+            }
+        }
+        
         var all: [VodItem] = []
         for (_, engine) in engines {
             do {
