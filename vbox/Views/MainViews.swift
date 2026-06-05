@@ -832,19 +832,14 @@ struct SearchResultsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if grouped.count <= 1 {
-                    singleColumnList(results)
-                } else {
-                    dualPanel
-                        .onAppear {
-                            if selectedSource == nil { selectedSource = sources.first }
-                        }
-                }
-            }
-            .navigationDestination(for: VodItem.self) { video in
-                VideoDetailView(video: video)
+        Group {
+            if grouped.count <= 1 {
+                singleColumnList(results)
+            } else {
+                dualPanel
+                    .onAppear {
+                        if selectedSource == nil { selectedSource = sources.first }
+                    }
             }
         }
     }
