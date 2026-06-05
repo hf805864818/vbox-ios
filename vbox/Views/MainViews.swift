@@ -838,7 +838,7 @@ struct SearchResultsView: View {
         return dict
     }
 
-    private var sources: [String] { grouped.map(\.0) }
+private var sources: [String] { grouped.map(\.0) }
     private var currentVideos: [VodItem] {
         let sel = selectedSource ?? sources.first ?? ""
         return grouped.first(where: { $0.0 == sel })?.1 ?? []
@@ -849,10 +849,52 @@ struct SearchResultsView: View {
             if grouped.count <= 1 {
                 singleColumnList(results)
             } else {
-                dualPanel
-                    .onAppear {
-                        if selectedSource == nil { selectedSource = sources.first }
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
+                        // 左侧：站点列表 - 响应式宽度
+                        ScrollView(showsIndicators: false) {
+                            LazyVStack(spacing: 2) {
+                                ForEach(sources, id: \.self) { name in
+                                    let sel = (selectedSource ?? sources.first ?? "") == name
+                                    Button(action: { selectedSource = name }) {
+                                        Text(name)
+                                            .font(.system(size: 13, weight: sel ? .bold : .regular))
+                                            .foregroundColor(sel ? .white : .gray)
+                                            .lineLimit(1)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.vertical, 11)
+                                            .padding(.horizontal, 10)
+                                            .background(sel ? Color.blue.opacity(0.2) : Color.clear)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .frame(width: min(110, geometry.size.width * 0.25))
+                        .background(Color(hex: "1A1A2E"))
+
+                        Divider().background(Color.white.opacity(0.1))
+
+                        // 右侧：视频列表
+                        ScrollView(showsIndicators: false) {
+                            LazyVStack(spacing: 12) {
+                                ForEach(currentVideos) { item in
+                                    SearchResultRow(video: item)
+                                        .onTapGesture {
+                                            selectedVideo = item
+                                        }
+                                }
+                            }
+                            .padding(12)
+                        }
                     }
+                }
+                .fullScreenCover(item: $selectedVideo) { video in
+                    VideoDetailView(video: video)
+                }
+                .onAppear {
+                    if selectedSource == nil { selectedSource = sources.first }
+                }
             }
         }
     }
