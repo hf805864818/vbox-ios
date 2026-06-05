@@ -211,40 +211,31 @@ class SpiderManager: ObservableObject {
         savedURLs = subManager.configURLs
     }
     
-    /// 纯 Swift 搜索实现 — 绕过 QuickJS，用多个备用数据源
+    /// 纯 Swift 搜索实现 — 走 vbox.ltd Worker 搜索接口
     func nativeSearch(keyword: String) async -> [VodItem] {
-        // 搜索 API 源（优先级从高到低）
-        let searchAPIs = [
-            "https://vbox.ltd/?url=https://api.apibdzy.com/api.php/provide/vod/from/jssq/?ac=videolist&wd=",
-            "https://vbox.ltd/?url=https://json.im30.app/vod/?ac=videolist&wd=",
-        ]
+        let apiURL = "https://vbox.ltd/search?wd=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
+        guard let url = URL(string: apiURL) else { return [] }
         
-        for baseURL in searchAPIs {
-            let apiURL = baseURL + (keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)
-            guard let url = URL(string: apiURL) else { continue }
-            
-            var req = URLRequest(url: url)
-            req.timeoutInterval = 15
-            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            
-            do {
-                let (data, _) = try await URLSession.shared.data(for: req)
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let list = json["list"] as? [[String: Any]], !list.isEmpty {
-                    let results = list.map { item in
-                        VodItem(
-                            vodId: String(describing: item["vod_id"] ?? ""),
-                            vodName: (item["vod_name"] as? String) ?? (item["title"] as? String) ?? "",
-                            vodPic: (item["vod_pic"] as? String) ?? ""
-                        )
-                    }
-                    print("[SpiderManager] nativeSearch 从 \(baseURL) 获得 \(results.count) 个结果")
-                    return results
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]] {
+                let results = list.map { item in
+                    VodItem(
+                        vodId: String(describing: item["vod_id"] ?? ""),
+                        vodName: (item["vod_name"] as? String) ?? "",
+                        vodPic: (item["vod_pic"] as? String) ?? ""
+                    )
                 }
-            } catch {
-                print("[SpiderManager] nativeSearch \(baseURL) 失败: \(error.localizedDescription)")
-                continue
+                print("[SpiderManager] nativeSearch 从 Worker 获得 \(results.count) 个结果")
+                return results
             }
+        } catch {
+            print("[SpiderManager] nativeSearch Worker 失败: \(error.localizedDescription)")
         }
         return []
     }
