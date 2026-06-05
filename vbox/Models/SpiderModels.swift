@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 // MARK: - AnyCodable: 兼容 String / 对象 / 数组 多种类型
 struct AnyCodable: Codable {
@@ -206,5 +206,13 @@ extension Color {
             blue:  Double(b) / 255,
             opacity: Double(a) / 255
         )
+    }
+}
+
+
+// MARK: - UIApplication 扩展
+extension UIApplication {
+    func endEditing() {
+        sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }

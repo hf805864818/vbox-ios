@@ -589,6 +589,7 @@ struct SearchView: View {
                 } else {
                     SearchSuggestionsView()
                 }
+            }
         }
         .background(Color(hex: "000000"))
         .ignoresSafeArea(.keyboard)
@@ -1126,3 +1127,94 @@ struct ProfileMenuItem: View {
 }
 
 
+
+// MARK: - 数据模型
+// Mock数据
+let mockVideos: [VodItem] = [
+    VodItem(vodId: "test_001", vodName: "三体", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_002", vodName: "狂飙", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_003", vodName: "庆余年", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_004", vodName: "繁花", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_005", vodName: "肖申克的救赎", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_006", vodName: "黑袍纠察队", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_007", vodName: "权力的游戏", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_008", vodName: "绝命毒师", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_009", vodName: "复仇者联盟", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_010", vodName: "泰坦尼克号", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_011", vodName: "盗梦空间", vodPic: "https://via.placeholder.com/300x200"),
+    VodItem(vodId: "test_012", vodName: "星际穿越", vodPic: "https://via.placeholder.com/300x200"),
+]
+
+// MARK: - 站点行组件
+struct SiteRow: View {
+    let site: SiteConfig
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(site.name).font(.system(size: 14, weight: .medium))
+                Text(site.key).font(.system(size: 11)).foregroundColor(.secondary)
+            }
+            Spacer()
+            Text(site.type == 3 ? "JS" : "API").font(.system(size: 10)).foregroundColor(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color(hex: "E11D48")).cornerRadius(4)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Color.primary.opacity(0.05))
+    }
+}
+
+// MARK: - 流式布局
+@available(iOS 16.0, *)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        let height = rows.reduce(0) { $0 + $1.height + spacing } - spacing
+        return CGSize(width: proposal.width ?? 0, height: height > 0 ? height : 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for subview in row.subviews {
+                subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+                x += subview.dimensions(in: .unspecified).width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var currentRow = Row()
+        var currentX: CGFloat = 0
+        let maxWidth = proposal.width ?? 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > maxWidth, !currentRow.subviews.isEmpty {
+                rows.append(currentRow)
+                currentRow = Row()
+                currentX = 0
+            }
+            currentRow.subviews.append(subview)
+            currentX += size.width + spacing
+        }
+        if !currentRow.subviews.isEmpty {
+            rows.append(currentRow)
+        }
+        return rows
+    }
+
+    private struct Row {
+        var subviews: [LayoutSubviews.Element] = []
+        var height: CGFloat {
+            subviews.map { $0.dimensions(in: .unspecified).height }.max() ?? 0
+        }
+    }
+}
