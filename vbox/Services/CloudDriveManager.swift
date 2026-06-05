@@ -342,6 +342,194 @@ class CloudDriveManager {
         )
     }
 
+    // MARK: - 115 网盘
+
+    /// 115 网盘：分享链接 → snap → files/download → 播放地址
+    /// Token 格式：CID=xxx
+    func resolve115PlayURL(shareURL: String, cid: String) async throws -> PlayResult {
+        let (shareCode, receiveCode) = try await extract115ShareCode(from: shareURL)
+
+        // Step 1: snap 获取文件信息
+        let snapResult = try await one15Snap(shareCode: shareCode, receiveCode: receiveCode, cid: cid)
+
+        // Step 2: 获取下载地址
+        guard let fileId = snapResult.fileId else { throw DriveError.noPlayURL }
+        let downloadURL = try await one15GetDownloadURL(fileId: fileId, cid: cid)
+
+        return PlayResult(
+            url: downloadURL,
+            headers: ["Cookie": "CID=\(cid)", "User-Agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"],
+            driveType: .one15
+        )
+    }
+
+    /// 从 115 分享链接提取 share_code 和 receive_code
+    private func extract115ShareCode(from url: String) async throws -> (shareCode: String, receiveCode: String) {
+        // 格式: https://115.com/s/xxxxxx?password=xxx
+        var shareCode = ""
+        var receiveCode = ""
+
+        if let range = url.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
+            shareCode = String(url[range]).replacingOccurrences(of: "/s/", with: "")
+        }
+        if let range = url.range(of: #"password=([^&]+)"#, options: .regularExpression) {
+            receiveCode = String(url[range]).replacingOccurrences(of: "password=", with: "")
+        }
+
+        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
+        return (shareCode, receiveCode)
+    }
+
+    /// 115 snap API — 获取分享文件信息
+    private struct One15SnapResult {
+        let fileId: String?
+        let fileName: String?
+    }
+
+    private func one15Snap(shareCode: String, receiveCode: String, cid: String) async throws -> One15SnapResult {
+        var components = URLComponents(string: "https://webapi.115.com/share/snap")!
+        components.queryItems = [
+            URLQueryItem(name: "share_code", value: shareCode),
+            URLQueryItem(name: "receive_code", value: receiveCode),
+            URLQueryItem(name: "cid", value: "0"),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "limit", value: "20")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("CID=\(cid)", forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = json["state"] as? Bool, state == true,
+              let dataDict = json["data"] as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+
+        // 尝试取文件 ID
+        var fileId: String?
+        if let list = dataDict["list"] as? [[String: Any]], let first = list.first {
+            fileId = String(describing: first["file_id"] ?? first["id"] ?? "")
+        } else if let pickCode = dataDict["pick_code"] as? String {
+            // 需要提取码
+            fileId = pickCode
+        }
+
+        return One15SnapResult(fileId: fileId, fileName: dataDict["file_name"] as? String)
+    }
+
+    /// 115 获取下载地址
+    private func one15GetDownloadURL(fileId: String, cid: String) async throws -> String {
+        var components = URLComponents(string: "https://proapi.115.com/app/chrome/downurl")!
+        components.queryItems = [URLQueryItem(name: "pickcode", value: fileId)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("CID=\(cid)", forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = json["state"] as? Bool, state == true else {
+            throw DriveError.invalidResponse
+        }
+
+        // 从返回中提取下载 URL
+        if let dataObj = json["data"] as? [String: Any] {
+            for (_, value) in dataObj {
+                if let fileInfo = value as? [String: Any],
+                   let url = fileInfo["url"] as? String {
+                    return url
+                }
+            }
+        }
+
+        throw DriveError.noPlayURL
+    }
+
+    // MARK: - UC 网盘
+
+    /// UC 网盘：与夸克架构类似，share_token → save → file/v2/play
+    /// Token 格式：完整 Cookie
+    func resolveUCPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+        // Step 1: 提取 share_id
+        let shareId = extractUCShareId(from: shareURL)
+
+        // Step 2: 转存到网盘
+        let fileIds = try await ucSaveShare(shareId: shareId, cookie: cookie)
+
+        // Step 3: 获取播放地址
+        guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
+        let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
+
+        return PlayResult(
+            url: playURL,
+            headers: ["Cookie": cookie, "Referer": "https://drive.uc.cn/", "User-Agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"],
+            driveType: .uc
+        )
+    }
+
+    private func extractUCShareId(from url: String) -> String {
+        // 格式: https://drive.uc.cn/s/xxxxxx 或 https://pc.uc.cn/s/xxxxxx
+        if let range = url.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
+            return String(url[range]).replacingOccurrences(of: "/s/", with: "")
+        }
+        return url
+    }
+
+    /// UC 转存分享文件
+    private func ucSaveShare(shareId: String, cookie: String) async throws -> [String] {
+        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/save")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let body: [String: Any] = [
+            "share_id": shareId,
+            "stoken": "",
+            "to_pdir_fid": ""
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? Int, status == 200 else {
+            throw DriveError.saveFailed
+        }
+
+        // 返回转存后的文件 ID
+        if let dataObj = json["data"] as? [String: Any],
+           let list = dataObj["list"] as? [[String: Any]],
+           let first = list.first,
+           let fid = first["fid"] ?? first["file_id"] {
+            return [String(describing: fid)]
+        }
+
+        return [shareId]
+    }
+
+    /// UC 获取播放地址
+    private func ucGetPlayURL(fileId: String, cookie: String) async throws -> String {
+        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/file/v2/play")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let body: [String: Any] = ["file_id": fileId]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let playURL = dataObj["play_url"] as? String else {
+            throw DriveError.noPlayURL
+        }
+        return playURL
+    }
+
     // MARK: - 统一解析入口
 
     /// 自动识别网盘类型并解析播放地址
@@ -363,9 +551,9 @@ class CloudDriveManager {
         case .baidu:
             return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
         case .one15:
-            throw DriveError.notImplemented
+            return try await resolve115PlayURL(shareURL: shareURL, cid: token.value)
         case .uc:
-            throw DriveError.notImplemented
+            return try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
         }
     }
 }
