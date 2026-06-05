@@ -807,6 +807,7 @@ struct RecentSearchRow: View {
 struct SearchResultsView: View {
     let results: [VodItem]
     @State private var selectedSource: String? = nil
+    @State private var selectedVideo: VodItem? = nil
 
     /// 按站点来源分组（来自 vodRemarks）
     private var grouped: [(source: String, videos: [VodItem])] {
@@ -831,23 +832,38 @@ struct SearchResultsView: View {
     }
 
     var body: some View {
-        if grouped.count <= 1 {
-            singleColumnList(results)
-        } else {
-            dualPanel
-                .onAppear {
-                    if selectedSource == nil { selectedSource = sources.first }
+        NavigationStack {
+            Group {
+                if grouped.count <= 1 {
+                    singleColumnList(results)
+                } else {
+                    dualPanel
+                        .onAppear {
+                            if selectedSource == nil { selectedSource = sources.first }
+                        }
                 }
+            }
+            .navigationDestination(for: VodItem.self) { video in
+                VideoDetailView(video: video)
+            }
         }
     }
 
     private func singleColumnList(_ items: [VodItem]) -> some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 12) {
-                ForEach(items) { SearchResultRow(video: $0) }
+                ForEach(items) { item in
+                    SearchResultRow(video: item)
+                        .onTapGesture {
+                            selectedVideo = item
+                        }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
         }
     }
 
@@ -880,10 +896,18 @@ struct SearchResultsView: View {
             // 右侧：视频列表
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 12) {
-                    ForEach(currentVideos) { SearchResultRow(video: $0) }
+                    ForEach(currentVideos) { item in
+                        SearchResultRow(video: item)
+                            .onTapGesture {
+                                selectedVideo = item
+                            }
+                    }
                 }
                 .padding(12)
             }
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
         }
     }
 }
@@ -891,13 +915,9 @@ struct SearchResultsView: View {
 // 搜索结果行 — 封面 + 详情标签
 struct SearchResultRow: View {
     let video: VodItem
-    @State private var showDetail = false
 
     var body: some View {
-        NavigationLink {
-            VideoDetailView(video: video)
-        } label: {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
                 // 封面图
                 AsyncImage(url: URL(string: video.vodPic)) { phase in
                     switch phase {
@@ -950,7 +970,6 @@ struct SearchResultRow: View {
             .padding(10)
             .background(Color.white.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 10))
-        }
     }
 }
 
