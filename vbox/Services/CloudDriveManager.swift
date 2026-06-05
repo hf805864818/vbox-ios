@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // MARK: - 网盘存储模型
 struct DriveToken: Codable {
@@ -9,7 +10,7 @@ struct DriveToken: Codable {
 
 /// 网盘管理器 — 支持阿里云盘、夸克、百度、115、UC 的播放地址获取
 /// 每种网盘有不同的认证方式和 API 调用链路
-class CloudDriveManager {
+class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
 

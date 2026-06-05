@@ -242,11 +242,6 @@ class SubscriptionManager: ObservableObject {
         }
     }
 
-    func removeURL(_ url: String) {
-        configURLs.removeAll { $0 == url }
-        defaults.set(configURLs, forKey: urlsKey)
-    }
-
     private func loadCachedConfig() {
         guard let data = defaults.data(forKey: cacheKey) else { return }
         do { config = try JSONDecoder().decode(SubscribeConfig.self, from: data); isLoaded = true } catch {}
