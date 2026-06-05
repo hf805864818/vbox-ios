@@ -172,27 +172,23 @@ struct VideoDetailView: View {
             VideoPlayerView(video: video)
         }
         
-        // 返回按钮（悬浮在左上角）
-        VStack {
-            HStack {
-                Button(action: { dismiss() }) {
-                    ZStack {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+        // 返回按钮（固定在左上角）
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { dismiss() }) {
+                ZStack {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
                 }
-                .padding(.leading, 16)
-                .padding(.top, 16)  // 减少顶部padding，适应安全区域
-                Spacer()
+                .shadow(color: .black.opacity(0.4), radius: 6, x: 0, y: 2)
             }
+            .padding(.leading, 16)
+            .padding(.top, 12)
             Spacer()
         }
-        .padding(.top, 44)  // 添加顶部安全区域padding
         .zIndex(1000)
     }  // ZStack
 }  // VideoDetailView
@@ -904,27 +900,125 @@ struct VideoPlayerView: View {
     }
 
     private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
-        // TVBox 格式: playFrom = "线路1$$$线路2"  playUrl = "第1集$url1#第2集$url2$$$第1集$url3"
-        // 改进：正确处理 $ 分隔符和 # 分隔符
+        // TVBox 格式：playFrom = "线路 1$$$线路 2"  playUrl = "第 1 集$url1#第 2 集$url2$$$第 1 集$url3"
+        // 改进：正确处理 $ 分隔符和 # 分隔符，支持多种格式
         var results: [String] = []
         
-        // 按 # 分割获取每一集
-        let episodes = playUrl.components(separatedBy: "#")
+        print("[PlayerView] parsePlayUrls 输入参数:")
+        print("   playFrom: '\(playFrom.prefix(100))...'")
+        print("   playUrl 长度：\(playUrl.count) 字符")
         
-        for episode in episodes {
-            // 按 $ 分割，取最后一个（URL部分）
-            let parts = episode.components(separatedBy: "$")
-            if let urlPart = parts.last {
-                // 提取 URL（支持带参数的URL）
-                if let range = urlPart.range(of: "http") {
-                    var url = String(urlPart[range.lowerBound...])
-                    
-                    // 清理可能的尾部字符，但保留查询参数
-                    let stopChars = ["#", "\n", "\r", " "]
-                    for char in stopChars {
-                        if let endRange = url.range(of: char) {
-                            url = String(url[..<endRange.lowerBound])
+        // 情况 1: 如果 playUrl 直接是 http 开头，直接返回
+        if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
+            print("[PlayerView] ✅ playUrl 直接是 HTTP 链接")
+            results.append(playUrl.trimmingCharacters(in: .whitespaces))
+            return results
+        }
+        
+        // 情况 2: TVBox 标准格式，用 # 分割每一集
+        if playUrl.contains("#") {
+            print("[PlayerView] 按 # 分割剧集")
+            let episodes = playUrl.components(separatedBy: "#")
+            
+            for episode in episodes {
+                // 按 $ 分割，取最后一个（URL 部分）
+                let parts = episode.components(separatedBy: "$")
+                
+                // 找到包含 http 的部分
+                for part in parts {
+                    if part.contains("http://") || part.contains("https://") {
+                        var url = part
+                        
+                        // 清理尾部无效字符
+                        let stopChars = ["\n", "\r", " ", "\"", "'", "<", ">"]
+                        for char in stopChars {
+                            if let range = url.range(of: String(char)) {
+                                url = String(url[..<range.lowerBound])
+                            }
                         }
+                        
+                        // 验证是否为有效的视频 URL
+                        let isVideoUrl = url.contains(".m3u8") || 
+                                        url.contains(".mp4") ||
+                                        url.contains(".flv") ||
+                                        url.contains(".ts") ||
+                                        url.contains("/video/") ||
+                                        url.contains("/play/") ||
+                                        url.contains("m3u8") ||
+                                        url.contains("mp4")
+                        
+                        if isVideoUrl && !url.isEmpty && url.hasPrefix("http") {
+                            results.append(url.trimmingCharacters(in: .whitespaces))
+                            print("[PlayerView] ✅ 提取地址：\(url.prefix(80))...")
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 情况 3: 没有 # 分隔符，但有 $ 分隔符
+        if results.isEmpty && playUrl.contains("$") {
+            print("[PlayerView] 按 $ 分割")
+            let parts = playUrl.components(separatedBy: "$")
+            
+            for part in parts {
+                if part.contains("http://") || part.contains("https://") {
+                    var url = part.trimmingCharacters(in: .whitespaces)
+                    
+                    // 清理尾部
+                    let stopChars = ["\n", "\r", "\"", "'", "<", ">"]
+                    for char in stopChars {
+                        if let range = url.range(of: String(char)) {
+                            url = String(url[..<range.lowerBound])
+                        }
+                    }
+                    
+                    if url.hasPrefix("http") {
+                        results.append(url)
+                        print("[PlayerView] ✅ 提取地址：\(url.prefix(80))...")
+                    }
+                }
+            }
+        }
+        
+        // 情况 4: 直接提取所有 http 链接
+        if results.isEmpty {
+            print("[PlayerView] 正则提取 http 链接")
+            let pattern = "https?://[^\\s\"'<>#]+"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let matches = regex.matches(in: playUrl, range: NSRange(playUrl.startIndex..., in: playUrl))
+                for match in matches {
+                    if let range = Range(match.range, in: playUrl) {
+                        var url = String(playUrl[range])
+                        
+                        // 清理尾部
+                        let stopChars = ["\"", "'", "<", ">", "\n", "\r"]
+                        while let last = url.last, stopChars.contains(last) {
+                            url.removeLast()
+                        }
+                        
+                        // 验证
+                        let isVideoUrl = url.contains(".m3u8") || 
+                                        url.contains(".mp4") ||
+                                        url.contains(".flv") ||
+                                        url.contains("m3u8") ||
+                                        url.contains("mp4") ||
+                                        url.contains("/video/") ||
+                                        url.contains("/play/")
+                        
+                        if isVideoUrl || url.count > 20 {
+                            results.append(url)
+                            print("[PlayerView] ✅ 正则提取：\(url.prefix(80))...")
+                        }
+                    }
+                }
+            }
+        }
+        
+        print("[PlayerView] parsePlayUrls 最终提取到 \(results.count) 个地址")
+        return results
+    }
                     }
                     
                     // 验证是否为有效的视频URL

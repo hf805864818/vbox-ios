@@ -924,14 +924,125 @@ globalThis.__JS_SPIDER__ = _spider;
         let vodActor = dict["vod_actor"] as? String
         let vodContent = dict["vod_content"] as? String
         
-        // 处理vodPlayFrom - 兼容多种字段名
+        // 处理 vodPlayFrom - 兼容多种字段名
         var vodPlayFrom: String?
-        let playFromKeys = ["vod_play_from", "play_from", "from", "vodFrom", "play_from_name"]
+        let playFromKeys = ["vod_play_from", "play_from", "from", "vodFrom", "play_from_name", "vod_play_from_name"]
         for key in playFromKeys {
             if let from = dict[key] as? String, !from.isEmpty {
                 vodPlayFrom = from
                 break
             }
+        }
+        
+        // 处理 vodPlayUrl - 兼容多种字段名，包括各种拼写错误
+        var vodPlayUrl: String?
+        let playUrlKeys = [
+            "vod_play_url", "play_url", "url", 
+            "vodPlayUrl", "vodPrayUrt", "vodPlay Jri",  // 已知的拼写错误
+            "vod_play_ur1", "vod_play_urt", "playurl",  // 其他可能的拼写错误
+            "vod_play_urls", "urls", "play_urls", "video_url", "playUrl"
+        ]
+        
+        for key in playUrlKeys {
+            if let url = dict[key] as? String, !url.isEmpty {
+                print("[SpiderManager] ✅ 使用字段名 '\(key)' 获取播放地址")
+                vodPlayUrl = url
+                break
+            }
+        }
+        
+        // 如果仍然没有找到播放地址，尝试模糊匹配
+        if vodPlayUrl == nil {
+            print("[SpiderManager] ⚠️ 标准字段名未找到播放地址，尝试模糊匹配...")
+            for (key, value) in dict {
+                if let stringValue = value as? String, !stringValue.isEmpty {
+                    // 检查字段名是否包含 url 相关的关键词
+                    let lowerKey = key.lowercased()
+                    if lowerKey.contains("url") || lowerKey.contains("play") || lowerKey.contains("link") || lowerKey.contains("video") {
+                        // 检查值是否看起来像是播放地址（包含 http 或 m3u8/mp4 关键字）
+                        if stringValue.hasPrefix("http") || stringValue.contains("m3u8") || stringValue.contains("mp4") {
+                            print("[SpiderManager] ✅ 模糊匹配找到字段 '\(key)': \(stringValue.prefix(50))...")
+                            vodPlayUrl = stringValue
+                            break
+                        }
+                    }
+                } else if let arrayValue = value as? [String] {
+                    // 处理数组类型的播放地址
+                    if !arrayValue.isEmpty {
+                        let firstUrl = arrayValue[0]
+                        if firstUrl.hasPrefix("http") || firstUrl.contains("m3u8") || firstUrl.contains("mp4") {
+                            print("[SpiderManager] ✅ 数组字段找到播放地址 '\(key)': \(firstUrl.prefix(50))...")
+                            vodPlayUrl = firstUrl
+                            break
+                        }
+                    }
+                } else if let dictValue = value as? [String: Any] {
+                    // 处理嵌套字典类型的播放地址
+                    for (subKey, subValue) in dictValue {
+                        if let subStringValue = subValue as? String {
+                            let lowerSubKey = subKey.lowercased()
+                            if (lowerSubKey.contains("url") || lowerSubKey.contains("play")) && 
+                               (subStringValue.hasPrefix("http") || subStringValue.contains("m3u8") || subStringValue.contains("mp4")) {
+                                print("[SpiderManager] ✅ 嵌套字段找到播放地址 '\(key).\(subKey)': \(subStringValue.prefix(50))...")
+                                vodPlayUrl = subStringValue
+                                break
+                            }
+                        }
+                    }
+                    if vodPlayUrl != nil {
+                        break
+                    }
+                }
+            }
+        }
+        
+        // 特殊处理：如果 vodPlayFrom 存在但 vodPlayUrl 为空，尝试从所有字段中找到可能是播放地址的内容
+        if vodPlayUrl == nil && vodPlayFrom != nil {
+            print("[SpiderManager] ⚠️ vodPlayFrom 存在但 vodPlayUrl 为空，尝试从所有字段中提取...")
+            for (key, value) in dict {
+                if let stringValue = value as? String, !stringValue.isEmpty {
+                    // 跳过已经检查过的字段
+                    if key == "vod_id" || key == "id" || key == "vod_name" || key == "name" || key == "title" {
+                        continue
+                    }
+                    // 检查是否包含视频特征
+                    if stringValue.contains("://") || stringValue.contains(".m3u8") || stringValue.contains(".mp4") || stringValue.contains("#") {
+                        print("[SpiderManager] ✅ 从字段 '\(key)' 提取可能的播放地址：\(stringValue.prefix(80))...")
+                        vodPlayUrl = stringValue
+                        break
+                    }
+                }
+            }
+        }
+        
+        // 如果仍然没有找到，打印所有可用字段名用于调试
+        if vodPlayUrl == nil {
+            print("[SpiderManager] ❌ 未找到播放地址字段")
+            print("[SpiderManager] 可用字段名：\(dict.keys.sorted())")
+            print("[SpiderManager] 所有字段值（前 100 字符）:")
+            for (key, value) in dict.sorted(by: { $0.key < $1.key }) {
+                if let stringValue = value as? String {
+                    let displayValue = stringValue.count > 100 ? String(stringValue.prefix(100)) + "..." : stringValue
+                    print("[SpiderManager]   \(key): '\(displayValue)'")
+                } else {
+                    print("[SpiderManager]   \(key): \(type(of: value)) = \(value)")
+                }
+            }
+        }
+        
+        return VodItem(
+            vodId: vodId,
+            vodName: vodName,
+            vodPic: vodPic,
+            vodRemarks: vodRemarks,
+            vodYear: vodYear,
+            vodDirector: vodDirector,
+            vodActor: vodActor,
+            vodContent: vodContent,
+            vodPlayFrom: vodPlayFrom,
+            vodPlayUrl: vodPlayUrl
+        )
+    }
         }
         
         // 处理vodPlayUrl - 兼容多种字段名，包括各种拼写错误
