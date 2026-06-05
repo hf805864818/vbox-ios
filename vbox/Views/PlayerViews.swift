@@ -84,6 +84,8 @@ struct VideoDetailView: View {
             .ignoresSafeArea()
             .fullScreenCover(isPresented: $showPlayer) {
                 VideoPlayerView(video: video)
+                    .supportedOrientations(.landscape)
+                    .ignoresSafeArea()
             }
 
             // 返回
@@ -709,6 +711,29 @@ struct EpisodePickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
+    }
+}
+
+// MARK: - 横屏锁定
+struct SupportedOrientationsModifier: ViewModifier {
+    let supportedOrientations: UIInterfaceOrientationMask
+    
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+                UINavigationController.attemptRotationToDeviceOrientation()
+            }
+            .onDisappear {
+                UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+                UINavigationController.attemptRotationToDeviceOrientation()
+            }
+    }
+}
+
+extension View {
+    func supportedOrientations(_ orientations: UIInterfaceOrientationMask) -> some View {
+        self.modifier(SupportedOrientationsModifier(supportedOrientations: orientations))
     }
 }
 
