@@ -237,59 +237,69 @@ class SpiderManager: ObservableObject {
         savedURLs = subManager.configURLs
     }
     
-    /// 纯 Swift 搜索实现 — 多源搜索 + 聚合
+    /// 纯 Swift 搜索 — 从订阅源中找 type=1 的站点 API 进行搜索
     func nativeSearch(keyword: String) async -> [VodItem] {
         var allResults: [VodItem] = []
         var seenIds = Set<String>()
         
-        // 数据源1: vbox.ltd Worker 搜索接口
-        let workerURL = "https://vbox.ltd/search?wd=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
-        if let results = await searchWithAPI(url: workerURL) {
-            for item in results {
-                let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                if !seenIds.contains(id) {
-                    seenIds.insert(id)
-                    allResults.append(item)
-                }
-            }
-        }
+        // 从订阅源收集 type=1（API 直连）的站点
+        let apiSites = allSites.filter { $0.type == 1 && $0.api != nil && !$0.api!.isEmpty }
         
-        // 数据源2: DPlayer 搜索接口 (备用)
-        let dplayerURL = "https://dplayer.video/api/search?keyword=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
-        if let results = await searchWithAPI(url: dplayerURL, fieldMap: ["vod_id": "id", "vod_name": "title", "vod_pic": "cover"]) {
-            for item in results {
-                let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                if !seenIds.contains(id) {
-                    seenIds.insert(id)
-                    allResults.append(item)
-                }
-            }
-        }
+        // 如果没有 type=1 站点，使用硬编码的备用搜索 API
+        let searchURLs: [(name: String, url: String)] = apiSites.isEmpty ? [
+            ("非凡资源", "http://ffzy1.tv/api.php/provide/vod/?ac=detail&wd={wd}"),
+            ("量子资源", "https://lzizy1.com/api.php/provide/vod/?ac=detail&wd={wd}"),
+        ] : []
         
-        // 数据源3: 从已加载站点进行筛选搜索
-        if !allSites.isEmpty {
-            for site in allSites {
-                guard let api = site.api, !api.isEmpty else { continue }
-                let siteURL = api.replacingOccurrences(of: "{wd}", with: keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)
-                    .replacingOccurrences(of: "{keyword}", with: keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)
-                if let results = await searchWithAPI(url: siteURL) {
-                    for item in results {
-                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                        if !seenIds.contains(id), seenIds.count < 50 {
-                            seenIds.insert(id)
-                            allResults.append(item)
-                        }
+        // 并发搜索
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        
+        // 从 API 站点搜索
+        for site in apiSites {
+            guard let api = site.api, !api.isEmpty else { continue }
+            let urlStr = api.replacingOccurrences(of: "{wd}", with: encodedKW)
+                .replacingOccurrences(of: "{keyword}", with: encodedKW)
+                // 如果 API 不是完整搜索 URL，追加搜索参数
+            let finalURL: String
+            if urlStr.contains("?ac=") || urlStr.contains("?wd=") {
+                finalURL = urlStr
+            } else if urlStr.contains("?") {
+                finalURL = urlStr + "&ac=detail&wd=" + encodedKW
+            } else {
+                finalURL = urlStr + "?ac=detail&wd=" + encodedKW
+            }
+            
+            if let results = await searchWithAPI(url: finalURL, sourceName: site.name) {
+                for item in results {
+                    let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                    if !seenIds.contains(id), seenIds.count < 50 {
+                        seenIds.insert(id)
+                        allResults.append(item)
                     }
                 }
             }
         }
         
-        print("[SpiderManager] nativeSearch 获得 \(allResults.count) 个结果 (来自 \(seenIds.count) 个独立源)")
+        // 备用硬编码 API
+        for (name, urlTemplate) in searchURLs {
+            let urlStr = urlTemplate.replacingOccurrences(of: "{wd}", with: encodedKW)
+            if let results = await searchWithAPI(url: urlStr, sourceName: name) {
+                for item in results {
+                    let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                    if !seenIds.contains(id), seenIds.count < 50 {
+                        seenIds.insert(id)
+                        allResults.append(item)
+                    }
+                }
+            }
+        }
+        
+        print("[SpiderManager] nativeSearch 获得 \(allResults.count) 个结果")
         return allResults
     }
     
     /// 通用 JSON 搜索接口调用
-    private func searchWithAPI(url: String, fieldMap: [String: String] = [:]) async -> [VodItem]? {
+    private func searchWithAPI(url: String, fieldMap: [String: String] = [:], sourceName: String = "") async -> [VodItem]? {
         guard let urlObj = URL(string: url) else { return nil }
         var req = URLRequest(url: urlObj)
         req.timeoutInterval = 10
@@ -313,23 +323,28 @@ class SpiderManager: ObservableObject {
             // 结构5: { "results": [...] }
             else if let l = json["results"] as? [[String: Any]] { list = l }
             // 结构6: [ ... ] (直接数组)
-            else if let l = json as? [[String: Any]] { list = l; return l.map { mapVodItem($0, fieldMap: fieldMap) } }
+            else if let l = json as? [[String: Any]] { return l.map { mapVodItem($0, fieldMap: fieldMap, sourceName: sourceName) } }
             
             guard let items = list else { return nil }
-            return items.map { mapVodItem($0, fieldMap: fieldMap) }
+            return items.map { mapVodItem($0, fieldMap: fieldMap, sourceName: sourceName) }
         } catch {
             return nil
         }
     }
     
-    private func mapVodItem(_ item: [String: Any], fieldMap: [String: String]) -> VodItem {
+    private func mapVodItem(_ item: [String: Any], fieldMap: [String: String], sourceName: String = "") -> VodItem {
         let idField = fieldMap["vod_id"] ?? "vod_id"
         let nameField = fieldMap["vod_name"] ?? "vod_name"
         let picField = fieldMap["vod_pic"] ?? "vod_pic"
         return VodItem(
             vodId: String(describing: item[idField] ?? item["id"] ?? ""),
             vodName: (item[nameField] as? String) ?? (item["title"] as? String) ?? (item["name"] as? String) ?? "",
-            vodPic: (item[picField] as? String) ?? (item["cover"] as? String) ?? (item["image"] as? String) ?? (item["pic"] as? String) ?? ""
+            vodPic: (item[picField] as? String) ?? (item["cover"] as? String) ?? (item["image"] as? String) ?? (item["pic"] as? String) ?? "",
+            vodRemarks: !sourceName.isEmpty ? sourceName : (item["vod_remarks"] as? String),
+            vodYear: item["vod_year"] as? String ?? item["year"] as? String,
+            vodArea: item["vod_area"] as? String ?? item["area"] as? String,
+            vodDirector: item["vod_director"] as? String ?? item["director"] as? String,
+            vodActor: item["vod_actor"] as? String ?? item["actor"] as? String
         )
     }
 }
