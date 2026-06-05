@@ -630,16 +630,24 @@ struct VideoPlayerView: View {
         log("4/4 nativeDetail(订阅源)...")
         let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nativeDetail {
-            log("nativeDetail: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(nd.vodPlayFrom?.prefix(50) ?? "nil")")
-
-            // 优先检查 vodPlayUrl 是否为直链
+            log("nativeDetail: vodName=\(nd.vodName)")
+            
+            // 显示所有播放相关字段的详细信息
+            log("  vodPlayFrom字段内容: '\(nd.vodPlayFrom ?? "nil")'")
+            log("  vodPlayUrl字段内容: '\(nd.vodPlayUrl?.prefix(100) ?? "nil")'")
+            
+            // 检查vodPlayUrl的长度和内容
             if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
+                log("  vodPlayUrl长度: \(playUrl.count)字符")
+                log("  vodPlayUrl前50字符: \(String(playUrl.prefix(50)))")
+                log("  vodPlayUrl后50字符: \(String(playUrl.suffix(50)))")
+                
                 // 检查是否为 HTTP/HTTPS 直链
                 if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
                     // 检查是否为视频直链格式
                     if playUrl.hasSuffix(".m3u8") || playUrl.hasSuffix(".mp4") || playUrl.contains(".m3u8?") {
+                        log("✅ nativeDetail 检测到视频直链")
                         if let url = URL(string: playUrl) {
-                            log("✅ nativeDetail 检测到视频直链")
                             await MainActor.run { initPlayer(url: url) }
                             return
                         }
@@ -647,18 +655,24 @@ struct VideoPlayerView: View {
                         // 可能是HTML播放页，尝试解析
                         log("⚠️ nativeDetail 检测到HTML播放页，尝试解析器...")
                         if let parsedUrl = await spider.parsePlayUrl(from: playUrl) {
-                            log("✅ 解析器成功解析出视频直链")
+                            log("✅ 解析器成功解析出视频直链: \(parsedUrl.prefix(60))...")
                             if let url = URL(string: parsedUrl) {
                                 await MainActor.run { initPlayer(url: url) }
                                 return
                             }
+                        } else {
+                            log("❌ 解析器失败，无法解析HTML播放页")
                         }
                     }
+                } else {
+                    log("⚠️ vodPlayUrl不是HTTP/HTTPS开头，可能是特殊格式")
                 }
 
                 // 尝试解析 TVBox 格式的播放地址
                 let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: playUrl)
+                log("  从vodPlayUrl解析出\(urls.count)个地址")
                 if let firstUrl = urls.first {
+                    log("  第一集地址: \(firstUrl.prefix(60))...")
                     // 检查第一集URL是否为HTML播放页
                     if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
                         if let url = URL(string: firstUrl) {
@@ -670,21 +684,30 @@ struct VideoPlayerView: View {
                         // 尝试解析HTML播放页
                         log("⚠️ nativeDetail 第一集为HTML播放页，尝试解析器...")
                         if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
-                            log("✅ 解析器成功解析出第一集视频直链")
+                            log("✅ 解析器成功解析出第一集视频直链: \(parsedUrl.prefix(60))...")
                             if let url = URL(string: parsedUrl) {
                                 await MainActor.run { initPlayer(url: url) }
                                 return
                             }
+                        } else {
+                            log("❌ 解析器失败，无法解析第一集HTML播放页")
                         }
                     }
+                } else {
+                    log("⚠️ parsePlayUrls未能解析出任何地址")
                 }
+            } else {
+                log("⚠️ vodPlayUrl为空或nil")
             }
 
             // 检查 vodPlayFrom 和 vodPlayUrl 组合
             if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty,
                let playUrlRaw = nd.vodPlayUrl, !playUrlRaw.isEmpty {
+                log("尝试从vodPlayFrom+vodPlayUrl组合解析...")
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
+                log("  从组合解析出\(urls.count)个地址")
                 if let firstUrl = urls.first {
+                    log("  组合第一集地址: \(firstUrl.prefix(60))...")
                     // 检查是否为HTML播放页
                     if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
                         if let url = URL(string: firstUrl) {
@@ -696,11 +719,13 @@ struct VideoPlayerView: View {
                         // 尝试解析HTML播放页
                         log("⚠️ nativeDetail vodPlayFrom第一集为HTML播放页，尝试解析器...")
                         if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
-                            log("✅ 解析器成功解析出vodPlayFrom视频直链")
+                            log("✅ 解析器成功解析出vodPlayFrom视频直链: \(parsedUrl.prefix(60))...")
                             if let url = URL(string: parsedUrl) {
                                 await MainActor.run { initPlayer(url: url) }
                                 return
                             }
+                        } else {
+                            log("❌ 解析器失败，无法解析vodPlayFrom HTML播放页")
                         }
                     }
                 }

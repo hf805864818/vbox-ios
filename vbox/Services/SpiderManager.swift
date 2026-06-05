@@ -806,8 +806,27 @@ globalThis.__JS_SPIDER__ = _spider;
            let first = list.first {
             // 打印完整字段名以便调试
             print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
+            
+            // 打印关键字段的内容，用于调试
+            print("[SpiderManager] === 关键字段内容 ===")
+            for key in ["vod_id", "id", "vod_name", "name", "vod_pic", "pic", "vod_play_url", "play_url", "url", "vod_play_from", "play_from", "from"] {
+                if first[key] != nil {
+                    let value = first[key] ?? "nil"
+                    if let stringValue = value as? String {
+                        print("[SpiderManager] \(key): '\(stringValue.prefix(50))...'")
+                    } else {
+                        print("[SpiderManager] \(key): \(value)")
+                    }
+                }
+            }
+            print("[SpiderManager] === 字段内容结束 ===")
+            
             let item = Self.makeVodItem(from: first, siteName: siteName)
-            print("[SpiderManager] nativeDetail(ids) \(siteName): vodPlayUrl=\(item.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(item.vodPlayFrom?.prefix(50) ?? "nil")")
+            print("[SpiderManager] nativeDetail(ids) \(siteName): 解析结果:")
+            print("[SpiderManager]   vodId: '\(item.vodId.prefix(20))...'")
+            print("[SpiderManager]   vodName: '\(item.vodName)'")
+            print("[SpiderManager]   vodPlayUrl: '\(item.vodPlayUrl?.prefix(50) ?? "nil")...'")
+            print("[SpiderManager]   vodPlayFrom: '\(item.vodPlayFrom?.prefix(30) ?? "nil")...'")
 
             // 检查是否有播放地址
             if let playUrl = item.vodPlayUrl, !playUrl.isEmpty {
@@ -822,6 +841,10 @@ globalThis.__JS_SPIDER__ = _spider;
             return item
         } else {
             print("[SpiderManager] fetchDetail JSON解析失败或list为空")
+            // 尝试打印原始响应用于调试
+            if let rawStr = String(data: data, encoding: .utf8) {
+                print("[SpiderManager] 原始响应(前200字符): \(rawStr.prefix(200))")
+            }
         }
     } catch {
         print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
@@ -855,10 +878,10 @@ globalThis.__JS_SPIDER__ = _spider;
     }
     
     private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
-        // 兼容多种字段名变体
-        let vodId = String(describing: dict["vod_id"] ?? dict["id"] ?? "")
-        let vodName = (dict["vod_name"] as? String) ?? (dict["name"] as? String) ?? ""
-        let vodPic = (dict["vod_pic"] as? String) ?? (dict["pic"] as? String) ?? ""
+        // 兼容多种字段名变体，包括各种拼写错误
+        let vodId = String(describing: dict["vod_id"] ?? dict["id"] ?? dict["v_id"] ?? "")
+        let vodName = (dict["vod_name"] as? String) ?? (dict["name"] as? String) ?? (dict["title"] as? String) ?? ""
+        let vodPic = (dict["vod_pic"] as? String) ?? (dict["pic"] as? String) ?? (dict["img"] as? String) ?? ""
         let vodRemarks = siteName
         let vodYear = dict["vod_year"] as? String
         let vodDirector = dict["vod_director"] as? String
@@ -867,25 +890,61 @@ globalThis.__JS_SPIDER__ = _spider;
         
         // 处理vodPlayFrom - 兼容多种字段名
         var vodPlayFrom: String?
-        if let from = dict["vod_play_from"] as? String, !from.isEmpty {
-            vodPlayFrom = from
-        } else if let from = dict["play_from"] as? String, !from.isEmpty {
-            vodPlayFrom = from
-        } else if let from = dict["from"] as? String, !from.isEmpty {
-            vodPlayFrom = from
+        let playFromKeys = ["vod_play_from", "play_from", "from", "vodFrom", "play_from_name"]
+        for key in playFromKeys {
+            if let from = dict[key] as? String, !from.isEmpty {
+                vodPlayFrom = from
+                break
+            }
         }
         
-        // 处理vodPlayUrl - 兼容多种字段名，包括拼写错误
+        // 处理vodPlayUrl - 兼容多种字段名，包括各种拼写错误
         var vodPlayUrl: String?
-        if let url = dict["vod_play_url"] as? String, !url.isEmpty {
-            vodPlayUrl = url
-        } else if let url = dict["play_url"] as? String, !url.isEmpty {
-            vodPlayUrl = url
-        } else if let url = dict["url"] as? String, !url.isEmpty {
-            vodPlayUrl = url
-        } else if let url = dict["vodPrayUrt"] as? String, !url.isEmpty {
-            // 修复拼写错误：vodPrayUrt → vodPlayUrl
-            vodPlayUrl = url
+        let playUrlKeys = [
+            "vod_play_url", "play_url", "url", 
+            "vodPlayUrl", "vodPrayUrt", "vodPlay Jri",  // 已知的拼写错误
+            "vod_play_ur1", "vod_play_urt", "playurl"   // 其他可能的拼写错误
+        ]
+        
+        for key in playUrlKeys {
+            if let url = dict[key] as? String, !url.isEmpty {
+                print("[SpiderManager] ✅ 使用字段名 '\(key)' 获取播放地址")
+                vodPlayUrl = url
+                break
+            }
+        }
+        
+        // 如果仍然没有找到播放地址，尝试模糊匹配
+        if vodPlayUrl == nil {
+            print("[SpiderManager] ⚠️ 标准字段名未找到播放地址，尝试模糊匹配...")
+            for (key, value) in dict {
+                if let stringValue = value as? String, !stringValue.isEmpty {
+                    // 检查字段名是否包含url相关的关键词
+                    let lowerKey = key.lowercased()
+                    if lowerKey.contains("url") || lowerKey.contains("play") || lowerKey.contains("link") {
+                        // 检查值是否看起来像是播放地址
+                        if stringValue.hasPrefix("http") {
+                            print("[SpiderManager] ✅ 模糊匹配找到字段 '\(key)': \(stringValue.prefix(50))...")
+                            vodPlayUrl = stringValue
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 如果仍然没有找到，打印所有可用字段名用于调试
+        if vodPlayUrl == nil {
+            print("[SpiderManager] ❌ 未找到播放地址字段")
+            print("[SpiderManager] 可用字段名: \(dict.keys.sorted())")
+            print("[SpiderManager] 可用字段值:")
+            for (key, value) in dict.sorted(by: { $0.key < $1.key }) {
+                if let stringValue = value as? String {
+                    print("[SpiderManager]   \(key): '\(stringValue.prefix(50))...'")
+                } else {
+                    print("[SpiderManager]   \(key): \(type(of: value))")
+                }
+            }
         }
         
         return VodItem(
