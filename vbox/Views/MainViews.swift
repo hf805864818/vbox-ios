@@ -801,84 +801,163 @@ struct RecentSearchRow: View {
     }
 }
 
-// 搜索结果视图
+// 搜索结果视图 — 双栏布局：左边站点列表 + 右边封面详情
 struct SearchResultsView: View {
     let results: [VodItem]
+    @State private var selectedSource: String? = nil
+
+    /// 按站点来源分组（来自 vodRemarks）
+    private var grouped: [(source: String, videos: [VodItem])] {
+        var dict: [(String, [VodItem])] = []
+        var seen = Set<String>()
+        for v in results {
+            let src = (v.vodRemarks?.isEmpty == false ? v.vodRemarks! : "搜索结果")
+            if seen.contains(src) {
+                if let i = dict.firstIndex(where: { $0.0 == src }) { dict[i].1.append(v) }
+            } else {
+                seen.insert(src)
+                dict.append((src, [v]))
+            }
+        }
+        return dict
+    }
+
+    private var sources: [String] { grouped.map(\.0) }
+    private var currentVideos: [VodItem] {
+        let sel = selectedSource ?? sources.first ?? ""
+        return grouped.first(where: { $0.0 == sel })?.1 ?? []
+    }
 
     var body: some View {
+        if grouped.count <= 1 {
+            singleColumnList(results)
+        } else {
+            dualPanel
+                .onAppear {
+                    if selectedSource == nil { selectedSource = sources.first }
+                }
+        }
+    }
+
+    private func singleColumnList(_ items: [VodItem]) -> some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 12) {
-                ForEach(results) { video in
-                    SearchResultRow(video: video)
-                }
+                ForEach(items) { SearchResultRow(video: $0) }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
     }
+
+    private var dualPanel: some View {
+        HStack(spacing: 0) {
+            // 左侧：站点列表
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 2) {
+                    ForEach(sources, id: \.self) { name in
+                        let sel = (selectedSource ?? sources.first ?? "") == name
+                        Button(action: { selectedSource = name }) {
+                            Text(name)
+                                .font(.system(size: 13, weight: sel ? .bold : .regular))
+                                .foregroundColor(sel ? .white : .gray)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 11)
+                                .padding(.horizontal, 10)
+                                .background(sel ? Color.blue.opacity(0.2) : Color.clear)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(width: 110)
+            .background(Color(hex: "1A1A2E"))
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // 右侧：视频列表
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 12) {
+                    ForEach(currentVideos) { SearchResultRow(video: $0) }
+                }
+                .padding(12)
+            }
+        }
+    }
 }
 
-// 搜索结果行
+// 搜索结果行 — 封面 + 详情标签
 struct SearchResultRow: View {
     let video: VodItem
 
     var body: some View {
         HStack(spacing: 12) {
-            // 缩略图
+            // 封面图
             AsyncImage(url: URL(string: video.vodPic)) { phase in
                 switch phase {
                 case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure(_):
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                case .empty:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                @unknown default:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Rectangle().fill(Color.gray.opacity(0.25))
+                        .overlay(Image(systemName: "film").font(.title2).foregroundColor(.gray))
                 }
             }
-            .frame(width: 100, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: 85, height: 110)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            // 信息
-            VStack(alignment: .leading, spacing: 4) {
+            // 详情
+            VStack(alignment: .leading, spacing: 5) {
                 Text(video.vodName)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(2)
 
-                HStack(spacing: 8) {
-                    Text(video.vodRemarks ?? "")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
-
-                    Text("•")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
-
-                    Text(video.vodYear ?? "")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.secondary)
+                // 标签
+                HStack(spacing: 5) {
+                    if let r = video.vodRemarks, !r.isEmpty {
+                        TagBadge(text: r)
+                    }
+                    if let y = video.vodYear, !y.isEmpty {
+                        TagBadge(text: y)
+                    }
+                    if let a = video.vodArea, !a.isEmpty {
+                        TagBadge(text: a)
+                    }
                 }
+
+                if let d = video.vodDirector, !d.isEmpty {
+                    Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                }
+                if let a = video.vodActor, !a.isEmpty {
+                    Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                }
+
+                Spacer()
             }
 
             Spacer()
 
-            // 播放按钮
             Image(systemName: "play.circle.fill")
-                .font(.system(size: 32))
+                .font(.system(size: 30))
                 .foregroundColor(Color(hex: "E11D48"))
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
+        .padding(10)
+        .background(Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// 标签徽章
+struct TagBadge: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(.blue)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 3))
     }
 }
 
