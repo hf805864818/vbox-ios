@@ -576,37 +576,56 @@ struct VideoPlayerView: View {
 
     private func resolvePlayUrl() async {
         let spider = SpiderManager.shared
-        log("1/3 调用 QuickJS 蜘蛛 getDetail(\(video.vodId))...")
         
+        // Step 1: detailContent
+        log("1/4 调用 detailContent(\(video.vodId))...")
         if let detail = await spider.getDetail(ids: video.vodId) {
-            log("2/3 蜘蛛返回: vodName=\(detail.vodName), vodPlayUrl=\(detail.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(detail.vodPlayFrom?.prefix(30) ?? "nil")")
+            log("2/4 detailContent: vodName=\(detail.vodName), vodPlayFrom=\(detail.vodPlayFrom?.prefix(30) ?? "nil"), vodPlayUrl=\(detail.vodPlayUrl?.prefix(50) ?? "nil")")
             
             if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty,
                let url = URL(string: playUrl) {
-                log("✅ 蜘蛛播放地址就绪")
+                log("✅ 直链播放地址就绪")
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
-            // 尝试从 vodPlayFrom + vodPlayUrl 解析
+            
             if let playFrom = detail.vodPlayFrom, let playUrlRaw = detail.vodPlayUrl {
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
-                log("解析 vodPlayFrom: \(playFrom.prefix(40)), 提取了 \(urls.count) 个URL")
                 if let firstUrl = urls.first, let url = URL(string: firstUrl) {
-                    log("✅ 从 vodPlayFrom 提取到播放地址")
+                    log("✅ 从 vodPlayFrom 提取直链")
                     await MainActor.run { initPlayer(url: url) }
                     return
                 }
             }
-            log("⚠️ 蜘蛛详情里没有播放地址")
         } else {
-            log("⚠️ 蜘蛛 getDetail 返回 nil")
+            log("⚠️ detailContent 返回 nil")
         }
-
-        // 蜘蛛解析失败，尝试 nativeDetail
-        log("3/3 尝试 nativeDetail(订阅源)...")
+        
+        // Step 2: playerContent — TVBox 蜘蛛播放解析
+        log("3/4 调用 playerContent...")
+        if let playResult = await spider.getPlayerContent(
+            vodId: video.vodId,
+            flag: "play",
+            url: video.vodPlayUrl ?? ""
+        ) {
+            let playUrl = playResult.playUrl ?? playResult.url ?? ""
+            log("playerContent: playUrl=\(playUrl.prefix(60)), headers=\(playResult.header?.count ?? 0)个")
+            
+            if !playUrl.isEmpty, let url = URL(string: playUrl) {
+                log("✅ playerContent 播放地址就绪")
+                await MainActor.run { initPlayer(url: url) }
+                return
+            }
+            log("⚠️ playerContent 返回 playUrl/url 为空")
+        } else {
+            log("⚠️ playerContent 返回 nil")
+        }
+        
+        // Step 3: nativeDetail
+        log("4/4 nativeDetail(订阅源)...")
         let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nativeDetail {
-            log("nativeDetail 返回: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil")")
+            log("nativeDetail: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil")")
             if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty,
                let url = URL(string: playUrl) {
                 log("✅ nativeDetail 播放地址就绪")
@@ -615,7 +634,7 @@ struct VideoPlayerView: View {
             }
             log("⚠️ nativeDetail 有记录但无播放地址")
         } else {
-            log("⚠️ nativeDetail 返回 nil（可能没有订阅源或无匹配结果）")
+            log("⚠️ nativeDetail 返回 nil")
         }
 
         await MainActor.run {
