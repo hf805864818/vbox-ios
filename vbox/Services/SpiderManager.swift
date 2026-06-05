@@ -375,11 +375,19 @@ globalThis.__JS_SPIDER__ = _spider;
         return allResults.isEmpty ? nativeResults : allResults
     }
 
-    func getDetail(ids: String) async -> VodItem? {
+    /// 通过引擎获取详情，失败时回退到原生 API 详情
+    func getDetail(ids: String, name: String? = nil) async -> VodItem? {
+        // 1. 先尝试所有引擎
         for (_, engine) in engines {
-            do { return try engine.callDetailContent(ids: ids).list?.first } catch { continue }
+            do {
+                if let item = try engine.callDetailContent(ids: ids).list?.first {
+                    return item
+                }
+            } catch { continue }
         }
-        return nil
+        // 2. 引擎全部失败，回退到原生 API
+        print("[SpiderManager] getDetail 引擎全部失败，回退到 nativeDetail")
+        return await nativeDetail(ids: ids, name: name)
     }
 
     func getPlayerContent(vodId: String, flag: String = "play", url: String) async -> PlayerContentResult? {
@@ -620,9 +628,25 @@ globalThis.__JS_SPIDER__ = _spider;
     func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
         // 如果 apiSites 为空，降级用 allSites 中的 type=1 或 type=0 站点
-        let detailSites = apiSites.isEmpty
+        var detailSites = apiSites.isEmpty
             ? allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
             : apiSites
+
+        // 如果站点列表还是空的，用硬编码的采集站作为兜底
+        if detailSites.isEmpty {
+            print("[SpiderManager] nativeDetail 无订阅源站点，使用内置采集站兜底")
+            detailSites = [
+                SiteConfig(key: "hhzy", name: "火狐采集", type: 1, api: "https://hhzyapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "kuaibo", name: "快播资源", type: 1, api: "https://www.kuaibozy.com/api.php/provide/vod/"),
+                SiteConfig(key: "ayun", name: "奥运资源", type: 1, api: "https://www.ayunapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "huya", name: "虎牙采集", type: 1, api: "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8"),
+                SiteConfig(key: "feifan", name: "非凡资源", type: 1, api: "http://ffzy1.tv/api.php/provide/vod/"),
+                SiteConfig(key: "maotai", name: "茅台资源", type: 1, api: "https://caiji.maotaizy.cc/api.php/provide/vod/"),
+                SiteConfig(key: "ruyi", name: "如意资源", type: 1, api: "https://cj.rycjapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "jisu", name: "极速资源", type: 1, api: "https://jszyapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "baofeng", name: "暴风资源", type: 1, api: "https://iqiyizyapi.com/api.php/provide/vod/"),
+            ]
+        }
 
         if detailSites.isEmpty {
             print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
