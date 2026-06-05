@@ -130,16 +130,17 @@ globalThis.__JS_SPIDER__ = _spider;
         self.allSites = config.sites
         loadedSiteCount = allSites.count
         
-        // 1. 尝试从订阅源的 spider 字段加载 JS 蜘蛛
-        var spiderLoaded = false
+        // 0. 先确保内置蜘蛛加载
+        await loadBuiltinEngineIfNeeded()
+        
+        // 1. 尝试从订阅源的 spider 字段加载全局 JS 蜘蛛
         if let spiderURL = config.spider, spiderURL.hasPrefix("http") {
             do {
                 let rawData = try await downloadRawData(url: spiderURL)
                 if let snippet = String(data: rawData, encoding: .utf8),
                    snippet.count > 100,
                    snippet.contains("function ") || snippet.contains("var ") || snippet.contains("let ") || snippet.contains("const ") {
-                    try await loadSpiderEngine(jsCode: snippet)
-                    spiderLoaded = true
+                    try await loadSpiderEngine(jsCode: snippet, key: "remote_spider")
                     print("[SpiderManager] ✅ 远程蜘蛛加载成功")
                 } else {
                     print("[SpiderManager] spider URL 不是纯 JS（可能是 jar 包），使用内置蜘蛛")
@@ -149,42 +150,61 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
         
-        // 2. 尝试加载每个站点的 ext 字段（如果是 JS 的话）
-        for site in allSites where site.key != "builtin" {
-            if let jsURL = site.ext, jsURL.hasPrefix("http"), !jsURL.isEmpty {
-                do {
-                    let rawData = try await downloadRawData(url: jsURL)
-                    if let snippet = String(data: rawData, encoding: .utf8),
-                       snippet.count > 200,
-                       snippet.contains("function ") || snippet.contains("spider") {
-                        try await loadSiteEngine(site: site, jsURL: jsURL)
-                    }
-                } catch { /* 静默跳过 */ }
+        // 2. 加载 type=3 的 JS 蜘蛛（每个站点一个引擎）
+        var jsSpiderLoaded = 0
+        var jsSpiderFailed = 0
+        let jsSites = config.sites.filter { $0.type == 3 && $0.api != nil && !$0.api!.isEmpty && ($0.api!.hasPrefix("http://") || $0.api!.hasPrefix("https://")) }
+        print("[SpiderManager] 发现 \(jsSites.count) 个 JS 蜘蛛站点")
+        
+        // 限制最多加载 10 个蜘蛛（避免内存爆炸）
+        for site in jsSites.prefix(10) {
+            guard let jsURL = site.api, let url = URL(string: jsURL) else { continue }
+            let key = site.key.isEmpty ? site.name : site.key
+            if engines[key] != nil { continue } // 已加载
+            
+            do {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 15
+                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                let (data, _) = try await URLSession.shared.data(for: req)
+                if let jsCode = String(data: data, encoding: .utf8),
+                   jsCode.count > 200,
+                   (jsCode.contains("function ") || jsCode.contains("var ") || jsCode.contains("spider")) {
+                    try await loadSpiderEngine(jsCode: jsCode, key: key)
+                    jsSpiderLoaded += 1
+                    print("[SpiderManager] ✅ JS蜘蛛加载成功: \(site.name) (\(key))")
+                } else {
+                    jsSpiderFailed += 1
+                    print("[SpiderManager] ⚠️ JS蜘蛛内容无效: \(site.name)")
+                }
+            } catch {
+                jsSpiderFailed += 1
+                print("[SpiderManager] JS蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
             }
         }
         
-        print("[SpiderManager] 蜘蛛引擎: \(spiderLoaded ? "✅" : "❌"), 引擎数: \(engines.count)")
+        print("[SpiderManager] JS蜘蛛: 成功\(jsSpiderLoaded) 失败\(jsSpiderFailed), 总引擎: \(engines.count)")
         await loadHomeData()
     }
     
     /// 加载蜘蛛 JS 到引擎
-    private func loadSpiderEngine(jsCode: String) async throws {
+    private func loadSpiderEngine(jsCode: String, key: String = "builtin") async throws {
         let engine = QJSSpiderEngine()
         engine.onLog = { msg in
-            print("[SpiderEngine] \(msg)")
+            print("[SpiderEngine|\(key)] \(msg)")
             if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
                 Task { @MainActor in self.engineError = msg }
             }
         }
         try engine.loadScript(jsCode)
         if engine.registerSpider() {
-            engines["builtin"] = engine
-            if !subscribedSites.contains("builtin") {
-                subscribedSites.append("builtin")
+            engines[key] = engine
+            if !subscribedSites.contains(key) {
+                subscribedSites.append(key)
             }
             engineError = nil
         } else {
-            let err = "蜘蛛注册失败: __JS_SPIDER__ 未找到"
+            let err = "蜘蛛注册失败: __JS_SPIDER__ 未找到 (\(key))"
             engineError = err
             throw QJSError(message: err)
         }
@@ -249,20 +269,25 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         
         // 1. QuickJS 蜘蛛搜索
-        for (_, engine) in engines {
+        for (key, engine) in engines {
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
-                    for item in items {
+                    for var item in items {
+                        // 标记来源蜘蛛名
+                        if item.vodRemarks == nil || item.vodRemarks!.isEmpty {
+                            item.vodRemarks = key
+                        }
                         let id = item.vodId.isEmpty ? item.vodName : item.vodId
                         if !seenIds.contains(id) {
                             seenIds.insert(id)
                             allResults.append(item)
                         }
                     }
+                    print("[SpiderManager] 蜘蛛搜索[\(key)]: \(items.count) 条")
                 }
             } catch {
                 engineError = "搜索出错: \(error.localizedDescription)"
-                print("[SpiderManager] QuickJS 搜索失败: \(error)")
+                print("[SpiderManager] QuickJS 搜索失败[\(key)]: \(error)")
             }
         }
         
