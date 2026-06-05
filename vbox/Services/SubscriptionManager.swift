@@ -174,15 +174,10 @@ class SubscriptionManager: ObservableObject {
                     for item in apiyuan {
                         if let name = item["name"] as? String,
                            let searchUrl = item["searchurl"] as? String {
-                            // 从 searchurl 推导 API base
-                            var api = searchUrl
-                            if let range = api.range(of: "?ac=") ?? api.range(of: "?ac/detail") {
-                                api = String(api[..<range.lowerBound])
-                            } else if let range = api.range(of: "?wd=") ?? api.range(of: "&wd=") {
-                                api = String(api[..<range.lowerBound])
-                            }
                             let key = "api_\(sites.count + 1)"
-                            let site = SiteConfig(key: key, name: name, type: 1, api: api.hasSuffix("/") ? api : api + "/")
+                            // 用完整 searchurl 作为 api，nativeSearch 会拼接 &wd= 参数
+                            let api = searchUrl.hasSuffix("=") ? searchUrl : (searchUrl.hasSuffix("&") || searchUrl.hasSuffix("?") ? searchUrl : searchUrl + "&")
+                            let site = SiteConfig(key: key, name: name, type: 1, api: api)
                             if !sites.contains(where: { $0.name == name }) {
                                 sites.append(site)
                             }

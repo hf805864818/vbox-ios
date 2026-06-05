@@ -601,8 +601,8 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] nativeSearch 共有 \(searchSites.count) 个 API 站点")
         for site in searchSites.prefix(20) {  // 最多搜20个防止太慢
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
-            let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
-            let searchURL = "\(api)?ac=detail&wd=\(encodedKW)"
+            let api = siteApi
+            let searchURL = "\(api)\(encodedKW)"
 
             do {
                 if let url = URL(string: searchURL) {
@@ -629,7 +629,55 @@ globalThis.__JS_SPIDER__ = _spider;
                                 ))
                             }
                         }
-                        print("[SpiderManager] \(site.name): \(list.count) 条 (\(newCount) 新增)")
+                        print("[SpiderManager] \(site.name): JSON \(list.count) 条 (\(newCount) 新增)")
+                    } else if let html = String(data: data, encoding: .utf8) {
+                        // JSON 解析失败，尝试从 HTML 中提取
+                        var htmlCount = 0
+                        // 匹配 module-item-title 或其他视频标题
+                        let patterns = [
+                            #"<a[^>]*class="[^"]*module-item-title[^"]*"[^>]*>([^<]+)</a>"#,
+                            #"title="([^"]+)"[^>]*class="[^"]*thumbnail[^"]*"#,  
+                            #"alt="([^"]+)"#,
+                            #"<a[^>]*>([^<]+)</a>[\s]*</h3>[\s]*<div"#,
+                        ]
+                        var titles: [(name: String, href: String, pic: String)] = []
+                        
+                        // 尝试多种提取方式
+                        for pattern in patterns {
+                            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) {
+                                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                                for match in matches.prefix(20) {
+                                    if let range = Range(match.range(at: 1), in: html) {
+                                        let name = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                                        if !name.isEmpty, !seenIds.contains(name) {
+                                            // 尝试提取图片 URL
+                                            var pic = ""
+                                            let picPattern = #"data-original="([^"]+)"#"
+                                            if let picRegex = try? NSRegularExpression(pattern: picPattern),
+                                               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
+                                                if let picRange = Range(picMatch.range(at: 1), in: html) {
+                                                    pic = String(html[picRange])
+                                                }
+                                            }
+                                            if pic.isEmpty {
+                                                let srcPattern = #"src="([^"]+)"#
+                                                if let srcRegex = try? NSRegularExpression(pattern: srcPattern),
+                                                   let srcMatch = srcRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
+                                                    if let srcRange = Range(srcMatch.range(at: 1), in: html) {
+                                                        pic = String(html[srcRange])
+                                                    }
+                                                }
+                                            }
+                                            seenIds.insert(name)
+                                            htmlCount += 1
+                                            allResults.append(VodItem(vodId: name, vodName: name, vodPic: pic, vodRemarks: site.name))
+                                        }
+                                    }
+                                }
+                                if htmlCount > 0 { break }
+                            }
+                        }
+                        print("[SpiderManager] \(site.name): HTML \(htmlCount) 条")
                     }
                 }
             } catch {
