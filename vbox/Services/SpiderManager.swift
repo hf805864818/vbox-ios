@@ -674,9 +674,9 @@ private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
             }
 
             return item
-    } else {
-        print("[SpiderManager] fetchDetail JSON解析失败或list为空")
-    }
+        } else {
+            print("[SpiderManager] fetchDetail JSON解析失败或list为空")
+        }
     } catch {
         print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
     }
