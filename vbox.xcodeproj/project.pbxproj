@@ -27,6 +27,7 @@
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
+		A10020 /* module.modulemap in Frameworks */ = {isa = PBXBuildFile; fileRef = B10022 /* module.modulemap */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
+		B10022 /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.modulemap; path = module.modulemap; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
 		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
+				B10022 /* module.modulemap */,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
@@ -297,10 +300,13 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 				MARKETING_VERSION = 0.2;
+				OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 				PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "vbox/vbox-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

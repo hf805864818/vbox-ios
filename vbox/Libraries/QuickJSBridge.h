@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <string.h>
 
 // 不透明指针 — Swift 侧用 UnsafeMutableRawPointer
 void* _Nonnull QJSBridge_createRuntime(void);
