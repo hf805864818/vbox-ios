@@ -71,7 +71,6 @@ struct VideoDetailView: View {
                                 Text("弹幕").font(.system(size: 16, weight: .semibold))
                                 Spacer()
                             }
-                            }
                             DanmakuInputView()
                             DanmakuListView()
                         }
