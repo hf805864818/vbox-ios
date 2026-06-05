@@ -9,20 +9,20 @@ struct JSError: Error, LocalizedError {
 
 /// JS引擎桥接层 — 管理 JavaScriptCore 上下文，加载蜘蛛脚本，调用蜘蛛API
 class JSSpiderEngine {
-    
+
     // MARK: - 属性
     private let context: JSContext
     private let httpBridge: JSHTTPBridge
-    
+
     var onLog: ((String) -> Void)?
-    
+
     // MARK: - 初始化
     init() {
         self.context = JSContext()
         self.httpBridge = JSHTTPBridge()
         setupContext()
     }
-    
+
     /// 配置 JSContext 的桥接
     private func setupContext() {
         // 异常捕获
@@ -30,7 +30,7 @@ class JSSpiderEngine {
             let msg = exception?.toString() ?? "未知JS错误"
             self?.onLog?("❌ JS异常: \(msg)")
         }
-        
+
         // 桥接 console.log / console.error
         let console: @convention(block) (String) -> Void = { [weak self] msg in
             self?.onLog?("📗 \(msg)")
@@ -43,14 +43,14 @@ class JSSpiderEngine {
             error: function(...args) { __consoleLog('ERROR: ' + args.join(' ')); }
         };
         """)
-        
+
         // 桥接 print() — 蜘蛛脚本常用
         let printFunc: @convention(block) (String) -> Void = { [weak self] msg in
             self?.onLog?("🖨️ \(msg)")
         }
         context.setObject(unsafeBitCast(printFunc, to: AnyObject.self),
                          forKeyedSubscript: "print" as NSString)
-        
+
         // 桥接 http() — 蜘蛛脚本的网络请求
         let httpFunc: @convention(block) (String, [String: Any]) -> [String: Any] = { [weak self] url, options in
             guard let self = self else { return ["ok": false, "status": 500, "content": "引擎已释放"] }
@@ -58,7 +58,7 @@ class JSSpiderEngine {
         }
         context.setObject(unsafeBitCast(httpFunc, to: AnyObject.self),
                          forKeyedSubscript: "_http" as NSString)
-        
+
         // 注册全局 http 和 req 函数
         context.evaluateScript("""
         var http = function(url, options) {
@@ -68,19 +68,19 @@ class JSSpiderEngine {
         };
         var req = http;
         """)
-        
+
         // 桥接 XMLHttpRequest (简化版)
         let xhrOpen: @convention(block) (String, String, Bool) -> Void = { method, url, async in
             // 简单模式，忽略async
         }
         context.setObject(unsafeBitCast(xhrOpen, to: AnyObject.self),
                          forKeyedSubscript: "__xhrOpen" as NSString)
-        
+
         onLog?("✅ JS引擎上下文初始化完成")
     }
-    
+
     // MARK: - 加载蜘蛛脚本
-    
+
     /// 加载蜘蛛脚本字符串
     func loadScript(_ script: String) throws {
         let result = context.evaluateScript(script)
@@ -89,7 +89,7 @@ class JSSpiderEngine {
         }
         onLog?("✅ 蜘蛛脚本加载完成 (\(script.count) 字符)")
     }
-    
+
     /// 从 Bundle 加载蜘蛛脚本
     func loadScriptFromBundle(fileName: String, ext: String = "js") throws {
         guard let path = Bundle.main.path(forResource: fileName, ofType: ext),
@@ -98,7 +98,7 @@ class JSSpiderEngine {
         }
         try loadScript(script)
     }
-    
+
     /// 从远程URL加载蜘蛛脚本
     func loadScriptFromURL(_ urlString: String) async throws {
         guard let url = URL(string: urlString) else {
@@ -110,7 +110,7 @@ class JSSpiderEngine {
         }
         try loadScript(script)
     }
-    
+
     /// 加载引擎库（模板.js/cat.js等标准库）
     func loadLibrary(_ script: String) throws {
         // 库脚本用 evaluateScript 但不检查 spider 注册
@@ -119,15 +119,15 @@ class JSSpiderEngine {
             throw JSError(message: "加载库失败: \(exception.toString() ?? "未知错误")")
         }
     }
-    
+
     // MARK: - 注册蜘蛛
-    
+
     /// 检查并注册 __JS_SPIDER__
     var isSpiderReady: Bool {
         let exists = context.evaluateScript("typeof globalThis.__JS_SPIDER__ !== 'undefined'")
         return exists?.toBool() ?? false
     }
-    
+
     /// 注册蜘蛛对象到 globalThis
     func registerSpider() throws {
         let script = """
@@ -153,9 +153,9 @@ class JSSpiderEngine {
         }
         onLog?("✅ 蜘蛛已注册到 globalThis.__JS_SPIDER__")
     }
-    
+
     // MARK: - 调用蜘蛛API
-    
+
     /// 调用 spider.init(config)
     func callInit(config: [String: Any]) -> Bool {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: config),
@@ -166,7 +166,7 @@ class JSSpiderEngine {
         let result = context.evaluateScript(script)
         return result?.toBool() ?? false
     }
-    
+
     /// 调用 spider.homeContent()
     func callHomeContent() throws -> HomeContentResult {
         let script = "JSON.stringify(globalThis.__JS_SPIDER__.homeContent())"
@@ -176,7 +176,7 @@ class JSSpiderEngine {
         }
         return try JSONDecoder().decode(HomeContentResult.self, from: data)
     }
-    
+
     /// 调用 spider.categoryContent(tid, pg, extend)
     func callCategoryContent(tid: String, pg: Int, extend: String = "{}") throws -> CategoryContentResult {
         let script = "JSON.stringify(globalThis.__JS_SPIDER__.categoryContent('\(tid)', \(pg), '\(extend)'))"
@@ -186,7 +186,7 @@ class JSSpiderEngine {
         }
         return try JSONDecoder().decode(CategoryContentResult.self, from: data)
     }
-    
+
     /// 调用 spider.detailContent(ids)
     func callDetailContent(ids: String) throws -> DetailContentResult {
         let script = "JSON.stringify(globalThis.__JS_SPIDER__.detailContent('\(ids)'))"
@@ -196,7 +196,7 @@ class JSSpiderEngine {
         }
         return try JSONDecoder().decode(DetailContentResult.self, from: data)
     }
-    
+
     /// 调用 spider.searchContent(keyword, pg)
     func callSearchContent(keyword: String, pg: Int = 1) throws -> SearchContentResult {
         // 处理关键词中的特殊字符
@@ -209,7 +209,7 @@ class JSSpiderEngine {
         }
         return try JSONDecoder().decode(SearchContentResult.self, from: data)
     }
-    
+
     /// 调用 spider.playerContent(vod_id, flag, url)
     func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
         let escapedUrl = url.replacingOccurrences(of: "'", with: "\\'")
@@ -220,9 +220,9 @@ class JSSpiderEngine {
         }
         return try JSONDecoder().decode(PlayerContentResult.self, from: data)
     }
-    
+
     // MARK: - 通用调用
-    
+
     /// 调用任意蜘蛛方法（返回原始JS值，用于调试）
     func callRawFunction(_ script: String) -> JSValue? {
         return context.evaluateScript(script)

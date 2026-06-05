@@ -3,9 +3,9 @@ import SwiftUI
 // MARK: - AnyCodable: 兼容 String / 对象 / 数组 多种类型
 struct AnyCodable: Codable {
     var value: Any
-    
+
     init(_ value: Any) { self.value = value }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let string = try? container.decode(String.self) { value = string }
@@ -15,7 +15,7 @@ struct AnyCodable: Codable {
         else if let bool = try? container.decode(Bool.self) { value = bool }
         else { value = "" }
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         if let s = value as? String { try container.encode(s) }
@@ -37,7 +37,7 @@ struct SiteConfig: Codable {
     let playerType: Int?
     let jar: String?
     let changeable: Int?
-    
+
     init(key: String, name: String, type: Int, api: String? = nil,
          searchable: Int? = nil, quickSearch: Int? = nil, filterable: Int? = nil,
          ext: String? = nil, playerType: Int? = nil, jar: String? = nil,
@@ -54,7 +54,7 @@ struct SiteConfig: Codable {
         self.jar = jar
         self.changeable = changeable
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         key = try container.decode(String.self, forKey: .key)
@@ -74,7 +74,7 @@ struct SiteConfig: Codable {
         jar = try? container.decode(String.self, forKey: .jar)
         playerType = try? container.decode(Int.self, forKey: .playerType)
         changeable = try? container.decode(Int.self, forKey: .changeable)
-        
+
         // ext：兼容字符串和对象
         if let extStr = try? container.decode(String.self, forKey: .ext) {
             ext = extStr
@@ -97,7 +97,7 @@ struct SubscribeConfig: Codable {
     let banned: [String]?
     // 解析器配置
     let parses: [ParseConfig]?
-    
+
     enum CodingKeys: String, CodingKey {
         case sites, spider, wallpaper, lives, flags, banned, parses
     }
@@ -107,20 +107,20 @@ struct ParseConfig: Codable {
     let name: String
     let url: String
     let type: Int?  // 0=未知，1=JSON API，2=Web 解析器
-    
+
     init(name: String, url: String, type: Int? = nil) {
         self.name = name
         self.url = url
         self.type = type
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         url = try container.decode(String.self, forKey: .url)
         type = try? container.decode(Int.self, forKey: .type)
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case name, url, type
     }
@@ -155,7 +155,7 @@ struct VodItem: Codable, Identifiable {
     let vodContent: String?
     let vodPlayFrom: String?
     let vodPlayUrl: String?
-    
+
     init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
          vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,
          vodActor: String? = nil, vodContent: String? = nil, vodPlayFrom: String? = nil,
@@ -172,7 +172,7 @@ struct VodItem: Codable, Identifiable {
         self.vodPlayFrom = vodPlayFrom
         self.vodPlayUrl = vodPlayUrl
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case vodId = "vod_id"
         case vodName = "vod_name"

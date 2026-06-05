@@ -4,9 +4,9 @@ import SwiftUI
 /// 蜘蛛管理器 — 统一管理订阅源加载、蜘蛛引擎、数据获取
 @MainActor
 class SpiderManager: ObservableObject {
-    
+
     static let shared = SpiderManager()
-    
+
     @Published var categories: [VodCategory] = []
     @Published var homeVideos: [VodItem] = []
     @Published var isLoading = false
@@ -18,29 +18,29 @@ class SpiderManager: ObservableObject {
     @Published var allSites: [SiteConfig] = []
     @Published var engineError: String?
     var enginesCount: Int { engines.count }
-    
+
     private let subManager = SubscriptionManager()
     private var engines: [String: QJSSpiderEngine] = [:]
-    
+
     private init() {
         savedURLs = subManager.configURLs
     }
-    
+
     func initialize() async {
         guard !isInitialized else { return }
         isInitialized = true
-        
+
         // 尝试加载 QuickJS 内置蜘蛛
         await loadBuiltinEngineIfNeeded()
-        
+
         // 如果有已保存的订阅源，则加载
         if subManager.isLoaded {
             await loadSitesFromSubscription()
         }
-        
+
         print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(subManager.config?.sites.count ?? 0)")
     }
-    
+
     /// 加载内置 QuickJS 蜘蛛引擎
     private func loadBuiltinEngineIfNeeded() async {
         guard engines["builtin"] == nil else { return }
@@ -52,7 +52,7 @@ class SpiderManager: ObservableObject {
             print("[SpiderManager] ❌ 内置蜘蛛加载失败: \(error.localizedDescription)")
         }
     }
-    
+
     /// 获取内置蜘蛛 JS 代码 — 蜘蛛通过 http() 桥接调用原生网络
     private func getBuiltinSpiderJS() -> String {
         return """
@@ -106,7 +106,7 @@ var _spider = {
 globalThis.__JS_SPIDER__ = _spider;
 """
     }
-    
+
     func loadSubscribeConfig(from url: String) async {
         isLoading = true
         errorMessage = nil
@@ -120,19 +120,19 @@ globalThis.__JS_SPIDER__ = _spider;
         savedURLs = subManager.configURLs
         isLoading = false
     }
-    
+
     private func loadSitesFromSubscription() async {
         guard let config = subManager.config else {
             errorMessage = "订阅源配置为空"
             return
         }
-        
+
         self.allSites = config.sites
         loadedSiteCount = allSites.count
-        
+
         // 0. 先确保内置蜘蛛加载
         await loadBuiltinEngineIfNeeded()
-        
+
         // 1. 尝试从订阅源的 spider 字段加载全局 JS 蜘蛛
         if let spiderURL = config.spider, spiderURL.hasPrefix("http") {
             do {
@@ -149,19 +149,19 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] spider URL 加载失败: \(error.localizedDescription)")
             }
         }
-        
+
         // 2. 加载 type=3 的 JS 蜘蛛（每个站点一个引擎）
         var jsSpiderLoaded = 0
         var jsSpiderFailed = 0
         let jsSites = config.sites.filter { $0.type == 3 && $0.api != nil && !$0.api!.isEmpty && ($0.api!.hasPrefix("http://") || $0.api!.hasPrefix("https://")) }
         print("[SpiderManager] 发现 \(jsSites.count) 个 JS 蜘蛛站点")
-        
+
         // 限制最多加载 10 个蜘蛛（避免内存爆炸）
         for site in jsSites.prefix(10) {
             guard let jsURL = site.api, let url = URL(string: jsURL) else { continue }
             let key = site.key.isEmpty ? site.name : site.key
             if engines[key] != nil { continue } // 已加载
-            
+
             do {
                 var req = URLRequest(url: url)
                 req.timeoutInterval = 15
@@ -182,11 +182,11 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] JS蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
             }
         }
-        
+
         print("[SpiderManager] JS蜘蛛: 成功\(jsSpiderLoaded) 失败\(jsSpiderFailed), 总引擎: \(engines.count)")
         await loadHomeData()
     }
-    
+
     /// 加载蜘蛛 JS 到引擎
     private func loadSpiderEngine(jsCode: String, key: String = "builtin") async throws {
         let engine = QJSSpiderEngine()
@@ -209,7 +209,7 @@ globalThis.__JS_SPIDER__ = _spider;
             throw QJSError(message: err)
         }
     }
-    
+
     private func downloadRawData(url: String) async throws -> Data {
         guard let urlObj = URL(string: url) else {
             throw QJSError(message: "无效URL: \(url)")
@@ -217,7 +217,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let (data, _) = try await URLSession.shared.data(from: urlObj)
         return data
     }
-    
+
     private func loadSiteEngine(site: SiteConfig, jsURL: String) async throws {
         let engine = QJSSpiderEngine()
         let jsCode = try await downloadScript(url: jsURL)
@@ -230,7 +230,7 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] ✅ ext站点: \(site.name)")
         }
     }
-    
+
     private func downloadScript(url: String) async throws -> String {
         guard let urlObj = URL(string: url) else {
             throw QJSError(message: "无效脚本URL: \(url)")
@@ -241,10 +241,10 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         return script
     }
-    
+
     func loadHomeData() async {
         var videos: [VodItem] = []
-        
+
         print("[SpiderManager] ========== 开始加载首页数据 ==========")
         print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
         print("[SpiderManager] 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
@@ -257,17 +257,17 @@ globalThis.__JS_SPIDER__ = _spider;
                     print("[SpiderManager] 调用蜘蛛引擎[\(key)]...")
                     let result = try engine.callHomeContent()
                     print("[SpiderManager] 蜘蛛[\(key)]返回分类: \(result.class?.count ?? 0)个, 列表: \(result.list?.count ?? 0)个")
-                    
+
                     if let categories = result.class, !categories.isEmpty {
                         self.categories = categories
                     }
-                    
+
                     if let list = result.list, !list.isEmpty {
                         videos.append(contentsOf: list)
                         print("[SpiderManager] ✅ 首页[\(key)]: \(list.count)视频")
-                        if videos.count >= 20 { 
+                        if videos.count >= 20 {
                             print("[SpiderManager] 蜘蛛数据已足够，停止加载")
-                            break 
+                            break
                         }
                     }
                 } catch {
@@ -286,18 +286,18 @@ globalThis.__JS_SPIDER__ = _spider;
                 "热门", "高分", "经典", "动作", "喜剧", "爱情", "科幻",
                 "悬疑", "犯罪", "战争", "古装", "现代", "都市"
             ]
-            
+
             for (index, kw) in hotKeywords.enumerated() {
                 print("[SpiderManager] [\(index+1)/\(hotKeywords.count)] 搜索关键词: \(kw)")
                 let results = await nativeSearch(keyword: kw)
                 print("[SpiderManager] 热门关键词[\(kw)]: \(results.count)条")
                 videos.append(contentsOf: results)
-                
-                if videos.count >= 50 { 
+
+                if videos.count >= 50 {
                     print("[SpiderManager] ✅ 已收集\(videos.count)条视频，停止搜索")
-                    break 
+                    break
                 }
-                
+
                 // 避免请求过快
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5秒延迟
             }
@@ -328,23 +328,23 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] 最终结果: \(videos.count)视频, \(categories.count)分类")
         }
     }
-    
+
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
         var allResults: [VodItem] = []
         var seenIds = Set<String>()
-        
+
         // 先尝试加载内置蜘蛛
         if engines.isEmpty {
             await loadBuiltinEngineIfNeeded()
         }
-        
+
         // 1. QuickJS 蜘蛛搜索
         for (key, engine) in engines {
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
                     for var item in items {
                         // 标记来源蜘蛛名
-                        if item.vodRemarks == nil || item.vodRemarks!.isEmpty {
+                        if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
                         let id = item.vodId.isEmpty ? item.vodName : item.vodId
@@ -360,7 +360,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] QuickJS 搜索失败[\(key)]: \(error)")
             }
         }
-        
+
         // 2. 原生 HTTP 多源搜索（与 QuickJS 结果合并）
         let nativeResults = await nativeSearch(keyword: keyword)
         for item in nativeResults {
@@ -370,25 +370,25 @@ globalThis.__JS_SPIDER__ = _spider;
                 allResults.append(item)
             }
         }
-        
+
         print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
         return allResults.isEmpty ? nativeResults : allResults
     }
-    
+
     func getDetail(ids: String) async -> VodItem? {
         for (_, engine) in engines {
             do { return try engine.callDetailContent(ids: ids).list?.first } catch { continue }
         }
         return nil
     }
-    
+
     func getPlayerContent(vodId: String, flag: String = "play", url: String) async -> PlayerContentResult? {
         for (_, engine) in engines {
             do { return try engine.callPlayerContent(vodId: vodId, flag: flag, url: url) } catch { continue }
         }
         return nil
     }
-    
+
     func getSavedSubscriptionURLs() -> [String] { subManager.configURLs }
     func saveSubscriptionURL(_ url: String) {
         subManager.configURLs.append(url)
@@ -399,13 +399,13 @@ globalThis.__JS_SPIDER__ = _spider;
         subManager.removeURL(url)
         savedURLs = subManager.configURLs
     }
-    
+
     /// 原生搜索 — 直接 HTTP 调可用 API，不经过 QuickJS
     func nativeSearch(keyword: String) async -> [VodItem] {
         var allResults: [VodItem] = []
         var seenIds = Set<String>()
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        
+
         // ====== 搜索源 1: 乌云影视 ======
         do {
             let url = URL(string: "https://wooyun.tv/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch")!
@@ -417,7 +417,7 @@ globalThis.__JS_SPIDER__ = _spider;
             req.timeoutInterval = 10
             let body: [String: Any] = ["menuCodeList": [], "pageIndex": "1", "pageSize": 10, "searchKey": keyword, "topCode": ""]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            
+
             let (data, _) = try await URLSession.shared.data(for: req)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let dataObj = json["data"] as? [String: Any],
@@ -439,7 +439,7 @@ globalThis.__JS_SPIDER__ = _spider;
         } catch {
             print("[SpiderManager] 乌云影视失败: \(error.localizedDescription)")
         }
-        
+
         // ====== 搜索源 2: 非凡资源 ======
         if allResults.count < 20 {
             do {
@@ -473,8 +473,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 非凡资源失败: \(error.localizedDescription)")
             }
         }
-        
-        
+
+
         // ====== 搜索源 3: 虎牙采集 ======
         if allResults.count < 30 {
             do {
@@ -508,7 +508,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 虎牙采集失败: \(error.localizedDescription)")
             }
         }
-        
+
         // ====== 搜索源 4: 火狐采集 ======
         if allResults.count < 30 {
             do {
@@ -610,27 +610,27 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 快播资源失败: \(error.localizedDescription)")
             }
         }
-        
+
         print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
     }
-    
+
     /// 通过订阅源的 type=1 站点获取详情+播放地址
     /// 先用 ids 查，失败则用 name 搜索匹配
     func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
         // 如果 apiSites 为空，降级用 allSites 中的 type=1 或 type=0 站点
         let detailSites = apiSites.isEmpty
-            ? allSites.filter { ($0.type == 1 || $0.type == 0) && $0.api != nil && !$0.api!.isEmpty }
+            ? allSites.filter { ($0.type == 1 || $0.type == 0) && let api = $0.api, !api.isEmpty }
             : apiSites
-            
+
         if detailSites.isEmpty {
             print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
             print("[SpiderManager] 可用站点总数: \(allSites.count)")
             print("[SpiderManager] apiSites: \(apiSites.count)")
             return nil
         }
-        
+
         print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用站点=\(detailSites.count)个")
 
         for site in detailSites {
@@ -667,16 +667,16 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] ❌ nativeDetail 全部站点均失败")
         return nil
     }
-    
+
 // 解析器体系 - 将HTML播放页解析为视频直链
     func parsePlayUrl(from playPageUrl: String) async -> String? {
         // 1. 检查是否已经是直链
         if playPageUrl.hasSuffix(".m3u8") || playPageUrl.hasSuffix(".mp4") {
             return playPageUrl
         }
-        
+
         print("[SpiderManager] 开始解析播放页: \(playPageUrl.prefix(60))...")
-        
+
         // 2. 优先使用订阅源的解析器
         if !subManager.parses.isEmpty {
             print("[SpiderManager] 使用订阅源解析器，共(subManager.parses.count)个")
@@ -689,7 +689,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -711,7 +711,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -733,7 +733,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -755,7 +755,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -777,7 +777,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -799,7 +799,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -821,7 +821,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -843,7 +843,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 3. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
@@ -853,7 +853,7 @@ globalThis.__JS_SPIDER__ = _spider;
             "https://jx.m3u8.tv/jiexi/?url=",
             "https://jx.jsonplayer.com/api/?url="
         ]
-        
+
         for parser in parsers {
             if let parsedUrl = await tryParser(parser, url: playPageUrl) {
                 print("[SpiderManager] ✅ 解析器成功: \(parser)")
@@ -861,23 +861,23 @@ globalThis.__JS_SPIDER__ = _spider;
                 return parsedUrl
             }
         }
-        
+
         print("[SpiderManager] ❌ 所有解析器均失败")
         return nil
     }
-    
+
     private func tryParser(_ parserBase: String, url: String) async -> String? {
         let parseUrl = "\(parserBase)\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
-        
+
         guard let requestUrl = URL(string: parseUrl) else { return nil }
-        
+
         do {
             var request = URLRequest(url: requestUrl)
             request.timeoutInterval = 8
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            
+
             let (data, _) = try await URLSession.shared.data(for: request)
-            
+
             // 尝试从响应中提取m3u8/mp4链接
             if let responseStr = String(data: data, encoding: .utf8) {
                 // 正则匹配视频链接
@@ -886,13 +886,13 @@ globalThis.__JS_SPIDER__ = _spider;
                     "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*",
                     "\"url\":\\s*\"([^\"]+)\""
                 ]
-                
+
                 for pattern in patterns {
                     if let regex = try? NSRegularExpression(pattern: pattern),
                        let match = regex.firstMatch(in: responseStr, range: NSRange(responseStr.startIndex..., in: responseStr)) {
-                        
+
                         let result = (responseStr as NSString).substring(with: match.range(at: match.numberOfRanges - 1))
-                        
+
                         // 清理JSON格式的URL
                         if result.hasPrefix("\"") && result.hasSuffix("\"") {
                             let cleaned = String(result.dropFirst().dropLast())
@@ -908,19 +908,19 @@ globalThis.__JS_SPIDER__ = _spider;
         } catch {
             print("[SpiderManager] 解析器请求失败: \(error.localizedDescription)")
         }
-        
+
         return nil
     }
-    
+
     // 从vodPlayUrl中提取第一集URL
     private func extractFirstPlayableUrl(from vodPlayUrl: String?) -> String? {
         guard let playUrl = vodPlayUrl, !playUrl.isEmpty else {
             return nil
         }
-        
+
         // 格式：第1集$http://...#第2集$http://...
         let episodes = playUrl.components(separatedBy: "#")
-        
+
         for episode in episodes {
             // 按 $ 分割，取最后一个（URL部分）
             let parts = episode.components(separatedBy: "$")
@@ -928,7 +928,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 // 提取 URL
                 if let urlRange = urlPart.range(of: "http") {
                     var url = String(urlPart[urlRange.lowerBound...])
-                    
+
                     // 清理可能的尾部字符，但保留查询参数
                     let stopChars = ["#", "\n", "\r", " ", "$$", "$"]
                     for char in stopChars {
@@ -936,9 +936,9 @@ globalThis.__JS_SPIDER__ = _spider;
                             url = String(url[..<endRange.lowerBound])
                         }
                     }
-                    
+
                     // 验证是否为有效的视频URL
-                    let isVideoUrl = url.contains(".m3u8") || 
+                    let isVideoUrl = url.contains(".m3u8") ||
                                     url.contains(".mp4") ||
                                     url.contains(".flv") ||
                                     url.contains(".ts") ||
@@ -946,19 +946,19 @@ globalThis.__JS_SPIDER__ = _spider;
                                     url.contains("/play/") ||
                                     url.contains("m3u8") ||
                                     url.contains("mp4")
-                    
+
                     if isVideoUrl && !url.isEmpty {
                         return url.trimmingCharacters(in: .whitespaces)
                     }
                 }
             }
         }
-        
+
         // 如果没有#分隔符，直接检查是否包含http
         if playUrl.contains("http") {
             if let urlRange = playUrl.range(of: "http") {
                 var url = String(playUrl[urlRange.lowerBound...])
-                
+
                 // 清理尾部
                 let stopChars = ["#", "\n", "\r", " "]
                 for char in stopChars {
@@ -966,20 +966,20 @@ globalThis.__JS_SPIDER__ = _spider;
                         url = String(url[..<endRange.lowerBound])
                     }
                 }
-                
+
                 // 验证
-                let isVideoUrl = url.contains(".m3u8") || 
+                let isVideoUrl = url.contains(".m3u8") ||
                                 url.contains(".mp4") ||
                                 url.contains(".flv") ||
                                 url.contains("m3u8") ||
                                 url.contains("mp4")
-                
+
                 if isVideoUrl && !url.isEmpty {
                     return url.trimmingCharacters(in: .whitespaces)
                 }
             }
         }
-        
+
         return nil
     }
 
@@ -1010,7 +1010,7 @@ globalThis.__JS_SPIDER__ = _spider;
            let first = list.first {
             // 打印完整字段名以便调试
             print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
-            
+
             // 打印关键字段的内容，用于调试
             print("[SpiderManager] === 关键字段内容 ===")
             for key in ["vod_id", "id", "vod_name", "name", "vod_pic", "pic", "vod_play_url", "play_url", "url", "vod_play_from", "play_from", "from"] {
@@ -1024,7 +1024,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
             print("[SpiderManager] === 字段内容结束 ===")
-            
+
             let item = Self.makeVodItem(from: first, siteName: siteName)
             print("[SpiderManager] nativeDetail(ids) \(siteName): 解析结果:")
             print("[SpiderManager]   vodId: '\(item.vodId.prefix(20))...'")
@@ -1080,7 +1080,7 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         return nil
     }
-    
+
     private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
         // 兼容多种字段名变体，包括各种拼写错误
         let vodId = String(describing: dict["vod_id"] ?? dict["id"] ?? dict["v_id"] ?? "")
@@ -1091,7 +1091,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let vodDirector = dict["vod_director"] as? String
         let vodActor = dict["vod_actor"] as? String
         let vodContent = dict["vod_content"] as? String
-        
+
         // 处理 vodPlayFrom - 兼容多种字段名
         var vodPlayFrom: String?
         let playFromKeys = ["vod_play_from", "play_from", "from", "vodFrom", "play_from_name", "vod_play_from_name"]
@@ -1101,16 +1101,16 @@ globalThis.__JS_SPIDER__ = _spider;
                 break
             }
         }
-        
+
         // 处理 vodPlayUrl - 兼容多种字段名，包括各种拼写错误
         var vodPlayUrl: String?
         let playUrlKeys = [
-            "vod_play_url", "play_url", "url", 
+            "vod_play_url", "play_url", "url",
             "vodPlayUrl", "vodPrayUrt", "vodPlay Jri",  // 已知的拼写错误
             "vod_play_ur1", "vod_play_urt", "playurl",  // 其他可能的拼写错误
             "vod_play_urls", "urls", "play_urls", "video_url", "playUrl"
         ]
-        
+
         for key in playUrlKeys {
             if let url = dict[key] as? String, !url.isEmpty {
                 print("[SpiderManager] ✅ 使用字段名 '\(key)' 获取播放地址")
@@ -1118,7 +1118,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 break
             }
         }
-        
+
         // 如果仍然没有找到播放地址，尝试模糊匹配
         if vodPlayUrl == nil {
             print("[SpiderManager] ⚠️ 标准字段名未找到播放地址，尝试模糊匹配...")
@@ -1149,7 +1149,7 @@ globalThis.__JS_SPIDER__ = _spider;
                     for (subKey, subValue) in dictValue {
                         if let subStringValue = subValue as? String {
                             let lowerSubKey = subKey.lowercased()
-                            if (lowerSubKey.contains("url") || lowerSubKey.contains("play")) && 
+                            if (lowerSubKey.contains("url") || lowerSubKey.contains("play")) &&
                                (subStringValue.hasPrefix("http") || subStringValue.contains("m3u8") || subStringValue.contains("mp4")) {
                                 print("[SpiderManager] ✅ 嵌套字段找到播放地址 '\(key).\(subKey)': \(subStringValue.prefix(50))...")
                                 vodPlayUrl = subStringValue
@@ -1163,7 +1163,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 特殊处理：如果 vodPlayFrom 存在但 vodPlayUrl 为空，尝试从所有字段中找到可能是播放地址的内容
         if vodPlayUrl == nil && vodPlayFrom != nil {
             print("[SpiderManager] ⚠️ vodPlayFrom 存在但 vodPlayUrl 为空，尝试从所有字段中提取...")
@@ -1182,7 +1182,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 如果仍然没有找到，打印所有可用字段名用于调试
         if vodPlayUrl == nil {
             print("[SpiderManager] ❌ 未找到播放地址字段")
@@ -1197,7 +1197,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         return VodItem(
             vodId: vodId,
             vodName: vodName,

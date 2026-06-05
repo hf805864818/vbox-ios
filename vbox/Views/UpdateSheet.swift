@@ -5,7 +5,7 @@ struct UpdateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var updateManager = UpdateManager.shared
     @State private var isDownloading = false
-    
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -16,10 +16,10 @@ struct UpdateSheet: View {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 60))
                         .foregroundColor(Color(hex: "E11D48"))
-                    
+
                     Text("发现新版本")
                         .font(.system(size: 22, weight: .bold))
-                    
+
                     HStack {
                         Text("当前: v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"))
                             .font(.system(size: 14))
@@ -28,7 +28,7 @@ struct UpdateSheet: View {
                             .font(.system(size: 14))
                             .foregroundColor(Color(hex: "E11D48"))
                     }
-                    
+
                     if !updateManager.releaseNotes.isEmpty {
                         ScrollView {
                             Text(updateManager.releaseNotes)
@@ -40,7 +40,7 @@ struct UpdateSheet: View {
                         .background(Color.primary.opacity(0.05))
                         .cornerRadius(12)
                     }
-                    
+
                     Button(action: {
                         isDownloading = true
                         updateManager.openDownload()
@@ -56,11 +56,11 @@ struct UpdateSheet: View {
                         .background(Color(hex: "E11D48"))
                         .cornerRadius(12)
                     }
-                    
+
                     Text("下载后用巨魔商店安装")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
-                    
+
                 } else if let error = updateManager.updateError {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 50))
@@ -73,7 +73,7 @@ struct UpdateSheet: View {
                         .foregroundColor(.green)
                     Text("已是最新版本").font(.system(size: 18, weight: .semibold))
                 }
-                
+
                 Spacer()
             }
             .padding()

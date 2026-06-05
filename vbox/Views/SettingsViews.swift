@@ -37,7 +37,7 @@ struct SettingsView: View {
                                     .font(.system(size: 14))
                                     .autocapitalization(.none)
                                     .disableAutocorrection(true)
-                                
+
                                 Button(action: addSubscription) {
                                     Image(systemName: "plus.circle.fill")
                                         .font(.system(size: 24))
@@ -45,7 +45,7 @@ struct SettingsView: View {
                                 }
                                 .disabled(newURL.trimmingCharacters(in: .whitespaces).isEmpty)
                             }
-                            
+
                             if spiderManager.isLoading {
                                 HStack {
                                     ProgressView()
@@ -55,19 +55,19 @@ struct SettingsView: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            
+
                             if let error = spiderManager.errorMessage {
                                 Text(error)
                                     .font(.system(size: 12))
                                     .foregroundColor(.red)
                             }
-                            
+
                             if !spiderManager.savedURLs.isEmpty {
                                 Text("已保存的订阅源")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.secondary)
                                     .padding(.top, 4)
-                                
+
                                 ForEach(spiderManager.savedURLs, id: \.self) { url in
                                     HStack {
                                         Image(systemName: "link")
@@ -87,7 +87,7 @@ struct SettingsView: View {
                                     .padding(.vertical, 4)
                                 }
                             }
-                            
+
                             if spiderManager.isInitialized {
                                 Text("已加载 \(spiderManager.subscribedSites.count) 个站点")
                                     .font(.system(size: 12))
@@ -236,7 +236,7 @@ struct SettingsView: View {
             Text("确定要清理所有缓存吗？这将删除所有已缓存的视频数据。")
         }
     }
-    
+
     private func addSubscription() {
         let url = newURL.trimmingCharacters(in: .whitespaces)
         guard !url.isEmpty else { return }
@@ -530,7 +530,7 @@ struct SubscribeConfigView: View {
     private func loadSubscribeConfig() {
         guard !subscribeURL.isEmpty else { return }
         isLoading = true
-        
+
         Task {
             await SpiderManager.shared.loadSubscribeConfig(from: subscribeURL)
             await MainActor.run {

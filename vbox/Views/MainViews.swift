@@ -194,7 +194,7 @@ struct HomeView: View {
                     }
                 } else if spiderManager.homeVideos.isEmpty {
                     FeaturedCarousel(videos: mockVideos.prefix(5).map{ $0 })
-                    
+
                     SectionHeader(title: "站点列表 (" + String(spiderManager.loadedSiteCount) + ")", icon: "antenna.radiowaves.left.and.right")
                     LazyVStack(spacing: 6) {
                         ForEach(spiderManager.allSites.prefix(30), id: \.key) { site in
@@ -588,7 +588,7 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             SearchBar(searchText: $searchText, isSearching: $isSearching, onSearch: performSearch)
-            
+
             ZStack {
                 if isSearching {
                     searchContentView
@@ -607,7 +607,7 @@ struct SearchView: View {
             performSearch()
         }
     }
-    
+
     @ViewBuilder
     private var searchContentView: some View {
         if isSearchLoading {
@@ -633,7 +633,7 @@ struct SearchView: View {
             SearchResultsView(results: searchResults)
         }
     }
-    
+
     @ViewBuilder
     private var defaultContentView: some View {
         if !spiderManager.allSites.isEmpty {
@@ -651,7 +651,7 @@ struct SearchView: View {
             SearchSuggestionsView()
         }
     }
-    
+
     private func performSearch() {
         guard !searchText.isEmpty else { return }
         isSearching = true
@@ -865,7 +865,7 @@ struct SearchResultsView: View {
     private var grouped: [(source: String, videos: [VodItem])] {
         var dict: [String: [VodItem]] = [:]
         for video in results {
-            let source = video.vodRemarks?.isEmpty == false ? video.vodRemarks! : "搜索结果"
+            let source = video.vodRemarks?.isEmpty == false ? video.vodRemarks ?? "" : "搜索结果"
             if dict[source] == nil {
                 dict[source] = []
             }
@@ -1287,7 +1287,6 @@ struct ProfileMenuItem: View {
 }
 
 
-
 // MARK: - 数据模型
 // Mock数据
 let mockVideos: [VodItem] = [
@@ -1308,7 +1307,7 @@ let mockVideos: [VodItem] = [
 // MARK: - 站点行组件
 struct SiteRow: View {
     let site: SiteConfig
-    
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {

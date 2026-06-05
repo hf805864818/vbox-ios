@@ -2,12 +2,12 @@ import Foundation
 
 /// QuickJS 蜘蛛引擎 — 真正的 TVBox 蜘蛛执行环境
 class QJSSpiderEngine {
-    
+
     private var rt: UnsafeMutableRawPointer?
     private var ctx: UnsafeMutableRawPointer?
-    
+
     var onLog: ((String) -> Void)?
-    
+
     init() {
         rt = QJSBridge_createRuntime()
         if let rt = rt {
@@ -20,12 +20,12 @@ class QJSSpiderEngine {
         }
         onLog?("✅ QuickJS 引擎初始化完成")
     }
-    
+
     deinit {
         if let ctx = ctx { QJSBridge_freeContext(ctx) }
         if let rt = rt { QJSBridge_freeRuntime(rt) }
     }
-    
+
     private func setupBridge() {
         // 注册 print 和 console.log
         _ = evaluateJS("""
@@ -33,18 +33,18 @@ class QJSSpiderEngine {
         var print = function(msg) {};
         """)
     }
-    
+
     /// 执行 JS 代码
     func evaluateJS(_ script: String) -> String? {
         guard let ctx = ctx else { return nil }
         let cStr = (script as NSString).utf8String!
-        
+
         guard let result = QJSBridge_eval(ctx, cStr) else { return nil }
         let swiftResult = String(cString: result)
         QJSBridge_freeString(ctx, result)
         return swiftResult
     }
-    
+
     /// 加载 JS 脚本
     func loadScript(_ script: String) throws {
         let result = evaluateJS(script)
@@ -58,7 +58,7 @@ class QJSSpiderEngine {
         }
         onLog?("✅ 脚本加载完成 (\(script.count) 字符)")
     }
-    
+
     /// 注册蜘蛛 — 直接在 evaluateJS 中检测 __JS_SPIDER__ 是否存在
     func registerSpider() -> Bool {
         let result = evaluateJS("typeof globalThis.__JS_SPIDER__")
@@ -70,7 +70,7 @@ class QJSSpiderEngine {
         }
         return founded
     }
-    
+
     /// 调用蜘蛛 API
     func callSpiderAPI(_ apiName: String, args: [String] = []) throws -> String {
         let escapedArgs = args.map { "'\($0.replacingOccurrences(of: "'", with: "\\'"))'" }.joined(separator: ", ")
@@ -80,7 +80,7 @@ class QJSSpiderEngine {
         }
         return result
     }
-    
+
     /// 首页推荐
     func callHomeContent() throws -> HomeContentResult {
         let json = try callSpiderAPI("homeContent")
@@ -89,7 +89,7 @@ class QJSSpiderEngine {
         }
         return try JSONDecoder().decode(HomeContentResult.self, from: data)
     }
-    
+
     /// 搜索
     func callSearchContent(keyword: String, pg: Int = 1) throws -> SearchContentResult {
         let json = try callSpiderAPI("searchContent", args: [keyword, "\(pg)"])
@@ -98,7 +98,7 @@ class QJSSpiderEngine {
         }
         return try JSONDecoder().decode(SearchContentResult.self, from: data)
     }
-    
+
     /// 详情
     func callDetailContent(ids: String) throws -> DetailContentResult {
         let json = try callSpiderAPI("detailContent", args: [ids])
@@ -107,7 +107,7 @@ class QJSSpiderEngine {
         }
         return try JSONDecoder().decode(DetailContentResult.self, from: data)
     }
-    
+
     /// 播放解析
     func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
         let json = try callSpiderAPI("playerContent", args: [vodId, flag, url])

@@ -10,7 +10,7 @@ struct VBoxApp: App {
                 }
         }
     }
-    
+
     private func initQuickJS() {
         let engine = QJSSpiderEngine()
         engine.onLog = { print("[QuickJS] \($0)") }
