@@ -133,3 +133,5 @@ class SubscriptionManager: ObservableObject {
     var apiSites: [SiteConfig] { config?.sites.filter { $0.type != 3 } ?? [] }
     var allSites: [SiteConfig] { config?.sites ?? [] }
 }
+}
+}
