@@ -176,11 +176,15 @@ struct VideoDetailView: View {
         VStack {
             HStack {
                 Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(.ultraThinMaterial))
+                    ZStack {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
                 .padding(.leading, 16)
                 .padding(.top, 50)
@@ -188,6 +192,7 @@ struct VideoDetailView: View {
             }
             Spacer()
         }
+        .zIndex(1000)
     }  // ZStack
 }  // body
 }  // VideoDetailView
@@ -625,14 +630,42 @@ struct VideoPlayerView: View {
         log("4/4 nativeDetail(订阅源)...")
         let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nativeDetail {
-            log("nativeDetail: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil")")
-            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty,
-               let url = URL(string: playUrl) {
-                log("✅ nativeDetail 播放地址就绪")
-                await MainActor.run { initPlayer(url: url) }
-                return
+            log("nativeDetail: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(nd.vodPlayFrom?.prefix(50) ?? "nil")")
+
+            // 优先检查 vodPlayUrl 是否为直链
+            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
+                // 检查是否为 HTTP/HTTPS 直链
+                if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
+                    if let url = URL(string: playUrl) {
+                        log("✅ nativeDetail 直链播放地址就绪")
+                        await MainActor.run { initPlayer(url: url) }
+                        return
+                    }
+                }
+
+                // 尝试解析 TVBox 格式的播放地址
+                let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: playUrl)
+                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
+                    log("✅ nativeDetail 解析出播放地址")
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                }
             }
-            log("⚠️ nativeDetail 有记录但无播放地址")
+
+            // 检查 vodPlayFrom 和 vodPlayUrl 组合
+            if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty,
+               let playUrlRaw = nd.vodPlayUrl, !playUrlRaw.isEmpty {
+                let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
+                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
+                    log("✅ nativeDetail 从 vodPlayFrom 提取播放地址")
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                }
+            }
+
+            log("⚠️ nativeDetail 有记录但无有效播放地址")
+            log("  vodPlayFrom: \(nd.vodPlayFrom ?? "nil")")
+            log("  vodPlayUrl: \(nd.vodPlayUrl ?? "nil")")
         } else {
             log("⚠️ nativeDetail 返回 nil")
         }

@@ -442,14 +442,27 @@ struct VideoCard: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         case .failure(_):
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.25))
+                                VStack(spacing: 8) {
+                                    Image(systemName: "photo")
+                                        .font(.title2)
+                                        .foregroundColor(.gray)
+                                    Text("加载失败")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         case .empty:
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
+                            ZStack {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.15))
+                                ProgressView()
+                            }
                         @unknown default:
                             Rectangle()
-                                .fill(Color.gray.opacity(0.3))
+                                .fill(Color.gray.opacity(0.25))
                         }
                     }
                     .frame(height: 140)
@@ -862,23 +875,51 @@ struct SearchResultsView: View {
         }
     }
 
-    private var dualPanel: some View {
-        HStack(spacing: 0) {
-            // 左侧：站点列表
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 2) {
-                    ForEach(sources, id: \.self) { name in
-                        let sel = (selectedSource ?? sources.first ?? "") == name
-                        Button(action: { selectedSource = name }) {
-                            Text(name)
-                                .font(.system(size: 13, weight: sel ? .bold : .regular))
-                                .foregroundColor(sel ? .white : .gray)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 11)
-                                .padding(.horizontal, 10)
-                                .background(sel ? Color.blue.opacity(0.2) : Color.clear)
+private var dualPanel: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // 左侧：站点列表 - 响应式宽度
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 2) {
+                        ForEach(sources, id: \.self) { name in
+                            let sel = (selectedSource ?? sources.first ?? "") == name
+                            Button(action: { selectedSource = name }) {
+                                Text(name)
+                                    .font(.system(size: 13, weight: sel ? .bold : .regular))
+                                    .foregroundColor(sel ? .white : .gray)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 11)
+                                    .padding(.horizontal, 10)
+                                    .background(sel ? Color.blue.opacity(0.2) : Color.clear)
+                            }
                         }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(width: min(110, geometry.size.width * 0.25))
+                .background(Color(hex: "1A1A2E"))
+
+                Divider().background(Color.white.opacity(0.1))
+
+                // 右侧：视频列表
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 12) {
+                        ForEach(currentVideos) { item in
+                            SearchResultRow(video: item)
+                                .onTapGesture {
+                                    selectedVideo = item
+                                }
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
+        }
+    }
                     }
                 }
                 .padding(.vertical, 4)
@@ -918,9 +959,21 @@ struct SearchResultRow: View {
                     switch phase {
                     case .success(let image):
                         image.resizable().aspectRatio(contentMode: .fill)
-                    default:
+                    case .failure(_):
+                        ZStack {
+                            Rectangle().fill(Color.gray.opacity(0.25))
+                            VStack(spacing: 6) {
+                                Image(systemName: "film").font(.title2).foregroundColor(.gray)
+                                Text("加载失败").font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                    case .empty:
+                        ZStack {
+                            Rectangle().fill(Color.gray.opacity(0.15))
+                            ProgressView()
+                        }
+                    @unknown default:
                         Rectangle().fill(Color.gray.opacity(0.25))
-                            .overlay(Image(systemName: "film").font(.title2).foregroundColor(.gray))
                     }
                 }
                 .frame(width: 85, height: 110)

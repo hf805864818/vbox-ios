@@ -244,7 +244,7 @@ globalThis.__JS_SPIDER__ = _spider;
     
     func loadHomeData() async {
         var videos: [VodItem] = []
-        
+
         // 1. 尝试从 QuickJS 蜘蛛获取
         if !engines.isEmpty {
             for (key, engine) in engines {
@@ -261,22 +261,27 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        
+
         // 2. 蜘蛛没数据，用热门关键词走 nativeSearch 填充首页
         if videos.isEmpty {
             print("[SpiderManager] 蜘蛛首页为空，用热门关键词拉取...")
-            let hotKeywords = ["热播", "电影", "电视剧", "综艺", "动漫", "2026", "最新"]
+            let hotKeywords = [
+                "热播", "电影", "电视剧", "综艺", "动漫", "2026", "最新",
+                "热门", "高分", "经典", "动作", "喜剧", "爱情", "科幻",
+                "悬疑", "犯罪", "战争", "古装", "现代", "都市"
+            ]
             for kw in hotKeywords {
                 let results = await nativeSearch(keyword: kw)
+                print("[SpiderManager] 热门关键词[\(kw)]: \(results.count)条")
                 videos.append(contentsOf: results)
-                if videos.count >= 30 { break }
+                if videos.count >= 50 { break }
             }
         }
-        
+
         // 去重
         var seen = Set<String>()
         videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
-        
+
         await MainActor.run {
             self.homeVideos = videos
             if self.categories.isEmpty {
@@ -284,7 +289,9 @@ globalThis.__JS_SPIDER__ = _spider;
                     VodCategory(typeId: "movie", typeName: "电影"),
                     VodCategory(typeId: "tv", typeName: "电视剧"),
                     VodCategory(typeId: "variety", typeName: "综艺"),
-                    VodCategory(typeId: "anime", typeName: "动漫")
+                    VodCategory(typeId: "anime", typeName: "动漫"),
+                    VodCategory(typeId: "documentary", typeName: "纪录片"),
+                    VodCategory(typeId: "live", typeName: "直播")
                 ]
             }
         }
@@ -504,6 +511,74 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 火狐采集失败: \(error.localizedDescription)")
             }
         }
+
+        // ====== 搜索源 5: 奥运资源 ======
+        if allResults.count < 40 {
+            do {
+                let ayURL = "https://www.ayunapi.com/api.php/provide/vod/?ac=detail&wd=\(encodedKW)"
+                if let url = URL(string: ayURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: "奥运资源",
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] 奥运资源: \(list.count) 条")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] 奥运资源失败: \(error.localizedDescription)")
+            }
+        }
+
+        // ====== 搜索源 6: 快播资源 ======
+        if allResults.count < 50 {
+            do {
+                let kbURL = "https://www.kuaibozy.com/api.php/provide/vod/?ac=detail&wd=\(encodedKW)"
+                if let url = URL(string: kbURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: "快播资源",
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] 快播资源: \(list.count) 条")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] 快播资源失败: \(error.localizedDescription)")
+            }
+        }
         
         print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
@@ -513,59 +588,100 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 先用 ids 查，失败则用 name 搜索匹配
     func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
-        // 如果 apiSites 为空，降级用 allSites 中的 type=1 站点
-        let detailSites = apiSites.isEmpty 
-            ? allSites.filter { $0.type == 1 && $0.api != nil && !$0.api!.isEmpty } 
+        // 如果 apiSites 为空，降级用 allSites 中的 type=1 或 type=0 站点
+        let detailSites = apiSites.isEmpty
+            ? allSites.filter { ($0.type == 1 || $0.type == 0) && $0.api != nil && !$0.api!.isEmpty }
             : apiSites
-        if detailSites.isEmpty { 
+        if detailSites.isEmpty {
             print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
-            return nil 
+            return nil
         }
         print("[SpiderManager] nativeDetail: ids=\(ids), name=\(name ?? "nil"), 可用站点=\(detailSites.count)个")
-        
+
         for site in detailSites {
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
             let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
-            
-            // 先尝试用 ids
-            if let detailURL = URL(string: "\(api)?ac=videolist&ids=\(ids)") {
-                if let result = await fetchDetail(url: detailURL, siteName: site.name) {
-                    return result
+
+            // 尝试多种API格式
+            let apiFormats = [
+                "\(api)?ac=videolist&ids=\(ids)",
+                "\(api)?ac=detail&ids=\(ids)",
+                "\(api)?ac=videolist&ids=\(ids)&pg=1"
+            ]
+
+            for format in apiFormats {
+                if let url = URL(string: format) {
+                    print("[SpiderManager] 尝试API格式: \(format)")
+                    if let result = await fetchDetail(url: url, siteName: site.name) {
+                        print("[SpiderManager] ✅ nativeDetail 成功: \(site.name)")
+                        return result
+                    }
                 }
             }
-            
+
             // ids 失败，用名称搜索
             if let n = name, !n.isEmpty,
                let encN = n.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                let searchURL = URL(string: "\(api)?ac=detail&wd=\(encN)") {
                 if let result = await fetchDetailFromSearchList(url: searchURL, siteName: site.name, targetName: n) {
+                    print("[SpiderManager] ✅ nativeDetail 名称搜索成功: \(site.name)")
                     return result
                 }
             }
         }
-        print("[SpiderManager] nativeDetail 全部站点均失败")
+        print("[SpiderManager] ❌ nativeDetail 全部站点均失败")
         return nil
     }
     
-    private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
-        do {
-            var req = URLRequest(url: url)
-            req.timeoutInterval = 10
-            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            let (data, _) = try await URLSession.shared.data(for: req)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let list = json["list"] as? [[String: Any]],
-               let first = list.first {
-                // 打印完整字段名以便调试
-                print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
-                let item = Self.makeVodItem(from: first, siteName: siteName)
-                print("[SpiderManager] nativeDetail(ids) \(siteName): vodPlayUrl=\(item.vodPlayUrl?.prefix(30) ?? \"nil\"), vodPlayFrom=\(item.vodPlayFrom?.prefix(30) ?? \"nil\")")
-                return item
+private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
+    do {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+
+        print("[SpiderManager] fetchDetail 请求: \(url.absoluteString)")
+        let (data, response) = try await URLSession.shared.data(for: req)
+
+        if let httpResponse = response as? HTTPURLResponse {
+            print("[SpiderManager] fetchDetail 响应状态: \(httpResponse.statusCode)")
+            guard (200...299).contains(httpResponse.statusCode) else {
+                print("[SpiderManager] fetchDetail 非200状态码: \(httpResponse.statusCode)")
+                return nil
+            }
+        }
+
+        if let rawStr = String(data: data, encoding: .utf8) {
+            let preview = String(rawStr.prefix(500))
+            print("[SpiderManager] fetchDetail 原始响应(前500): \(preview)")
+        }
+
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = json["list"] as? [[String: Any]],
+           let first = list.first {
+            // 打印完整字段名以便调试
+            print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
+            let item = Self.makeVodItem(from: first, siteName: siteName)
+            print("[SpiderManager] nativeDetail(ids) \(siteName): vodPlayUrl=\(item.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(item.vodPlayFrom?.prefix(50) ?? "nil")")
+
+            // 检查是否有播放地址
+            if let playUrl = item.vodPlayUrl, !playUrl.isEmpty {
+                print("[SpiderManager] ✅ nativeDetail 找到播放地址")
+            } else if let playFrom = item.vodPlayFrom, !playFrom.isEmpty,
+                      let playUrlRaw = item.vodPlayUrl {
+                print("[SpiderManager] ✅ nativeDetail 找到 playFrom+playUrl 组合")
             } else {
-                if let rawStr = String(data: data, encoding: .utf8) {
-                    let preview = String(rawStr.prefix(200))
-                    print("[SpiderManager] nativeDetail(ids) \(siteName): 原始响应(前200): \(preview)")
-                }
+                print("[SpiderManager] ⚠️ nativeDetail 无播放地址")
+            }
+
+            return item
+        } else {
+            print("[SpiderManager] fetchDetail JSON解析失败或list为空")
+        }
+    } catch {
+        print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
+    }
+    return nil
+}
             }
         } catch {
             print("[SpiderManager] nativeDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
