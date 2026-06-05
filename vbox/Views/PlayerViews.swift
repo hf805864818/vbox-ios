@@ -865,10 +865,45 @@ struct VideoPlayerView: View {
             log("   可能原因: video.vodId无效、无可用API站点或API请求失败")
         }
 
+        // Step 4: 检查是否是网盘分享链接
+        if let playUrl = video.vodPlayUrl, !playUrl.isEmpty {
+            log("========================================")
+            log("📍 Step 4/4: 检查网盘分享链接...")
+            log("========================================")
+            log("   URL: \(playUrl.prefix(100))...")
+            if let driveType = CloudDriveManager.detectDrive(from: playUrl) {
+                log("🎯 识别为 \(driveType.displayName) 分享链接")
+                let tokens = CloudDriveManager.shared.tokens(for: driveType)
+                if let token = tokens.first {
+                    log("   ✅ 找到已配置的Token: \(token.name)")
+                    log("   正在解析网盘播放地址...")
+                    do {
+                        let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrl)
+                        log("✅ 网盘解析成功: \(result.url.prefix(80))...")
+                        if let url = URL(string: result.url) {
+                            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
+                            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                            player?.play()
+                            isPlaying = true
+                            isLoading = false
+                            return
+                        }
+                    } catch {
+                        log("❌ 网盘解析失败: \(error.localizedDescription)")
+                        log("   请在 设置 → 网盘播放 中配置正确的Token")
+                    }
+                } else {
+                    log("⚠️ 未配置 \(driveType.displayName) Token")
+                    log("   请在 设置 → 网盘播放 中添加")
+                }
+            } else {
+                log("   非网盘分享链接，跳过")
+            }
+        }
+
         log("========================================")
-        log("❌ 所有播放地址获取方式均失败")
+        log("❌ 所有播放方式均失败")
         log("========================================")
-        log("请提供上述详细日志以帮助定位问题")
 
         await MainActor.run {
             isLoading = false

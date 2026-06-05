@@ -1,26 +1,104 @@
 import Foundation
 
+// MARK: - 网盘存储模型
+struct DriveToken: Codable {
+    let type: String      // ali/quark/baidu/one15/uc
+    let name: String      // 用户备注名
+    let value: String     // token/cookie 值
+}
+
 /// 网盘管理器 — 支持阿里云盘、夸克、百度、115、UC 的播放地址获取
 /// 每种网盘有不同的认证方式和 API 调用链路
 class CloudDriveManager {
 
-    enum DriveType {
-        case aliRefreshToken(String)   // 阿里云盘 refresh_token
-        case quarkCookie(String)       // 夸克网盘 Cookie
-        case baiduBDUSS(String)        // 百度网盘 BDUSS
-        case one15CID(String)          // 115 网盘 CID
-        case ucloudCookie(String)      // UC 网盘 Cookie
+    static let shared = CloudDriveManager()
+
+    enum DriveType: String, CaseIterable {
+        case ali = "ali"
+        case quark = "quark"
+        case baidu = "baidu"
+        case one15 = "115"
+        case uc = "uc"
+
+        var displayName: String {
+            switch self {
+            case .ali: return "阿里云盘"
+            case .quark: return "夸克网盘"
+            case .baidu: return "百度网盘"
+            case .one15: return "115网盘"
+            case .uc: return "UC网盘"
+            }
+        }
+
+        var tokenLabel: String {
+            switch self {
+            case .ali: return "Refresh Token"
+            case .quark: return "Cookie"
+            case .baidu: return "BDUSS"
+            case .one15: return "CID"
+            case .uc: return "Cookie"
+            }
+        }
     }
 
     private let session: URLSession
+    private let defaults = UserDefaults.standard
+    private let tokenKey = "saved_drive_tokens"
 
-    init() {
+    /// 保存的所有网盘 Token
+    private(set) var savedTokens: [DriveToken] = []
+
+    private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.httpAdditionalHeaders = [
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
         ]
         session = URLSession(configuration: config)
+        loadTokens()
+    }
+
+    /// 加载已保存的 Token
+    private func loadTokens() {
+        if let data = defaults.data(forKey: tokenKey),
+           let tokens = try? JSONDecoder().decode([DriveToken].self, from: data) {
+            savedTokens = tokens
+        }
+    }
+
+    private func saveTokens() {
+        if let data = try? JSONEncoder().encode(savedTokens) {
+            defaults.set(data, forKey: tokenKey)
+        }
+    }
+
+    /// 添加/更新 Token
+    func addToken(type: DriveType, name: String, value: String) {
+        savedTokens.removeAll { $0.type == type.rawValue && $0.name == name }
+        savedTokens.append(DriveToken(type: type.rawValue, name: name, value: value))
+        saveTokens()
+    }
+
+    /// 删除 Token
+    func removeToken(at index: Int) {
+        guard index >= 0, index < savedTokens.count else { return }
+        savedTokens.remove(at: index)
+        saveTokens()
+    }
+
+    /// 获取某种类型的所有 Token
+    func tokens(for type: DriveType) -> [DriveToken] {
+        savedTokens.filter { $0.type == type.rawValue }
+    }
+
+    /// 识别分享链接的网盘类型
+    static func detectDrive(from url: String) -> DriveType? {
+        if url.contains("aliyundrive.com") || url.contains("alipan.com") { return .ali }
+        if url.contains("pan.quark.cn") { return .quark }
+        if url.contains("pan.baidu.com") { return .baidu }
+        if url.contains("115.com") { return .one15 }
+        if url.contains("uc.cn") || url.contains("ucloud.cn") { return .uc }
+        return nil
     }
 
     // MARK: - 阿里云盘
@@ -262,6 +340,33 @@ class CloudDriveManager {
             headers: ["Cookie": cookie, "User-Agent": "pan.baidu.com"],
             driveType: .baidu
         )
+    }
+
+    // MARK: - 统一解析入口
+
+    /// 自动识别网盘类型并解析播放地址
+    func resolvePlayURL(from shareURL: String) async throws -> PlayResult {
+        guard let driveType = Self.detectDrive(from: shareURL) else {
+            throw DriveError.invalidShareURL
+        }
+
+        let tokens = tokens(for: driveType)
+        guard let token = tokens.first else {
+            throw DriveError.notImplemented // 实际是"未配置Token"
+        }
+
+        switch driveType {
+        case .ali:
+            return try await resolveAliPlayURL(shareURL: shareURL, refreshToken: token.value)
+        case .quark:
+            return try await resolveQuarkPlayURL(shareURL: shareURL, cookie: token.value)
+        case .baidu:
+            return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
+        case .one15:
+            throw DriveError.notImplemented
+        case .uc:
+            throw DriveError.notImplemented
+        }
     }
 }
 

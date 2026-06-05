@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - 设置视图
 struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
+    @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var autoPlayNext = true
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
@@ -17,6 +18,9 @@ struct SettingsView: View {
     @State private var errorMessage = ""
     @State private var newParserName = ""
     @State private var newParserURL = ""
+    @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
+    @State private var driveTokenName = ""
+    @State private var driveTokenValue = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -162,6 +166,82 @@ struct SettingsView: View {
                         ) {
                             // 添加新源
                         }
+                    }
+
+                    // 网盘管理
+                    SettingsSection(title: "网盘播放") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if !cloudDriveManager.savedTokens.isEmpty {
+                                Text("已配置 \(cloudDriveManager.savedTokens.count) 个网盘Token")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+
+                                ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
+                                    HStack {
+                                        Image(systemName: iconForDriveType(token.type))
+                                            .foregroundColor(Color(hex: "E11D48"))
+                                            .frame(width: 24)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
+                                                .font(.system(size: 14, weight: .medium))
+                                            Text(token.name)
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+
+                                        Spacer()
+
+                                        Button(action: {
+                                            cloudDriveManager.removeToken(at: index)
+                                        }) {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(Color.primary.opacity(0.05))
+                                    .cornerRadius(8)
+                                }
+                            }
+
+                            HStack {
+                                Picker("网盘类型", selection: $selectedDriveType) {
+                                    ForEach(CloudDriveManager.DriveType.allCases, id: \.self) { type in
+                                        Text(type.displayName).tag(type)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(width: 100)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField("备注名称", text: $driveTokenName)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 13))
+
+                                TextField(selectedDriveType.tokenLabel, text: $driveTokenValue)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 12))
+                                    .autocapitalization(.none)
+                                    .disableAutocorrection(true)
+                            }
+
+                            Button(action: addDriveToken) {
+                                Text("保存Token")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color(hex: "E11D48"))
+                                    .cornerRadius(10)
+                            }
+                            .disabled(driveTokenName.isEmpty || driveTokenValue.isEmpty)
+                        }
+                        .padding(16)
                     }
 
                     // 存储管理
@@ -321,6 +401,26 @@ struct SettingsView: View {
         spiderManager.addCustomParser(name: name, url: url)
         newParserName = ""
         newParserURL = ""
+    }
+
+    private func addDriveToken() {
+        let name = driveTokenName.trimmingCharacters(in: .whitespaces)
+        let value = driveTokenValue.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !value.isEmpty else { return }
+        cloudDriveManager.addToken(type: selectedDriveType, name: name, value: value)
+        driveTokenName = ""
+        driveTokenValue = ""
+    }
+
+    private func iconForDriveType(_ type: String) -> String {
+        switch type {
+        case "ali": return "cloud.fill"
+        case "quark": return "q.circle.fill"
+        case "baidu": return "b.circle.fill"
+        case "115": return "1.circle.fill"
+        case "uc": return "u.circle.fill"
+        default: return "externaldrive.fill"
+        }
     }
 }
 
