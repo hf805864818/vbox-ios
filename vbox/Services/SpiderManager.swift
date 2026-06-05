@@ -53,114 +53,57 @@ class SpiderManager: ObservableObject {
         }
     }
     
-    /// 获取内置蜘蛛 JS 代码 — 乌云影视直连搜索（同步版）
+    /// 获取内置蜘蛛 JS 代码 — 蜘蛛通过 http() 桥接调用原生网络
     private func getBuiltinSpiderJS() -> String {
         return """
-// 基础辅助类
 function VideoDetail() { this.vod_id = ""; this.vod_name = ""; this.vod_pic = ""; this.vod_remarks = ""; }
 function RepVideoList() { this.data = []; this.total = 0; this.error = ""; }
-function RepVideoClassList() { this.data = []; this.error = ""; }
 
-// req 包装 — http() 是同步的，直接用
+// req — http() 是同步阻塞的，直接取结果
 function req(url, options) {
     var opts = options || {};
-    var jsonResult = http(url, JSON.stringify({
+    var resp = JSON.parse(http(url, JSON.stringify({
         method: opts.method || 'GET',
         headers: opts.headers || {},
         data: opts.data || '',
-        timeout: 15
-    }));
-    var resp = JSON.parse(jsonResult);
+        timeout: 5
+    })));
     resp.data = resp.content;
     return resp;
 }
 
-// 乌云影视搜索蜘蛛 — 全部同步
 var wooyun = {
     webSite: 'https://wooyun.tv',
     getHeaders: function() {
-        return {
-            Referer: this.webSite,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        };
+        return { Referer: this.webSite, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
     },
     search: function(keyword, page) {
         var back = new RepVideoList();
-        if (!keyword) { back.data = []; return JSON.stringify(back); }
+        if (!keyword) return JSON.stringify(back);
         try {
-            var url = this.webSite + '/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch';
-            var body = JSON.stringify({
-                menuCodeList: [],
-                pageIndex: String(page || 1),
-                pageSize: 10,
-                searchKey: keyword,
-                topCode: ''
+            var resp = req(this.webSite + '/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch', {
+                method: 'POST', headers: this.getHeaders(),
+                data: JSON.stringify({ menuCodeList: [], pageIndex: String(page||1), pageSize: 10, searchKey: keyword, topCode: '' })
             });
-            var resp = req(url, { method: 'POST', headers: this.getHeaders(), data: body });
-            if (!resp.ok) { back.error = 'HTTP ' + resp.status; return JSON.stringify(back); }
             var json = JSON.parse(resp.data || '{}');
-            var records = (json.data && json.data.records) ? json.data.records : [];
-            back.total = (json.data && json.data.total) ? json.data.total : 0;
+            var records = (json.data && json.data.records) || [];
             for (var i = 0; i < records.length; i++) {
-                var item = records[i];
-                var v = new VideoDetail();
-                v.vod_id = String(item.id || '');
-                v.vod_name = item.title || '';
-                v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
-                v.vod_remarks = '乌云影视';
-                back.data.push(v);
+                var r = records[i], v = new VideoDetail();
+                v.vod_id = String(r.id||''); v.vod_name = r.title||''; v.vod_pic = r.posterUrlS3||r.posterUrl||'';
+                v.vod_remarks = '乌云影视'; back.data.push(v);
             }
         } catch(e) { back.error = String(e); }
         return JSON.stringify(back);
-    },
-    home: function() {
-        var web = this.webSite;
-        try {
-            var url = web + '/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch';
-            var body = JSON.stringify({ menuCodeList: [], pageIndex: '1', pageSize: 10, searchKey: '', sortCode: 'newest', topCode: 'movie' });
-            var resp = req(url, { method: 'POST', headers: this.getHeaders(), data: body });
-            var json = JSON.parse(resp.data || '{}');
-            var records = (json.data && json.data.records) ? json.data.records : [];
-            var list = [];
-            for (var i = 0; i < records.length; i++) {
-                var item = records[i];
-                var v = new VideoDetail();
-                v.vod_id = String(item.id || '');
-                v.vod_name = item.title || '';
-                v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
-                v.vod_remarks = '乌云影视';
-                list.push(v);
-            }
-            return JSON.stringify({
-                class: [
-                    { type_id: '1', type_name: '电影' },
-                    { type_id: '2', type_name: '电视剧' },
-                    { type_id: '3', type_name: '综艺' },
-                    { type_id: '4', type_name: '动漫' }
-                ],
-                list: list
-            });
-        } catch(e) {
-            return JSON.stringify({ class: [], list: [] });
-        }
-    },
-    detail: function(ids) {
-        return JSON.stringify({ list: [] });
-    },
-    player: function(vodId, flag, url) {
-        return JSON.stringify({ parse: 0, url: url });
     }
 };
 
-// 注册蜘蛛
 var _spider = {
-    homeContent: function() { return wooyun.home(); },
-    searchContent: function(keyword, page) { return wooyun.search(keyword, page); },
-    detailContent: function(ids) { return wooyun.detail(ids); },
-    playerContent: function(vodId, flag, url) { return wooyun.player(vodId, flag, url); }
+    homeContent: function() { return JSON.stringify({ class: [], list: [] }); },
+    searchContent: function(k, p) { return wooyun.search(k, p); },
+    detailContent: function(i) { return JSON.stringify({ list: [] }); },
+    playerContent: function(v,f,u) { return JSON.stringify({ parse: 0, url: u }); }
 };
 globalThis.__JS_SPIDER__ = _spider;
-console.log('蜘蛛注册完成: 乌云影视 v1');
 """
     }
     
@@ -343,124 +286,82 @@ console.log('蜘蛛注册完成: 乌云影视 v1');
         savedURLs = subManager.configURLs
     }
     
-    /// 纯 Swift 搜索 — 从订阅源中找 type=1 的站点 API 进行搜索
+    /// 原生搜索 — 直接 HTTP 调可用 API，不经过 QuickJS
     func nativeSearch(keyword: String) async -> [VodItem] {
         var allResults: [VodItem] = []
         var seenIds = Set<String>()
-        
-        // 从订阅源收集 type=1（API 直连）的站点
-        let apiSites = allSites.filter { $0.type == 1 && $0.api != nil && !$0.api!.isEmpty }
-        
-        // 如果没有 type=1 站点，使用硬编码的备用搜索 API
-        let searchURLs: [(name: String, url: String)] = apiSites.isEmpty ? [
-            ("非凡资源", "http://ffzy1.tv/api.php/provide/vod/?ac=detail&wd={wd}"),
-            ("虎牙采集", "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8?ac=detail&wd={wd}"),
-            ("火狐采集", "https://hhzyapi.com/api.php/provide/vod/?ac=detail&wd={wd}"),
-            ("百度采集", "https://api.apibdzy.com/api.php/provide/vod/?ac=detail&wd={wd}"),
-        ] : []
-        
-        // 并发搜索
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
         
-        // 从 API 站点搜索
-        for site in apiSites {
-            guard let api = site.api, !api.isEmpty else { continue }
-            // 替换变量
-            var urlStr = api.replacingOccurrences(of: "{wd}", with: encodedKW)
-                .replacingOccurrences(of: "{keyword}", with: encodedKW)
-            // 把 ac=list 改成 ac=detail 搜索模式
-            urlStr = urlStr.replacingOccurrences(of: "ac=list", with: "ac=detail")
-            // 追加搜索关键词参数
-            if urlStr.contains("?wd=") || urlStr.contains("&wd=") {
-                // 已经有了 wd 参数，跳过
-            } else if urlStr.contains("?") {
-                urlStr = urlStr + "&ac=detail&wd=" + encodedKW
-            } else {
-                urlStr = urlStr + "?ac=detail&wd=" + encodedKW
-            }
-            // 避免双 ? 双 ac=detail
-            let finalURL = urlStr
-                .replacingOccurrences(of: "?ac=detail&ac=detail", with: "?ac=detail")
-                .replacingOccurrences(of: "&ac=detail&ac=detail", with: "&ac=detail")
+        // ====== 搜索源 1: 乌云影视 ======
+        do {
+            let url = URL(string: "https://wooyun.tv/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch")!
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("https://wooyun.tv", forHTTPHeaderField: "Referer")
+            req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+            req.timeoutInterval = 10
+            let body: [String: Any] = ["menuCodeList": [], "pageIndex": "1", "pageSize": 10, "searchKey": keyword, "topCode": ""]
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
             
-            print("[SpiderManager] 请求: \(finalURL.prefix(80))")
-            
-            if let results = await searchWithAPI(url: finalURL, sourceName: site.name) {
-                for item in results {
-                    let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                    if !seenIds.contains(id), seenIds.count < 50 {
-                        seenIds.insert(id)
-                        allResults.append(item)
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let dataObj = json["data"] as? [String: Any],
+               let records = dataObj["records"] as? [[String: Any]] {
+                for item in records {
+                    let vid = String(describing: item["id"] ?? "")
+                    if !seenIds.contains(vid) {
+                        seenIds.insert(vid)
+                        allResults.append(VodItem(
+                            vodId: vid,
+                            vodName: (item["title"] as? String) ?? "",
+                            vodPic: (item["posterUrlS3"] as? String) ?? (item["posterUrl"] as? String) ?? "",
+                            vodRemarks: "乌云影视"
+                        ))
                     }
                 }
+                print("[SpiderManager] 乌云影视: \(records.count) 条")
+            }
+        } catch {
+            print("[SpiderManager] 乌云影视失败: \(error.localizedDescription)")
+        }
+        
+        // ====== 搜索源 2: 非凡资源 ======
+        if allResults.count < 20 {
+            do {
+                let ffURL = "http://ffzy1.tv/api.php/provide/vod/?ac=detail&wd=\(encodedKW)"
+                if let url = URL(string: ffURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: "非凡资源",
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] 非凡资源: \(list.count) 条")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] 非凡资源失败: \(error.localizedDescription)")
             }
         }
         
-        // 备用硬编码 API
-        for (name, urlTemplate) in searchURLs {
-            let urlStr = urlTemplate.replacingOccurrences(of: "{wd}", with: encodedKW)
-            if let results = await searchWithAPI(url: urlStr, sourceName: name) {
-                for item in results {
-                    let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                    if !seenIds.contains(id), seenIds.count < 50 {
-                        seenIds.insert(id)
-                        allResults.append(item)
-                    }
-                }
-            }
-        }
-        
-        print("[SpiderManager] nativeSearch 获得 \(allResults.count) 个结果")
+        print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
     }
-    
-    /// 通用 JSON 搜索接口调用
-    private func searchWithAPI(url: String, fieldMap: [String: String] = [:], sourceName: String = "") async -> [VodItem]? {
-        guard let urlObj = URL(string: url) else { return nil }
-        var req = URLRequest(url: urlObj)
-        req.timeoutInterval = 10
-        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-        
-        do {
-            let (data, _) = try await URLSession.shared.data(for: req)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-            
-            // 尝试多种 JSON 结构
-            var list: [[String: Any]]? = nil
-            
-            // 结构1: { "list": [...] }
-            if let l = json["list"] as? [[String: Any]] { list = l }
-            // 结构2: { "data": { "list": [...] } }
-            else if let dataObj = json["data"] as? [String: Any], let l = dataObj["list"] as? [[String: Any]] { list = l }
-            // 结构3: { "videos": [...] }
-            else if let l = json["videos"] as? [[String: Any]] { list = l }
-            // 结构4: { "data": [...] }
-            else if let l = json["data"] as? [[String: Any]] { list = l }
-            // 结构5: { "results": [...] }
-            else if let l = json["results"] as? [[String: Any]] { list = l }
-            // 结构6: [ ... ] (直接数组)
-            else if let l = json as? [[String: Any]] { return l.map { mapVodItem($0, fieldMap: fieldMap, sourceName: sourceName) } }
-            
-            guard let items = list else { return nil }
-            return items.map { mapVodItem($0, fieldMap: fieldMap, sourceName: sourceName) }
-        } catch {
-            return nil
-        }
-    }
-    
-    private func mapVodItem(_ item: [String: Any], fieldMap: [String: String], sourceName: String = "") -> VodItem {
-        let idField = fieldMap["vod_id"] ?? "vod_id"
-        let nameField = fieldMap["vod_name"] ?? "vod_name"
-        let picField = fieldMap["vod_pic"] ?? "vod_pic"
-        return VodItem(
-            vodId: String(describing: item[idField] ?? item["id"] ?? ""),
-            vodName: (item[nameField] as? String) ?? (item["title"] as? String) ?? (item["name"] as? String) ?? "",
-            vodPic: (item[picField] as? String) ?? (item["cover"] as? String) ?? (item["image"] as? String) ?? (item["pic"] as? String) ?? "",
-            vodRemarks: !sourceName.isEmpty ? sourceName : (item["vod_remarks"] as? String),
-            vodYear: item["vod_year"] as? String ?? item["year"] as? String,
-            vodArea: item["vod_area"] as? String ?? item["area"] as? String,
-            vodDirector: item["vod_director"] as? String ?? item["director"] as? String,
-            vodActor: item["vod_actor"] as? String ?? item["actor"] as? String
-        )
-    }
 }
+

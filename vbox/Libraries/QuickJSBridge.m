@@ -57,7 +57,7 @@ static JSValue js_http_func(JSContext *ctx, JSValueConst this_val,
         if (!urlStr) return JS_NULL;
         
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlStr]];
-        [request setTimeoutInterval:15];
+        [request setTimeoutInterval:8];
         
         // 解析 options JSON 字符串（第二个参数）
         if (argc >= 2 && JS_IsString(argv[1])) {
@@ -111,7 +111,7 @@ static JSValue js_http_func(JSContext *ctx, JSValueConst this_val,
             }];
         [task resume];
         dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW,
-            (int64_t)((request.timeoutInterval + 5) * NSEC_PER_SEC)));
+            (int64_t)((request.timeoutInterval + 2) * NSEC_PER_SEC)));
         
         // 构建 JSON 结果
         NSMutableDictionary* result = [NSMutableDictionary dictionary];
