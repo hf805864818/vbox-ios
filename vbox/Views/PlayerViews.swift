@@ -580,67 +580,169 @@ struct VideoPlayerView: View {
     }
 
     private func resolvePlayUrl() async {
+        // 添加详细的开始调试信息
+        log("========================================")
+        log("🎬 开始播放地址解析流程")
+        log("========================================")
+        log("📋 视频基本信息:")
+        log("   vodId: '\(video.vodId)'")
+        log("   vodName: '\(video.vodName)'")
+        log("   vodPic: '\(video.vodPic.prefix(50))...'")
+        log("   vodRemarks: '\(video.vodRemarks)'")
+        log("   已有vodPlayUrl: '\(video.vodPlayUrl?.prefix(60) ?? "nil")...'")
+        log("   已有vodPlayFrom: '\(video.vodPlayFrom ?? "nil")'")
+        
         let spider = SpiderManager.shared
         
         // Step 1: detailContent
-        log("1/4 调用 detailContent(\(video.vodId))...")
+        log("========================================")
+        log("📍 Step 1/4: 调用 detailContent(\(video.vodId))...")
+        log("========================================")
+        
         if let detail = await spider.getDetail(ids: video.vodId) {
-            log("2/4 detailContent: vodName=\(detail.vodName), vodPlayFrom=\(detail.vodPlayFrom?.prefix(30) ?? "nil"), vodPlayUrl=\(detail.vodPlayUrl?.prefix(50) ?? "nil")")
+            log("✅ detailContent 返回结果:")
+            log("   vodName: '\(detail.vodName)'")
+            log("   vodPlayFrom: '\(detail.vodPlayFrom?.prefix(50) ?? "nil")...'")
+            log("   vodPlayUrl: '\(detail.vodPlayUrl?.prefix(100) ?? "nil")...'")
+            log("   vodPlayUrl长度: \(detail.vodPlayUrl?.count ?? 0) 字符")
             
-            if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty,
-               let url = URL(string: playUrl) {
-                log("✅ 直链播放地址就绪")
-                await MainActor.run { initPlayer(url: url) }
-                return
+            if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty {
+                log("   vodPlayUrl完整内容:")
+                if playUrl.count <= 200 {
+                    log("     '\(playUrl)'")
+                } else {
+                    log("     前100字符: '\(String(playUrl.prefix(100)))'")
+                    log("     后100字符: '\(String(playUrl.suffix(100)))'")
+                }
+                
+                if let url = URL(string: playUrl) {
+                    log("✅ 直链播放地址就绪")
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                } else {
+                    log("❌ 无法将vodPlayUrl转换为URL对象")
+                }
+            } else {
+                log("⚠️ vodPlayUrl为空")
             }
             
             if let playFrom = detail.vodPlayFrom, let playUrlRaw = detail.vodPlayUrl {
+                log("🔍 尝试从vodPlayFrom+vodPlayUrl组合解析...")
+                log("   playFrom: '\(playFrom)'")
+                log("   playUrlRaw长度: \(playUrlRaw.count) 字符")
+                
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
-                if let firstUrl = urls.first, let url = URL(string: firstUrl) {
-                    log("✅ 从 vodPlayFrom 提取直链")
-                    await MainActor.run { initPlayer(url: url) }
-                    return
+                log("   解析出 \(urls.count) 个地址")
+                
+                if let firstUrl = urls.first {
+                    log("   第一集地址: '\(firstUrl.prefix(80))...'")
+                    if let url = URL(string: firstUrl) {
+                        log("✅ 从 vodPlayFrom 提取直链播放地址就绪")
+                        await MainActor.run { initPlayer(url: url) }
+                        return
+                    } else {
+                        log("❌ 无法将第一集地址转换为URL对象")
+                    }
+                } else {
+                    log("❌ parsePlayUrls未能解析出任何地址")
                 }
+            } else {
+                log("⚠️ vodPlayFrom或vodPlayUrl为空，无法组合解析")
             }
         } else {
-            log("⚠️ detailContent 返回 nil")
+            log("❌ detailContent 返回 nil")
+            log("   可能原因: video.vodId无效或API无响应")
         }
         
         // Step 2: playerContent — TVBox 蜘蛛播放解析
-        log("3/4 调用 playerContent...")
+        log("========================================")
+        log("📍 Step 2/4: 调用 playerContent...")
+        log("========================================")
+        log("   vodId: '\(video.vodId)'")
+        log("   flag: 'play'")
+        log("   url: '\(video.vodPlayUrl?.prefix(50) ?? "nil")...'")
+        
         if let playResult = await spider.getPlayerContent(
             vodId: video.vodId,
             flag: "play",
             url: video.vodPlayUrl ?? ""
         ) {
             let playUrl = playResult.playUrl ?? playResult.url ?? ""
-            log("playerContent: playUrl=\(playUrl.prefix(60)), headers=\(playResult.header?.count ?? 0)个")
+            log("✅ playerContent 返回结果:")
+            log("   playUrl: '\(playUrl.prefix(100))...'")
+            log("   url: '\(playResult.url?.prefix(100) ?? "nil")...'")
+            log("   headers数量: \(playResult.header?.count ?? 0)")
             
-            if !playUrl.isEmpty, let url = URL(string: playUrl) {
-                log("✅ playerContent 播放地址就绪")
-                await MainActor.run { initPlayer(url: url) }
-                return
+            if !playUrl.isEmpty {
+                if let url = URL(string: playUrl) {
+                    log("✅ playerContent 播放地址就绪")
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                } else {
+                    log("❌ 无法将playerContent地址转换为URL对象")
+                }
+            } else {
+                log("❌ playerContent 返回 playUrl/url 均为空")
             }
-            log("⚠️ playerContent 返回 playUrl/url 为空")
         } else {
-            log("⚠️ playerContent 返回 nil")
+            log("❌ playerContent 返回 nil")
+            log("   可能原因: 蜘蛛引擎未正确配置或API不支持playerContent")
         }
         
         // Step 3: nativeDetail
-        log("4/4 nativeDetail(订阅源)...")
+        log("========================================")
+        log("📍 Step 3/4: 调用 nativeDetail(订阅源)...")
+        log("========================================")
+        log("   ids: '\(video.vodId)'")
+        log("   name: '\(video.vodName)'")
+        
         let nativeDetail = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nativeDetail {
-            log("nativeDetail: vodName=\(nd.vodName)")
+            log("✅ nativeDetail 返回结果:")
+            log("   vodName: '\(nd.vodName)'")
+            log("   vodId: '\(nd.vodId)'")
+            log("   vodPic: '\(nd.vodPic.prefix(50))...'")
             
             // 显示所有播放相关字段的详细信息
-            log("  vodPlayFrom字段内容: '\(nd.vodPlayFrom ?? "nil")'")
-            log("  vodPlayUrl字段内容: '\(nd.vodPlayUrl?.prefix(100) ?? "nil")'")
+            log("   === 播放相关字段详细信息 ===")
+            log("   vodPlayFrom字段内容:")
+            if let from = nd.vodPlayFrom, !from.isEmpty {
+                log("     '\(from)'")
+                log("     长度: \(from.count) 字符")
+            } else {
+                log("     (nil/空)")
+            }
+            
+            log("   vodPlayUrl字段内容:")
+            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
+                log("     长度: \(playUrl.count) 字符")
+                log("     前50字符: '\(String(playUrl.prefix(50)))'")
+                log("     后50字符: '\(String(playUrl.suffix(50)))'")
+                log("     完整内容:")
+                if playUrl.count <= 300 {
+                    for (index, char) in playUrl.enumerated() {
+                        if index % 50 == 0 {
+                            log("       第\(index)字符起: '\(String(playUrl.suffix(from: index).prefix(50)))'")
+                        }
+                    }
+                } else {
+                    log("       前100字符: '\(String(playUrl.prefix(100)))'")
+                    log("       后100字符: '\(String(playUrl.suffix(100)))'")
+                    log("       中间100字符: '\(String(playUrl.dropFirst(100).prefix(100)))'")
+                }
+            } else {
+                log("     (nil/空)")
+            }
+            log("   === 字段详细信息结束 ===")
             
             // 检查vodPlayUrl的长度和内容
             if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty {
-                log("  vodPlayUrl长度: \(playUrl.count)字符")
-                log("  vodPlayUrl前50字符: \(String(playUrl.prefix(50)))")
-                log("  vodPlayUrl后50字符: \(String(playUrl.suffix(50)))")
+                log("🔍 分析vodPlayUrl内容...")
+                log("   是否以http开头: \(playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://"))")
+                log("   是否以.m3u8结尾: \(playUrl.hasSuffix(".m3u8"))")
+                log("   是否以.mp4结尾: \(playUrl.hasSuffix(".mp4"))")
+                log("   是否包含#分隔符: \(playUrl.contains("#"))")
+                log("   是否包含$分隔符: \(playUrl.contains("$"))")
                 
                 // 检查是否为 HTTP/HTTPS 直链
                 if playUrl.hasPrefix("http://") || playUrl.hasPrefix("https://") {
@@ -648,81 +750,129 @@ struct VideoPlayerView: View {
                     if playUrl.hasSuffix(".m3u8") || playUrl.hasSuffix(".mp4") || playUrl.contains(".m3u8?") {
                         log("✅ nativeDetail 检测到视频直链")
                         if let url = URL(string: playUrl) {
+                            log("   URL对象创建成功: \(url.absoluteString)")
                             await MainActor.run { initPlayer(url: url) }
                             return
+                        } else {
+                            log("❌ 无法创建URL对象")
                         }
                     } else {
                         // 可能是HTML播放页，尝试解析
                         log("⚠️ nativeDetail 检测到HTML播放页，尝试解析器...")
+                        log("   将调用 spider.parsePlayUrl(from: ...)")
                         if let parsedUrl = await spider.parsePlayUrl(from: playUrl) {
-                            log("✅ 解析器成功解析出视频直链: \(parsedUrl.prefix(60))...")
+                            log("✅ 解析器成功解析出视频直链")
+                            log("   解析结果: '\(parsedUrl.prefix(60))...'")
                             if let url = URL(string: parsedUrl) {
+                                log("   URL对象创建成功: \(url.absoluteString)")
                                 await MainActor.run { initPlayer(url: url) }
                                 return
+                            } else {
+                                log("❌ 解析器返回URL无法创建URL对象")
                             }
                         } else {
                             log("❌ 解析器失败，无法解析HTML播放页")
+                            log("   可能原因: 解析器API失效或播放页格式不支持")
                         }
                     }
                 } else {
                     log("⚠️ vodPlayUrl不是HTTP/HTTPS开头，可能是特殊格式")
+                    log("   首字符: '\(String(playUrl.prefix(10)))'")
                 }
 
                 // 尝试解析 TVBox 格式的播放地址
+                log("🔍 尝试解析TVBox格式播放地址...")
                 let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: playUrl)
-                log("  从vodPlayUrl解析出\(urls.count)个地址")
+                log("   从vodPlayUrl解析出\(urls.count)个地址")
+                
+                for (index, url) in urls.enumerated() {
+                    log("   地址\(index+1): '\(url.prefix(80))...'")
+                }
+                
                 if let firstUrl = urls.first {
-                    log("  第一集地址: \(firstUrl.prefix(60))...")
+                    log("   第一集URL详细分析:")
+                    log("     完整URL: '\(firstUrl)'")
+                    log("     长度: \(firstUrl.count) 字符")
+                    log("     是否为直链: \(firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4"))")
+                    
                     // 检查第一集URL是否为HTML播放页
                     if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
+                        log("✅ nativeDetail 解析出视频直链")
                         if let url = URL(string: firstUrl) {
-                            log("✅ nativeDetail 解析出视频直链")
                             await MainActor.run { initPlayer(url: url) }
                             return
+                        } else {
+                            log("❌ 无法创建第一集URL对象")
                         }
                     } else {
                         // 尝试解析HTML播放页
                         log("⚠️ nativeDetail 第一集为HTML播放页，尝试解析器...")
                         if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
-                            log("✅ 解析器成功解析出第一集视频直链: \(parsedUrl.prefix(60))...")
+                            log("✅ 解析器成功解析出第一集视频直链")
+                            log("   解析结果: '\(parsedUrl.prefix(60))...'")
                             if let url = URL(string: parsedUrl) {
                                 await MainActor.run { initPlayer(url: url) }
                                 return
+                            } else {
+                                log("❌ 解析器返回的第一集URL无法创建URL对象")
                             }
                         } else {
                             log("❌ 解析器失败，无法解析第一集HTML播放页")
                         }
                     }
                 } else {
-                    log("⚠️ parsePlayUrls未能解析出任何地址")
+                    log("❌ parsePlayUrls未能解析出任何地址")
                 }
             } else {
-                log("⚠️ vodPlayUrl为空或nil")
+                log("❌ vodPlayUrl为空或nil")
             }
 
             // 检查 vodPlayFrom 和 vodPlayUrl 组合
+            log("🔍 尝试从vodPlayFrom+vodPlayUrl组合解析...")
+            if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty {
+                log("   playFrom存在: '\(playFrom)'")
+            } else {
+                log("   playFrom为空")
+            }
+            
+            if let playUrlRaw = nd.vodPlayUrl, !playUrlRaw.isEmpty {
+                log("   playUrlRaw存在: 长度\(playUrlRaw.count)字符")
+            } else {
+                log("   playUrlRaw为空")
+            }
+            
             if let playFrom = nd.vodPlayFrom, !playFrom.isEmpty,
                let playUrlRaw = nd.vodPlayUrl, !playUrlRaw.isEmpty {
-                log("尝试从vodPlayFrom+vodPlayUrl组合解析...")
+                log("   开始组合解析...")
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
-                log("  从组合解析出\(urls.count)个地址")
+                log("   从组合解析出\(urls.count)个地址")
+                
                 if let firstUrl = urls.first {
-                    log("  组合第一集地址: \(firstUrl.prefix(60))...")
+                    log("   组合第一集URL详细分析:")
+                    log("     完整URL: '\(firstUrl)'")
+                    log("     长度: \(firstUrl.count) 字符")
+                    log("     是否为直链: \(firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4"))")
+                    
                     // 检查是否为HTML播放页
                     if firstUrl.hasSuffix(".m3u8") || firstUrl.hasSuffix(".mp4") {
                         if let url = URL(string: firstUrl) {
                             log("✅ nativeDetail 从 vodPlayFrom 提取视频直链")
                             await MainActor.run { initPlayer(url: url) }
                             return
+                        } else {
+                            log("❌ 无法创建组合第一集URL对象")
                         }
                     } else {
                         // 尝试解析HTML播放页
                         log("⚠️ nativeDetail vodPlayFrom第一集为HTML播放页，尝试解析器...")
                         if let parsedUrl = await spider.parsePlayUrl(from: firstUrl) {
-                            log("✅ 解析器成功解析出vodPlayFrom视频直链: \(parsedUrl.prefix(60))...")
+                            log("✅ 解析器成功解析出vodPlayFrom视频直链")
+                            log("   解析结果: '\(parsedUrl.prefix(60))...'")
                             if let url = URL(string: parsedUrl) {
                                 await MainActor.run { initPlayer(url: url) }
                                 return
+                            } else {
+                                log("❌ 解析器返回的组合第一集URL无法创建URL对象")
                             }
                         } else {
                             log("❌ 解析器失败，无法解析vodPlayFrom HTML播放页")
@@ -732,15 +882,24 @@ struct VideoPlayerView: View {
             }
 
             log("⚠️ nativeDetail 有记录但无有效播放地址")
-            log("  vodPlayFrom: \(nd.vodPlayFrom ?? "nil")")
-            log("  vodPlayUrl: \(nd.vodPlayUrl ?? "nil")")
+            log("   最终状态:")
+            log("     vodPlayFrom: '\(nd.vodPlayFrom ?? "nil")'")
+            log("     vodPlayUrl: '\(nd.vodPlayUrl ?? "nil")'")
+            log("     vodId: '\(nd.vodId)'")
+            log("     vodName: '\(nd.vodName)'")
         } else {
-            log("⚠️ nativeDetail 返回 nil")
+            log("❌ nativeDetail 返回 nil")
+            log("   可能原因: video.vodId无效、无可用API站点或API请求失败")
         }
 
+        log("========================================")
+        log("❌ 所有播放地址获取方式均失败")
+        log("========================================")
+        log("请提供上述详细日志以帮助定位问题")
+        
         await MainActor.run {
             isLoading = false
-            loadError = "无法获取播放地址\n最后状态: \(debugLog)"
+            loadError = "无法获取播放地址\n\n详细调试信息:\n\(debugLog)"
         }
     }
 
