@@ -203,8 +203,28 @@ struct HomeView: View {
                             .font(.system(size: 18, weight: .medium))
                             .foregroundColor(.secondary)
                         if spiderManager.loadedSiteCount > 0 {
-                            Text("已加载 \(spiderManager.loadedSiteCount) 个站点，等待引擎响应")
+                            Text("已加载 \(spiderManager.loadedSiteCount) 个站点")
                                 .font(.system(size: 14))
+                                .foregroundColor(.orange)
+                                .padding(.top, 4)
+                            
+                            LazyVStack(spacing: 8) {
+                                ForEach(spiderManager.allSites.prefix(50), id: \.key) { site in
+                                    HStack {
+                                        Text(site.name)
+                                            .font(.system(size: 13))
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(site.type == 3 ? "JS" : "API")
+                                            .font(.system(size: 10))
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(Color(hex: "E11D48"))
+                                            .cornerRadius(4)
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 6)
+                                }
+                            }
+                            .padding(.top, 8)
                                 .foregroundColor(.orange)
                                 .padding(.top, 4)
                         } else {

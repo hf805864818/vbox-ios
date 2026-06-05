@@ -15,6 +15,7 @@ class SpiderManager: ObservableObject {
     @Published var subscribedSites: [String] = []
     @Published var savedURLs: [String] = []
     @Published var loadedSiteCount: Int = 0
+    @Published var allSites: [SiteConfig] = []
     
     private let subManager = SubscriptionManager()
     private var engines: [String: QJSSpiderEngine] = [:]
@@ -51,7 +52,7 @@ class SpiderManager: ObservableObject {
             return
         }
         
-        let allSites = config.sites
+        self.allSites = config.sites
         loadedSiteCount = allSites.count
         
         if allSites.isEmpty {
