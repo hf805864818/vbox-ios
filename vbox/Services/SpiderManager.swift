@@ -42,7 +42,7 @@ class SpiderManager: ObservableObject {
     }
     
     /// 加载内置 QuickJS 蜘蛛引擎
-    func loadBuiltinEngineIfNeeded() async {
+    private func loadBuiltinEngineIfNeeded() async {
         guard engines["builtin"] == nil else { return }
         do {
             try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
@@ -100,10 +100,7 @@ class SpiderManager: ObservableObject {
             }
         }
         
-        // 2. QuickJS 引擎暂不在这里加载，搜索时走 nativeSearch 兜底
-        // 后续接入稳定数据源后再启用蜘蛛引擎
-        
-        // 3. 尝试加载每个站点的 ext 字段（如果是 JS 的话）
+        // 2. 尝试加载每个站点的 ext 字段（如果是 JS 的话）
         for site in allSites where site.key != "builtin" {
             if let jsURL = site.ext, jsURL.hasPrefix("http"), !jsURL.isEmpty {
                 do {
@@ -126,9 +123,8 @@ class SpiderManager: ObservableObject {
         let engine = QJSSpiderEngine()
         engine.onLog = { msg in
             print("[SpiderEngine] \(msg)")
-            // 如果日志包含错误，记录到错误信息
             if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
-                await MainActor.run { self.engineError = msg }
+                Task { @MainActor in self.engineError = msg }
             }
         }
         try engine.loadScript(jsCode)
@@ -137,10 +133,10 @@ class SpiderManager: ObservableObject {
             if !subscribedSites.contains("builtin") {
                 subscribedSites.append("builtin")
             }
-            await MainActor.run { self.engineError = nil }
+            engineError = nil
         } else {
             let err = "蜘蛛注册失败: __JS_SPIDER__ 未找到"
-            await MainActor.run { self.engineError = err }
+            engineError = err
             throw QJSError(message: err)
         }
     }
@@ -241,32 +237,99 @@ class SpiderManager: ObservableObject {
         savedURLs = subManager.configURLs
     }
     
-    /// 纯 Swift 搜索实现 — 走 vbox.ltd Worker 搜索接口
+    /// 纯 Swift 搜索实现 — 多源搜索 + 聚合
     func nativeSearch(keyword: String) async -> [VodItem] {
-        let apiURL = "https://vbox.ltd/search?wd=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
-        guard let url = URL(string: apiURL) else { return [] }
+        var allResults: [VodItem] = []
+        var seenIds = Set<String>()
         
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 15
+        // 数据源1: vbox.ltd Worker 搜索接口
+        let workerURL = "https://vbox.ltd/search?wd=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
+        if let results = await searchWithAPI(url: workerURL) {
+            for item in results {
+                let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                if !seenIds.contains(id) {
+                    seenIds.insert(id)
+                    allResults.append(item)
+                }
+            }
+        }
+        
+        // 数据源2: DPlayer 搜索接口 (备用)
+        let dplayerURL = "https://dplayer.video/api/search?keyword=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
+        if let results = await searchWithAPI(url: dplayerURL, fieldMap: ["vod_id": "id", "vod_name": "title", "vod_pic": "cover"]) {
+            for item in results {
+                let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                if !seenIds.contains(id) {
+                    seenIds.insert(id)
+                    allResults.append(item)
+                }
+            }
+        }
+        
+        // 数据源3: 从已加载站点进行筛选搜索
+        if !allSites.isEmpty {
+            for site in allSites {
+                guard let api = site.api, !api.isEmpty else { continue }
+                let siteURL = api.replacingOccurrences(of: "{wd}", with: keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)
+                    .replacingOccurrences(of: "{keyword}", with: keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)
+                if let results = await searchWithAPI(url: siteURL) {
+                    for item in results {
+                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                        if !seenIds.contains(id), seenIds.count < 50 {
+                            seenIds.insert(id)
+                            allResults.append(item)
+                        }
+                    }
+                }
+            }
+        }
+        
+        print("[SpiderManager] nativeSearch 获得 \(allResults.count) 个结果 (来自 \(seenIds.count) 个独立源)")
+        return allResults
+    }
+    
+    /// 通用 JSON 搜索接口调用
+    private func searchWithAPI(url: String, fieldMap: [String: String] = [:]) async -> [VodItem]? {
+        guard let urlObj = URL(string: url) else { return nil }
+        var req = URLRequest(url: urlObj)
+        req.timeoutInterval = 10
         req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let list = json["list"] as? [[String: Any]] {
-                let results = list.map { item in
-                    VodItem(
-                        vodId: String(describing: item["vod_id"] ?? ""),
-                        vodName: (item["vod_name"] as? String) ?? "",
-                        vodPic: (item["vod_pic"] as? String) ?? ""
-                    )
-                }
-                print("[SpiderManager] nativeSearch 从 Worker 获得 \(results.count) 个结果")
-                return results
-            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            
+            // 尝试多种 JSON 结构
+            var list: [[String: Any]]? = nil
+            
+            // 结构1: { "list": [...] }
+            if let l = json["list"] as? [[String: Any]] { list = l }
+            // 结构2: { "data": { "list": [...] } }
+            else if let dataObj = json["data"] as? [String: Any], let l = dataObj["list"] as? [[String: Any]] { list = l }
+            // 结构3: { "videos": [...] }
+            else if let l = json["videos"] as? [[String: Any]] { list = l }
+            // 结构4: { "data": [...] }
+            else if let l = json["data"] as? [[String: Any]] { list = l }
+            // 结构5: { "results": [...] }
+            else if let l = json["results"] as? [[String: Any]] { list = l }
+            // 结构6: [ ... ] (直接数组)
+            else if let l = json as? [[String: Any]] { list = l; return l.map { mapVodItem($0, fieldMap: fieldMap) } }
+            
+            guard let items = list else { return nil }
+            return items.map { mapVodItem($0, fieldMap: fieldMap) }
         } catch {
-            print("[SpiderManager] nativeSearch Worker 失败: \(error.localizedDescription)")
+            return nil
         }
-        return []
+    }
+    
+    private func mapVodItem(_ item: [String: Any], fieldMap: [String: String]) -> VodItem {
+        let idField = fieldMap["vod_id"] ?? "vod_id"
+        let nameField = fieldMap["vod_name"] ?? "vod_name"
+        let picField = fieldMap["vod_pic"] ?? "vod_pic"
+        return VodItem(
+            vodId: String(describing: item[idField] ?? item["id"] ?? ""),
+            vodName: (item[nameField] as? String) ?? (item["title"] as? String) ?? (item["name"] as? String) ?? "",
+            vodPic: (item[picField] as? String) ?? (item["cover"] as? String) ?? (item["image"] as? String) ?? (item["pic"] as? String) ?? ""
+        )
     }
 }

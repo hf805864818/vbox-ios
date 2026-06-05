@@ -43,23 +43,28 @@ class SubscriptionManager: ObservableObject {
                 return
             }
             
-            // 快速清理：去//行，去//后缀
+            // 清理注释和非 JSON 前缀
             var lines = text.components(separatedBy: "\n")
-            lines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            // 去行尾注释（简单版-找不在字符串里的//）
-            lines = lines.map { line in
-                guard let range = line.range(of: "//") else { return line }
-                let before = String(line[..<range.lowerBound])
-                if before.filter({ $0 == "\"" }).count % 2 == 0 {
-                    return before
+            lines = lines.filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // 过滤整行注释，但要小心不要过滤了 http:// 之类的行
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("#") {
+                    return false
                 }
-                return line
+                return true
             }
             text = lines.joined(separator: "\n")
             
-            // 找第一个{
-            if let range = text.range(of: "{") {
-                text = String(text[range.lowerBound...])
+            // 找第一个 { 或 [
+            if let brace = text.firstIndex(where: { $0 == "{" || $0 == "[" }) {
+                text = String(text[brace...])
+            }
+            
+            // 检测是否是 HTML（而非 JSON）
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.lowercased().hasPrefix("<!doctype") || trimmed.lowercased().hasPrefix("<html") || trimmed.lowercased().hasPrefix("<!") {
+                await setError("该地址返回的是网页，不是JSON配置")
+                return
             }
             
             guard let jsonData = text.data(using: .utf8) else {
@@ -67,18 +72,32 @@ class SubscriptionManager: ObservableObject {
                 return
             }
             
-            // 验证是否是有效JSON
+            // 尝试解析，先 strict=true 再 strict=false
+            var parsedJSON: [String: Any]?
             do {
-                let _ = try JSONSerialization.jsonObject(with: jsonData)
+                if let jsonObj = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    parsedJSON = jsonObj
+                }
             } catch {
-                // 打印前200字符帮助debug
-                let preview = text.prefix(200)
-                await setError("无效JSON: \(error.localizedDescription)")
+                // strict=false 允许控制字符
+                if let jsonObj = try? JSONSerialization.jsonObject(with: jsonData, options: .fragmentsAllowed) as? [String: Any] {
+                    parsedJSON = jsonObj
+                } else {
+                    let preview = String(text.prefix(200))
+                    print("[SubscriptionManager] JSON 解析失败, 前200字符: \(preview)")
+                    await setError("无效JSON: \(error.localizedDescription)")
+                    return
+                }
+            }
+            
+            guard let jsonDict = parsedJSON else {
+                await setError("无效JSON格式")
                 return
             }
             
-            // 解析为SubscribeConfig
-            let config = try JSONDecoder().decode(SubscribeConfig.self, from: jsonData)
+            // 重新编码为干净 JSON 再用 JSONDecoder 解码
+            let cleanData = try JSONSerialization.data(withJSONObject: jsonDict)
+            let config = try JSONDecoder().decode(SubscribeConfig.self, from: cleanData)
             
             await MainActor.run {
                 self.config = config
