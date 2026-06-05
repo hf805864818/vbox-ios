@@ -183,7 +183,7 @@ struct VideoDetailView: View {
                         .background(Circle().fill(.ultraThinMaterial))
                 }
                 .padding(.leading, 16)
-                .padding(.top, 12)
+                .padding(.top, 50)
                 Spacer()
             }
             Spacer()
