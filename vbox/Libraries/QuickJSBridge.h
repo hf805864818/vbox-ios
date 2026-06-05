@@ -8,3 +8,6 @@ void QJSBridge_freeContext(void* _Nonnull ctx);
 
 const char* _Nullable QJSBridge_eval(void* _Nonnull ctx, const char* _Nonnull script);
 void QJSBridge_freeString(void* _Nonnull ctx, const char* _Nonnull str);
+
+// 注册 http() 全局函数 — 让 JS 蜘蛛可以发网络请求
+void QJSBridge_registerHTTP(void* _Nonnull ctx);

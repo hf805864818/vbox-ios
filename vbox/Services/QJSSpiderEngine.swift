@@ -14,6 +14,10 @@ class QJSSpiderEngine {
             ctx = QJSBridge_createContext(rt)
         }
         setupBridge()
+        // 注册 http() 到 JS 全局
+        if let ctx = ctx {
+            QJSBridge_registerHTTP(ctx)
+        }
         onLog?("✅ QuickJS 引擎初始化完成")
     }
     
