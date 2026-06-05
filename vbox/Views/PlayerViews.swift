@@ -166,7 +166,6 @@ struct VideoDetailView: View {
                 .padding(20)
                 .padding(.bottom, 100)
             }
-        }
         .background(Color(hex: "000000"))
         .ignoresSafeArea()
         .fullScreenCover(isPresented: $showPlayer) {
@@ -189,7 +188,9 @@ struct VideoDetailView: View {
             }
             Spacer()
         }
-    }
+    }  // ZStack
+}  // body
+}  // VideoDetailView
 }
 
 // 液态光晕效果
