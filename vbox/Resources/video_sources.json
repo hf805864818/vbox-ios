@@ -5,156 +5,114 @@
     {
       "name": "玩偶┃4K弹幕",
       "searchurl": "http://wogg.xxooo.cf/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "http://wogg.xxooo.cf/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "木偶影视",
       "searchurl": "https://666.666291.xyz/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "https://666.666291.xyz/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "4KTOP蓝光",
       "searchurl": "https://4ktop.com/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "https://4ktop.com/index.php/vod/detail/id/",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "至臻影视",
-      "searchurl": "http://www.miqk.cc/index.php/vod/search.html?wd=",
       "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailurl": "http://www.miqk.cc/index.php/vod/detail/id/",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "虎斑资源",
       "searchurl": "http://103.45.162.207:20720/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "http://103.45.162.207:20720/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "小斑资源",
       "searchurl": "http://xsayang.fun:12512/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "http://xsayang.fun:12512/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
-      "name": "多多资源",
-      "searchurl": "https://tv.yydsys.top/index.php/vod/search.html?wd=",
+      "name": "盘Ta资源",
+      "searchurl": "https://www.91panta.cn/index.php/vod/search.html?wd=",
+      "detailurl": "https://www.91panta.cn/index.php/vod/detail/id/",
       "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailurl": "https://tv.yydsys.top/index.php/vod/detail/id/",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "雷鲸资源",
+      "searchurl": "https://www.leijing.xyz/index.php/vod/search.html?wd=",
+      "detailurl": "https://www.leijing.xyz/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "蜡笔资源",
+      "searchurl": "http://feimao888.fun/index.php/vod/search.html?wd=",
+      "detailurl": "http://feimao888.fun/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "LibVio影视",
+      "searchurl": "https://libvio.mov/search/-------------.html?wd=",
+      "detailurl": "https://libvio.mov/voddetail/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "欧歌影视",
+      "searchurl": "https://oog.nxog.eu.org/vodsearch/-------------.html?wd=",
+      "detailurl": "https://oog.nxog.eu.org/voddetail/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "闪电资源",
       "searchurl": "https://sd.sduc.site/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "https://sd.sduc.site/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "多多资源",
+      "searchurl": "https://tv.yydsys.top/index.php/vod/search.html?wd=",
+      "detailurl": "https://tv.yydsys.top/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "二小资源",
       "searchurl": "http://2xiaopan.fun/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "http://2xiaopan.fun/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
+      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+    },
+    {
+      "name": "至臻影视",
+      "searchurl": "http://www.miqk.cc/index.php/vod/search.html?wd=",
+      "detailurl": "http://www.miqk.cc/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "南风资源",
       "searchurl": "https://www.nanf.cc/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "https://www.nanf.cc/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
       "name": "趣盘资源",
       "searchurl": "https://pan.funletu.com/index.php/vod/search.html?wd=",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailurl": "https://pan.funletu.com/index.php/vod/detail/id/",
+      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    }
-  ],
-  "zhanyuan": [
-    {
-      "name": "盘Ta影视",
-      "searchUrl": "https://www.91panta.cn",
-      "searchUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "playUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "websearchurl": "https://www.91panta.cn/index.php/vod/search.html?wd=",
-      "searchname": "//a[@class='thumbnail']/@title",
-      "searchid": "//a[@class='thumbnail']/@href",
-      "searchpic": "//a[@class='thumbnail']/img/@src",
-      "searchstarr": "//span[@class='vodlist_sub']/text()",
-      "detaillist": "//ul[@class='dslist']",
-      "detailxl": "//span[@class='dslabel']/a/text()",
-      "detailjs": "//li/a/text()",
-      "detailjsurl": "//li/a/@href"
-    },
-    {
-      "name": "蜡笔资源",
-      "searchUrl": "http://feimao888.fun",
-      "searchUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "playUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "websearchurl": "http://feimao888.fun/index.php/vod/search.html?wd=",
-      "searchname": "//a[@class='video-pic']/@title",
-      "searchid": "//a[@class='video-pic']/@href",
-      "searchpic": "//a[@class='video-pic']/img/@data-original",
-      "searchstarr": "//span[@class='video-tag']/text()",
-      "detaillist": "//ul[@class='stui-content__playlist clearfix']",
-      "detailxl": "//div[@class='stui-pannel__head clearfix']/h3/text()",
-      "detailjs": "//li/a/text()",
-      "detailjsurl": "//li/a/@href"
-    },
-    {
-      "name": "雷鲸资源",
-      "searchUrl": "https://www.leijing.xyz",
-      "searchUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "playUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "websearchurl": "https://www.leijing.xyz/index.php/vod/search.html?wd=",
-      "searchname": "//a[@class='video-pic']/@title",
-      "searchid": "//a[@class='video-pic']/@href",
-      "searchpic": "//a[@class='video-pic']/img/@data-original",
-      "searchstarr": "//span[@class='video-tag']/text()",
-      "detaillist": "//ul[@class='stui-content__playlist clearfix']",
-      "detailxl": "//div[@class='stui-pannel__head clearfix']/h3/text()",
-      "detailjs": "//li/a/text()",
-      "detailjsurl": "//li/a/@href"
-    },
-    {
-      "name": "LibVio影视",
-      "searchUrl": "https://libvio.mov",
-      "searchUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "playUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "websearchurl": "https://libvio.mov/search/-------------.html?wd=",
-      "searchname": "//h3[@class='title']/a/text()",
-      "searchid": "//h3[@class='title']/a/@href",
-      "searchpic": "//div[@class='module-item-pic']/img/@data-src",
-      "searchstarr": "//div[@class='module-item-note']/text()",
-      "detaillist": "//div[@class='module-play-list']",
-      "detailxl": "//div[@class='module-tab-item']/span/text()",
-      "detailjs": "//a/span/text()",
-      "detailjsurl": "//a/@href"
-    },
-    {
-      "name": "欧歌影视",
-      "searchUrl": "https://oog.nxog.eu.org",
-      "searchUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "playUA": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "websearchurl": "https://oog.nxog.eu.org/vodsearch/-------------.html?wd=",
-      "searchname": "//a[@class='video-pic']/@title",
-      "searchid": "//a[@class='video-pic']/@href",
-      "searchpic": "//a[@class='video-pic']/img/@data-original",
-      "searchstarr": "//span[@class='video-tag']/text()",
-      "detaillist": "//ul[@class='stui-content__playlist clearfix']",
-      "detailxl": "//div[@class='stui-pannel__head clearfix']/h3/text()",
-      "detailjs": "//li/a/text()",
-      "detailjsurl": "//li/a/@href"
     }
   ],
   "parses": [

@@ -336,44 +336,50 @@ struct VideoPlayerView: View {
                                             Image(systemName: "lock").font(.system(size: 14)).foregroundColor(.white.opacity(0.7))
                                         }
 
-                                        // 播放/暂停
+                                        // 播放/暂停 带圆底
                                         Button(action: togglePlayPause) {
-                                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                                .font(.system(size: 22)).foregroundColor(.white).frame(width: 44, height: 44)
+                                            ZStack {
+                                                Circle().fill(.white.opacity(0.2)).frame(width: 36, height: 36)
+                                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                                    .font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
+                                            }
                                         }
 
                                         // 时间
-                                        Text("\(formatTime(currentTime)) / \(formatTime(duration))")
-                                            .font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.8))
-                                            .monospacedDigit()
+                                        Text(formatTime(currentTime))
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(.white)
+                                        Text("/")
+                                            .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+                                        Text(formatTime(duration))
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(.white.opacity(0.7))
 
                                         Spacer()
 
-                                        // 倍速
+                                        // 倍速胶囊
                                         Button(action: { cycleSpeed() }) {
                                             Text("\(playbackSpeed, specifier: "%.1f")x")
-                                                .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
-                                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                                .font(.system(size: 11, weight: .bold)).foregroundColor(.white)
+                                                .padding(.horizontal, 8).padding(.vertical, 3)
                                                 .background(Capsule().fill(.white.opacity(0.2)))
                                         }
 
                                         // 上一集
                                         Button(action: {}) {
-                                            Image(systemName: "backward.end.fill").font(.system(size: 16)).foregroundColor(.white)
+                                            Image(systemName: "backward.end.fill").font(.system(size: 14)).foregroundColor(.white)
                                         }
 
                                         // 下一集
                                         Button(action: {}) {
-                                            Image(systemName: "forward.end.fill").font(.system(size: 16)).foregroundColor(.white)
+                                            Image(systemName: "forward.end.fill").font(.system(size: 14)).foregroundColor(.white)
                                         }
 
                                         // 选集
                                         Button(action: { showEpisodePicker = true }) {
-                                            Image(systemName: "list.bullet").font(.system(size: 16)).foregroundColor(.white)
+                                            Image(systemName: "rectangle.split.2x2").font(.system(size: 14)).foregroundColor(.white)
                                         }
 
                                         // AirPlay
-                                        AirPlayButton().frame(width: 28, height: 28)
+                                        AirPlayButton().frame(width: 24, height: 24)
                                     }
                                     .padding(.horizontal, 16).padding(.bottom, 30)
                                 }
