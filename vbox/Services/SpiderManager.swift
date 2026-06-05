@@ -458,7 +458,8 @@ globalThis.__JS_SPIDER__ = _spider;
         if apiSites.isEmpty { return nil }
         
         for site in apiSites {
-            let api = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
+            guard let siteApi = site.api, !siteApi.isEmpty else { continue }
+            let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
             guard let detailURL = URL(string: "\(api)?ac=videolist&ids=\(ids)") else { continue }
             
             do {
@@ -474,12 +475,12 @@ globalThis.__JS_SPIDER__ = _spider;
                         vodName: (first["vod_name"] as? String) ?? "",
                         vodPic: (first["vod_pic"] as? String) ?? "",
                         vodRemarks: site.name,
-                        vodPlayFrom: first["vod_play_from"] as? String,
-                        vodPlayUrl: first["vod_play_url"] as? String,
-                        vodContent: first["vod_content"] as? String,
                         vodYear: first["vod_year"] as? String,
                         vodDirector: first["vod_director"] as? String,
-                        vodActor: first["vod_actor"] as? String
+                        vodActor: first["vod_actor"] as? String,
+                        vodContent: first["vod_content"] as? String,
+                        vodPlayFrom: first["vod_play_from"] as? String,
+                        vodPlayUrl: first["vod_play_url"] as? String
                     )
                     if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
                         print("[SpiderManager] nativeDetail 成功: \(site.name)")
