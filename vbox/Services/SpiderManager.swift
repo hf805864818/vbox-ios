@@ -17,6 +17,7 @@ class SpiderManager: ObservableObject {
     @Published var loadedSiteCount: Int = 0
     @Published var allSites: [SiteConfig] = []
     @Published var engineError: String?
+    @Published var customParsers: [ParseConfig] = []  // 用户自定义解析器
     var enginesCount: Int { engines.count }
 
     private let subManager = SubscriptionManager()
@@ -24,6 +25,38 @@ class SpiderManager: ObservableObject {
 
     private init() {
         savedURLs = subManager.configURLs
+        loadCustomParsers()
+    }
+
+    /// 加载自定义解析器
+    private func loadCustomParsers() {
+        if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
+           let parsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
+            customParsers = parsers
+        }
+    }
+
+    /// 保存自定义解析器
+    func saveCustomParsers() {
+        if let data = try? JSONEncoder().encode(customParsers) {
+            UserDefaults.standard.set(data, forKey: "custom_parsers")
+        }
+    }
+
+    /// 添加自定义解析器
+    func addCustomParser(name: String, url: String) {
+        let parser = ParseConfig(name: name, url: url, type: nil)
+        if !customParsers.contains(where: { $0.url == url }) {
+            customParsers.append(parser)
+            saveCustomParsers()
+        }
+    }
+
+    /// 删除自定义解析器
+    func removeCustomParser(at index: Int) {
+        guard index >= 0, index < customParsers.count else { return }
+        customParsers.remove(at: index)
+        saveCustomParsers()
     }
 
     func initialize() async {
@@ -838,7 +871,19 @@ globalThis.__JS_SPIDER__ = _spider;
 
         print("[SpiderManager] 开始解析播放页: \(playPageUrl.prefix(60))...")
 
-        // 2. 优先使用订阅源的解析器
+        // 2. 优先使用自定义解析器
+        if !customParsers.isEmpty {
+            print("[SpiderManager] 尝试自定义解析器，共(customParsers.count)个")
+            for (idx, parser) in customParsers.enumerated() {
+                print("[SpiderManager] [\(idx+1)/\(customParsers.count)] 尝试：(parser.name) - (parser.url)")
+                if let parsedUrl = await tryParser(parser.url, url: playPageUrl) {
+                    print("[SpiderManager] ✅ 自定义解析器成功：(parser.name)")
+                    return parsedUrl
+                }
+            }
+        }
+
+        // 3. 优先使用订阅源的解析器（次优先）
         if !subManager.parses.isEmpty {
             print("[SpiderManager] 使用订阅源解析器，共(subManager.parses.count)个")
             for (idx, parse) in subManager.parses.enumerated() {
@@ -851,7 +896,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 3. 使用公共解析器兜底
+        // 4. 使用公共解析器兜底
         print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
         let parsers = [
             "https://jx.xmflv.com/?url=",

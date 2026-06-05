@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var isChecking = false
     @State private var newURL = ""
     @State private var errorMessage = ""
+    @State private var newParserName = ""
+    @State private var newParserURL = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -181,6 +183,71 @@ struct SettingsView: View {
                         }
                     }
 
+                    // 自定义解析器管理
+                    SettingsSection(title: "自定义解析接口") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // 添加解析器
+                            HStack {
+                                TextField("解析接口名称", text: $newParserName)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 13))
+                                    .frame(width: 80)
+
+                                TextField("https://example.com/?url=", text: $newParserURL)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 13))
+                                    .autocapitalization(.none)
+                                    .disableAutocorrection(true)
+
+                                Button(action: addParser) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundColor(Color(hex: "E11D48"))
+                                }
+                                .disabled(newParserName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                                          newParserURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+
+                            if !spiderManager.customParsers.isEmpty {
+                                Text("已添加 \(spiderManager.customParsers.count) 个自定义解析器")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+
+                                ForEach(Array(spiderManager.customParsers.enumerated()), id: \.offset) { index, parser in
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(parser.name)
+                                                .font(.system(size: 14, weight: .medium))
+                                            Text(parser.url)
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+
+                                        Button(action: {
+                                            spiderManager.removeCustomParser(at: index)
+                                        }) {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(.red)
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(Color.primary.opacity(0.05))
+                                    .cornerRadius(8)
+                                }
+                            } else {
+                                Text("暂无自定义解析器，添加后可用于解析HTML播放页获取视频直链")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 8)
+                            }
+                        }
+                        .padding(16)
+                    }
+
                     // 其他设置
                     SettingsSection(title: "其他") {
                         HStack {
@@ -245,6 +312,15 @@ struct SettingsView: View {
             await spiderManager.loadSubscribeConfig(from: url)
             newURL = ""
         }
+    }
+
+    private func addParser() {
+        let name = newParserName.trimmingCharacters(in: .whitespaces)
+        let url = newParserURL.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !url.isEmpty else { return }
+        spiderManager.addCustomParser(name: name, url: url)
+        newParserName = ""
+        newParserURL = ""
     }
 }
 
