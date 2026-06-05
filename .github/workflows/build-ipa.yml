@@ -62,7 +62,6 @@ jobs:
           gh release create "v${{ env.MARKETING_VERSION }}" \
             --title "v${{ env.MARKETING_VERSION }}" \
             --notes "版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})" \
-            --prerelease \
             vbox.ipa
         env:
           GH_TOKEN: ${{ github.token }}

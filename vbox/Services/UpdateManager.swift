@@ -34,14 +34,17 @@ class UpdateManager: ObservableObject {
         updateError = nil
         
         do {
-            let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest")!
+            // 使用 /releases 列表API（包含pre-release），取第一个（最新）的 release
+            // 注意：/releases/latest 会忽略 pre-release，而我们所有版本都是 pre-release
+            let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases?per_page=1")!
             var request = URLRequest(url: url)
             request.timeoutInterval = 10
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
             
             let (data, _) = try await URLSession.shared.data(for: request)
             
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let releases = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let json = releases.first {
                 let tagName = json["tag_name"] as? String ?? ""
                 let body = json["body"] as? String ?? ""
                 let assets = json["assets"] as? [[String: Any]] ?? []
@@ -66,10 +69,10 @@ class UpdateManager: ObservableObject {
                 // 比较版本：如果当前版本小于远程版本则有更新
                 if currentVersion.compare(remoteVersion, options: .numeric) == .orderedAscending {
                     hasUpdate = true
-                    print("[UpdateManager] 发现新版本: \(remoteVersion)")
+                    print("[UpdateManager] 发现新版本: v\(remoteVersion)，当前: v\(currentVersion)")
                 } else {
                     hasUpdate = false
-                    print("[UpdateManager] 已是最新版: \(currentVersion)")
+                    print("[UpdateManager] 已是最新版: v\(currentVersion)，远程: v\(remoteVersion)")
                 }
             }
         } catch {
