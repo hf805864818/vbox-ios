@@ -545,7 +545,11 @@ struct VideoCard: View {
                     )
             )
         }
-        .buttonStyle(PlainButtonStyle())
+            .buttonStyle(PlainButtonStyle())
+            .fullScreenCover(isPresented: $showDetail) {
+                VideoDetailView(video: video)
+            }
+        }
     }
 }
 
