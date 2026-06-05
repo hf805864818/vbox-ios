@@ -584,7 +584,6 @@ struct SearchView: View {
     private func performSearch() {
         guard !searchText.isEmpty else { return }
         isSearching = true
-                onSearch?()
         isSearchLoading = true
         Task {
             let results = await spiderManager.search(keyword: searchText)
