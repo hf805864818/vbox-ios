@@ -46,6 +46,7 @@ struct VideoDetailView: View {
 
                     // 播放按钮
                     Button(action: {
+                        print("[DetailDebug] ▶️ 封面播放按钮 tapped, video: \(video.vodName)")
                         showPlayer = true
                     }) {
                         ZStack {
@@ -111,6 +112,7 @@ struct VideoDetailView: View {
                     // 操作按钮
                     HStack(spacing: 16) {
                         ActionButton(icon: "play.fill", title: "播放") {
+                            print("[DetailDebug] ▶️ 操作栏播放按钮 tapped, video: \(video.vodName)")
                             showPlayer = true
                         }
 
@@ -427,9 +429,15 @@ struct VideoPlayerView: View {
     @State private var controlsOpacity: Double = 1.0
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var debugLog: String = ""
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var playerTimeObserver = PlayerTimeObserver()
+
+    private func log(_ msg: String) {
+        print("[PlayerDebug] \(msg)")
+        debugLog = msg
+    }
 
     var body: some View {
         ZStack {
@@ -443,6 +451,13 @@ struct VideoPlayerView: View {
                     Text("加载中...")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
+                    if !debugLog.isEmpty {
+                        Text(debugLog)
+                            .font(.system(size: 11))
+                            .foregroundColor(.yellow.opacity(0.8))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
                 }
             } else if let error = loadError {
                 VStack(spacing: 16) {
@@ -522,11 +537,17 @@ struct VideoPlayerView: View {
     private func setupPlayer() {
         // 优先使用已有的播放地址
         let urlString = video.vodPlayUrl ?? ""
-        if !urlString.isEmpty, let url = URL(string: urlString) {
-            initPlayer(url: url)
-            return
+        if !urlString.isEmpty {
+            log("已有播放地址: \(urlString.prefix(60))...")
+            if let url = URL(string: urlString) {
+                initPlayer(url: url)
+                return
+            } else {
+                log("⚠️ vodPlayUrl 无效URL")
+            }
         }
 
+        log("无内置播放地址，vodId=\(video.vodId)")
         // 没有播放地址，通过蜘蛛获取
         isLoading = true
         Task {
@@ -536,34 +557,51 @@ struct VideoPlayerView: View {
 
     private func resolvePlayUrl() async {
         let spider = SpiderManager.shared
-        // 用 vodId 获取详情（含播放地址）
+        log("1/3 调用 QuickJS 蜘蛛 getDetail(\(video.vodId))...")
+        
         if let detail = await spider.getDetail(ids: video.vodId) {
+            log("2/3 蜘蛛返回: vodName=\(detail.vodName), vodPlayUrl=\(detail.vodPlayUrl?.prefix(50) ?? "nil"), vodPlayFrom=\(detail.vodPlayFrom?.prefix(30) ?? "nil")")
+            
             if let playUrl = detail.vodPlayUrl, !playUrl.isEmpty,
                let url = URL(string: playUrl) {
+                log("✅ 蜘蛛播放地址就绪")
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
             // 尝试从 vodPlayFrom + vodPlayUrl 解析
             if let playFrom = detail.vodPlayFrom, let playUrlRaw = detail.vodPlayUrl {
                 let urls = parsePlayUrls(playFrom: playFrom, playUrl: playUrlRaw)
+                log("解析 vodPlayFrom: \(playFrom.prefix(40)), 提取了 \(urls.count) 个URL")
                 if let firstUrl = urls.first, let url = URL(string: firstUrl) {
+                    log("✅ 从 vodPlayFrom 提取到播放地址")
                     await MainActor.run { initPlayer(url: url) }
                     return
                 }
             }
+            log("⚠️ 蜘蛛详情里没有播放地址")
+        } else {
+            log("⚠️ 蜘蛛 getDetail 返回 nil")
         }
 
         // 蜘蛛解析失败，尝试 nativeDetail
+        log("3/3 尝试 nativeDetail(订阅源)...")
         let nativeDetail = await spider.nativeDetail(ids: video.vodId)
-        if let playUrl = nativeDetail?.vodPlayUrl, !playUrl.isEmpty,
-           let url = URL(string: playUrl) {
-            await MainActor.run { initPlayer(url: url) }
-            return
+        if let nd = nativeDetail {
+            log("nativeDetail 返回: vodName=\(nd.vodName), vodPlayUrl=\(nd.vodPlayUrl?.prefix(50) ?? "nil")")
+            if let playUrl = nd.vodPlayUrl, !playUrl.isEmpty,
+               let url = URL(string: playUrl) {
+                log("✅ nativeDetail 播放地址就绪")
+                await MainActor.run { initPlayer(url: url) }
+                return
+            }
+            log("⚠️ nativeDetail 有记录但无播放地址")
+        } else {
+            log("⚠️ nativeDetail 返回 nil（可能没有订阅源或无匹配结果）")
         }
 
         await MainActor.run {
             isLoading = false
-            loadError = "无法获取播放地址\n请尝试其他来源"
+            loadError = "无法获取播放地址\n最后状态: \(debugLog)"
         }
     }
 
