@@ -210,6 +210,16 @@ class SubscriptionManager: ObservableObject {
                 print("[SubscriptionManager] 转换后共有 \(sites.count) 个站点")
             }
 
+            // 如果仍然没有站点，报错
+            if sites.isEmpty {
+                print("[SubscriptionManager] ❌ 未能解析出任何站点")
+                await MainActor.run {
+                    self.isLoading = false
+                    self.errorMessage = "该订阅源未包含任何可用站点"
+                }
+                return
+            }
+
             // 如果没有 parses 配置，从 JSON 的 parses 字段提取
             let parses = jsonDict["parses"] as? [[String: Any]] ?? []
             var parseConfigs: [ParseConfig] = []
