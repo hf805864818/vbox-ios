@@ -187,15 +187,30 @@ class SpiderManager: ObservableObject {
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
-        // 如果引擎为空，尝试实时加载内置蜘蛛
+        // 如果引擎为空，尝试实时加载内置蜘蛛（最多重试3次）
         if engines.isEmpty {
-            do {
-                try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
-                print("[SpiderManager] 搜索时实时加载内置蜘蛛成功")
-            } catch {
-                print("[SpiderManager] 搜索时实时加载内置蜘蛛失败: \(error.localizedDescription)")
-                return []
+            for attempt in 1...3 {
+                do {
+                    try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
+                    if let engine = engines["builtin"] {
+                        // 验证引擎真的能用
+                        if let result = try? engine.callHomeContent(), (result.list?.count ?? 0) > 0 {
+                            print("[SpiderManager] 搜索时第\(attempt)次加载内置蜘蛛成功，首页\(result.list?.count ?? 0)个视频")
+                            break
+                        }
+                    }
+                    print("[SpiderManager] 搜索时第\(attempt)次加载蜘蛛引擎但验证失败，重试...")
+                    engines.removeValue(forKey: "builtin")
+                } catch {
+                    print("[SpiderManager] 搜索时第\(attempt)次加载内置蜘蛛失败: \(error.localizedDescription)")
+                    engines.removeValue(forKey: "builtin")
+                }
             }
+        }
+        
+        if engines.isEmpty {
+            print("[SpiderManager] 引擎全部加载失败，返回空结果")
+            return []
         }
         
         var all: [VodItem] = []
@@ -204,7 +219,10 @@ class SpiderManager: ObservableObject {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
                     all.append(contentsOf: items)
                 }
-            } catch { continue }
+            } catch {
+                print("[SpiderManager] 搜索引擎错误: \(error.localizedDescription)")
+                continue
+            }
         }
         return all
     }
