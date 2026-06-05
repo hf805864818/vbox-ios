@@ -14,7 +14,6 @@ struct SettingsView: View {
     @StateObject private var updateManager = UpdateManager.shared
     @State private var isChecking = false
     @State private var newURL = ""
-    @State private var showError = false
     @State private var errorMessage = ""
 
     var body: some View {
@@ -538,7 +537,7 @@ struct SubscribeConfigView: View {
                 isLoading = false
                 if let error = spiderManager.errorMessage {
                     errorMessage = error
-                    showError = true
+                    showErrorAlert = true
                 } else {
                     showSuccessAlert = true
                     subscribeURL = ""
