@@ -816,13 +816,13 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
-    do {
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 10
-        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
 
-        print("[SpiderManager] fetchDetail 请求: \(url.absoluteString)")
-        let (data, response) = try await URLSession.shared.data(for: req)
+            print("[SpiderManager] fetchDetail 请求: \(url.absoluteString)")
+            let (data, response) = try await URLSession.shared.data(for: req)
 
         if let httpResponse = response as? HTTPURLResponse {
             print("[SpiderManager] fetchDetail 响应状态: \(httpResponse.statusCode)")
@@ -886,7 +886,7 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
     }
     return nil
-    }
+}
 
     private func fetchDetailFromSearchList(url: URL, siteName: String, targetName: String) async -> VodItem? {
         do {
