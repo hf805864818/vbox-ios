@@ -70,6 +70,12 @@ struct VideoDetailView: View {
                             HStack {
                                 Text("弹幕").font(.system(size: 16, weight: .semibold))
                                 Spacer()
+                                Toggle(isOn: $showDanmaku) {
+                                    Image(systemName: "text.bubble.fill").foregroundColor(Color(hex: "E11D48"))
+                                }
+                                .toggleStyle(.switch)
+                                .scaleEffect(0.8)
+                            }
                             }
                             DanmakuInputView()
                             DanmakuListView()
