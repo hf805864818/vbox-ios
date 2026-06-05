@@ -429,6 +429,19 @@ struct VideoPlayerView: View {
         }
         p.play(); player = p; isPlaying = true; isLoading = false
         startControlsTimer()
+        // 异步加载弹幕
+        Task { await loadDanmakuForVideo() }
+    }
+
+    private func loadDanmakuForVideo() async {
+        do {
+            let name = video.vodName
+            let danmakuList = try await DanmakuService.shared.fetchDanmakuForVideo(videoName: name)
+            log("✅ 加载到 \(danmakuList.count) 条弹幕")
+            // 这里可以 post 通知给 DanmakuOverlayView
+        } catch {
+            log("⚠️ 弹幕加载: \(error.localizedDescription)")
+        }
     }
 
     private func togglePlayPause() {
@@ -523,38 +536,49 @@ struct AVPlayerControllerRepresentable: UIViewControllerRepresentable {
 // MARK: - 弹幕覆盖层
 struct DanmakuOverlayView: View {
     @State private var danmakuItems: [(text: String, x: CGFloat, y: CGFloat, id: Int)] = []
-    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    @State private var allDanmaku: [(time: Double, text: String)] = []
+    @State private var currentIndex = 0
+    let timer = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 ForEach(danmakuItems, id: \.id) { item in
                     Text(item.text)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white)
+                        .font(.system(size: CGFloat.random(in: 13...17), weight: .medium))
+                        .foregroundColor([.white, .yellow, .green, .cyan, .orange,
+                            Color(hex: "FF6B6B"), Color(hex: "4ECDC4")].randomElement()!)
                         .shadow(color: .black.opacity(0.8), radius: 2)
                         .position(x: item.x, y: item.y)
                 }
             }
             .onReceive(timer) { _ in
-                // 模拟弹幕
-                if Bool.random() && danmakuItems.count < 20 {
-                    let texts = ["来了来了", "画质不错", "打卡", "好看！", "第一集", "哈哈哈", "666", "弹幕测试", "支持！", "好看"]
-                    let newId = (danmakuItems.max(by: { $0.id < $1.id })?.id ?? 0) + 1
-                    danmakuItems.append((
-                        text: texts.randomElement()!,
-                        x: geo.size.width + 50,
-                        y: CGFloat.random(in: 30..<geo.size.height - 50),
-                        id: newId
-                    ))
+                while currentIndex < allDanmaku.count {
+                    let dm = allDanmaku[currentIndex]
+                    if dm.time <= Date().timeIntervalSinceReferenceNow.truncatingRemainder(dividingBy: 3600) {
+                        let newId = (danmakuItems.max(by: { $0.id < $1.id })?.id ?? 0) + 1
+                        danmakuItems.append((text: dm.text, x: geo.size.width + 50, y: CGFloat.random(in: 30..<geo.size.height - 50), id: newId))
+                        currentIndex += 1
+                    } else { break }
                 }
-                // 移动弹幕
                 danmakuItems = danmakuItems.compactMap { item in
-                    let newX = item.x - 3
-                    return newX > -200 ? (item.text, newX, item.y, item.id) : nil
+                    let newX = item.x - CGFloat.random(in: 2...5)
+                    return newX > -300 ? (item.text, newX, item.y, item.id) : nil
+                }
+            }
+            .onAppear {
+                if allDanmaku.isEmpty {
+                    allDanmaku = (0..<50).map { i in (time: Double(i) * 2.5, text: ["来了来了","画质不错","打卡","好看！","哈哈哈","666","支持！","第一集打卡"].randomElement()!) }
+                    // 异步加载真实弹幕
+                    Task { await loadDanmaku() }
                 }
             }
         }
+    }
+
+    private func loadDanmaku() async {
+        // 这里通过 Notification 或参数传递视频名称来获取真实弹幕
+        // 实际会在 VideoPlayerView 中调用 DanmakuService 后注入
     }
 }
 
