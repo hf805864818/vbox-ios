@@ -107,7 +107,7 @@ var wooyun = {
                 v.vod_id = String(item.id || '');
                 v.vod_name = item.title || '';
                 v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
-                v.vod_remarks = item.episodeStatus || '';
+                v.vod_remarks = '乌云影视';
                 back.data.push(v);
             }
         } catch(e) { back.error = String(e); }
@@ -128,7 +128,7 @@ var wooyun = {
                 v.vod_id = String(item.id || '');
                 v.vod_name = item.title || '';
                 v.vod_pic = item.posterUrlS3 || item.posterUrl || '';
-                v.vod_remarks = item.episodeStatus || '';
+                v.vod_remarks = '乌云影视';
                 list.push(v);
             }
             return JSON.stringify({

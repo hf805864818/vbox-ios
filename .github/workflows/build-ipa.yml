@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  MARKETING_VERSION: "2.4"
+  MARKETING_VERSION: "2.5"
 
 jobs:
   build:
