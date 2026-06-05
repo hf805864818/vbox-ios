@@ -633,12 +633,17 @@ globalThis.__JS_SPIDER__ = _spider;
                     } else if let html = String(data: data, encoding: .utf8) {
                         // JSON 解析失败，尝试从 HTML 中提取
                         var htmlCount = 0
-                        // 匹配 module-item-title 或其他视频标题
+                        // 匹配 HTML 视频标题（兼容各种模板）
                         let patterns = [
                             #"<a[^>]*class="[^"]*module-item-title[^"]*"[^>]*>([^<]+)</a>"#,
                             #"title="([^"]+)"[^>]*class="[^"]*thumbnail[^"]*"#,  
                             #"alt="([^"]+)"#,
                             #"<a[^>]*>([^<]+)</a>[\s]*</h3>[\s]*<div"#,
+                            #"<a[^>]*href="/[^"]*/vod/detail/id/[^"]*"[^>]*>([^<]+)</a>"#,
+                            #"class="[^"]*video-title[^"]*"[^>]*>([^<]+)<"#,
+                            #"class="[^"]*public-list-expand[^"]*"[^>]*>([^<]+)<"#,
+                            #"<a[^>]*href="/[^"]*detail/[^"]*"[^>]*>([^<]+)</a>"#,
+                            #"<img[^>]*alt=\"([^\"]+)\"[^>]*>"#,
                         ]
                         var titles: [(name: String, href: String, pic: String)] = []
                         

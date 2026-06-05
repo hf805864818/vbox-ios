@@ -674,8 +674,29 @@ struct SubscribeConfigView: View {
                         .padding(.horizontal, 16)
 
                         LazyVStack(spacing: 12) {
-                            ForEach(mockSubscribeSources) { source in
-                                SubscribeSourceCard(source: source)
+                            let realURLs = spiderManager.savedURLs
+                            if realURLs.isEmpty {
+                                Text("暂无配置的订阅源")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 20)
+                            } else {
+                                ForEach(Array(realURLs.enumerated()), id: \.offset) { idx, url in
+                                    SubscribeSourceCard(
+                                        source: SubscribeSource(
+                                            name: URL(string: url)?.lastPathComponent ?? "订阅源 \(idx+1)",
+                                            url: url,
+                                            siteCount: spiderManager.subManager.config?.sites.count ?? 0,
+                                            lastUpdated: ""
+                                        ),
+                                        isActive: idx == spiderManager.subManager.activeURLIndex
+                                    )
+                                    .onTapGesture {
+                                        spiderManager.subManager.switchToSubscription(at: idx)
+                                        Task { await spiderManager.loadActiveSubscription() }
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 16)
@@ -800,6 +821,7 @@ struct InfoCard: View {
 // 订阅源卡片
 struct SubscribeSourceCard: View {
     let source: SubscribeSource
+    var isActive: Bool = false
     @State private var isExpanded = false
 
     var body: some View {
@@ -827,7 +849,19 @@ struct SubscribeSourceCard: View {
 
                 // 信息
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(source.name)
+                    HStack(spacing: 6) {
+                        Text(source.name)
+                            .font(.system(size: 16, weight: .semibold))
+                        if isActive {
+                            Text("当前")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.green)
+                                .cornerRadius(4)
+                        }
+                    }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primary)
 
