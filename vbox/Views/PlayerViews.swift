@@ -166,7 +166,7 @@ struct VideoDetailView: View {
                 .padding(20)
                 .padding(.bottom, 100)
             }
-        .background(Color(hex: "000000"))
+            .background(Color(hex: "000000"))
         .ignoresSafeArea()
         .fullScreenCover(isPresented: $showPlayer) {
             VideoPlayerView(video: video)

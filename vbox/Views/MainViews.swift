@@ -951,7 +951,7 @@ struct SearchResultsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-.fullScreenCover(item: $selectedVideo) { video in
+        .fullScreenCover(item: $selectedVideo) { video in
             VideoDetailView(video: video)
         }
     }
