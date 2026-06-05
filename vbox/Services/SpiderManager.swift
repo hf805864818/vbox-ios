@@ -495,18 +495,18 @@ globalThis.__JS_SPIDER__ = _spider;
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let list = json["list"] as? [[String: Any]],
                let first = list.first {
+                // 打印完整字段名以便调试
+                print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
                 let item = Self.makeVodItem(from: first, siteName: siteName)
                 if item.vodPlayUrl != nil || item.vodPlayFrom != nil {
                     print("[SpiderManager] nativeDetail(ids) 成功: \(siteName)")
                     return item
                 }
-                print("[SpiderManager] nativeDetail(ids) \(siteName): 有记录但无vod_play_url/vod_play_from")
+                print("[SpiderManager] nativeDetail(ids) \(siteName): 有记录但无vod_play_url/vod_play_from, keys=\(first.keys.sorted())")
             } else {
-                // 记录原始响应以辅助调试
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("[SpiderManager] nativeDetail(ids) \(siteName): 响应无list, keys=\(json.keys.sorted())")
-                } else {
-                    print("[SpiderManager] nativeDetail(ids) \(siteName): 非JSON或空响应")
+                if let rawStr = String(data: data, encoding: .utf8) {
+                    let preview = String(rawStr.prefix(200))
+                    print("[SpiderManager] nativeDetail(ids) \(siteName): 原始响应(前200): \(preview)")
                 }
             }
         } catch {
