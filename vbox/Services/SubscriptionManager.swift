@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 class SubscriptionManager: ObservableObject {
     @Published var config: SubscribeConfig?
