@@ -240,16 +240,25 @@ globalThis.__JS_SPIDER__ = _spider;
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
+        var allResults: [VodItem] = []
+        var seenIds = Set<String>()
+        
         // 先尝试加载内置蜘蛛
         if engines.isEmpty {
             await loadBuiltinEngineIfNeeded()
         }
         
-        // 如果 QuickJS 引擎加载成功，用 QuickJS 搜索
+        // 1. QuickJS 蜘蛛搜索
         for (_, engine) in engines {
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
-                    return items
+                    for item in items {
+                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                        if !seenIds.contains(id) {
+                            seenIds.insert(id)
+                            allResults.append(item)
+                        }
+                    }
                 }
             } catch {
                 engineError = "搜索出错: \(error.localizedDescription)"
@@ -257,8 +266,18 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
         
-        // QuickJS 失败或未加载，走纯 Swift 搜索
-        return await nativeSearch(keyword: keyword)
+        // 2. 原生 HTTP 多源搜索（与 QuickJS 结果合并）
+        let nativeResults = await nativeSearch(keyword: keyword)
+        for item in nativeResults {
+            let id = item.vodId.isEmpty ? item.vodName : item.vodId
+            if !seenIds.contains(id) {
+                seenIds.insert(id)
+                allResults.append(item)
+            }
+        }
+        
+        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
+        return allResults.isEmpty ? nativeResults : allResults
     }
     
     func getDetail(ids: String) async -> VodItem? {
@@ -357,6 +376,75 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             } catch {
                 print("[SpiderManager] 非凡资源失败: \(error.localizedDescription)")
+            }
+        }
+        
+        
+        // ====== 搜索源 3: 虎牙采集 ======
+        if allResults.count < 30 {
+            do {
+                let hyURL = "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8?ac=detail&wd=\(encodedKW)"
+                if let url = URL(string: hyURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: "虎牙采集",
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] 虎牙采集: \(list.count) 条")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] 虎牙采集失败: \(error.localizedDescription)")
+            }
+        }
+        
+        // ====== 搜索源 4: 火狐采集 ======
+        if allResults.count < 30 {
+            do {
+                let hhURL = "https://hhzyapi.com/api.php/provide/vod/?ac=detail&wd=\(encodedKW)"
+                if let url = URL(string: hhURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: "火狐采集",
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] 火狐采集: \(list.count) 条")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] 火狐采集失败: \(error.localizedDescription)")
             }
         }
         
