@@ -226,7 +226,13 @@ let BUILTIN_SPIDER = (function() {
         { type_id: 4, type_name: "动漫" },
     ];
     function httpReq(url) {
-        try { let resp = http(url, { headers: { "User-Agent": UA }, timeout: 10 }); if (resp && resp.ok && resp.content) return resp.content; } catch(e) {}
+        try {
+            let opts = JSON.stringify({ headers: { "User-Agent": UA }, timeout: 10 });
+            let respStr = http(url, opts);
+            if (!respStr) return null;
+            let resp = JSON.parse(respStr);
+            if (resp && resp.ok && resp.content) return resp.content;
+        } catch(e) {}
         return null;
     }
     function fetchJSON(url) { let h = httpReq(url); if (!h) return null; try { return JSON.parse(h); } catch(e) { return null; } }

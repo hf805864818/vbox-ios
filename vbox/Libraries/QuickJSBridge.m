@@ -40,80 +40,59 @@ void QJSBridge_freeString(void* ctx, const char* str) {
     JS_FreeCString((JSContext*)ctx, str);
 }
 
-// ====== HTTP 桥接 ======
+// ====== HTTP 桥接 — 简单版 ======
+// JS 侧调用 http(urlStr, optionsStr)
+// optionsStr 是 JSON 字符串: {"headers":{"key":"val"},"method":"GET","data":"...","timeout":10}
+// 返回 JSON 字符串: {"ok":true/false,"status":200,"content":"...","error":"..."}
 
-// JS 侧的 http(url, options) 调用此函数
 static JSValue js_http_func(JSContext *ctx, JSValueConst this_val,
-                             int argc, JSValueConst *argv, int magic) {
+                             int argc, JSValueConst *argv) {
     @autoreleasepool {
-        if (argc < 1) return JS_ThrowTypeError(ctx, "http() 需要至少1个参数");
+        if (argc < 1) return JS_ThrowTypeError(ctx, "http() needs at least 1 argument");
         
         // 获取 URL
         const char* url_cstr = JS_ToCString(ctx, argv[0]);
         NSString* urlStr = [NSString stringWithUTF8String:url_cstr];
         JS_FreeCString(ctx, url_cstr);
-        
         if (!urlStr) return JS_NULL;
         
-        // 构建请求
         NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlStr]];
         [request setTimeoutInterval:15];
         
-        // 解析 options（第二个参数）
-        if (argc >= 2 && JS_IsObject(argv[1])) {
-            JSValue headersVal = JS_GetPropertyStr(ctx, argv[1], "headers");
-            if (JS_IsObject(headersVal)) {
-                // 遍历 headers 对象
-                JSPropertyEnum* tab;
-                uint32_t len;
-                JS_GetOwnPropertyNames(ctx, &tab, &len, headersVal, JS_GPN_STRINGIFY | JS_GPN_ENUM_ONLY);
-                for (uint32_t i = 0; i < len; i++) {
-                    JSValue val = JS_GetProperty(ctx, headersVal, tab[i].prop);
-                    if (JS_IsString(val)) {
-                        const char* v = JS_ToCString(ctx, val);
-                        [request setValue:[NSString stringWithUTF8String:v]
-                            forHTTPHeaderField:[NSString stringWithFormat:@"%s", tab[i].atom]];
-                        JS_FreeCString(ctx, v);
+        // 解析 options JSON 字符串（第二个参数）
+        if (argc >= 2 && JS_IsString(argv[1])) {
+            const char* opts_cstr = JS_ToCString(ctx, argv[1]);
+            NSString* optsStr = [NSString stringWithUTF8String:opts_cstr];
+            JS_FreeCString(ctx, opts_cstr);
+            
+            NSData* optsData = [optsStr dataUsingEncoding:NSUTF8StringEncoding];
+            if (optsData) {
+                NSDictionary* opts = [NSJSONSerialization JSONObjectWithData:optsData options:0 error:nil];
+                if ([opts isKindOfClass:[NSDictionary class]]) {
+                    // headers
+                    NSDictionary* headers = opts[@"headers"];
+                    if ([headers isKindOfClass:[NSDictionary class]]) {
+                        for (NSString* key in headers) {
+                            [request setValue:headers[key] forHTTPHeaderField:key];
+                        }
                     }
-                    JS_FreeValue(ctx, val);
-                    JS_FreePropertyEnum(ctx, tab + i);
+                    // method
+                    NSString* method = opts[@"method"];
+                    if (method) request.HTTPMethod = [method uppercaseString];
+                    // data
+                    NSString* data = opts[@"data"];
+                    if (data) request.HTTPBody = [data dataUsingEncoding:NSUTF8StringEncoding];
+                    // timeout
+                    NSNumber* timeout = opts[@"timeout"];
+                    if (timeout) request.timeoutInterval = [timeout doubleValue];
                 }
-                free(tab);
             }
-            JS_FreeValue(ctx, headersVal);
-            
-            // 默认 UA
-            if (![request valueForHTTPHeaderField:@"User-Agent"]) {
-                [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
-                    forHTTPHeaderField:@"User-Agent"];
-            }
-            
-            // method
-            JSValue methodVal = JS_GetPropertyStr(ctx, argv[1], "method");
-            if (JS_IsString(methodVal)) {
-                const char* m = JS_ToCString(ctx, methodVal);
-                request.HTTPMethod = [NSString stringWithUTF8String:m];
-                JS_FreeCString(ctx, m);
-            }
-            JS_FreeValue(ctx, methodVal);
-            
-            // data (POST body)
-            JSValue dataVal = JS_GetPropertyStr(ctx, argv[1], "data");
-            if (JS_IsString(dataVal)) {
-                const char* d = JS_ToCString(ctx, dataVal);
-                request.HTTPBody = [[NSString stringWithUTF8String:d] dataUsingEncoding:NSUTF8StringEncoding];
-                JS_FreeCString(ctx, d);
-            }
-            JS_FreeValue(ctx, dataVal);
-            
-            // timeout
-            JSValue timeoutVal = JS_GetPropertyStr(ctx, argv[1], "timeout");
-            if (JS_IsNumber(timeoutVal)) {
-                double t;
-                JS_ToFloat64(ctx, &t, timeoutVal);
-                if (t > 0) request.timeoutInterval = t;
-            }
-            JS_FreeValue(ctx, timeoutVal);
+        }
+        
+        // 默认 UA
+        if (![request valueForHTTPHeaderField:@"User-Agent"]) {
+            [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
+                forHTTPHeaderField:@"User-Agent"];
         }
         
         // 同步请求
@@ -132,51 +111,49 @@ static JSValue js_http_func(JSContext *ctx, JSValueConst this_val,
             }];
         [task resume];
         dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW,
-            (int64_t)((request.timeoutInterval + 2) * NSEC_PER_SEC)));
+            (int64_t)((request.timeoutInterval + 5) * NSEC_PER_SEC)));
         
-        // 构建返回结果 { ok, status, content, headers }
-        JSValue result = JS_NewObject(ctx);
-        
+        // 构建 JSON 结果
+        NSMutableDictionary* result = [NSMutableDictionary dictionary];
         BOOL ok = (connError == nil && httpResp.statusCode >= 200 && httpResp.statusCode < 400);
-        JS_SetPropertyStr(ctx, result, "ok", JS_NewBool(ctx, ok));
-        JS_SetPropertyStr(ctx, result, "status", JS_NewInt32(ctx, (int32_t)httpResp.statusCode));
+        result[@"ok"] = @(ok);
+        result[@"status"] = @(httpResp ? httpResp.statusCode : 0);
         
         if (respData) {
             NSString* content = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
             if (!content) content = [[NSString alloc] initWithData:respData encoding:NSASCIIStringEncoding];
-            if (!content) content = @"";
-            JS_SetPropertyStr(ctx, result, "content",
-                JS_NewString(ctx, [content UTF8String]));
+            result[@"content"] = content ?: @"";
         } else {
-            JS_SetPropertyStr(ctx, result, "content", JS_NewString(ctx, ""));
+            result[@"content"] = @"";
         }
         
         if (connError) {
-            JS_SetPropertyStr(ctx, result, "error",
-                JS_NewString(ctx, [[connError localizedDescription] UTF8String]));
+            result[@"error"] = connError.localizedDescription;
         }
         
         // headers
-        JSValue respHeaders = JS_NewObject(ctx);
+        NSMutableDictionary* respHeaders = [NSMutableDictionary dictionary];
         if (httpResp) {
             for (NSString* key in httpResp.allHeaderFields) {
                 id val = httpResp.allHeaderFields[key];
                 if ([val isKindOfClass:[NSString class]]) {
-                    JS_SetPropertyStr(ctx, respHeaders, [key UTF8String],
-                        JS_NewString(ctx, [(NSString*)val UTF8String]));
+                    respHeaders[key] = val;
                 }
             }
         }
-        JS_SetPropertyStr(ctx, result, "headers", respHeaders);
+        result[@"headers"] = respHeaders;
         
-        return result;
+        NSData* jsonData = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+        NSString* jsonStr = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+        
+        return JS_NewString(ctx, [jsonStr UTF8String]);
     }
 }
 
-// 注册 http() 到全局
+// 注册 http() 到全局 — JS 侧调用: http(url, JSON.stringify(options))
 void QJSBridge_registerHTTP(void* ctx) {
     JSValue global = JS_GetGlobalObject((JSContext*)ctx);
-    JSValue func = JS_NewCFunctionMagic((JSContext*)ctx, js_http_func, "http", 2, JS_CFUNC_generic_magic, 0);
+    JSValue func = JS_NewCFunction((JSContext*)ctx, js_http_func, "http", 2);
     JS_SetPropertyStr((JSContext*)ctx, global, "http", func);
     JS_FreeValue((JSContext*)ctx, global);
 }
