@@ -58,29 +58,15 @@ class QJSSpiderEngine {
     func registerSpider() -> Bool {
         let result = evaluateJS("""
         if (typeof globalThis === 'undefined') { var globalThis = this; }
-        if (!globalThis.__JS_SPIDER__) {
-            if (typeof spider !== 'undefined') {
-                if (typeof spider.__jsEvalReturn === 'function') {
-                    globalThis.__JS_SPIDER__ = spider.__jsEvalReturn();
-                } else if (typeof spider.default === 'function') {
-                    globalThis.__JS_SPIDER__ = spider.default();
-                } else {
-                    globalThis.__JS_SPIDER__ = spider;
-                }
-                if (globalThis.__JS_SPIDER__) {
-                    globalThis.__JS_SPIDER__.is_cat = true;
-                }
-            }
-        }
-        JSON.stringify(typeof globalThis.__JS_SPIDER__ !== 'undefined');
+        if (typeof globalThis.__JS_SPIDER__ !== 'undefined') { 'true'; } else { 'false'; }
         """)
-        return result == "true"
+        return result?.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
     
     /// 调用蜘蛛 API
     func callSpiderAPI(_ apiName: String, args: [String] = []) throws -> String {
         let escapedArgs = args.map { "'\($0.replacingOccurrences(of: "'", with: "\\'"))'" }.joined(separator: ", ")
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.\(apiName)(\(escapedArgs)))"
+        let script = "globalThis.__JS_SPIDER__.\(apiName)(\(escapedArgs))"
         guard let result = evaluateJS(script) else {
             throw QJSError(message: "调用 \(apiName) 失败")
         }
