@@ -28,6 +28,16 @@ class SpiderManager: ObservableObject {
     func initialize() async {
         guard !isInitialized else { return }
         isInitialized = true
+        
+        // 始终先加载内置蜘蛛，确保搜索和首页立即可用
+        do {
+            try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
+            print("[SpiderManager] ✅ 内置蜘蛛启动加载成功")
+        } catch {
+            print("[SpiderManager] ❌ 内置蜘蛛启动加载失败: \(error.localizedDescription)")
+        }
+        
+        // 如果有已保存的订阅源，则加载
         if subManager.isLoaded {
             await loadSitesFromSubscription()
         }
@@ -75,8 +85,8 @@ class SpiderManager: ObservableObject {
             }
         }
         
-        // 2. 使用内置蜘蛛
-        if !spiderLoaded {
+        // 2. 如果还没有内置蜘蛛，使用内置蜘蛛
+        if engines["builtin"] == nil, !spiderLoaded {
             print("[SpiderManager] 使用内置蜘蛛引擎")
             let builtinSite = SiteConfig(key: "builtin", name: "内置搜索", type: 3, api: "builtin", ext: nil)
             self.allSites.insert(builtinSite, at: 0)
