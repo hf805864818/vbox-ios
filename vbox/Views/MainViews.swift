@@ -574,8 +574,21 @@ struct SearchView: View {
                     SearchResultsView(results: searchResults)
                 }
             } else {
-                SearchSuggestionsView()
-            }
+                if !spiderManager.allSites.isEmpty {
+                    // 显示站点列表让用户选择
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            SectionHeader(title: "全部站点 (" + String(spiderManager.loadedSiteCount) + ")", icon: "list.star")
+                                .padding(.top, 8)
+                            ForEach(spiderManager.allSites, id: \.key) { site in
+                                SiteRow(site: site)
+                            }
+                        }
+                        .padding(.bottom, 100)
+                    }
+                } else {
+                    SearchSuggestionsView()
+                }
         }
         .background(Color(hex: "000000"))
         .ignoresSafeArea(.keyboard)
@@ -586,8 +599,15 @@ struct SearchView: View {
         isSearching = true
         isSearchLoading = true
         Task {
-            let results = await spiderManager.search(keyword: searchText)
-            self.searchResults = results
+            // 引擎为空时，按站点名筛选
+            if spiderManager.enginesCount == 0 {
+                let keyword = searchText.lowercased()
+                let matched = spiderManager.allSites.filter { $0.name.lowercased().contains(keyword) || $0.key.lowercased().contains(keyword) }
+                self.searchResults = matched.map { VodItem(vodId: $0.key, vodName: $0.name, vodPic: "") }
+            } else {
+                let results = await spiderManager.search(keyword: searchText)
+                self.searchResults = results
+            }
             self.isSearchLoading = false
         }
     }
@@ -1182,6 +1202,28 @@ struct FlowLayout: Layout {
         let maxWidth = proposal.width ?? 0
 
         for subview in subviews {
+    }
+}
+
+// MARK: - 站点行组件
+struct SiteRow: View {
+    let site: SiteConfig
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(site.name).font(.system(size: 14, weight: .medium))
+                Text(site.key).font(.system(size: 11)).foregroundColor(.secondary)
+            }
+            Spacer()
+            Text(site.type == 3 ? "JS" : "API").font(.system(size: 10)).foregroundColor(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color(hex: "E11D48")).cornerRadius(4)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Color.white.opacity(0.03))
+    }
+}
             let size = subview.sizeThatFits(.unspecified)
             if currentX + size.width > maxWidth && !currentRow.subviews.isEmpty {
                 rows.append(currentRow)

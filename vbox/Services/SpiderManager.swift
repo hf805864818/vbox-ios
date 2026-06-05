@@ -16,6 +16,7 @@ class SpiderManager: ObservableObject {
     @Published var savedURLs: [String] = []
     @Published var loadedSiteCount: Int = 0
     @Published var allSites: [SiteConfig] = []
+    var enginesCount: Int { engines.count }
     
     private let subManager = SubscriptionManager()
     private var engines: [String: QJSSpiderEngine] = [:]
