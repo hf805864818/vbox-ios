@@ -20,7 +20,7 @@ class SpiderManager: ObservableObject {
     var enginesCount: Int { engines.count }
 
     private let subManager = SubscriptionManager()
-    private var engines: [String: QJSSpiderEngine] = [:]
+    private var engines: [String: JSSpiderEngine] = [:]
 
     private init() {
         savedURLs = subManager.configURLs
@@ -189,55 +189,87 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 加载蜘蛛 JS 到引擎
     private func loadSpiderEngine(jsCode: String, key: String = "builtin") async throws {
-        let engine = QJSSpiderEngine()
+        let engine = JSSpiderEngine()
         engine.onLog = { msg in
             print("[SpiderEngine|\(key)] \(msg)")
             if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
                 Task { @MainActor in self.engineError = msg }
             }
         }
+        // 注入 TVBox 标准模板库（模板.js、net.js）
+        try await injectSpiderLibraries(engine: engine)
         try engine.loadScript(jsCode)
-        if engine.registerSpider() {
+        // 尝试多种蜘蛛注册方式
+        if engine.isSpiderReady {
             engines[key] = engine
-            if !subscribedSites.contains(key) {
-                subscribedSites.append(key)
-            }
+            if !subscribedSites.contains(key) { subscribedSites.append(key) }
             engineError = nil
+            print("[SpiderManager] ✅ 蜘蛛就绪: \(key)")
         } else {
-            let err = "蜘蛛注册失败: __JS_SPIDER__ 未找到 (\(key))"
-            engineError = err
-            throw QJSError(message: err)
+            do {
+                try engine.registerSpider()
+                engines[key] = engine
+                if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                engineError = nil
+                print("[SpiderManager] ✅ 蜘蛛注册成功: \(key)")
+            } catch {
+                let err = "蜘蛛注册失败 (\(key)): \(error.localizedDescription)"
+                engineError = err
+                throw JSError(message: err)
+            }
         }
+    }
+
+    /// 注入 TVBox 标准 JS 库（模板引擎、网络桥接等）
+    private func injectSpiderLibraries(engine: JSSpiderEngine) async throws {
+        // 1. net.js — 同步/异步 HTTP 请求封装
+        try engine.loadLibrary("""
+        let req = (url, options) => http(url, Object.assign({ async: false }, options));
+        """)
+        // 2. 模板引擎 — 如果 Bundle 中有模板.js 则加载
+        if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js"),
+           let tmplJs = try? String(contentsOfFile: tmplPath, encoding: .utf8) {
+            try engine.loadLibrary(tmplJs)
+            print("[SpiderManager] ✅ 模板引擎已注入")
+        }
+        print("[SpiderManager] ✅ JS 库注入完成")
     }
 
     private func downloadRawData(url: String) async throws -> Data {
         guard let urlObj = URL(string: url) else {
-            throw QJSError(message: "无效URL: \(url)")
+            throw JSError(message: "无效URL: \(url)")
         }
         let (data, _) = try await URLSession.shared.data(from: urlObj)
         return data
     }
 
     private func loadSiteEngine(site: SiteConfig, jsURL: String) async throws {
-        let engine = QJSSpiderEngine()
-        let jsCode = try await downloadScript(url: jsURL)
-        try engine.loadScript(jsCode)
-        if engine.registerSpider() {
+        let engine = JSSpiderEngine()
+        try await injectSpiderLibraries(engine: engine)
+        try await engine.loadScriptFromURL(jsURL)
+        if engine.isSpiderReady {
             engines[site.key] = engine
-            if !subscribedSites.contains(site.key) {
-                subscribedSites.append(site.key)
-            }
+            if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
             print("[SpiderManager] ✅ ext站点: \(site.name)")
+        } else {
+            do {
+                try engine.registerSpider()
+                engines[site.key] = engine
+                if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
+                print("[SpiderManager] ✅ ext站点(注册): \(site.name)")
+            } catch {
+                print("[SpiderManager] ❌ ext站点失败: \(site.name): \(error)")
+            }
         }
     }
 
     private func downloadScript(url: String) async throws -> String {
         guard let urlObj = URL(string: url) else {
-            throw QJSError(message: "无效脚本URL: \(url)")
+            throw JSError(message: "无效脚本URL: \(url)")
         }
         let (data, _) = try await URLSession.shared.data(from: urlObj)
         guard let script = String(data: data, encoding: .utf8) else {
-            throw QJSError(message: "脚本编码错误")
+            throw JSError(message: "脚本编码错误")
         }
         return script
     }
