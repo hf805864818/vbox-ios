@@ -29,7 +29,10 @@ class SubscriptionManager: ObservableObject {
         do {
             var request = URLRequest(url: url)
             request.timeoutInterval = 15
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            // 先用标准浏览器 UA，部分站点需要特定 UA 才能返回 JSON
+            let desktopUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            let appUA = "okhttp/4.9.3"
+            request.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
 
             let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -39,8 +42,30 @@ class SubscriptionManager: ObservableObject {
                 return
             }
 
+            // 检查响应是否为 HTML，如果是则用 App UA 重试（菜妮丝等站点需要）
+            var responseData = data
+            if let checkStr = String(data: data, encoding: .utf8) {
+                let trimmed = checkStr.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if trimmed.hasPrefix("<!doctype") || trimmed.hasPrefix("<html") {
+                    print("[SubscriptionManager] 收到 HTML 响应，尝试 App UA 重试...")
+                    var retryRequest = URLRequest(url: url)
+                    retryRequest.timeoutInterval = 15
+                    retryRequest.setValue(appUA, forHTTPHeaderField: "User-Agent")
+                    if let retryData = try? await URLSession.shared.data(for: retryRequest),
+                       let retryStr = String(data: retryData.0, encoding: .utf8) {
+                        let retryTrimmed = retryStr.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if !retryTrimmed.hasPrefix("<!doctype") && !retryTrimmed.hasPrefix("<html") {
+                            responseData = retryData.0
+                            print("[SubscriptionManager] ✅ App UA 重试成功")
+                        } else {
+                            print("[SubscriptionManager] App UA 仍然返回 HTML，放弃")
+                        }
+                    }
+                }
+            }
+
             // 转为字符串
-            guard var text = String(data: data, encoding: .utf8) else {
+            guard var text = String(data: responseData, encoding: .utf8) else {
                 await setError("编码错误")
                 return
             }
