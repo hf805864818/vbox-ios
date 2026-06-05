@@ -876,7 +876,7 @@ struct SearchResultsView: View {
     private var sources: [String] { grouped.map { $0.source } }
     private var currentVideos: [VodItem] {
         let sel = selectedSource ?? sources.first ?? ""
-        return grouped.first(where: { $0.0 == sel })?.1 ?? []
+        return grouped.first(where: { $0.source == sel })?.videos ?? []
     }
 
     var body: some View {
