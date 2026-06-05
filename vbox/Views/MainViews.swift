@@ -177,12 +177,15 @@ struct LiquidBackground: View {
 // MARK: - 首页视图
 struct HomeView: View {
     @StateObject private var spiderManager = SpiderManager.shared
+    @EnvironmentObject private var settings: AppSettings
     @State private var isLoading = true
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                SearchBarHeader()
+                SearchBarHeader(onSearch: { query in
+                    settings.triggerSearch(query)
+                })
 
                 if isLoading {
                     VStack(spacing: 20) {
@@ -239,6 +242,7 @@ struct HomeView: View {
 // 搜索栏头部
 struct SearchBarHeader: View {
     @State private var searchText = ""
+    var onSearch: ((String) -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -249,11 +253,11 @@ struct SearchBarHeader: View {
 
                 TextField("搜索视频...", text: $searchText)
                     .foregroundColor(.primary)
+                    .onSubmit { submit() }
+                    .submitLabel(.search)
 
                 if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                    }) {
+                    Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(Color.secondary)
                     }
@@ -262,7 +266,6 @@ struct SearchBarHeader: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                // 毛玻璃效果
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.ultraThinMaterial)
             )
@@ -270,10 +273,7 @@ struct SearchBarHeader: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
                         LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0.05)
-                            ],
+                            colors: [Color.white.opacity(0.2), Color.white.opacity(0.05)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
@@ -281,31 +281,28 @@ struct SearchBarHeader: View {
                     )
             )
 
-            // 订阅配置按钮
-            Button(action: {}) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.primary)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(Color.black.opacity(0.2))
-                    )
+            // 搜索按钮
+            Button(action: { submit() }) {
+                Image(systemName: "magnifyingglass.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(Color(hex: "E11D48"))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
-            // 渐变背景
             LinearGradient(
-                colors: [
-                    Color(hex: "0F0F23").opacity(0.95),
-                    Color(hex: "000000").opacity(0.98)
-                ],
+                colors: [Color(hex: "0F0F23").opacity(0.95), Color(hex: "000000").opacity(0.98)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
+    }
+
+    private func submit() {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        onSearch?(q)
     }
 }
 
@@ -547,6 +544,7 @@ struct SectionHeader: View {
 // MARK: - 搜索视图
 struct SearchView: View {
     @StateObject private var spiderManager = SpiderManager.shared
+    @EnvironmentObject private var settings: AppSettings
     @State private var searchText = ""
     @State private var isSearching = false
     @State private var searchResults: [VodItem] = []
@@ -581,7 +579,6 @@ struct SearchView: View {
                 }
             } else {
                 if !spiderManager.allSites.isEmpty {
-                    // 显示站点列表让用户选择
                     ScrollView {
                         LazyVStack(spacing: 6) {
                             SectionHeader(title: "全部站点 (" + String(spiderManager.loadedSiteCount) + ")", icon: "list.star")
@@ -599,6 +596,11 @@ struct SearchView: View {
         }
         .background(Color(hex: "000000"))
         .ignoresSafeArea(.keyboard)
+        .onChange(of: settings.searchQuery) { query in
+            guard !query.isEmpty else { return }
+            searchText = query
+            performSearch()
+        }
     }
     
     private func performSearch() {
