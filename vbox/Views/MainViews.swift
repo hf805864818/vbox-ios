@@ -569,6 +569,13 @@ struct SearchView: View {
                         if spiderManager.loadedSiteCount > 0 {
                             Text("已加载 " + String(spiderManager.loadedSiteCount) + " 个站点").font(.system(size: 13)).foregroundColor(.orange)
                         }
+                        if let err = spiderManager.engineError {
+                            Text("引擎错误: " + err).font(.system(size: 12)).foregroundColor(.red).padding(.horizontal, 16)
+                        }
+                        if spiderManager.enginesCount > 0 {
+                            Text("蜘蛛引擎: " + String(spiderManager.enginesCount)).font(.system(size: 12)).foregroundColor(.green)
+                        }
+                        }
                     }
                 } else {
                     SearchResultsView(results: searchResults)

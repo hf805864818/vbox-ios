@@ -48,19 +48,27 @@ class QJSSpiderEngine {
     /// 加载 JS 脚本
     func loadScript(_ script: String) throws {
         let result = evaluateJS(script)
-        if result?.contains("Error") == true || result?.contains("exception") == true {
-            throw QJSError(message: "脚本加载失败: \(result ?? "未知错误")")
+        // 检查是否有 JS 异常
+        if let result = result, !result.isEmpty {
+            let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("Error") || trimmed.hasPrefix("TypeError") || trimmed.hasPrefix("ReferenceError") || trimmed.hasPrefix("SyntaxError") {
+                onLog?("❌ JS异常: \(trimmed)")
+                throw QJSError(message: "JS异常: \(trimmed)")
+            }
         }
         onLog?("✅ 脚本加载完成 (\(script.count) 字符)")
     }
     
-    /// 注册蜘蛛
+    /// 注册蜘蛛 — 直接在 evaluateJS 中检测 __JS_SPIDER__ 是否存在
     func registerSpider() -> Bool {
-        let result = evaluateJS("""
-        if (typeof globalThis === 'undefined') { var globalThis = this; }
-        if (typeof globalThis.__JS_SPIDER__ !== 'undefined') { 'true'; } else { 'false'; }
-        """)
-        return result?.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        let result = evaluateJS("typeof globalThis.__JS_SPIDER__")
+        let founded = (result == "object" || result == "\"object\"" || result?.contains("object") == true)
+        if founded {
+            onLog?("✅ 蜘蛛注册成功")
+        } else {
+            onLog?("❌ 蜘蛛注册失败: __JS_SPIDER__ 类型=\(result ?? "nil")")
+        }
+        return founded
     }
     
     /// 调用蜘蛛 API
