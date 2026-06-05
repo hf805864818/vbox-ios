@@ -216,14 +216,14 @@ class SpiderManager: ObservableObject {
 let BUILTIN_SPIDER = (function() {
     const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
     const API_SOURCES = [
-        { name: "\u8d44\u6e901", url: "https://json.im30.app/vod/" },
-        { name: "\u8d44\u6e902", url: "https://api.apibdzy.com/api.php/provide/vod/from/jsonim/" },
+        { name: "资源1", url: "https://json.im30.app/vod/" },
+        { name: "资源2", url: "https://api.apibdzy.com/api.php/provide/vod/from/jsonim/" },
     ];
     const HOME_CATEGORIES = [
-        { type_id: 1, type_name: "\u7535\u5f71" },
-        { type_id: 2, type_name: "\u7535\u89c6\u5267" },
-        { type_id: 3, type_name: "\u7efc\u827a" },
-        { type_id: 4, type_name: "\u52a8\u6f2b" },
+        { type_id: 1, type_name: "电影" },
+        { type_id: 2, type_name: "电视剧" },
+        { type_id: 3, type_name: "综艺" },
+        { type_id: 4, type_name: "动漫" },
     ];
     function httpReq(url) {
         try { let resp = http(url, { headers: { "User-Agent": UA }, timeout: 10 }); if (resp && resp.ok && resp.content) return resp.content; } catch(e) {}
@@ -255,7 +255,7 @@ let BUILTIN_SPIDER = (function() {
             let data = fetchJSON(API_SOURCES[i].url + "?ac=detail&ids=" + id);
             if (data && data.list && data.list.length > 0) {
                 let item = data.list[0];
-                return { list: [{ vod_id: id, vod_name: item.vod_name || "", vod_pic: item.vod_pic || "", vod_actor: item.vod_actor || "", vod_director: item.vod_director || "", vod_content: item.vod_content || "", vod_year: item.vod_year || "", vod_remarks: item.vod_remarks || "", vod_play_from: item.vod_play_from || "\u8d44\u6e90\u7ad9", vod_play_url: item.vod_play_url || "" }] };
+                return { list: [{ vod_id: id, vod_name: item.vod_name || "", vod_pic: item.vod_pic || "", vod_actor: item.vod_actor || "", vod_director: item.vod_director || "", vod_content: item.vod_content || "", vod_year: item.vod_year || "", vod_remarks: item.vod_remarks || "", vod_play_from: item.vod_play_from || "资源站", vod_play_url: item.vod_play_url || "" }] };
             }
         }
         return { list: [] };
