@@ -248,7 +248,9 @@ class SpiderManager: ObservableObject {
         // 如果没有 type=1 站点，使用硬编码的备用搜索 API
         let searchURLs: [(name: String, url: String)] = apiSites.isEmpty ? [
             ("非凡资源", "http://ffzy1.tv/api.php/provide/vod/?ac=detail&wd={wd}"),
-            ("量子资源", "https://lzizy1.com/api.php/provide/vod/?ac=detail&wd={wd}"),
+            ("虎牙采集", "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8?ac=detail&wd={wd}"),
+            ("火狐采集", "https://hhzyapi.com/api.php/provide/vod/?ac=detail&wd={wd}"),
+            ("百度采集", "https://api.apibdzy.com/api.php/provide/vod/?ac=detail&wd={wd}"),
         ] : []
         
         // 并发搜索
@@ -257,17 +259,25 @@ class SpiderManager: ObservableObject {
         // 从 API 站点搜索
         for site in apiSites {
             guard let api = site.api, !api.isEmpty else { continue }
-            let urlStr = api.replacingOccurrences(of: "{wd}", with: encodedKW)
+            // 替换变量
+            var urlStr = api.replacingOccurrences(of: "{wd}", with: encodedKW)
                 .replacingOccurrences(of: "{keyword}", with: encodedKW)
-                // 如果 API 不是完整搜索 URL，追加搜索参数
-            let finalURL: String
-            if urlStr.contains("?ac=") || urlStr.contains("?wd=") {
-                finalURL = urlStr
+            // 把 ac=list 改成 ac=detail 搜索模式
+            urlStr = urlStr.replacingOccurrences(of: "ac=list", with: "ac=detail")
+            // 追加搜索关键词参数
+            if urlStr.contains("?wd=") || urlStr.contains("&wd=") {
+                // 已经有了 wd 参数，跳过
             } else if urlStr.contains("?") {
-                finalURL = urlStr + "&ac=detail&wd=" + encodedKW
+                urlStr = urlStr + "&ac=detail&wd=" + encodedKW
             } else {
-                finalURL = urlStr + "?ac=detail&wd=" + encodedKW
+                urlStr = urlStr + "?ac=detail&wd=" + encodedKW
             }
+            // 避免双 ? 双 ac=detail
+            let finalURL = urlStr
+                .replacingOccurrences(of: "?ac=detail&ac=detail", with: "?ac=detail")
+                .replacingOccurrences(of: "&ac=detail&ac=detail", with: "&ac=detail")
+            
+            print("[SpiderManager] 请求: \(finalURL.prefix(80))")
             
             if let results = await searchWithAPI(url: finalURL, sourceName: site.name) {
                 for item in results {
