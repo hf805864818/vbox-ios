@@ -328,11 +328,6 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] 最终结果: \(videos.count)视频, \(categories.count)分类")
         }
     }
-                ]
-            }
-        }
-        print("[SpiderManager] 首页: \(homeVideos.count)视频 \(categories.count)分类")
-    }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
         var allResults: [VodItem] = []
