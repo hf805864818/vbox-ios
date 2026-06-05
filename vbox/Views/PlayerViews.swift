@@ -195,9 +195,7 @@ struct VideoDetailView: View {
         .padding(.top, 44)  // 添加顶部安全区域padding
         .zIndex(1000)
     }  // ZStack
-}  // body
 }  // VideoDetailView
-}
 
 // 液态光晕效果
 struct LiquidGlow: View {
