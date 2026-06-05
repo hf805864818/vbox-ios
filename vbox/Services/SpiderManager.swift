@@ -754,25 +754,61 @@ globalThis.__JS_SPIDER__ = _spider;
         let episodes = playUrl.components(separatedBy: "#")
         
         for episode in episodes {
-            // 提取URL部分
-            if let urlRange = episode.range(of: "http") {
-                let url = String(episode[urlRange.lowerBound...])
-                // 清理可能的尾部字符
-                if let endRange = url.range(of: "[$&?]", options: .regularExpression) {
-                    return String(url[..<endRange.lowerBound])
+            // 按 $ 分割，取最后一个（URL部分）
+            let parts = episode.components(separatedBy: "$")
+            if let urlPart = parts.last {
+                // 提取 URL
+                if let urlRange = urlPart.range(of: "http") {
+                    var url = String(urlPart[urlRange.lowerBound...])
+                    
+                    // 清理可能的尾部字符，但保留查询参数
+                    let stopChars = ["#", "\n", "\r", " ", "$$", "$"]
+                    for char in stopChars {
+                        if let endRange = url.range(of: char) {
+                            url = String(url[..<endRange.lowerBound])
+                        }
+                    }
+                    
+                    // 验证是否为有效的视频URL
+                    let isVideoUrl = url.contains(".m3u8") || 
+                                    url.contains(".mp4") ||
+                                    url.contains(".flv") ||
+                                    url.contains(".ts") ||
+                                    url.contains("/video/") ||
+                                    url.contains("/play/") ||
+                                    url.contains("m3u8") ||
+                                    url.contains("mp4")
+                    
+                    if isVideoUrl && !url.isEmpty {
+                        return url.trimmingCharacters(in: .whitespaces)
+                    }
                 }
-                return url
             }
         }
         
         // 如果没有#分隔符，直接检查是否包含http
         if playUrl.contains("http") {
             if let urlRange = playUrl.range(of: "http") {
-                let url = String(playUrl[urlRange.lowerBound...])
-                if let endRange = url.range(of: "[$&?]", options: .regularExpression) {
-                    return String(url[..<endRange.lowerBound])
+                var url = String(playUrl[urlRange.lowerBound...])
+                
+                // 清理尾部
+                let stopChars = ["#", "\n", "\r", " "]
+                for char in stopChars {
+                    if let endRange = url.range(of: char) {
+                        url = String(url[..<endRange.lowerBound])
+                    }
                 }
-                return url
+                
+                // 验证
+                let isVideoUrl = url.contains(".m3u8") || 
+                                url.contains(".mp4") ||
+                                url.contains(".flv") ||
+                                url.contains("m3u8") ||
+                                url.contains("mp4")
+                
+                if isVideoUrl && !url.isEmpty {
+                    return url.trimmingCharacters(in: .whitespaces)
+                }
             }
         }
         

@@ -340,6 +340,7 @@ struct FeaturedCarousel: View {
 // 推荐卡片
 struct FeaturedCard: View {
     let video: VodItem
+    @State private var showDetail = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -351,11 +352,24 @@ struct FeaturedCard: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 case .failure(_):
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo")
+                                .font(.title)
+                                .foregroundColor(.gray)
+                            Text("封面加载失败")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 case .empty:
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
+                    ZStack {
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.2))
+                        ProgressView()
+                    }
                 @unknown default:
                     Rectangle()
                         .fill(Color.gray.opacity(0.3))
@@ -386,7 +400,7 @@ struct FeaturedCard: View {
                     Spacer()
 
                     // 播放按钮
-                    Button(action: {}) {
+                    Button(action: { showDetail = true }) {
                         ZStack {
                             Circle()
                                 .fill(Color(hex: "E11D48"))
@@ -423,15 +437,20 @@ struct FeaturedCard: View {
                     lineWidth: 1
                 )
         )
+        .onTapGesture { showDetail = true }
+        .fullScreenCover(isPresented: $showDetail) {
+            VideoDetailView(video: video)
+        }
     }
 }
 
 // 视频卡片
 struct VideoCard: View {
     let video: VodItem
+    @State private var showDetail = false
 
     var body: some View {
-        Button(action: {}) {
+        Button(action: { showDetail = true }) {
             VStack(alignment: .leading, spacing: 10) {
                 // 封面
                 ZStack(alignment: .topTrailing) {
@@ -567,52 +586,66 @@ struct SearchView: View {
         VStack(spacing: 0) {
             SearchBar(searchText: $searchText, isSearching: $isSearching, onSearch: performSearch)
             
-            if isSearching {
-                if isSearchLoading {
-                    VStack(spacing: 20) {
-                        ProgressView().scaleEffect(1.5).padding(.top, 80)
-                        Text("搜索中...").font(.system(size: 14)).foregroundColor(.secondary)
-                    }
-                } else if searchResults.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
-                        Text("未找到结果").font(.system(size: 16)).foregroundColor(.secondary)
-                        if spiderManager.loadedSiteCount > 0 {
-                            Text("已加载 " + String(spiderManager.loadedSiteCount) + " 个站点").font(.system(size: 13)).foregroundColor(.orange)
-                        }
-                        if let err = spiderManager.engineError {
-                            Text("引擎错误: " + err).font(.system(size: 12)).foregroundColor(.red).padding(.horizontal, 16)
-                        }
-                        if spiderManager.enginesCount > 0 {
-                            Text("蜘蛛引擎: " + String(spiderManager.enginesCount)).font(.system(size: 12)).foregroundColor(.green)
-                        }
-                    }
+            ZStack {
+                if isSearching {
+                    searchContentView
+                        .transition(.opacity)
                 } else {
-                    SearchResultsView(results: searchResults)
-                }
-            } else {
-                if !spiderManager.allSites.isEmpty {
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            SectionHeader(title: "全部站点 (" + String(spiderManager.loadedSiteCount) + ")", icon: "list.star")
-                                .padding(.top, 8)
-                            ForEach(spiderManager.allSites, id: \.key) { site in
-                                SiteRow(site: site)
-                            }
-                        }
-                        .padding(.bottom, 100)
-                    }
-                } else {
-                    SearchSuggestionsView()
+                    defaultContentView
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: isSearching)
         }
         .background(Color(hex: "000000"))
-        .ignoresSafeArea(.keyboard)
         .onChange(of: settings.searchQuery) { query in
             guard !query.isEmpty else { return }
             searchText = query
             performSearch()
+        }
+    }
+    
+    @ViewBuilder
+    private var searchContentView: some View {
+        if isSearchLoading {
+            VStack(spacing: 20) {
+                ProgressView().scaleEffect(1.5).padding(.top, 80)
+                Text("搜索中...").font(.system(size: 14)).foregroundColor(.secondary)
+            }
+        } else if searchResults.isEmpty {
+            VStack(spacing: 20) {
+                Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
+                Text("未找到结果").font(.system(size: 16)).foregroundColor(.secondary)
+                if spiderManager.loadedSiteCount > 0 {
+                    Text("已加载 " + String(spiderManager.loadedSiteCount) + " 个站点").font(.system(size: 13)).foregroundColor(.orange)
+                }
+                if let err = spiderManager.engineError {
+                    Text("引擎错误: " + err).font(.system(size: 12)).foregroundColor(.red).padding(.horizontal, 16)
+                }
+                if spiderManager.enginesCount > 0 {
+                    Text("蜘蛛引擎: " + String(spiderManager.enginesCount)).font(.system(size: 12)).foregroundColor(.green)
+                }
+            }
+        } else {
+            SearchResultsView(results: searchResults)
+        }
+    }
+    
+    @ViewBuilder
+    private var defaultContentView: some View {
+        if !spiderManager.allSites.isEmpty {
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    SectionHeader(title: "全部站点 (" + String(spiderManager.loadedSiteCount) + ")", icon: "list.star")
+                        .padding(.top, 8)
+                    ForEach(spiderManager.allSites, id: \.key) { site in
+                        SiteRow(site: site)
+                    }
+                }
+                .padding(.bottom, 100)
+            }
+        } else {
+            SearchSuggestionsView()
         }
     }
     
@@ -784,9 +817,12 @@ struct KeywordButton: View {
                             ),
                             lineWidth: 1
                         )
-                )
+            )
         }
         .buttonStyle(PlainButtonStyle())
+        .fullScreenCover(isPresented: $showDetail) {
+            VideoDetailView(video: video)
+        }
     }
 }
 
@@ -824,21 +860,20 @@ struct SearchResultsView: View {
 
     /// 按站点来源分组（来自 vodRemarks）
     private var grouped: [(source: String, videos: [VodItem])] {
-        var dict: [(String, [VodItem])] = []
-        var seen = Set<String>()
-        for v in results {
-            let src = (v.vodRemarks?.isEmpty == false ? v.vodRemarks! : "搜索结果")
-            if seen.contains(src) {
-                if let i = dict.firstIndex(where: { $0.0 == src }) { dict[i].1.append(v) }
-            } else {
-                seen.insert(src)
-                dict.append((src, [v]))
+        var dict: [String: [VodItem]] = [:]
+        for video in results {
+            let source = video.vodRemarks?.isEmpty == false ? video.vodRemarks! : "搜索结果"
+            if dict[source] == nil {
+                dict[source] = []
             }
+            dict[source]?.append(video)
         }
-        return dict
+        // 转换为数组并按视频数量排序
+        return dict.map { (source: $0.key, videos: $0.value) }
+            .sorted { $0.videos.count > $1.videos.count }
     }
 
-private var sources: [String] { grouped.map(\.0) }
+    private var sources: [String] { grouped.map { $0.source } }
     private var currentVideos: [VodItem] {
         let sel = selectedSource ?? sources.first ?? ""
         return grouped.first(where: { $0.0 == sel })?.1 ?? []

@@ -187,11 +187,12 @@ struct VideoDetailView: View {
                     .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
                 .padding(.leading, 16)
-                .padding(.top, 50)
+                .padding(.top, 16)  // 减少顶部padding，适应安全区域
                 Spacer()
             }
             Spacer()
         }
+        .padding(.top, 44)  // 添加顶部安全区域padding
         .zIndex(1000)
     }  // ZStack
 }  // body
@@ -905,18 +906,43 @@ struct VideoPlayerView: View {
 
     private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
         // TVBox 格式: playFrom = "线路1$$$线路2"  playUrl = "第1集$url1#第2集$url2$$$第1集$url3"
-        // 简化：提取所有 http 开头的 URL
+        // 改进：正确处理 $ 分隔符和 # 分隔符
         var results: [String] = []
-        let pattern = #"https?://[^\s#]+"#
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            let range = NSRange(playUrl.startIndex..., in: playUrl)
-            let matches = regex.matches(in: playUrl, range: range)
-            for m in matches {
-                if let r = Range(m.range, in: playUrl) {
-                    results.append(String(playUrl[r]))
+        
+        // 按 # 分割获取每一集
+        let episodes = playUrl.components(separatedBy: "#")
+        
+        for episode in episodes {
+            // 按 $ 分割，取最后一个（URL部分）
+            let parts = episode.components(separatedBy: "$")
+            if let urlPart = parts.last {
+                // 提取 URL（支持带参数的URL）
+                if let range = urlPart.range(of: "http") {
+                    var url = String(urlPart[range.lowerBound...])
+                    
+                    // 清理可能的尾部字符，但保留查询参数
+                    let stopChars = ["#", "\n", "\r", " "]
+                    for char in stopChars {
+                        if let endRange = url.range(of: char) {
+                            url = String(url[..<endRange.lowerBound])
+                        }
+                    }
+                    
+                    // 验证是否为有效的视频URL
+                    let isVideoUrl = url.contains(".m3u8") || 
+                                    url.contains(".mp4") ||
+                                    url.contains(".flv") ||
+                                    url.contains(".ts") ||
+                                    url.contains("/video/") ||
+                                    url.contains("/play/")
+                    
+                    if isVideoUrl && !url.isEmpty {
+                        results.append(url.trimmingCharacters(in: .whitespaces))
+                    }
                 }
             }
         }
+        
         return results
     }
 
