@@ -14,6 +14,8 @@ struct SettingsView: View {
     @StateObject private var updateManager = UpdateManager.shared
     @State private var isChecking = false
     @State private var newURL = ""
+    @State private var showError = false
+    @State private var errorMessage = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -527,21 +529,21 @@ struct SubscribeConfigView: View {
     }
 
     private func loadSubscribeConfig() {
+        guard !subscribeURL.isEmpty else { return }
         isLoading = true
-
-        // 模拟网络请求
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            isLoading = false
-
-            // 模拟成功
-            showSuccessAlert = true
-            subscribeURL = ""
-
-            // 实际应用中应该：
-            // 1. 验证URL格式
-            // 2. 发起网络请求获取JSON
-            // 3. 解析JSON并验证格式
-            // 4. 保存到本地存储
+        
+        Task {
+            await spiderManager.loadSubscribeConfig(from: subscribeURL)
+            await MainActor.run {
+                isLoading = false
+                if let error = spiderManager.errorMessage {
+                    errorMessage = error
+                    showError = true
+                } else {
+                    showSuccessAlert = true
+                    subscribeURL = ""
+                }
+            }
         }
     }
 }
