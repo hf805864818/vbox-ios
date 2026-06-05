@@ -99,9 +99,58 @@ class SubscriptionManager: ObservableObject {
 
             // 重新编码为干净 JSON 再用 JSONDecoder 解码
             let cleanData = try JSONSerialization.data(withJSONObject: jsonDict)
-            let config = try JSONDecoder().decode(SubscribeConfig.self, from: cleanData)
+            
+            // 尝试标准格式解码
+            var config: SubscribeConfig?
+            do {
+                config = try JSONDecoder().decode(SubscribeConfig.self, from: cleanData)
+            } catch {
+                // 标准格式失败，尝试 dynew.json 格式（apiyuan/zhanyuan）
+                print("[SubscriptionManager] 标准格式解码失败，尝试 apiyuan 格式...")
+            }
 
-            // 提取解析器配置
+            // 如果标准格式没有 sites，尝试从 apiyuan/zhanyuan 转换
+            var sites: [SiteConfig] = config?.sites ?? []
+            if sites.isEmpty {
+                // 从 apiyuan 转换
+                if let apiyuan = jsonDict["apiyuan"] as? [[String: Any]] {
+                    print("[SubscriptionManager] 从 apiyuan 转换 \(apiyuan.count) 个站点")
+                    for item in apiyuan {
+                        if let name = item["name"] as? String,
+                           let searchUrl = item["searchurl"] as? String {
+                            // 从 searchurl 推导 API base
+                            var api = searchUrl
+                            if let range = api.range(of: "?ac=") ?? api.range(of: "?ac/detail") {
+                                api = String(api[..<range.lowerBound])
+                            } else if let range = api.range(of: "?wd=") ?? api.range(of: "&wd=") {
+                                api = String(api[..<range.lowerBound])
+                            }
+                            let key = "api_\(sites.count + 1)"
+                            let site = SiteConfig(key: key, name: name, type: 1, api: api.hasSuffix("/") ? api : api + "/")
+                            if !sites.contains(where: { $0.name == name }) {
+                                sites.append(site)
+                            }
+                        }
+                    }
+                }
+                // 从 zhanyuan 转换（但 zhanyuan 需要 spider 引擎，type=2 标记为蜘蛛站）
+                if let zhanyuan = jsonDict["zhanyuan"] as? [[String: Any]] {
+                    print("[SubscriptionManager] 从 zhanyuan 转换 \(zhanyuan.count) 个蜘蛛站")
+                    for item in zhanyuan {
+                        if let name = item["name"] as? String,
+                           let searchUrl = item["searchUrl"] as? String {
+                            let key = "zhan_\(sites.count + 1)"
+                            let site = SiteConfig(key: key, name: name, type: 2, api: searchUrl)
+                            if !sites.contains(where: { $0.name == name }) {
+                                sites.append(site)
+                            }
+                        }
+                    }
+                }
+                print("[SubscriptionManager] 转换后共有 \(sites.count) 个站点")
+            }
+
+            // 如果没有 parses 配置，从 JSON 的 parses 字段提取
             let parses = jsonDict["parses"] as? [[String: Any]] ?? []
             var parseConfigs: [ParseConfig] = []
             for parse in parses {
@@ -112,8 +161,11 @@ class SubscriptionManager: ObservableObject {
                 }
             }
 
+            // 用转换后的站点创建新 config
+            let finalConfig = config ?? SubscribeConfig(sites: sites, spider: jsonDict["spider"] as? String, wallpaper: jsonDict["wallpaper"] as? String, lives: nil, flags: nil, banned: nil, parses: parseConfigs.isEmpty ? nil : parseConfigs)
+
             await MainActor.run {
-                self.config = config
+                self.config = finalConfig
                 self.parses = parseConfigs
                 self.isLoaded = true
                 self.isLoading = false
@@ -121,8 +173,8 @@ class SubscriptionManager: ObservableObject {
                     self.configURLs.append(urlString)
                     self.defaults.set(self.configURLs, forKey: self.urlsKey)
                 }
-                self.cacheConfig(rawData: jsonData)
-                print("[SubscriptionManager] ✅ 加载 \(parseConfigs.count) 个解析器")
+                self.cacheConfig(rawData: try! JSONEncoder().encode(finalConfig))
+                print("[SubscriptionManager] ✅ 加载 \(sites.count) 个站点, \(parseConfigs.count) 个解析器")
             }
 
         } catch {

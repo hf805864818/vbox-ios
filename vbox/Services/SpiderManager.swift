@@ -343,7 +343,6 @@ globalThis.__JS_SPIDER__ = _spider;
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
                     for var item in items {
-                        // 标记来源蜘蛛名
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
@@ -361,7 +360,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 2. 原生 HTTP 多源搜索（与 QuickJS 结果合并）
+        // 2. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
         let nativeResults = await nativeSearch(keyword: keyword)
         for item in nativeResults {
             let id = item.vodId.isEmpty ? item.vodName : item.vodId
@@ -409,12 +408,70 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 原生搜索 — 直接 HTTP 调可用 API，不经过 QuickJS
+    /// 先遍历订阅源中的 type=1/0 站点，再用硬编码采集站兜底
     func nativeSearch(keyword: String) async -> [VodItem] {
         var allResults: [VodItem] = []
         var seenIds = Set<String>()
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
 
-        // ====== 搜索源 1: 乌云影视 ======
+        // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
+        var searchSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
+        // 如果没有订阅源站点，用硬编码的兜底
+        if searchSites.isEmpty {
+            searchSites = [
+                SiteConfig(key: "ffzy", name: "非凡资源", type: 1, api: "http://ffzy1.tv/api.php/provide/vod/"),
+                SiteConfig(key: "huya", name: "虎牙采集", type: 1, api: "https://www.huyaapi.com/api.php/provide/vod/from/hym3u8"),
+                SiteConfig(key: "hhzy", name: "火狐采集", type: 1, api: "https://hhzyapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "ayun", name: "奥运资源", type: 1, api: "https://www.ayunapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "kuaibo", name: "快播资源", type: 1, api: "https://www.kuaibozy.com/api.php/provide/vod/"),
+                SiteConfig(key: "maotai", name: "茅台资源", type: 1, api: "https://caiji.maotaizy.cc/api.php/provide/vod/"),
+                SiteConfig(key: "ruyi", name: "如意资源", type: 1, api: "https://cj.rycjapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "jisu", name: "极速资源", type: 1, api: "https://jszyapi.com/api.php/provide/vod/"),
+                SiteConfig(key: "baofeng", name: "暴风资源", type: 1, api: "https://iqiyizyapi.com/api.php/provide/vod/"),
+            ]
+        }
+
+        // 遍历每个站点搜索
+        print("[SpiderManager] nativeSearch 共有 \(searchSites.count) 个 API 站点")
+        for site in searchSites.prefix(20) {  // 最多搜20个防止太慢
+            guard let siteApi = site.api, !siteApi.isEmpty else { continue }
+            let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
+            let searchURL = "\(api)?ac=detail&wd=\(encodedKW)"
+
+            do {
+                if let url = URL(string: searchURL) {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 6
+                    req.setValue("Mozilla/5.0 (Windows NT 10.0; WOW64; rv:45.0) Gecko/20100101 Firefox/45.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let list = json["list"] as? [[String: Any]] {
+                        var newCount = 0
+                        for item in list {
+                            let vid = String(describing: item["vod_id"] ?? "")
+                            if !seenIds.contains(vid) {
+                                seenIds.insert(vid)
+                                newCount += 1
+                                allResults.append(VodItem(
+                                    vodId: vid,
+                                    vodName: (item["vod_name"] as? String) ?? "",
+                                    vodPic: (item["vod_pic"] as? String) ?? "",
+                                    vodRemarks: site.name,
+                                    vodYear: item["vod_year"] as? String,
+                                    vodDirector: item["vod_director"] as? String,
+                                    vodActor: item["vod_actor"] as? String
+                                ))
+                            }
+                        }
+                        print("[SpiderManager] \(site.name): \(list.count) 条 (\(newCount) 新增)")
+                    }
+                }
+            } catch {
+                print("[SpiderManager] \(site.name) 搜索失败: \(error.localizedDescription)")
+            }
+        }
+
+        // ====== 搜索源 1: 乌云影视（独立 API） ======
         do {
             let url = URL(string: "https://wooyun.tv/api/proxy?url=%2Fmovie%2Fmedia%2Fsearch")!
             var req = URLRequest(url: url)
