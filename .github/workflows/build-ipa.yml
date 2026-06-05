@@ -64,4 +64,4 @@ jobs:
             --notes "版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})" \
             vbox.ipa
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
