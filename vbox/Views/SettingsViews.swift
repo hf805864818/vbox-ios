@@ -544,6 +544,7 @@ struct SettingsNavigationRow: View {
 
 // MARK: - 订阅配置视图
 struct SubscribeConfigView: View {
+    @StateObject private var spiderManager = SpiderManager.shared
     @State private var subscribeURL = ""
     @State private var isLoading = false
     @State private var showSuccessAlert = false
