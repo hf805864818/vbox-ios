@@ -116,7 +116,15 @@
     }
   ],
   "parses": [
-    {"name": "通用解析", "url": "https://jx.xmflv.com/?url=", "type": 0},
-    {"name": "备用解析", "url": "https://jx.aidouer.net/?url=", "type": 0}
+    {
+      "name": "通用解析",
+      "url": "https://jx.xmflv.com/?url=",
+      "type": 0
+    },
+    {
+      "name": "备用解析",
+      "url": "https://jx.aidouer.net/?url=",
+      "type": 0
+    }
   ]
 }
