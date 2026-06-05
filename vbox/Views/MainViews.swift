@@ -870,10 +870,11 @@ struct SearchResultsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-        .fullScreenCover(item: $selectedVideo) { video in
+.fullScreenCover(item: $selectedVideo) { video in
             VideoDetailView(video: video)
         }
     }
+}
 
 private var dualPanel: some View {
         GeometryReader { geometry in
@@ -920,33 +921,6 @@ private var dualPanel: some View {
             VideoDetailView(video: video)
         }
     }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            .frame(width: 110)
-            .background(Color(hex: "1A1A2E"))
-
-            Divider().background(Color.white.opacity(0.1))
-
-            // 右侧：视频列表
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 12) {
-                    ForEach(currentVideos) { item in
-                        SearchResultRow(video: item)
-                            .onTapGesture {
-                                selectedVideo = item
-                            }
-                    }
-                }
-                .padding(12)
-            }
-        }
-        .fullScreenCover(item: $selectedVideo) { video in
-            VideoDetailView(video: video)
-        }
-    }
-}
 
 // 搜索结果行 — 封面 + 详情标签
 struct SearchResultRow: View {
