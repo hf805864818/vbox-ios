@@ -652,7 +652,7 @@ globalThis.__JS_SPIDER__ = _spider;
                                         if !name.isEmpty, !seenIds.contains(name) {
                                             // 尝试提取图片 URL
                                             var pic = ""
-                                            let picPattern = #"data-original="([^"]+)"#"
+                                            let picPattern = "data-original=\"([^\"]+)\""
                                             if let picRegex = try? NSRegularExpression(pattern: picPattern),
                                                let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
                                                 if let picRange = Range(picMatch.range(at: 1), in: html) {
