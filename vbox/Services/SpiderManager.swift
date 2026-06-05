@@ -29,21 +29,13 @@ class SpiderManager: ObservableObject {
         guard !isInitialized else { return }
         isInitialized = true
         
-        // 始终先加载内置蜘蛛，确保搜索和首页立即可用
-        do {
-            try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
-            print("[SpiderManager] ✅ 内置蜘蛛启动加载成功")
-            // 试加载首页
-            await loadHomeData()
-        } catch {
-            print("[SpiderManager] ❌ 内置蜘蛛启动加载失败: \(error.localizedDescription)")
-            errorMessage = "蜘蛛引擎加载失败: \(error.localizedDescription)"
-        }
-        
         // 如果有已保存的订阅源，则加载
         if subManager.isLoaded {
             await loadSitesFromSubscription()
         }
+        
+        // QuickJS 引擎暂不强制加载，搜索时走 nativeSearch 兜底
+        print("[SpiderManager] 初始化完成，站点数: \(subManager.config?.sites.count ?? 0)")
     }
     
     func loadSubscribeConfig(from url: String) async {
@@ -187,30 +179,10 @@ class SpiderManager: ObservableObject {
     }
     
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
-        // 如果引擎为空，尝试实时加载内置蜘蛛（最多重试3次）
+        // 当 QuickJS 引擎没加载，直接走原生搜索
         if engines.isEmpty {
-            for attempt in 1...3 {
-                do {
-                    try await loadSpiderEngine(jsCode: getBuiltinSpiderJS())
-                    if let engine = engines["builtin"] {
-                        // 验证引擎真的能用
-                        if let result = try? engine.callHomeContent(), (result.list?.count ?? 0) > 0 {
-                            print("[SpiderManager] 搜索时第\(attempt)次加载内置蜘蛛成功，首页\(result.list?.count ?? 0)个视频")
-                            break
-                        }
-                    }
-                    print("[SpiderManager] 搜索时第\(attempt)次加载蜘蛛引擎但验证失败，重试...")
-                    engines.removeValue(forKey: "builtin")
-                } catch {
-                    print("[SpiderManager] 搜索时第\(attempt)次加载内置蜘蛛失败: \(error.localizedDescription)")
-                    engines.removeValue(forKey: "builtin")
-                }
-            }
-        }
-        
-        if engines.isEmpty {
-            print("[SpiderManager] 引擎全部加载失败，返回空结果")
-            return []
+            print("[SpiderManager] QuickJS 引擎未加载，走纯 Swift 搜索")
+            return await nativeSearch(keyword: keyword)
         }
         
         var all: [VodItem] = []
@@ -224,7 +196,7 @@ class SpiderManager: ObservableObject {
                 continue
             }
         }
-        return all
+        return all.isEmpty ? await nativeSearch(keyword: keyword) : all
     }
     
     func getDetail(ids: String) async -> VodItem? {
@@ -252,8 +224,30 @@ class SpiderManager: ObservableObject {
         savedURLs = subManager.configURLs
     }
     
-    /// 内置蜘蛛 JS 代码
-    private func getBuiltinSpiderJS() -> String {
-        return "var _spider = { homeContent: function() { return JSON.stringify({ class: [{ type_id: '1', type_name: '电影' }], list: [] }); }, searchContent: function(k, p) { var r = JSON.parse(http('https://json.im30.app/vod/?ac=videolist&wd='+encodeURIComponent(k)+'&pg='+(p||1), '{}')); var l = r && r.list ? r.list.map(function(i) { return { vod_id: String(i.vod_id||''), vod_name: i.vod_name||'', vod_pic: i.vod_pic||'' }; }) : []; return JSON.stringify({ list: l }); }, detailContent: function(id) { return JSON.stringify({ list: [] }); }, playerContent: function(vid,f,url) { return JSON.stringify({ parse: 0, url: url, header: {} }); } }; globalThis.__JS_SPIDER__ = _spider; globalThis.__JS_SPIDER__.is_cat = true;"
+    /// 纯 Swift 搜索实现（绕过 QuickJS，直接 URLSession 请求）
+    func nativeSearch(keyword: String) async -> [VodItem] {
+        let apiURL = "https://json.im30.app/vod/?ac=videolist&wd=\(keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword)"
+        guard let url = URL(string: apiURL) else { return [] }
+        
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]] {
+                return list.map { item in
+                    VodItem(
+                        vodId: String(describing: item["vod_id"] ?? ""),
+                        vodName: (item["vod_name"] as? String) ?? (item["title"] as? String) ?? "",
+                        vodPic: (item["vod_pic"] as? String) ?? ""
+                    )
+                }
+            }
+        } catch {
+            print("[SpiderManager] nativeSearch 失败: \(error.localizedDescription)")
+        }
+        return []
     }
 }
