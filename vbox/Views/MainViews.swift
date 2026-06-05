@@ -891,61 +891,66 @@ struct SearchResultsView: View {
 // 搜索结果行 — 封面 + 详情标签
 struct SearchResultRow: View {
     let video: VodItem
+    @State private var showDetail = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            // 封面图
-            AsyncImage(url: URL(string: video.vodPic)) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    Rectangle().fill(Color.gray.opacity(0.25))
-                        .overlay(Image(systemName: "film").font(.title2).foregroundColor(.gray))
-                }
-            }
-            .frame(width: 85, height: 110)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            // 详情
-            VStack(alignment: .leading, spacing: 5) {
-                Text(video.vodName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-
-                // 标签
-                HStack(spacing: 5) {
-                    if let r = video.vodRemarks, !r.isEmpty {
-                        TagBadge(text: r)
-                    }
-                    if let y = video.vodYear, !y.isEmpty {
-                        TagBadge(text: y)
-                    }
-                    if let a = video.vodArea, !a.isEmpty {
-                        TagBadge(text: a)
+        NavigationLink {
+            VideoDetailView(video: video)
+        } label: {
+            HStack(spacing: 12) {
+                // 封面图
+                AsyncImage(url: URL(string: video.vodPic)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle().fill(Color.gray.opacity(0.25))
+                            .overlay(Image(systemName: "film").font(.title2).foregroundColor(.gray))
                     }
                 }
+                .frame(width: 85, height: 110)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                if let d = video.vodDirector, !d.isEmpty {
-                    Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
-                }
-                if let a = video.vodActor, !a.isEmpty {
-                    Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                // 详情
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(video.vodName)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+
+                    // 标签
+                    HStack(spacing: 5) {
+                        if let r = video.vodRemarks, !r.isEmpty {
+                            TagBadge(text: r)
+                        }
+                        if let y = video.vodYear, !y.isEmpty {
+                            TagBadge(text: y)
+                        }
+                        if let a = video.vodArea, !a.isEmpty {
+                            TagBadge(text: a)
+                        }
+                    }
+
+                    if let d = video.vodDirector, !d.isEmpty {
+                        Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                    }
+                    if let a = video.vodActor, !a.isEmpty {
+                        Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                    }
+
+                    Spacer()
                 }
 
                 Spacer()
+
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor(Color(hex: "E11D48"))
             }
-
-            Spacer()
-
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 30))
-                .foregroundColor(Color(hex: "E11D48"))
+            .padding(10)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
-        .padding(10)
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
