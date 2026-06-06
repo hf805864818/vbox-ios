@@ -38,19 +38,12 @@ struct VideoPlayerViewV2: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // 播放器主体
-            if let player = playerState.player {
-                PlayerContainerView(
-                    player: player,
-                    playerState: playerState,
-                    video: video
-                )
-            }
-            
-            // 加载指示器
-            if playerState.isLoading {
-                LoadingView(onCancel: { dismiss() })
-            }
+            // 播放器主体 - 始终显示，包含加载状态
+            PlayerContainerView(
+                player: playerState.player,
+                playerState: playerState,
+                video: video
+            )
             
             // 错误提示
             if let error = playerState.loadError {
@@ -95,38 +88,12 @@ class PlayerState: ObservableObject {
     private var statusObserver: AnyCancellable?
     private var failureObserver: AnyCancellable?
     private var endObserver: AnyCancellable?
-    private var timeoutTask: Task<Void, Never>?  // 超时任务
     
     func setupPlayer(video: VodItem) {
-        // 启动超时检测（15秒）
-        startTimeoutCheck()
         Task { await resolvePlayUrl(video: video) }
     }
     
-    // MARK: - 超时检测
-    private func startTimeoutCheck() {
-        timeoutTask?.cancel()
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(15))
-            guard let self = self else { return }
-            
-            // 检查是否还在加载中
-            if self.isLoading && self.player == nil && self.loadError == nil {
-                await MainActor.run {
-                    self.loadError = "解析超时，请检查网络连接后重试"
-                    self.isLoading = false
-                }
-            }
-        }
-    }
-    
-    private func cancelTimeoutCheck() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-    }
-    
     func cleanup() {
-        cancelTimeoutCheck()
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -451,16 +418,30 @@ class PlayerState: ObservableObject {
 
 // MARK: - 播放器容器视图
 struct PlayerContainerView: View {
-    let player: AVPlayer
+    let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         ZStack {
-            // 视频层
-            AVPlayerControllerRepresentableV2(player: player)
-                .ignoresSafeArea()
+            // 视频层（如果有播放器）
+            if let player = player {
+                AVPlayerControllerRepresentableV2(player: player)
+                    .ignoresSafeArea()
+            }
+            
+            // 加载层（如果没有播放器且正在加载）
+            if player == nil && playerState.isLoading {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    Text("正在解析播放地址...")
+                        .foregroundColor(.white.opacity(0.8))
+                        .font(.subheadline)
+                }
+            }
             
             // 弹幕层
             if playerState.showDanmaku {
@@ -481,54 +462,13 @@ struct PlayerContainerView: View {
                     }
                 }
             
-            // 控制层
+            // 控制层 - 始终显示，只是控制栏可以隐藏/显示
             if playerState.showControls {
                 PlayerControlsView(
                     player: player,
                     playerState: playerState,
                     video: video
                 )
-            }
-        }
-    }
-}
-
-// MARK: - 加载视图
-struct LoadingView: View {
-    let onCancel: () -> Void
-    
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack {
-                // 顶部返回按钮
-                HStack {
-                    Button(action: onCancel) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Color.black.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                
-                Spacer()
-                
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .tint(.white)
-                    Text("正在解析播放地址...")
-                        .foregroundColor(.white.opacity(0.8))
-                        .font(.subheadline)
-                }
-                
-                Spacer()
             }
         }
     }
@@ -583,7 +523,7 @@ struct ErrorView: View {
 
 // MARK: - 播放器控制视图
 struct PlayerControlsView: View {
-    let player: AVPlayer
+    let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
@@ -659,16 +599,19 @@ struct PlayerControlsView: View {
                 
                 // 按钮控制栏
                 HStack(spacing: 20) {
-                    // 播放/暂停
+                    // 播放/暂停 - 只有在有播放器时才可用
                     Button(action: { 
-                        playerState.isPlaying ? player.pause() : player.play()
-                        playerState.isPlaying.toggle()
+                        if let p = player {
+                            playerState.isPlaying ? p.pause() : p.play()
+                            playerState.isPlaying.toggle()
+                        }
                     }) {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 22))
-                            .foregroundColor(.white)
+                            .foregroundColor(player == nil ? .gray : .white)
                             .frame(width: 44, height: 44)
                     }
+                    .disabled(player == nil)
                     
                     // 下一个（如果是多集）
                     Button(action: { /* 下一集 */ }) {
