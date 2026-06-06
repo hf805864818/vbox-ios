@@ -49,7 +49,7 @@ struct VideoPlayerViewV2: View {
             
             // 加载指示器
             if playerState.isLoading {
-                LoadingView()
+                LoadingView(onCancel: { dismiss() })
             }
             
             // 错误提示
@@ -469,18 +469,41 @@ struct PlayerContainerView: View {
 
 // MARK: - 加载视图
 struct LoadingView: View {
+    let onCancel: () -> Void
+    
     var body: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
-                Text("正在解析播放地址...")
-                    .foregroundColor(.white.opacity(0.8))
-                    .font(.subheadline)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            VStack {
+                // 顶部返回按钮
+                HStack {
+                    Button(action: onCancel) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.black.opacity(0.3))
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                
+                Spacer()
+                
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    Text("正在解析播放地址...")
+                        .foregroundColor(.white.opacity(0.8))
+                        .font(.subheadline)
+                }
+                
+                Spacer()
             }
-            Spacer()
         }
     }
 }
