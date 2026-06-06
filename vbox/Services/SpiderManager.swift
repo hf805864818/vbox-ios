@@ -542,6 +542,22 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 通过引擎获取详情，失败时回退到原生 API 详情
     func getDetail(ids: String, name: String? = nil) async -> VodItem? {
+        // 0. 如果 ids 是 HTTP URL（网盘详情页），直接解析
+        if ids.hasPrefix("http://") || ids.hasPrefix("https://") {
+            print("[SpiderManager] getDetail 检测到详情页URL，走网盘解析: \(ids.prefix(80))")
+            if let result = await resolveCloudPlay(from: ids) {
+                // 构造一个 VodItem，vodPlayUrl 存解析后的播放地址
+                var item = VodItem(vodId: ids, vodName: name ?? "网盘资源")
+                item.vodPlayUrl = result.url
+                // 如果有 headers，也存下来
+                if !result.headers.isEmpty, let headerData = try? JSONSerialization.data(withJSONObject: result.headers) {
+                    item.vodActor = String(data: headerData, encoding: .utf8)
+                }
+                return item
+            }
+            print("[SpiderManager] ❌ 网盘详情页解析失败")
+            return nil
+        }
         // 1. 先尝试所有引擎
         for (_, engine) in engines {
             do {
@@ -899,15 +915,145 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // ====== 搜索源 7: 网盘资源搜索（伪·模拟调用） ======
-        // 由于第三方网盘搜索API基本都关闭了，这里内置一个提示
-        // 用户可以通过设置中的"网盘播放"配置Token后，
-        // 直接粘贴网盘分享链接到搜索框，播放器会自动识别并解析
-        print("[SpiderManager] 提示: 如需搜索网盘资源，请在\"设置→网盘播放\"中配置Token")
-        print("[SpiderManager] 然后粘贴网盘分享链接(aliyundrive.com/pan.quark.cn等)到搜索框")
-
+        // ====== 搜索源 7: 网盘资源搜索（独立通道，不干扰主流程） ======
+        // 专门爬取订阅源里的 HTML 网盘资源站，提取标题+详情页URL
+        // 搜索结果走独立的 cloudResults，传递给独立的 cloudSearch 方法
+        
         print("[SpiderManager] nativeSearch 总计 \(allResults.count) 条")
         return allResults
+    }
+
+    // MARK: - 网盘资源专用搜索（独立通道）
+    /// 只搜索网盘资源站（video_sources.json 中的 HTML 网页站点）
+    /// 返回的 VodItem.vodId 存的是详情页完整 URL，播放时直接抓取解析
+    func cloudSearch(keyword: String) async -> [VodItem] {
+        var results: [VodItem] = []
+        var seenIds = Set<String>()
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        print("[SpiderManager] ====== cloudSearch: \(keyword) ======")
+        
+        // 从配置中读取网盘资源站列表
+        // 现在的 video_sources.json 是本地的，也可以内置信得过的网盘站
+        let cloudSites: [(name: String, searchURL: String, detailBase: String)] = [
+            ("木偶影视", "https://666.666291.xyz/index.php/vod/search.html?wd=", "https://666.666291.xyz"),
+            ("虎斑资源", "http://103.45.162.207:20720/index.php/vod/search.html?wd=", "http://103.45.162.207:20720"),
+            ("小斑资源", "http://xsayang.fun:12512/index.php/vod/search.html?wd=", "http://xsayang.fun:12512"),
+            ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
+            ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
+        ]
+
+        for site in cloudSites {
+            let fullURL = site.searchURL + encodedKW
+            print("[SpiderManager] cloudSearch 请求: \(site.name): \(fullURL)")
+            do {
+                guard let url = URL(string: fullURL) else { continue }
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 8
+                req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+                let (data, _) = try await URLSession.shared.data(for: req)
+                guard let html = String(data: data, encoding: .utf8) else { continue }
+                
+                // 从 HTML 中提取视频卡片：标题 + 详情页 URL + 封面
+                let pattern = #"<a[^>]*href="(/index.php/vod/detail/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
+                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                
+                var siteCount = 0
+                for match in matches {
+                    guard match.numberOfRanges >= 4 else { continue }
+                    let hrefRange = match.range(at: 1)
+                    let idRange = match.range(at: 2)
+                    let nameRange = match.range(at: 3)
+                    guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                          let hRange = Range(hrefRange, in: html),
+                          let nRange = Range(nameRange, in: html) else { continue }
+                    let detailPath = String(html[hRange])
+                    var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // 过滤掉菜单项
+                    if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
+                    // 去重
+                    let dedupKey = "\(site.name)_\(idRange.location != NSNotFound && idRange.location < html.count ? (Range(idRange, in: html).map { String(html[$0]) } ?? "0") : "0")"
+                    if seenIds.contains(dedupKey) { continue }
+                    seenIds.insert(dedupKey)
+                    
+                    // 尝试提取封面图
+                    var pic = ""
+                    // 找当前卡片附近的图片
+                    let picPattern = #"<img[^>]*src="([^"]+)"[^>]*>"#
+                    // 简化：从页面上找第一张 poster 或封面
+                    if let picRegex = try? NSRegularExpression(pattern: #"data-original="([^"]+)"#),
+                       let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                       let pRange = Range(picMatch.range(at: 1), in: html) {
+                        pic = String(html[pRange])
+                    }
+                    if pic.isEmpty,
+                       let picRegex = try? NSRegularExpression(pattern: #"<img[^>]*class="[^"]*lazy[^"]*"[^>]*data-src="([^"]+)"#),
+                       let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                       let pRange = Range(picMatch.range(at: 1), in: html) {
+                        pic = String(html[pRange])
+                    }
+                    
+                    let detailURL = site.detailBase + detailPath
+                    results.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: site.name))
+                    siteCount += 1
+                }
+                print("[SpiderManager] cloudSearch \(site.name): \(siteCount) 条")
+            } catch {
+                print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
+            }
+        }
+        print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条 ======")
+        return results
+    }
+
+    /// 网盘资源详情解析（从详情页 HTML 中提取网盘链接）
+    func resolveCloudPlay(from detailURL: String) async -> (url: String, headers: [String: String])? {
+        print("[SpiderManager] resolveCloudPlay: \(detailURL)")
+        guard let url = URL(string: detailURL) else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let html = String(data: data, encoding: .utf8) else { return nil }
+            
+            // 提取网盘分享链接（115网盘）
+            let aliyunPattern = #"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#
+            let quarkPattern = #"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#
+            let pan115Pattern = #"(https?://115cdn\.com/s/[^\s\"<>']*)"#
+            let baiduPattern = #"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#
+            let ucPattern = #"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#
+            
+            let patterns = [pan115Pattern, aliyunPattern, quarkPattern, baiduPattern, ucPattern]
+            for pattern in patterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+                if let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let range = Range(match.range(at: 1), in: html) {
+                    let panURL = String(html[range])
+                    print("[SpiderManager] ✅ 找到网盘链接: \(panURL)")
+                    // 检测网盘类型
+                    if let driveType = CloudDriveManager.detectDrive(from: panURL) {
+                        print("[SpiderManager] 网盘类型: \(driveType.displayName)")
+                        let tokens = CloudDriveManager.shared.tokens(for: driveType)
+                        if let token = tokens.first {
+                            let result = try await CloudDriveManager.shared.resolvePlayURL(from: panURL)
+                            print("[SpiderManager] ✅ 网盘解析成功: \(result.url.prefix(60))...")
+                            return (result.url, result.headers)
+                        } else {
+                            print("[SpiderManager] ⚠️ 未配置 \(driveType.displayName) Token")
+                            // 返回链接本身，让播放器走正常的 Step4 逻辑自己去提示
+                            return (panURL, [:])
+                        }
+                    }
+                    return (panURL, [:])
+                }
+            }
+            print("[SpiderManager] ❌ 未找到网盘链接")
+            return nil
+        } catch {
+            print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// 通过订阅源的 type=1 站点获取详情+播放地址

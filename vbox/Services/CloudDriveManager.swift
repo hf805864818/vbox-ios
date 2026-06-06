@@ -97,7 +97,7 @@ class CloudDriveManager: ObservableObject {
         if url.contains("aliyundrive.com") || url.contains("alipan.com") { return .ali }
         if url.contains("pan.quark.cn") { return .quark }
         if url.contains("pan.baidu.com") { return .baidu }
-        if url.contains("115.com") { return .one15 }
+        if url.contains("115.com") || url.contains("115cdn.com") { return .one15 }
         if url.contains("uc.cn") || url.contains("ucloud.cn") { return .uc }
         return nil
     }

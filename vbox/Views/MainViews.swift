@@ -657,8 +657,21 @@ struct SearchView: View {
         isSearching = true
         isSearchLoading = true
         Task {
+            // 1. 搜订阅源/蜘蛛
             let results = await spiderManager.search(keyword: searchText)
-            self.searchResults = results
+            // 2. 搜网盘资源站（独立通道，不干扰订阅源搜索）
+            let cloudResults = await spiderManager.cloudSearch(keyword: searchText)
+            // 3. 合并，网盘资源标记☁️
+            var merged = results
+            var seen = Set(merged.map { $0.vodId })
+            for var item in cloudResults {
+                if !seen.contains(item.vodId) {
+                    seen.insert(item.vodId)
+                    item.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
+                    merged.append(item)
+                }
+            }
+            self.searchResults = merged
             self.isSearchLoading = false
         }
     }
@@ -951,6 +964,20 @@ struct SearchResultsView: View {
             VideoDetailView(video: video)
         }
     }
+}
+
+// MARK: - AVPlayer 控制器封装
+struct AVPlayerController: UIViewControllerRepresentable {
+    let player: AVPlayer
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let c = AVPlayerViewController()
+        c.player = player
+        c.showsPlaybackControls = true
+        c.entersFullScreenWhenPlaybackBegins = true
+        c.canStartPictureInPictureAutomaticallyFromInline = true
+        return c
+    }
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
 
 // 搜索结果行 — 封面 + 详情标签
