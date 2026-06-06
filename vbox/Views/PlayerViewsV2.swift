@@ -27,7 +27,8 @@ struct VideoPlayerViewV2: View {
     @State private var danmakuOpacity: Double = 0.8
     @State private var danmakuFontSize: CGFloat = 16
     @State private var selectedQuality = 1
-    private var observer: NSObjectProtocol?
+    private var durationObserver: NSKeyValueObservation?
+    private var endObserver: NSObjectProtocol?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -273,8 +274,8 @@ struct VideoPlayerViewV2: View {
         )
     }
 
-private var progressSliderView: some View {
-        GeometryReader { geo in
+    private var progressSliderView: some View {
+        GeometryReader { sliderGeo in
             ZStack(alignment: .leading) {
                 let progress = duration > 0 ? currentTime / duration : 0
                 Capsule()
@@ -283,7 +284,7 @@ private var progressSliderView: some View {
 
                 Capsule()
                     .fill(Color(hex: "E11D48"))
-                    .frame(width: geo.size.width * progress, height: 4)
+                    .frame(width: sliderGeo.size.width * progress, height: 4)
             }
             .frame(height: 4)
             .contentShape(Rectangle())
@@ -291,7 +292,7 @@ private var progressSliderView: some View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard let player = player else { return }
-                        let newTime = (value.location.x / geo.size.width) * duration
+                        let newTime = (value.location.x / sliderGeo.size.width) * duration
                         currentTime = max(0, min(duration, newTime))
                         player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
                     }
@@ -376,23 +377,19 @@ private var progressSliderView: some View {
     private func observePlayerDuration() {
         guard let playerItem = playerItem else { return }
 
-        let durationObserver = playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
+        durationObserver = playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
             if item.duration.seconds.isFinite && item.duration.seconds > 0 {
                 self.duration = item.duration.seconds
             }
         }
 
-        observer = durationObserver
-
-        let endObserver = NotificationCenter.default.addObserver(
+        endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
         ) { [self] _ in
             isPlaying = false
         }
-
-        observer = endObserver
     }
 
     private func changePlaybackSpeed(_ speed: Double) {
@@ -461,20 +458,28 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
 
+// MARK: - 弹幕数据模型
+private struct DanmakuItemData: Identifiable {
+    let text: String
+    var x: CGFloat
+    let y: CGFloat
+    let id: Int
+}
+
 // MARK: - 弹幕覆盖层 V2
 struct DanmakuOverlayViewV2: View {
     @Binding var showDanmaku: Bool
     let opacity: Double
     let fontSize: CGFloat
 
-    @State private var danmakuItems: [(text: String, x: CGFloat, y: CGFloat, id: Int)] = []
+    @State private var danmakuItems: [DanmakuItemData] = []
     @State private var allDanmaku: [(time: Double, text: String)] = []
     @State private var currentIndex = 0
     let timer = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         GeometryReader { geo in
-            ForEach(danmakuItems, id: \.id) { item in
+            ForEach(danmakuItems) { item in
                 Text(item.text)
                     .font(.system(size: fontSize, weight: .bold))
                     .foregroundColor(.white.opacity(opacity))
@@ -488,7 +493,7 @@ struct DanmakuOverlayViewV2: View {
 
             let item = allDanmaku[currentIndex]
             let y = CGFloat.random(in: 50...250)
-            danmakuItems.append((item.text, UIScreen.main.bounds.width + 50, y, currentIndex))
+            danmakuItems.append(DanmakuItemData(text: item.text, x: UIScreen.main.bounds.width + 50, y: y, id: currentIndex))
             currentIndex += 1
 
             withAnimation(.linear(duration: 8)) {
