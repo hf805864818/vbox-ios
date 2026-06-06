@@ -27,8 +27,6 @@ struct VideoPlayerViewV2: View {
     @State private var danmakuOpacity: Double = 0.8
     @State private var danmakuFontSize: CGFloat = 16
     @State private var selectedQuality = 1
-    @State private var durationObserver: NSKeyValueObservation?
-    @State private var endObserver: Any?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -377,13 +375,13 @@ struct VideoPlayerViewV2: View {
     private func observePlayerDuration() {
         guard let playerItem = playerItem else { return }
 
-        durationObserver = playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
+        playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
             if item.duration.seconds.isFinite && item.duration.seconds > 0 {
                 self.duration = item.duration.seconds
             }
         }
 
-        endObserver = NotificationCenter.default.addObserver(
+        NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
