@@ -19,9 +19,12 @@ class OrientationHelper {
     }
     
     static func rotateToLandscape() {
-        // 强制旋转到横屏
-        let value = UIInterfaceOrientation.landscapeRight.rawValue
-        UIDevice.current.setValue(value, forKey: "orientation")
+        // 强制旋转到横屏 - 使用 UIDevice 的 orientation 属性
+        DispatchQueue.main.async {
+            let orientation = UIInterfaceOrientation.landscapeRight.rawValue
+            UIDevice.current.setValue(orientation, forKey: "orientation")
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 }
 
@@ -936,55 +939,57 @@ struct SidePanelView<Content: View>: View {
     }
     
     var body: some View {
-        ZStack {
-            if isPresented {
-                Color.black.opacity(0.5)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isPresented = false
-                        }
-                    }
-                
-                HStack {
-                    Spacer()
-                    
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text(title)
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    isPresented = false
-                                }
-                            }) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .frame(width: 36, height: 36)
+        GeometryReader { geometry in
+            ZStack {
+                if isPresented {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                isPresented = false
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color.black.opacity(0.9))
+                    
+                    HStack {
+                        Spacer()
                         
-                        content
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(hex: "1A1A1A"))
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text(title)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.white)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.25)) {
+                                        isPresented = false
+                                    }
+                                }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 18, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .frame(width: 36, height: 36)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(Color.black.opacity(0.9))
+                            
+                            content
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color(hex: "1A1A1A"))
+                        }
+                        .frame(width: geometry.size.width * 0.45, maxHeight: .infinity)
+                        .background(Color(hex: "1A1A1A"))
+                        .cornerRadius(12, corners: [.topLeft, .bottomLeft])
+                        .transition(.move(edge: .trailing))
                     }
-                    .frame(width: UIScreen.main.bounds.width * 0.45, maxHeight: .infinity)
-                    .background(Color(hex: "1A1A1A"))
-                    .cornerRadius(12, corners: [.topLeft, .bottomLeft])
-                    .transition(.move(edge: .trailing))
+                    .ignoresSafeArea()
                 }
-                .ignoresSafeArea()
             }
+            .animation(.easeInOut(duration: 0.25), value: isPresented)
         }
-        .animation(.easeInOut(duration: 0.25), value: isPresented)
     }
 }
 
