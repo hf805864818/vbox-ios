@@ -7,7 +7,6 @@ struct VideoDetailView: View {
     let video: VodItem
     @State private var showPlayer = false
     @State private var showPanPicker = false
-    @State private var selectedPanURL: String?
     @State private var isFavorite = false
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
@@ -123,12 +122,12 @@ struct VideoDetailView: View {
                                 }
                                 if !isLoadingPan, !panLinks.isEmpty {
                                     ForEach(Array(panLinks.enumerated()), id: \.offset) { idx, link in
-                                        Button(action: { showPanPicker = true }) {
+                                        NavigationLink(destination: PanPlayerView(panURL: link.url, title: "\(video.vodName) - \(link.name)")) {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
                                                 Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
                                                 Spacer()
-                                                Text("点击选择").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
+                                                Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
                                             }
                                             .padding(10)
                                             .background(Color.white.opacity(0.05))
@@ -166,10 +165,14 @@ struct VideoDetailView: View {
             .background(Color(hex: "000000"))
             .ignoresSafeArea()
             .fullScreenCover(isPresented: $showPlayer) {
-                VideoPlayerViewV2(video: video) // 启用新播放器V2（最小版本）
+                VideoPlayerViewV2(video: video)
             }
-            .sheet(isPresented: $showPanPicker) {
-                PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
+            .fullScreenCover(isPresented: $showPanPicker) {
+                if let firstLink = panLinks.first {
+                    PanPlayerView(panURL: firstLink.url, title: "\(video.vodName) - \(firstLink.name)")
+                } else {
+                    PanPlayerView(panURL: "", title: video.vodName)
+                }
             }
             .onAppear {
                 if video.vodRemarks?.hasPrefix("☁️") == true, panLinks.isEmpty {

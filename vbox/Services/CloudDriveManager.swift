@@ -144,7 +144,9 @@ class CloudDriveManager: ObservableObject {
         let accessToken = tokenResult.accessToken
 
         // Step 2: 获取 file_id
-        let fileId = try await aliGetShareFileInfo(shareURL: shareURL, token: accessToken)
+        let shareId = extractAliShareId(from: shareURL)
+        let shareToken = try await aliGetShareToken(shareId: shareId, token: accessToken)
+        let fileId = try await aliGetShareFileList(shareId: shareId, shareToken: shareToken, token: accessToken)
 
         // Step 3: 获取播放地址
         let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: fileId, token: accessToken)
@@ -174,7 +176,7 @@ class CloudDriveManager: ObservableObject {
         return try JSONDecoder().decode(AliTokenResponse.self, from: data)
     }
 
-    private func aliGetShareFileInfo(shareURL: String, token: String) async throws -> String {
+    private func aliGetShareToken(shareURL: String, token: String) async throws -> String {
         // 从分享链接中提取 share_id 和 file_id
         var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v3/share_file/get_share_token")!)
         request.httpMethod = "POST"
@@ -189,6 +191,30 @@ class CloudDriveManager: ObservableObject {
         let (data, _) = try await session.data(for: request)
         let result = try JSONDecoder().decode(AliShareTokenResponse.self, from: data)
         return result.shareToken
+    }
+
+    private func aliGetShareFileList(shareId: String, shareToken: String, token: String) async throws -> String {
+        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v2/file/get_share_link_file_list")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "Authorization")
+        let body: [String: Any] = [
+            "share_id": shareId,
+            "share_token": shareToken,
+            "parent_file_id": "root",
+            "limit": 20,
+            "order_by": "name",
+            "order_direction": "ASC"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = json["items"] as? [[String: Any]],
+              let first = items.first,
+              let fid = first["file_id"] as? String else {
+            throw DriveError.noPlayURL
+        }
+        return fid
     }
 
     private func aliGetVideoPreviewPlayInfo(fileId: String, token: String) async throws -> AliVideoPreviewResponse {
@@ -224,11 +250,14 @@ class CloudDriveManager: ObservableObject {
         // Step 1: 提取 pwd_id 和 share_id
         let (shareId, pwdId) = try await quarkExtractShareInfo(shareURL: shareURL, cookie: cookie)
 
-        // Step 2: 获取 vbox 文件夹 ID
+        // Step 2: 获取 share_token（夸克新版需要）
+        let shareToken = try await quarkGetShareToken(shareId: shareId, pwdId: pwdId, cookie: cookie)
+
+        // Step 3: 获取 vbox 文件夹 ID
         let folderId = try await quarkEnsureFolder(cookie: cookie)
 
-        // Step 3: 转存到 vbox 文件夹
-        let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, folderId: folderId, cookie: cookie)
+        // Step 4: 转存到 vbox 文件夹（带 share_token）
+        let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, shareToken: shareToken, folderId: folderId, cookie: cookie)
 
         // Step 4: 获取播放地址
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
@@ -245,29 +274,27 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkExtractShareInfo(shareURL: String, cookie: String) async throws -> (String, String) {
-        let url = URL(string: shareURL)!
-        var request = URLRequest(url: url)
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-
-        let (data, _) = try await session.data(for: request)
-
-        // HTML 中正则提取
-        guard let html = String(data: data, encoding: .utf8) else {
-            throw DriveError.invalidResponse
-        }
-
-        // 提取 __INITIAL_STATE__ 中的 pwd_id
-        let pattern = #"pwd_id":"([^"]*)""#
-        guard let range = html.range(of: pattern, options: .regularExpression) else {
-            throw DriveError.invalidShareURL
-        }
-        let matched = String(html[range])
-        let pwdId = matched.replacingOccurrences(of: #"pwd_id":"#, with: "").replacingOccurrences(of: "\"", with: "")
-
-        // share_id 从 URL 提取
         let shareId = shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? ""
-
+        var pwdId = ""
+        if let range = shareURL.range(of: #"pwd=([^&]+)"#, options: .regularExpression) {
+            pwdId = String(shareURL[range]).replacingOccurrences(of: "pwd=", with: "")
+        }
         return (shareId, pwdId)
+    }
+
+    private func quarkGetShareToken(shareId: String, pwdId: String, cookie: String) async throws -> String {
+        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/token")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        let body: [String: Any] = ["share_id": shareId, "pwd_id": pwdId]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let st = dataObj["share_token"] as? String else { return "" }
+        return st
     }
 
     private func quarkEnsureFolder(cookie: String) async throws -> String {
@@ -315,17 +342,18 @@ class CloudDriveManager: ObservableObject {
         print("[CloudDrive] ✅ 夸克已删除 \(fileIds.count) 个转存文件")
     }
 
-    private func quarkSaveShare(shareId: String, pwdId: String, folderId: String, cookie: String) async throws -> [String] {
+    private func quarkSaveShare(shareId: String, pwdId: String, shareToken: String, folderId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/save")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "share_id": shareId,
             "pwd_id": pwdId,
             "to_pdir_fid": folderId
         ]
+        if !shareToken.isEmpty { body["share_token"] = shareToken }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
@@ -362,59 +390,85 @@ class CloudDriveManager: ObservableObject {
 
     /// 百度网盘：BDUSS → 分享链接 → transfer → dlink → 播放地址
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
-        // Step 1: 提取 surl 和 pwd
-        let (surl, pwd) = extractBaiduShareInfo(from: shareURL)
         let cookie = "BDUSS=\(bduss)"
-
-        // Step 2: 获取 vbox 文件夹路径
-        let _ = try await baiduEnsureFolder(bduss: bduss) // 确保文件夹存在
-
-        // Step 3: 转存文件
-        let fsIds = try await baiduTransferFile(surl: surl, pwd: pwd, cookie: cookie)
-
-        // Step 4: 获取 dlink
-        let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? "", cookie: cookie)
-
-        // Step 5: 30秒后清理
+        let (shareid, shareUk, fsId) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie)
+        guard !fsId.isEmpty else { throw DriveError.noPlayURL }
+        let _ = try await baiduEnsureFolder(bduss: bduss)
+        let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
+        let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? fsId, cookie: cookie)
         scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 4800)
-
         return result
     }
 
-    private func extractBaiduShareInfo(from url: String) -> (surl: String, pwd: String) {
-        var surl = ""
-        var pwd = ""
-
-        if let surlRange = url.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
-            surl = String(url[surlRange]).replacingOccurrences(of: "/s/", with: "")
+    private func baiduExtractShareMeta(shareURL: String, cookie: String) async throws -> (shareid: String, shareUk: String, fsId: String) {
+        guard let url = URL(string: shareURL) else { throw DriveError.invalidShareURL }
+        var req = URLRequest(url: url)
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await session.data(for: req)
+        guard let html = String(data: data, encoding: .utf8) else { throw DriveError.invalidResponse }
+        let patterns: [(String, String)] = [
+            (#"shareid":\s*"([^"]+)"#, "shareid"), (#"shareid":\s*(\d+)"#, "shareid"),
+            (#"share_uk":\s*"([^"]+)"#, "share_uk"), (#"share_uk":\s*(\d+)"#, "share_uk"),
+            (#"fs_id":\s*(\d+)"#, "fs_id"), (#"fs_id":\s*"([^"]+)"#, "fs_id"),
+        ]
+        var shareid = "", shareUk = "", fsId = ""
+        for (pattern, key) in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let r = Range(match.range(at: 1), in: html) {
+                let val = String(html[r])
+                if key == "shareid" && shareid.isEmpty { shareid = val }
+                else if key == "share_uk" && shareUk.isEmpty { shareUk = val }
+                else if key == "fs_id" && fsId.isEmpty { fsId = val }
+            }
         }
-        if let pwdRange = url.range(of: #"pwd=([^&]+)"#, options: .regularExpression) {
-            pwd = String(url[pwdRange]).replacingOccurrences(of: "pwd=", with: "")
-        }
-
-        return (surl, pwd)
+        if shareid.isEmpty { throw DriveError.invalidShareURL }
+        return (shareid, shareUk, fsId)
     }
 
-    private func baiduTransferFile(surl: String, pwd: String, cookie: String) async throws -> [String] {
+    private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://pan.baidu.com/share/transfer")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        let params = "shareid=\(surl)&from=\(surl)&share_uk=&sekey=&pwd=\(pwd)"
+        let params = "shareid=\(shareid)&from=\(surl)&share_uk=\(shareUk)&sekey=&pwd=&fsidlist=[\(fsId)]&path=/vbox播放/"
         request.httpBody = params.data(using: .utf8)
-
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let errno = json["errno"] as? Int, errno == 0 else {
             throw DriveError.saveFailed
         }
-
-        // 返回 fs_ids
-        return [surl]
+        return [fsId]
     }
 
-    private func baiduEnsureFolder(bduss: String) async throws -> String {
+    private func baiduGetRealDownloadLink(fsId: String, cookie: String) async throws -> PlayResult {
+        var components = URLComponents(string: "https://pan.baidu.com/api/filemetas")!
+        components.queryItems = [
+            URLQueryItem(name: "fsids", value: "[\(fsId)]"),
+            URLQueryItem(name: "dlink", value: "1")
+        ]
+        
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = json["info"] as? [[String: Any]],
+              let dlink = list.first?["dlink"] as? String else {
+            throw DriveError.noPlayURL
+        }
+
+        return PlayResult(
+            url: dlink,
+            headers: ["Cookie": cookie, "User-Agent": "pan.baidu.com", "Referer": "https://pan.baidu.com/"],
+            driveType: .baidu
+        )
+    }
+
+    private func baiduEnsureFolder(bduss: String) async throws -> String {private func baiduEnsureFolder(bduss: String) async throws -> String {
         let listURL = URL(string: "https://pan.baidu.com/api/list?dir=/&order=time&desc=1&num=100&page=1&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
         var req = URLRequest(url: listURL)
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
@@ -727,7 +781,7 @@ class CloudDriveManager: ObservableObject {
 
         let tokens = tokens(for: driveType)
         guard let token = tokens.first else {
-            throw DriveError.notImplemented // 实际是"未配置Token"
+            throw DriveError.tokenNotConfigured(driveType.displayName)
         }
 
         switch driveType {

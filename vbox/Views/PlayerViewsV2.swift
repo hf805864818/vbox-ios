@@ -3,6 +3,7 @@ import AVKit
 import AVFoundation
 import Combine
 import UIKit
+import MediaPlayer
 
 // 屏幕方向辅助类
 class OrientationHelper {
@@ -84,11 +85,24 @@ class PlayerState: ObservableObject {
     @Published var danmakuFontSize: CGFloat = 16
     @Published var isOrientationLocked = false  // 屏幕锁定状态
     
+    // 选集相关
+    @Published var episodeList: [(index: Int, title: String, url: String)] = []
+    @Published var currentEpisodeIndex = 0
+    
+    // 手势控制
+    @Published var brightness: Double = UIScreen.main.brightness
+    @Published var volume: Double = AVAudioSession.sharedInstance().outputVolume
+    
+    // 弹幕（LogVar API）
+    @Published var danmakuItems: [DanmakuRenderItem] = []
+    
     private var timeObserver: Any?
     private var statusObserver: AnyCancellable?
     private var failureObserver: AnyCancellable?
     private var endObserver: AnyCancellable?
+    
     private var currentTask: Task<Void, Never>?
+    private var danmakuAnimTask: Task<Void, Never>?
     
     func setupPlayer(video: VodItem) {
         currentTask?.cancel()
@@ -101,6 +115,8 @@ class PlayerState: ObservableObject {
     func cleanup() {
         currentTask?.cancel()
         currentTask = nil
+        danmakuAnimTask?.cancel()
+        danmakuAnimTask = nil
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -142,7 +158,7 @@ class PlayerState: ObservableObject {
         guard let finalPlayUrl = playUrl, !finalPlayUrl.isEmpty else {
             print("[PlayerV2] 错误: 没有可用的播放地址")
             await MainActor.run {
-                loadError = "服务器未返回播放地址（详情页无视频源），请尝试其他资源或站点"
+                loadError = "该资源在所有可用站点中均未找到播放源，请尝试更换资源"
                 isLoading = false
             }
             return
@@ -157,13 +173,13 @@ class PlayerState: ObservableObject {
             print("[PlayerV2] 步骤2: 解析出 \(urls.count) 个地址")
             
             if let firstUrl = urls.first, !firstUrl.isEmpty {
-                await handlePlayUrl(firstUrl, spider: spider, video: video)
+                await handlePlaySliceUrl(firstUrl, spider: spider, video: video)
                 return
             }
         }
         
         // 情况B: 单集或直链
-        await handlePlayUrl(finalPlayUrl, spider: spider, video: video)
+        await handlePlaySliceUrl(finalPlayUrl, spider: spider, video: video)
     }
     
     // MARK: - 安全创建URL（处理编码）
@@ -194,13 +210,12 @@ class PlayerState: ObservableObject {
     }
     
     // MARK: - 处理单个播放地址
-    private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
+    private func handlePlaySliceUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
         print("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
         
-        // 检查是否是直链（通过URL后缀判断，支持带参数）
+        // 检查是否是直链
         let isDirectLink: Bool = {
             guard urlString.hasPrefix("http") else { return false }
-            // 提取URL路径中的文件后缀（去掉查询参数）
             let cleanPath: String
             if let url = URL(string: urlString) {
                 cleanPath = url.path
@@ -213,14 +228,13 @@ class PlayerState: ObservableObject {
             let ext = (cleanPath as NSString).pathExtension.lowercased()
             let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
             if videoExts.contains(ext) { return true }
-            // 部分源不帶后缀但路径包含 /hls/ 或 /video/
             return cleanPath.contains("/hls/") || cleanPath.contains("/video/")
         }()
         
         if isDirectLink {
             print("[PlayerV2] 直链模式: 直接使用")
             if let url = createURL(from: urlString) {
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { initPlayer(url: url, vodItem: video) }
                 return
             }
             print("[PlayerV2] ❌ 直链URL创建失败")
@@ -233,81 +247,25 @@ class PlayerState: ObservableObject {
             if let pu = pu, !pu.isEmpty {
                 print("[PlayerV2] 解析成功: \(pu.prefix(80))...")
                 if let url = createURL(from: pu) {
-                    await MainActor.run { initPlayer(url: url) }
+                    await MainActor.run { initPlayer(url: url, vodItem: video) }
                     return
                 }
                 print("[PlayerV2] ❌ 解析后的URL创建失败")
             }
         }
         
-        // 尝试 nativeDetail 作为备选
-        print("[PlayerV2] 备选: 尝试 nativeDetail...")
-        let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
-        if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
-            print("[PlayerV2] nativeDetail 成功")
-            // 处理多集格式
-            let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
-            print("[PlayerV2] 解析出 \(urls.count) 个播放地址")
-            for (index, videoUrl) in urls.enumerated() {
-                print("[PlayerV2] 地址\(index): \(videoUrl.prefix(60))...")
-            }
-            let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? pu
-            if !du.isEmpty {
-                if let url = createURL(from: du) {
-                    await MainActor.run { initPlayer(url: url) }
-                    return
-                }
-                print("[PlayerV2] ❌ nativeDetail URL创建失败")
-            }
-        }
-        
-        // 检查是否是网盘链接
-        print("[PlayerV2] 检查网盘链接...")
-        let playUrlToCheck = video.vodPlayUrl ?? nd?.vodPlayUrl ?? urlString
-        if !playUrlToCheck.isEmpty, let driveType = CloudDriveManager.detectDrive(from: playUrlToCheck) {
-            print("[PlayerV2] 检测到 \(driveType.displayName) 网盘链接")
-            do {
-                let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
-                print("[PlayerV2] 网盘解析成功: \(result.url.prefix(60))...")
-                if let url = URL(string: result.url) {
-                    let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
-                    let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                    p.automaticallyWaitsToMinimizeStalling = true
-                    
-                    await MainActor.run {
-                        // 清理旧观察者
-                        if let oldObserver = self.timeObserver {
-                            self.player?.removeTimeObserver(oldObserver)
-                        }
-                        cleanupObservers()
-                        self.player?.pause()
-                        
-                        self.player = p
-                        self.isPlaying = true
-                        self.isLoading = false
-                    }
-                    
-                    // 添加时间观察者
-                    let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-                    timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-                        self?.currentTime = time.seconds
-                        if let itemDuration = p.currentItem?.duration {
-                            self?.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
-                        }
-                    }
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        p.play()
-                    }
-                    return
-                }
-            } catch {
-                print("[PlayerV2] 网盘解析失败: \(error.localizedDescription)")
+                // playerContent 失败，尝试解析器（parsePlayUrl）
+        print("[PlayerV2] [切片] 尝试解析器...")
+        if let parsedUrl = await spider.parsePlayUrl(from: urlString) {
+            print("[PlayerV2] [切片] 解析器成功: \(parsedUrl.prefix(80))...")
+            if let url = createURL(from: parsedUrl) {
+                await MainActor.run { initPlayer(url: url, vodItem: video) }
+                return
             }
         }
         
         // 所有方式失败
-        print("[PlayerV2] 所有方式都失败")
+        print("[PlayerV2] [切片] 所有播放方式均失败")
         await MainActor.run {
             cleanupObservers()
             player?.pause()
@@ -316,15 +274,15 @@ class PlayerState: ObservableObject {
                 timeObserver = nil
             }
             player = nil
-            loadError = "无法获取可用播放地址，请检查网络或更换其他资源"
+            loadError = "切片播放地址解析失败，请检查网络或尝试其他资源"
             isLoading = false
         }
     }
+    }
     
-    // MARK: - 解析多集播放地址（支持 TVBox 标准格式）
+    // MARK: - 解析多集播放地址
     private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
         var urls: [String] = []
-        // TVBox标准格式：第1集$url1#第2集$url2
         if playUrl.contains("#") {
             let parts = playUrl.components(separatedBy: "#")
             for part in parts {
@@ -338,10 +296,8 @@ class PlayerState: ObservableObject {
         } else if playUrl.contains("$$$") {
             urls = playUrl.components(separatedBy: "$$$")
         } else if playUrl.contains("$$") {
-            // 部分源用 $$ 做分隔
             urls = playUrl.components(separatedBy: "$$")
         } else if playUrl.contains("|") {
-            // 部分源用 | 做分隔（如 盘搜）
             urls = playUrl.components(separatedBy: "|")
         } else {
             urls = [playUrl]
@@ -349,10 +305,10 @@ class PlayerState: ObservableObject {
         return urls.filter { !$0.isEmpty }
     }
     
-    private func initPlayer(url: URL) {
+    private func initPlayer(url: URL, vodItem: VodItem? = nil) {
         print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         
-        // 清理旧的观察者（防止 retry 叠加）
+        // 清理旧的观察者
         if let oldObserver = timeObserver {
             player?.removeTimeObserver(oldObserver)
             timeObserver = nil
@@ -398,7 +354,7 @@ class PlayerState: ObservableObject {
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
                     print("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
                     Task { @MainActor in
-                        self?.loadError = "播放地址加载失败: \(errorDesc)"
+                        self?.loadError = "加载失败: \(errorDesc)"
                         self?.isLoading = false
                         self?.player = nil
                     }
@@ -437,6 +393,12 @@ class PlayerState: ObservableObject {
         self.isPlaying = true
         self.isLoading = false
         
+        // 解析选集信息
+        if let v = vodItem { parseAndLoadEpisodes(video: v) }
+        
+        // 拉取弹幕
+        if let v = vodItem { fetchDanmaku(videoName: v.vodName) }
+        
         // 添加时间观察者
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -453,6 +415,7 @@ class PlayerState: ObservableObject {
         }
     }
     
+    
     private func cleanupObservers() {
         statusObserver?.cancel()
         failureObserver?.cancel()
@@ -460,6 +423,57 @@ class PlayerState: ObservableObject {
         statusObserver = nil
         failureObserver = nil
         endObserver = nil
+    }
+    
+    // MARK: - 选集解析
+    func parseAndLoadEpisodes(video: VodItem) {
+        guard let playUrl = video.vodPlayUrl, !playUrl.isEmpty else { return }
+        var episodes: [(Int, String, String)] = []
+        let parts = playUrl.components(separatedBy: "#")
+        for (idx, part) in parts.enumerated() {
+            if let range = part.range(of: "$") {
+                let title = String(part[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let url = String(part[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                episodes.append((idx + 1, title, url))
+            } else if !part.isEmpty {
+                episodes.append((idx + 1, "第\(idx+1)集", part))
+            }
+        }
+        if !episodes.isEmpty { episodeList = episodes }
+    }
+    
+    // MARK: - 弹幕拉取（LogVar API）
+    func fetchDanmaku(videoName: String, episode: Int = 0) {
+        guard showDanmaku else { return }
+        danmakuAnimTask?.cancel()
+        danmakuAnimTask = Task { [weak self] in
+            guard let self = self else { return }
+            let service = LogVarDanmakuService.shared
+            guard let animeId = await service.searchAnime(keyword: videoName) else { return }
+            let ep = episode > 0 ? episode : currentEpisodeIndex > 0 ? currentEpisodeIndex : 1
+            let items = await service.fetchDanmaku(animeId: animeId, episode: ep)
+            let renderItems = items.filter { $0.type == 1 || $0.type == 4 || $0.type == 5 }
+                .map { item -> DanmakuRenderItem in
+                    DanmakuRenderItem(id: item.id, content: item.content,
+                        x: UIScreen.main.bounds.width + 50,
+                        y: item.type == 5 ? 60 : item.type == 4 ? UIScreen.main.bounds.height - 60 : CGFloat.random(in: 50...300),
+                        color: item.color)
+                }
+            await MainActor.run { self.danmakuItems = renderItems }
+            await startDanmakuAnimation()
+        }
+    }
+    
+    private func startDanmakuAnimation() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            await MainActor.run {
+                for i in danmakuItems.indices.reversed() {
+                    danmakuItems[i].x -= 3
+                    if danmakuItems[i].x < -200 { danmakuItems.remove(at: i) }
+                }
+            }
+        }
     }
 }
 
@@ -490,24 +504,18 @@ struct PlayerContainerView: View {
                 }
             }
             
-            // 弹幕层
-            if playerState.showDanmaku {
+            // 弹幕层（LogVar API 数据驱动）
+            if playerState.showDanmaku && !playerState.danmakuItems.isEmpty {
                 DanmakuOverlayViewV2(
-                    showDanmaku: $playerState.showDanmaku,
+                    items: playerState.danmakuItems,
                     opacity: playerState.danmakuOpacity,
                     fontSize: playerState.danmakuFontSize
                 )
                 .allowsHitTesting(false)
             }
             
-            // 手势层
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        playerState.showControls.toggle()
-                    }
-                }
+            // 手势控制层（左侧亮度/右侧音量/双击暂停/单击控制栏）
+            GestureControlView(playerState: playerState)
             
             // 控制层 - 始终显示，只是控制栏可以隐藏/显示
             if playerState.showControls {
@@ -744,7 +752,7 @@ struct PlayerControlsView: View {
         // 侧边栏弹窗 - 选集
         .overlay(
             SidePanelView(isPresented: $playerState.showEpisodePicker, title: "选集") {
-                EpisodePickerPanelV2(video: video)
+                EpisodePickerPanelV2(video: video, playerState: playerState)
             }
         )
         // 侧边栏弹窗 - 清晰度
@@ -826,77 +834,9 @@ struct DanmakuSettingsViewV2: View {
 }
 
 // MARK: - 弹幕数据模型
-private struct DanmakuItemData: Identifiable {
-    let text: String
-    var x: CGFloat
-    let y: CGFloat
-    let id: Int
-}
 
 // MARK: - 弹幕覆盖层
-struct DanmakuOverlayViewV2: View {
-    @Binding var showDanmaku: Bool
-    let opacity: Double
-    let fontSize: CGFloat
-
-    @State private var danmakuItems: [DanmakuItemData] = []
-    @State private var itemPositions: [Int: CGFloat] = [:]
-    @State private var currentIndex = 0
-    let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-
-    var body: some View {
-        GeometryReader { geo in
-            ForEach(danmakuItems) { item in
-                let xPos = itemPositions[item.id] ?? item.x
-                Text(item.text)
-                    .font(.system(size: fontSize, weight: .bold))
-                    .foregroundColor(.white.opacity(opacity))
-                    .shadow(color: .black, radius: 2)
-                    .position(x: xPos, y: item.y)
-            }
-        }
-        .onReceive(timer) { _ in
-            if showDanmaku {
-                // 添加新弹幕
-                if currentIndex < 20 && currentIndex % 3 == 0 {
-                    let y = CGFloat.random(in: 50...200)
-                    let newItem = DanmakuItemData(
-                        text: "弹幕 \(currentIndex)",
-                        x: UIScreen.main.bounds.width + 50,
-                        y: y,
-                        id: currentIndex
-                    )
-                    danmakuItems.append(newItem)
-                    itemPositions[currentIndex] = UIScreen.main.bounds.width + 50
-                }
-                currentIndex += 1
-                
-                // 移动弹幕
-                for id in itemPositions.keys {
-                    if let currentX = itemPositions[id] {
-                        itemPositions[id] = currentX - 3
-                    }
-                }
-                
-                // 移除屏幕外的弹幕
-                danmakuItems.removeAll { item in
-                    let x = itemPositions[item.id] ?? 0
-                    return x < -200
-                }
-                itemPositions = itemPositions.filter { $0.value > -200 }
-            }
-        }
-    }
-}
-
 // MARK: - AirPlay 视图
-struct AirPlayViewV2: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        AVRoutePickerView()
-    }
-    
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
-}
 
 // MARK: - 播放设置视图
 struct PlayerSettingsViewV2: View {
@@ -1080,32 +1020,6 @@ struct PlayerSettingsPanelV2: View {
 }
 
 // MARK: - 选集面板 (侧边栏版本)
-struct EpisodePickerPanelV2: View {
-    let video: VodItem
-    
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ForEach(1..<21, id: \.self) { ep in
-                    Button(action: {
-                        // 选集逻辑
-                    }) {
-                        Text("\(ep)")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(minWidth: 56, minHeight: 56)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.white.opacity(0.1))
-                            )
-                    }
-                }
-            }
-            .padding(16)
-        }
-    }
-}
-
 // MARK: - 清晰度面板 (侧边栏版本)
 struct QualityPickerPanelV2: View {
     @Binding var selectedQuality: Int
