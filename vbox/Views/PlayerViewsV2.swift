@@ -209,6 +209,26 @@ struct VideoPlayerViewV2: View {
     
     private func resolvePlayUrl() async {
         print("开始解析播放地址: \(video.vodId)")
+        
+        // 方式0: 直接使用 video.vodPlayUrl（普通资源通常已有播放地址）
+        if let pu = video.vodPlayUrl, !pu.isEmpty {
+            // 如果是直接的视频链接，直接使用
+            if pu.hasPrefix("http") && (pu.contains(".m3u8") || pu.contains(".mp4") || pu.contains(".flv")) {
+                if let url = URL(string: pu) {
+                    print("使用直接播放地址: \(pu.prefix(60))")
+                    await MainActor.run { initPlayer(url: url) }; return
+                }
+            }
+            // 如果是多集格式，解析并提取第一集
+            if pu.contains("$") || pu.contains("#") {
+                let urls = parsePlayUrls(playFrom: video.vodPlayFrom ?? "", playUrl: pu)
+                if let firstUrl = urls.first, !firstUrl.isEmpty, let url = URL(string: firstUrl) {
+                    print("使用解析后的播放地址: \(firstUrl.prefix(60))")
+                    await MainActor.run { initPlayer(url: url) }; return
+                }
+            }
+        }
+        
         let spider = SpiderManager.shared
         
         // 方式1: 通过 getDetail 获取详情
