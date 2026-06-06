@@ -19,7 +19,7 @@
 		A10010 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* SettingsViews.swift */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
-		A10016 /* PlayerSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* PlayerSubViews.swift */; };
+		A10022 /* PlayerSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* PlayerSubViews.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
@@ -45,7 +45,7 @@
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
-		B10016 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
+		B10022 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
 		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
 		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
@@ -121,7 +121,7 @@
 				B10008 /* MainViews.swift */,
 				B10009 /* PlayerViews.swift */,
 				B10010 /* SettingsViews.swift */,
-				B10011 /* PlayerSubViews.swift */,
+				B10022 /* PlayerSubViews.swift */,
 				B10021 /* UpdateSheet.swift */,
 			);
 			path = Views;
@@ -208,6 +208,7 @@
 				A10017 /* SpiderManager.swift in Sources */,
 				A10019 /* UpdateSheet.swift in Sources */,
 				A10018 /* UpdateManager.swift in Sources */,
+				A10022 /* PlayerSubViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
