@@ -154,9 +154,11 @@ struct VideoPlayerView: View {
                 if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
             }
         }
-        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? ""),
-           let pu = pr.playUrl ?? pr.url, !pu.isEmpty, let url = URL(string: pu) {
-            await MainActor.run { initPlayer(url: url) }; return
+        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? "") {
+            let pu = pr.playUrl ?? pr.url
+            if !pu.isEmpty, let url = URL(string: pu) {
+                await MainActor.run { initPlayer(url: url) }; return
+            }
         }
         let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
