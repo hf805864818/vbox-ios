@@ -20,9 +20,6 @@ struct VideoDetailView: View {
                 await MainActor.run {
                     panLinks = result.links
                     isLoadingPan = false
-                    if !result.links.isEmpty {
-                        showPanPicker = true
-                    }
                 }
             } else {
                 await MainActor.run { isLoadingPan = false }
@@ -30,8 +27,18 @@ struct VideoDetailView: View {
         }
     }
 
+    private func driveColor(_ name: String) -> Color {
+        if name.contains("115") { return .orange }
+        if name.contains("阿里") { return .blue }
+        if name.contains("夸克") { return .purple }
+        if name.contains("百度") { return .green }
+        if name.contains("UC") { return .red }
+        return .gray
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
+            ScrollView(showsIndicators: false) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     // 封面
@@ -50,17 +57,11 @@ struct VideoDetailView: View {
                                        startPoint: .top, endPoint: .bottom)
 
                         Button(action: { 
-                            // 检查是否是网盘资源
                             if video.vodRemarks?.hasPrefix("☁️") == true {
-                                // 如果 vodPlayUrl 为空（搜索结果直接进来的），调 getDetail 获取网盘链接列表
-                                if let playUrl = video.vodPlayUrl,
-                                   let data = playUrl.data(using: .utf8),
-                                   let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
-                                   !links.isEmpty {
-                                    showPanPicker = true
-                                } else {
-                                    // 还没加载网盘链接，加载
+                                if panLinks.isEmpty {
                                     loadPanLinks()
+                                } else {
+                                    showPanPicker = true
                                 }
                             } else {
                                 showPlayer = true 
@@ -92,6 +93,43 @@ struct VideoDetailView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold))
                             Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
+                        }
+
+                        // 网盘资源展示（如果当前是网盘资源）
+                        if video.vodRemarks?.hasPrefix("☁️") == true {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
+                                    if isLoadingPan {
+                                        Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.secondary)
+                                        Spacer()
+                                        ProgressView().scaleEffect(0.8)
+                                    } else if panLinks.isEmpty {
+                                        Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.secondary)
+                                    } else {
+                                        Text("网盘资源 (\(panLinks.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
+                                    }
+                                    Spacer()
+                                }
+                                if !isLoadingPan, !panLinks.isEmpty {
+                                    ForEach(Array(panLinks.enumerated()), id: \.offset) { idx, link in
+                                        Button(action: {
+                                            showPanPicker = true
+                                        }) {
+                                            HStack(spacing: 10) {
+                                                Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
+                                                Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
+                                                Spacer()
+                                                Text("点击选择").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
+                                            }
+                                            .padding(10)
+                                            .background(Color.white.opacity(0.05))
+                                            .cornerRadius(8)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -127,6 +165,12 @@ struct VideoDetailView: View {
             .sheet(isPresented: $showPanPicker) {
                 PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
             }
+            .onAppear {
+                if video.vodRemarks?.hasPrefix("☁️") == true, panLinks.isEmpty {
+                    loadPanLinks()
+                }
+            }
+            .onDisappear { }
 
             // 返回
             VStack {

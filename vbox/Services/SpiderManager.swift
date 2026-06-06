@@ -1012,74 +1012,84 @@ globalThis.__JS_SPIDER__ = _spider;
         var req = URLRequest(url: url)
         req.timeoutInterval = 10
         req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        req.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
-            guard let html = String(data: data, encoding: .utf8) else { return nil }
-            
-            // 提取视频名称（页面上找）
-            var videoName = ""
-            if let titleRegex = try? NSRegularExpression(pattern: #"<h1[^>]*class="[^"]*page-title[^"]*"[^>]*>([^<]+)"#),
-               let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let r = Range(m.range(at: 1), in: html) {
-                videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            if videoName.isEmpty,
-               let titleRegex = try? NSRegularExpression(pattern: #"<title>([^<]+)"#),
-               let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let r = Range(m.range(at: 1), in: html) {
-                videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "-.*$", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-            }
-            
-            // 提取所有网盘分享链接（去重），并识别网盘类型
-            let panPatterns: [(pattern: String, driveName: String)] = [
-                (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
-                (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
-                (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
-                (#"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#, "百度网盘"),
-                (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
-                (#"(https?://yun\.139\.com/[^\s\"<>']*)"#, "天翼云盘"),
-            ]
-            
-            var allLinks: [(url: String, name: String)] = []
-            var seenURLs = Set<String>()
-            
-            for (pattern, driveName) in panPatterns {
-                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                for match in matches {
-                    if let r = Range(match.range(at: 1), in: html) {
-                        let panURL = String(html[r])
-                        if !seenURLs.contains(panURL) {
-                            seenURLs.insert(panURL)
-                            // 看看这个链接附近有没有描述文本（如 4K/1080P/国语等）
-                            var desc = driveName
-                            let pos = match.range(at: 1).location
-                            let start = Int(max(0, Int(pos) - 60))
-                            let len = min(Int(pos) + 80, html.count) - start
-                            if start >= 0, start + len <= html.count {
-                                let around = String(html[html.index(html.startIndex, offsetBy: start)..<html.index(html.startIndex, offsetBy: start + len)])
-                                if let qualityRegex = try? NSRegularExpression(pattern: #"(4K|1080[Pp]|720[Pp]|蓝光|高清|国语|粤语|中字|原盘|REMUX|HDR|60帧|DV)"#),
-                                   let qMatch = qualityRegex.firstMatch(in: around, range: NSRange(around.startIndex..., in: around)),
-                                   let qRange = Range(qMatch.range(at: 1), in: around) {
-                                    desc = "\(String(around[qRange]))·\(driveName)"
-                                }
-                            }
-                            allLinks.append((panURL, desc))
-                        }
-                    }
+            guard let html = String(data: data, encoding: .utf8) else {
+                // 尝试 GBK 编码
+                if let gbkData = try? NSString(data: data, encoding: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))) as String? {
+                    return try await parseCloudHTML(html: gbkData)
                 }
-            }
-            
-            if allLinks.isEmpty {
-                print("[SpiderManager] ❌ 未找到网盘链接")
+                print("[SpiderManager] ❌ 编码错误")
                 return nil
             }
-            print("[SpiderManager] ✅ 找到 \(allLinks.count) 个网盘链接: \(allLinks.map { $0.name })")
-            return (allLinks, videoName.isEmpty ? "网盘资源" : videoName)
+            return try await parseCloudHTML(html: html)
         } catch {
             print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func parseCloudHTML(html: String) async -> (links: [(url: String, name: String)], siteName: String)? {
+        // 提取视频名称
+        var videoName = ""
+        if let titleRegex = try? NSRegularExpression(pattern: #"<h1[^>]*class="[^"]*page-title[^"]*"[^>]*>([^<]+)"#),
+           let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+           let r = Range(m.range(at: 1), in: html) {
+            videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if videoName.isEmpty,
+           let titleRegex = try? NSRegularExpression(pattern: #"<title>([^<]+)"#),
+           let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+           let r = Range(m.range(at: 1), in: html) {
+            videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "-.*$", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        }
+
+        // 提取所有网盘分享链接（去重），并识别网盘类型
+        let panPatterns: [(pattern: String, driveName: String)] = [
+            (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
+            (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
+            (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
+            (#"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#, "百度网盘"),
+            (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
+            (#"(https?://yun\.139\.com/[^\s\"<>']*)"#, "天翼云盘"),
+        ]
+
+        var allLinks: [(url: String, name: String)] = []
+        var seenURLs = Set<String>()
+
+        for (pattern, driveName) in panPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                if let r = Range(match.range(at: 1), in: html) {
+                    let panURL = String(html[r])
+                    if !seenURLs.contains(panURL) {
+                        seenURLs.insert(panURL)
+                        var desc = driveName
+                        let pos = match.range(at: 1).location
+                        let start = Int(max(0, Int(pos) - 60))
+                        let len = min(Int(pos) + 80, html.count) - start
+                        if start >= 0, start + len <= html.count {
+                            let around = String(html[html.index(html.startIndex, offsetBy: start)..<html.index(html.startIndex, offsetBy: start + len)])
+                            if let qualityRegex = try? NSRegularExpression(pattern: #"(4K|1080[Pp]|720[Pp]|蓝光|高清|国语|粤语|中字|原盘|REMUX|HDR|60帧|DV)"#),
+                               let qMatch = qualityRegex.firstMatch(in: around, range: NSRange(around.startIndex..., in: around)),
+                               let qRange = Range(qMatch.range(at: 1), in: around) {
+                                desc = "\(String(around[qRange]))·\(driveName)"
+                            }
+                        }
+                        allLinks.append((panURL, desc))
+                    }
+                }
+            }
+        }
+
+        if allLinks.isEmpty {
+            print("[SpiderManager] ❌ 未找到网盘链接")
+            return nil
+        }
+        print("[SpiderManager] ✅ 找到 \(allLinks.count) 个网盘链接: \(allLinks.map { $0.name })")
+        return (allLinks, videoName.isEmpty ? "网盘资源" : videoName)
     }
 
     /// 解析单个网盘分享链接为播放地址
