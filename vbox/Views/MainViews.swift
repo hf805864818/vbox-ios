@@ -587,7 +587,7 @@ struct SearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SearchBar(searchText: $searchText, isSearching: $isSearching, onSearch: performSearch)
+            SearchBar(searchText: $searchText, isSearching: $isSearching, onSearch: { performSearch() })
 
             ZStack {
                 if isSearching {
@@ -604,6 +604,8 @@ struct SearchView: View {
         .onChange(of: settings.searchQuery) { query in
             guard !query.isEmpty else { return }
             searchText = query
+            searchResults = []
+            isSearchLoading = true
             performSearch()
         }
     }
@@ -615,6 +617,7 @@ struct SearchView: View {
                 ProgressView().scaleEffect(1.5).padding(.top, 80)
                 Text("搜索中...").font(.system(size: 14)).foregroundColor(.secondary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if searchResults.isEmpty {
             VStack(spacing: 20) {
                 Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
@@ -629,6 +632,7 @@ struct SearchView: View {
                     Text("蜘蛛引擎: " + String(spiderManager.enginesCount)).font(.system(size: 12)).foregroundColor(.green)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             SearchResultsView(results: searchResults)
         }
@@ -656,6 +660,8 @@ struct SearchView: View {
         guard !searchText.isEmpty else { return }
         isSearching = true
         isSearchLoading = true
+        // 立即清空旧结果，避免显示旧数据
+        searchResults = []
         Task {
             // 1. 搜订阅源/蜘蛛
             let results = await spiderManager.search(keyword: searchText)
@@ -671,8 +677,10 @@ struct SearchView: View {
                     merged.append(item)
                 }
             }
-            self.searchResults = merged
-            self.isSearchLoading = false
+            await MainActor.run {
+                self.searchResults = merged
+                self.isSearchLoading = false
+            }
         }
     }
 }
@@ -753,8 +761,7 @@ struct SearchBar: View {
 
     private func performSearch() {
         guard !searchText.isEmpty else { return }
-        isSearching = true
-                onSearch?()
+        onSearch?()
     }
 }
 
