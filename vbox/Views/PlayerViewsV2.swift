@@ -272,9 +272,9 @@ struct VideoPlayerViewV2: View {
         )
     }
 
-    private var progressSliderView: some View {
-        ZStack(alignment: .leading) {
-            GeometryReader { geo in
+private var progressSliderView: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
                 let progress = duration > 0 ? currentTime / duration : 0
                 Capsule()
                     .fill(Color.white.opacity(0.3))
@@ -285,19 +285,18 @@ struct VideoPlayerViewV2: View {
                     .frame(width: geo.size.width * progress, height: 4)
             }
             .frame(height: 4)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard let player = player else { return }
+                        let newTime = (value.location.x / geo.size.width) * duration
+                        currentTime = max(0, min(duration, newTime))
+                        player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+                    }
+            )
         }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard let player = player else { return }
-                    let geo = GeometryProxy()
-                    let newTime = (value.location.x / geo.size.width) * duration
-                    currentTime = max(0, min(duration, newTime))
-                    player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
-                }
-        )
-        .padding(.horizontal, 16)
+        .frame(height: 4)
     }
 
     // MARK: - 手势处理
@@ -435,7 +434,7 @@ struct VideoPlayerViewV2: View {
 }
 
 // MARK: - 工具函数
-private func formatTime(_ t: Double) -> String {
+func formatTime(_ t: Double) -> String {
     guard t.isFinite, t >= 0 else { return "00:00" }
     let total = Int(t)
     let h = total / 3600
