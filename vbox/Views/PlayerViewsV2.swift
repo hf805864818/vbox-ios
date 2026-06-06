@@ -197,6 +197,7 @@ struct DanmakuOverlayViewV2: View {
     @State private var danmakuItems: [DanmakuItemData] = []
     @State private var allDanmaku: [(time: Double, text: String)] = []
     @State private var currentIndex = 0
+    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         GeometryReader { geo in
@@ -206,6 +207,19 @@ struct DanmakuOverlayViewV2: View {
                     .foregroundColor(.white.opacity(opacity))
                     .shadow(color: .black, radius: 2)
                     .position(x: item.x, y: item.y)
+            }
+        }
+        .onReceive(timer) { _ in
+            // 简单的定时器测试
+            if showDanmaku && currentIndex < 10 {
+                let y = CGFloat.random(in: 50...200)
+                danmakuItems.append(DanmakuItemData(
+                    text: "测试弹幕 \(currentIndex)",
+                    x: UIScreen.main.bounds.width,
+                    y: y,
+                    id: currentIndex
+                ))
+                currentIndex += 1
             }
         }
     }
