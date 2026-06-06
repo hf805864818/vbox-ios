@@ -127,13 +127,95 @@ struct VideoPlayerViewV2: View {
     }
 
     private func setupPlayer() {
-        guard let url = URL(string: video.vodPlayUrl ?? "") else {
-            loadError = "无效的URL"
-            isLoading = false
-            return
+        Task { await resolvePlayUrl() }
+    }
+    
+    private func resolvePlayUrl() async {
+        print("开始解析播放地址: \(video.vodId)")
+        let spider = SpiderManager.shared
+        
+        // 方式1: 通过 getDetail 获取详情
+        if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
+            if let pu = detail.vodPlayUrl, !pu.isEmpty, let url = URL(string: pu) {
+                await MainActor.run { initPlayer(url: url) }; return
+            }
+            if let pf = detail.vodPlayFrom, let pu = detail.vodPlayUrl {
+                let urls = parsePlayUrls(playFrom: pf, playUrl: pu)
+                let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? ""
+                if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
+            }
         }
-        player = AVPlayer(url: url)
-        player?.play()
+        
+        // 方式2: 通过 getPlayerContent 获取
+        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? "") {
+            let pu = pr.playUrl ?? pr.url
+            if let pu = pu, !pu.isEmpty, let url = URL(string: pu) {
+                await MainActor.run { initPlayer(url: url) }; return
+            }
+        }
+        
+        // 方式3: 通过 nativeDetail 获取
+        let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
+        if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
+            if let url = URL(string: pu) { await MainActor.run { initPlayer(url: url) }; return }
+            let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
+            let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? ""
+            if !du.isEmpty, let url = URL(string: du) { await MainActor.run { initPlayer(url: url) }; return }
+        }
+        
+        // 方式4: 检测网盘链接并解析
+        let playUrlToCheck = video.vodPlayUrl ?? nd?.vodPlayUrl ?? ""
+        if !playUrlToCheck.isEmpty, let driveType = CloudDriveManager.detectDrive(from: playUrlToCheck) {
+            print("检测到 \(driveType.displayName) 分享链接，尝试网盘解析...")
+            do {
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
+                print("网盘解析成功: \(result.url.prefix(60))...")
+                if let url = URL(string: result.url) {
+                    let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
+                    let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                    await MainActor.run {
+                        p.play()
+                        player = p
+                        isPlaying = true
+                        isLoading = false
+                    }
+                    return
+                }
+            } catch {
+                print("网盘解析失败: \(error)")
+            }
+        }
+        
+        // 解析失败
+        await MainActor.run {
+            loadError = "无法解析播放地址"
+            isLoading = false
+        }
+    }
+    
+    private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
+        var urls: [String] = []
+        if playUrl.contains("#") {
+            let parts = playUrl.components(separatedBy: "#")
+            for part in parts {
+                if let range = part.range(of: "$") {
+                    let u = String(part[range.upperBound...])
+                    if !u.isEmpty { urls.append(u) }
+                } else if !part.isEmpty { urls.append(part) }
+            }
+        } else if playUrl.contains("$$$") {
+            urls = playUrl.components(separatedBy: "$$$")
+        } else {
+            urls = [playUrl]
+        }
+        return urls
+    }
+    
+    private func initPlayer(url: URL) {
+        let asset = AVURLAsset(url: url)
+        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        p.play()
+        player = p
         isPlaying = true
         isLoading = false
     }
