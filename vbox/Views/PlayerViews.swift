@@ -166,8 +166,7 @@ struct VideoDetailView: View {
             .background(Color(hex: "000000"))
             .ignoresSafeArea()
             .fullScreenCover(isPresented: $showPlayer) {
-                // VideoPlayerViewV2(video: video) // 暂时禁用新播放器
-                VideoPlayerView(video: video) // 使用旧播放器
+                VideoPlayerViewV2(video: video) // 启用新播放器V2
             }
             .sheet(isPresented: $showPanPicker) {
                 PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
