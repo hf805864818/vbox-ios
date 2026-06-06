@@ -549,7 +549,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 // 构造一个 VodItem，vodPlayUrl 存解析后的播放地址
                 let headerStr: String? = result.headers.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: result.headers)).flatMap { String(data: $0, encoding: .utf8) }
                 let item = VodItem(vodId: ids, vodName: name ?? "网盘资源", vodPic: "",
-                                   vodRemarks: "☁️网盘", vodPlayUrl: result.url, vodActor: headerStr)
+                                   vodRemarks: "☁️网盘", vodActor: headerStr, vodPlayUrl: result.url)
                 return item
             }
             print("[SpiderManager] ❌ 网盘详情页解析失败")
