@@ -690,7 +690,7 @@ struct PlayerControlsView: View {
         .overlay(
             SidePanelView(isPresented: $playerState.showSettings, title: "播放设置") {
                 PlayerSettingsPanelV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
-                    player.rate = Float(speed)
+                    player?.rate = Float(speed)
                 })
             }
         )
