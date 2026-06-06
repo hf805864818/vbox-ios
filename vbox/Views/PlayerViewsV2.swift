@@ -12,8 +12,20 @@ struct VideoPlayerViewV2: View {
     @State private var duration: Double = 0
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var isLocked = false
+    @State private var showDanmaku = true
+    @State private var showSettings = false
+    @State private var showEpisodePicker = false
+    @State private var showQualityPicker = false
+    @State private var showDanmakuSettings = false
+    @State private var selectedQuality = 1
+    @State private var playbackSpeed: Double = 1.0
+    @State private var danmakuOpacity: Double = 0.8
+    @State private var danmakuFontSize: CGFloat = 16
 
     @Environment(\.dismiss) private var dismiss
+
+    private let qualities = ["标清", "高清", "蓝光"]
 
     var body: some View {
         ZStack {
@@ -26,8 +38,26 @@ struct VideoPlayerViewV2: View {
                 Text(error)
                     .foregroundColor(.white)
             } else if let player = player {
-                AVPlayerControllerRepresentableV2(player: player)
-                    .ignoresSafeArea()
+                ZStack {
+                    AVPlayerControllerRepresentableV2(player: player)
+                        .ignoresSafeArea()
+                    
+                    if showDanmaku {
+                        DanmakuOverlayViewV2(
+                            showDanmaku: $showDanmaku,
+                            opacity: danmakuOpacity,
+                            fontSize: danmakuFontSize
+                        )
+                        .allowsHitTesting(false)
+                    }
+                    
+                    if showControls {
+                        playerControlsView
+                    }
+                }
+                .onTapGesture {
+                    showControls.toggle()
+                }
             }
         }
         .onAppear {
@@ -36,6 +66,31 @@ struct VideoPlayerViewV2: View {
         .onDisappear {
             player?.pause()
         }
+        .sheet(isPresented: $showSettings) {
+            PlayerSettingsViewV2(speed: $playbackSpeed, onSpeedChange: changePlaybackSpeed)
+        }
+        .sheet(isPresented: $showEpisodePicker) {
+            EpisodePickerViewV2(video: video)
+        }
+        .sheet(isPresented: $showQualityPicker) {
+            QualityPickerViewV2(selectedQuality: $selectedQuality, onQualityChange: changeQuality)
+        }
+        .sheet(isPresented: $showDanmakuSettings) {
+            DanmakuSettingsViewV2(
+                showDanmaku: $showDanmaku,
+                opacity: $danmakuOpacity,
+                fontSize: $danmakuFontSize
+            )
+        }
+    }
+
+    private func changePlaybackSpeed(_ speed: Double) {
+        playbackSpeed = speed
+        player?.rate = Float(speed)
+    }
+
+    private func changeQuality(_ quality: Int) {
+        selectedQuality = quality
     }
 
     private func setupPlayer() {
@@ -79,7 +134,10 @@ struct DanmakuOverlayViewV2: View {
 
 struct PlayerSettingsViewV2: View {
     @Binding var speed: Double
-    var onSpeedChange: (Double) -> Void
+    let onSpeedChange: (Double) -> Void
+    let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0]
+
+    @Environment(\.dismiss) private var dismiss
 
     @Environment(\.dismiss) private var dismiss
 
@@ -87,16 +145,31 @@ struct PlayerSettingsViewV2: View {
         NavigationView {
             List {
                 Section("播放速度") {
-                    ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { s in
-                        Button("\(s)x") {
+                    ForEach(speeds, id: \.self) { s in
+                        Button(action: {
                             speed = s
                             onSpeedChange(s)
                             dismiss()
+                        }) {
+                            HStack {
+                                Text("\(s, specifier: "%.2f")x")
+                                Spacer()
+                                if s == speed {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(Color(hex: "E11D48"))
+                                }
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("播放设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }
@@ -107,36 +180,67 @@ struct EpisodePickerViewV2: View {
 
     var body: some View {
         NavigationView {
-            List {
-                ForEach(1..<21, id: \.self) { ep in
-                    Button("第\(ep)集") {
-                        dismiss()
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+                    ForEach(1..<101, id: \.self) { ep in
+                        Button(action: { dismiss() }) {
+                            Text("\(ep)")
+                                .font(.system(size: 14))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.1)))
+                        }
                     }
                 }
+                .padding()
             }
             .navigationTitle("选集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }
 
 struct QualityPickerViewV2: View {
     @Binding var selectedQuality: Int
-    var onQualityChange: (Int) -> Void
+    let onQualityChange: (Int) -> Void
+    let qualities = ["标清", "高清", "蓝光"]
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
             List {
-                ForEach(0..<3, id: \.self) { index in
-                    Button(["标清", "高清", "蓝光"][index]) {
-                        selectedQuality = index
-                        onQualityChange(index)
-                        dismiss()
+                Section("清晰度选择") {
+                    ForEach(0..<qualities.count, id: \.self) { index in
+                        Button(action: {
+                            selectedQuality = index
+                            onQualityChange(index)
+                            dismiss()
+                        }) {
+                            HStack {
+                                Text(qualities[index])
+                                Spacer()
+                                if index == selectedQuality {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(Color(hex: "E11D48"))
+                                }
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("清晰度")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }
@@ -150,10 +254,42 @@ struct DanmakuSettingsViewV2: View {
 
     var body: some View {
         NavigationView {
-            Form {
-                Toggle("开启弹幕", isOn: $showDanmaku)
+            List {
+                Section("弹幕开关") {
+                    Toggle("开启弹幕", isOn: $showDanmaku)
+                }
+
+                Section("弹幕透明度") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("透明度: \(Int(opacity * 100))%")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+
+                        Slider(value: $opacity, in: 0...1, step: 0.1)
+                            .accentColor(Color(hex: "E11D48"))
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section("弹幕字体大小") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("字号: \(Int(fontSize))")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+
+                        Slider(value: $fontSize, in: 12...24, step: 2)
+                            .accentColor(Color(hex: "E11D48"))
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             .navigationTitle("弹幕设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }
