@@ -27,6 +27,7 @@ struct VideoPlayerViewV2: View {
     @State private var danmakuOpacity: Double = 0.8
     @State private var danmakuFontSize: CGFloat = 16
     @State private var selectedQuality = 1
+    private var observer: NSObjectProtocol?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -393,8 +394,6 @@ private var progressSliderView: some View {
 
         observer = endObserver
     }
-
-    private var observer: NSObjectProtocol?
 
     private func changePlaybackSpeed(_ speed: Double) {
         playbackSpeed = speed
