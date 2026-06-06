@@ -94,13 +94,13 @@ struct VideoPlayerView: View {
                                             Button(action: toggleLock) {
                                                 Image(systemName: isLocked ? "lock.fill" : "lock.open.fill").font(.system(size: 18)).foregroundColor(.white)
                                             }
-                                            Button(action: { player?.seek(to: CMTime(seconds: max(0, currentTime - 10), preferredTimescale: 600)) }) {
+                                            Button(action: { player.seek(to: CMTime(seconds: max(0, currentTime - 10), preferredTimescale: 600)) }) {
                                                 Image(systemName: "backward.fill").font(.system(size: 22)).foregroundColor(.white)
                                             }
-                                            Button(action: { isPlaying ? player?.pause() : player?.play(); isPlaying.toggle() }) {
+                                            Button(action: { isPlaying ? player.pause() : player.play(); isPlaying.toggle() }) {
                                                 Image(systemName: isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundColor(.white)
                                             }
-                                            Button(action: { player?.seek(to: CMTime(seconds: min(duration, currentTime + 10), preferredTimescale: 600)) }) {
+                                            Button(action: { player.seek(to: CMTime(seconds: min(duration, currentTime + 10), preferredTimescale: 600)) }) {
                                                 Image(systemName: "forward.fill").font(.system(size: 22)).foregroundColor(.white)
                                             }
                                         }
@@ -156,7 +156,7 @@ struct VideoPlayerView: View {
         }
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? "") {
             let pu = pr.playUrl ?? pr.url
-            if !pu.isEmpty, let url = URL(string: pu) {
+            if let pu = pu, !pu.isEmpty, let url = URL(string: pu) {
                 await MainActor.run { initPlayer(url: url) }; return
             }
         }
@@ -213,7 +213,7 @@ struct VideoPlayerView: View {
     private func initPlayer(url: URL) {
         let asset = AVURLAsset(url: url)
         player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-        player?.play()
+        player.play()
         isPlaying = true
         isLoading = false
     }
@@ -419,7 +419,7 @@ struct PanPlayerView: View {
                         } else {
                             player = AVPlayer(url: url)
                         }
-                        player?.play(); isLoading = false
+                        player.play(); isLoading = false
                     } else {
                         addDebug("❌ 解析失败")
                         loadError = "解析失败，请检查是否配置了网盘Token"
