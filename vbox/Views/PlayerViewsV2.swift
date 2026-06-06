@@ -88,12 +88,19 @@ class PlayerState: ObservableObject {
     private var statusObserver: AnyCancellable?
     private var failureObserver: AnyCancellable?
     private var endObserver: AnyCancellable?
+    private var currentTask: Task<Void, Never>?
     
     func setupPlayer(video: VodItem) {
-        Task { await resolvePlayUrl(video: video) }
+        currentTask?.cancel()
+        currentTask = Task { [weak self] in
+            guard let self = self else { return }
+            await resolvePlayUrl(video: video)
+        }
     }
     
     func cleanup() {
+        currentTask?.cancel()
+        currentTask = nil
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -104,6 +111,7 @@ class PlayerState: ObservableObject {
     }
     
     func retry(video: VodItem) {
+        currentTask?.cancel()
         loadError = nil
         isLoading = true
         setupPlayer(video: video)
@@ -134,7 +142,7 @@ class PlayerState: ObservableObject {
         guard let finalPlayUrl = playUrl, !finalPlayUrl.isEmpty else {
             print("[PlayerV2] 错误: 没有可用的播放地址")
             await MainActor.run {
-                loadError = "无法获取播放地址"
+                loadError = "服务器未返回播放地址（详情页无视频源），请尝试其他资源或站点"
                 isLoading = false
             }
             return
@@ -189,16 +197,25 @@ class PlayerState: ObservableObject {
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
         print("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
         
-        // 检查是否是直链
-        let isDirectLink = urlString.hasPrefix("http") && (
-            urlString.contains(".m3u8") ||
-            urlString.contains(".mp4") ||
-            urlString.contains(".flv") ||
-            urlString.contains(".m4v") ||
-            urlString.contains(".ts") ||
-            urlString.contains("/hls/") ||
-            urlString.contains("/video/")
-        )
+        // 检查是否是直链（通过URL后缀判断，支持带参数）
+        let isDirectLink: Bool = {
+            guard urlString.hasPrefix("http") else { return false }
+            // 提取URL路径中的文件后缀（去掉查询参数）
+            let cleanPath: String
+            if let url = URL(string: urlString) {
+                cleanPath = url.path
+            } else if let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                      let url = URL(string: encoded) {
+                cleanPath = url.path
+            } else {
+                cleanPath = urlString
+            }
+            let ext = (cleanPath as NSString).pathExtension.lowercased()
+            let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
+            if videoExts.contains(ext) { return true }
+            // 部分源不帶后缀但路径包含 /hls/ 或 /video/
+            return cleanPath.contains("/hls/") || cleanPath.contains("/video/")
+        }()
         
         if isDirectLink {
             print("[PlayerV2] 直链模式: 直接使用")
@@ -258,6 +275,13 @@ class PlayerState: ObservableObject {
                     p.automaticallyWaitsToMinimizeStalling = true
                     
                     await MainActor.run {
+                        // 清理旧观察者
+                        if let oldObserver = self.timeObserver {
+                            self.player?.removeTimeObserver(oldObserver)
+                        }
+                        cleanupObservers()
+                        self.player?.pause()
+                        
                         self.player = p
                         self.isPlaying = true
                         self.isLoading = false
@@ -285,14 +309,22 @@ class PlayerState: ObservableObject {
         // 所有方式失败
         print("[PlayerV2] 所有方式都失败")
         await MainActor.run {
-            loadError = "无法解析播放地址"
+            cleanupObservers()
+            player?.pause()
+            if let observer = timeObserver {
+                player?.removeTimeObserver(observer)
+                timeObserver = nil
+            }
+            player = nil
+            loadError = "无法获取可用播放地址，请检查网络或更换其他资源"
             isLoading = false
         }
     }
     
-    // MARK: - 解析多集播放地址
+    // MARK: - 解析多集播放地址（支持 TVBox 标准格式）
     private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
         var urls: [String] = []
+        // TVBox标准格式：第1集$url1#第2集$url2
         if playUrl.contains("#") {
             let parts = playUrl.components(separatedBy: "#")
             for part in parts {
@@ -305,6 +337,12 @@ class PlayerState: ObservableObject {
             }
         } else if playUrl.contains("$$$") {
             urls = playUrl.components(separatedBy: "$$$")
+        } else if playUrl.contains("$$") {
+            // 部分源用 $$ 做分隔
+            urls = playUrl.components(separatedBy: "$$")
+        } else if playUrl.contains("|") {
+            // 部分源用 | 做分隔（如 盘搜）
+            urls = playUrl.components(separatedBy: "|")
         } else {
             urls = [playUrl]
         }
@@ -313,6 +351,15 @@ class PlayerState: ObservableObject {
     
     private func initPlayer(url: URL) {
         print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
+        
+        // 清理旧的观察者（防止 retry 叠加）
+        if let oldObserver = timeObserver {
+            player?.removeTimeObserver(oldObserver)
+            timeObserver = nil
+        }
+        cleanupObservers()
+        player?.pause()
+        player = nil
         
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
@@ -351,7 +398,7 @@ class PlayerState: ObservableObject {
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
                     print("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
                     Task { @MainActor in
-                        self?.loadError = "加载失败: \(errorDesc)"
+                        self?.loadError = "播放地址加载失败: \(errorDesc)"
                         self?.isLoading = false
                         self?.player = nil
                     }
