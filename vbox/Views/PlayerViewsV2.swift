@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import Combine
 
 // MARK: - 新版本播放器 (爱奇艺风格) - 简化版本，确保编译通过
 struct VideoPlayerViewV2: View {
@@ -60,12 +61,16 @@ class PlayerState: ObservableObject {
     @Published var danmakuFontSize: CGFloat = 16
     
     private var timeObserver: Any?
+    private var statusObserver: AnyCancellable?
+    private var failureObserver: AnyCancellable?
+    private var endObserver: AnyCancellable?
     
     func setupPlayer(video: VodItem) {
         Task { await resolvePlayUrl(video: video) }
     }
     
     func cleanup() {
+        cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -249,10 +254,66 @@ class PlayerState: ObservableObject {
     private func initPlayer(url: URL) {
         print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(80))...")
         
-        let asset = AVURLAsset(url: url)
+        // 配置Asset选项（针对m3u8切片优化）
+        var assetOptions: [String: Any] = [:]
+        
+        // 如果URL是HTTP（非HTTPS），需要设置允许任意加载
+        if url.absoluteString.hasPrefix("http://") {
+            assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+                "Referer": url.absoluteString
+            ]
+        }
+        
+        // 创建Asset和PlayerItem
+        let asset = AVURLAsset(url: url, options: assetOptions.isEmpty ? nil : assetOptions)
         let playerItem = AVPlayerItem(asset: asset)
+        
+        // 配置PlayerItem（针对HLS/m3u8优化）
+        playerItem.preferredForwardBufferDuration = 5.0 // 预缓冲5秒
+        
+        // 使用Combine监听PlayerItem状态
+        statusObserver = playerItem.publisher(for: \.status)
+            .sink { [weak self] status in
+                switch status {
+                case .readyToPlay:
+                    print("[PlayerV2] PlayerItem 准备就绪")
+                case .failed:
+                    print("[PlayerV2] ❌ PlayerItem 失败: \(playerItem.error?.localizedDescription ?? "未知错误")")
+                    Task { @MainActor in
+                        self?.loadError = "加载失败: \(playerItem.error?.localizedDescription ?? "未知错误")"
+                        self?.isLoading = false
+                        self?.player = nil
+                    }
+                case .unknown:
+                    print("[PlayerV2] PlayerItem 状态未知")
+                @unknown default:
+                    break
+                }
+            }
+        
+        // 创建播放器
         let p = AVPlayer(playerItem: playerItem)
         p.automaticallyWaitsToMinimizeStalling = true
+        
+        // 监听播放失败
+        failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+            .sink { [weak self] notification in
+                if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
+                    print("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
+                    Task { @MainActor in
+                        self?.loadError = "播放失败: \(error.localizedDescription)"
+                        self?.isLoading = false
+                        self?.player = nil
+                    }
+                }
+            }
+        
+        // 监听播放结束
+        endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+            .sink { _ in
+                print("[PlayerV2] 播放结束")
+            }
         
         self.player = p
         self.isPlaying = true
@@ -272,6 +333,15 @@ class PlayerState: ObservableObject {
             p.play()
             print("[PlayerV2] 播放器开始播放")
         }
+    }
+    
+    private func cleanupObservers() {
+        statusObserver?.cancel()
+        failureObserver?.cancel()
+        endObserver?.cancel()
+        statusObserver = nil
+        failureObserver = nil
+        endObserver = nil
     }
 }
 
