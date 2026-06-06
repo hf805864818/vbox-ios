@@ -195,31 +195,50 @@ struct DanmakuOverlayViewV2: View {
     let fontSize: CGFloat
 
     @State private var danmakuItems: [DanmakuItemData] = []
-    @State private var allDanmaku: [(time: Double, text: String)] = []
+    @State private var itemPositions: [Int: CGFloat] = [:]
     @State private var currentIndex = 0
-    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         GeometryReader { geo in
             ForEach(danmakuItems) { item in
+                let xPos = itemPositions[item.id] ?? item.x
                 Text(item.text)
                     .font(.system(size: fontSize, weight: .bold))
                     .foregroundColor(.white.opacity(opacity))
                     .shadow(color: .black, radius: 2)
-                    .position(x: item.x, y: item.y)
+                    .position(x: xPos, y: item.y)
             }
         }
         .onReceive(timer) { _ in
-            // 简单的定时器测试
-            if showDanmaku && currentIndex < 10 {
-                let y = CGFloat.random(in: 50...200)
-                danmakuItems.append(DanmakuItemData(
-                    text: "测试弹幕 \(currentIndex)",
-                    x: UIScreen.main.bounds.width,
-                    y: y,
-                    id: currentIndex
-                ))
+            if showDanmaku {
+                // 添加新弹幕
+                if currentIndex < 20 && currentIndex % 3 == 0 {
+                    let y = CGFloat.random(in: 50...200)
+                    let newItem = DanmakuItemData(
+                        text: "弹幕 \(currentIndex)",
+                        x: UIScreen.main.bounds.width + 50,
+                        y: y,
+                        id: currentIndex
+                    )
+                    danmakuItems.append(newItem)
+                    itemPositions[currentIndex] = UIScreen.main.bounds.width + 50
+                }
                 currentIndex += 1
+                
+                // 移动弹幕
+                for id in itemPositions.keys {
+                    if let currentX = itemPositions[id] {
+                        itemPositions[id] = currentX - 3
+                    }
+                }
+                
+                // 移除屏幕外的弹幕
+                danmakuItems.removeAll { item in
+                    let x = itemPositions[item.id] ?? 0
+                    return x < -200
+                }
+                itemPositions = itemPositions.filter { $0.value > -200 }
             }
         }
     }
