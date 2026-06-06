@@ -267,5 +267,3 @@ struct DanmakuListView: View {
         }
     }
 }
-
-}

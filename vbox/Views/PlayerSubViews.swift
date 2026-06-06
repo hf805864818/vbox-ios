@@ -84,7 +84,7 @@ struct VideoPlayerView: View {
                                 VStack(spacing: 8) {
                                     // 进度条
                                     Slider(value: $currentTime, in: 0...max(duration, 1)) { editing in
-                                        if !editing { player?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600)) }
+                                        if !editing { player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600)) }
                                     }
                                     .accentColor(Color(hex: "E11D48"))
                                     .padding(.horizontal, 16)
