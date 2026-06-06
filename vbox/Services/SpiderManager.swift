@@ -1113,7 +1113,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
             }
             return (result.url, result.headers)
-        } catch let error as CloudDriveManager.DriveError {
+        } catch let error as DriveError {
             print("[SpiderManager] ❌ \(driveType.displayName) 解析失败: \(error.localizedDescription)")
             if case .notImplemented = error {
                 print("[SpiderManager] 💡 提示: Token 无效或已过期，请在设置中重新配置 \(driveType.displayName) Token")
