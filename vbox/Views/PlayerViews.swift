@@ -11,6 +11,7 @@ struct VideoDetailView: View {
     @State private var isFavorite = false
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
+    @State private var useNewPlayer = true // 新播放器开关
     @Environment(\.dismiss) private var dismiss
 
     private func loadPanLinks() {
@@ -89,6 +90,17 @@ struct VideoDetailView: View {
                             ActionButton(icon: "square.and.arrow.up", title: "分享") {}
                         }
 
+                        HStack(spacing: 8) {
+                            Button(action: { useNewPlayer.toggle() }) {
+                                Text(useNewPlayer ? "新播放器 ✓" : "旧播放器")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(useNewPlayer ? Color(hex: "E11D48") : .secondary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
+                            }
+                        }
+
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold))
                             Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
@@ -155,7 +167,11 @@ struct VideoDetailView: View {
             .background(Color(hex: "000000"))
             .ignoresSafeArea()
             .fullScreenCover(isPresented: $showPlayer) {
-                VideoPlayerView(video: video)
+                if useNewPlayer {
+                    VideoPlayerViewV2(video: video)
+                } else {
+                    VideoPlayerView(video: video)
+                }
             }
             .sheet(isPresented: $showPanPicker) {
                 PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
