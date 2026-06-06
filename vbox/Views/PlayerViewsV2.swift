@@ -2,7 +2,7 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
-// MARK: - 新版本播放器 (爱奇艺风格) - 最小可编译版本
+// MARK: - 新版本播放器 (爱奇艺风格)
 struct VideoPlayerViewV2: View {
     let video: VodItem
     @State private var player: AVPlayer?
@@ -12,8 +12,15 @@ struct VideoPlayerViewV2: View {
     @State private var duration: Double = 0
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var showSettings = false
+    @State private var showEpisodePicker = false
+    @State private var showQualityPicker = false
+    @State private var selectedQuality = 1
+    @State private var playbackSpeed: Double = 1.0
 
     @Environment(\.dismiss) private var dismiss
+
+    private let qualities = ["标清", "高清", "蓝光"]
 
     var body: some View {
         ZStack {
@@ -26,8 +33,17 @@ struct VideoPlayerViewV2: View {
                 Text(error)
                     .foregroundColor(.white)
             } else if let player = player {
-                AVPlayerControllerRepresentableV2(player: player)
-                    .ignoresSafeArea()
+                ZStack {
+                    AVPlayerControllerRepresentableV2(player: player)
+                        .ignoresSafeArea()
+
+                    if showControls {
+                        playerControlsView
+                    }
+                }
+                .onTapGesture {
+                    showControls.toggle()
+                }
             }
         }
         .onAppear {
@@ -36,10 +52,53 @@ struct VideoPlayerViewV2: View {
         .onDisappear {
             player?.pause()
         }
+        .sheet(isPresented: $showSettings) {
+            PlayerSettingsViewV2(speed: $playbackSpeed, onSpeedChange: { _ in })
+        }
+        .sheet(isPresented: $showEpisodePicker) {
+            EpisodePickerViewV2(video: video)
+        }
+        .sheet(isPresented: $showQualityPicker) {
+            QualityPickerViewV2(selectedQuality: $selectedQuality, onQualityChange: { _ in })
+        }
+    }
+
+    private var playerControlsView: some View {
+        VStack {
+            HStack {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .foregroundColor(.white)
+                }
+                Spacer()
+            }
+            .padding()
+
+            Spacer()
+
+            HStack {
+                Button(action: { isPlaying.toggle() }) {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .foregroundColor(.white)
+                }
+
+                Button(action: { showQualityPicker = true }) {
+                    Text(qualities[selectedQuality])
+                        .foregroundColor(.white)
+                }
+
+                Button(action: { showEpisodePicker = true }) {
+                    Image(systemName: "list.bullet")
+                        .foregroundColor(.white)
+                }
+
+                Spacer()
+            }
+            .padding()
+        }
     }
 
     private func setupPlayer() {
-        // 简单的播放器初始化
         guard let url = URL(string: video.vodPlayUrl ?? "") else {
             loadError = "无效的URL"
             isLoading = false
@@ -66,17 +125,7 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
 
-// MARK: - 其他组件占位符
-struct DanmakuOverlayViewV2: View {
-    @Binding var showDanmaku: Bool
-    let opacity: Double
-    let fontSize: CGFloat
-
-    var body: some View {
-        EmptyView()
-    }
-}
-
+// MARK: - 其他组件
 struct PlayerSettingsViewV2: View {
     @Binding var speed: Double
     var onSpeedChange: (Double) -> Void
@@ -139,29 +188,4 @@ struct QualityPickerViewV2: View {
             .navigationTitle("清晰度")
         }
     }
-}
-
-struct DanmakuSettingsViewV2: View {
-    @Binding var showDanmaku: Bool
-    @Binding var opacity: Double
-    @Binding var fontSize: CGFloat
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Toggle("开启弹幕", isOn: $showDanmaku)
-            }
-            .navigationTitle("弹幕设置")
-        }
-    }
-}
-
-struct AirPlayViewV2: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        AVRoutePickerView()
-    }
-
-    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
