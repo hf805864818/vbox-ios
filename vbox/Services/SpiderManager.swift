@@ -1294,6 +1294,3 @@ globalThis.__JS_SPIDER__ = _spider;
         )
     }
 }
-
-
-}}
