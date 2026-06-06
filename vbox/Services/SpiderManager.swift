@@ -1173,12 +1173,15 @@ globalThis.__JS_SPIDER__ = _spider;
         for site in detailSites {
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
             let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
+            
+            // 判断api是否已包含查询参数
+            let separator = api.contains("?") ? "&" : "?"
 
             // 尝试多种API格式
             let apiFormats = [
-                "\(api)?ac=videolist&ids=\(ids)",
-                "\(api)?ac=detail&ids=\(ids)",
-                "\(api)?ac=videolist&ids=\(ids)&pg=1"
+                "\(api)\(separator)ac=videolist&ids=\(ids)",
+                "\(api)\(separator)ac=detail&ids=\(ids)",
+                "\(api)\(separator)ac=videolist&ids=\(ids)&pg=1"
             ]
 
             for format in apiFormats {
@@ -1194,7 +1197,7 @@ globalThis.__JS_SPIDER__ = _spider;
             // ids 失败，用名称搜索
             if let n = name, !n.isEmpty,
                let encN = n.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-               let searchURL = URL(string: "\(api)?ac=detail&wd=\(encN)") {
+               let searchURL = URL(string: "\(api)\(separator)ac=detail&wd=\(encN)") {
                 if let result = await fetchDetailFromSearchList(url: searchURL, siteName: site.name, targetName: n) {
                     print("[SpiderManager] ✅ nativeDetail 名称搜索成功: \(site.name)")
                     return result
