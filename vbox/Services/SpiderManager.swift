@@ -616,8 +616,19 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] nativeSearch 共有 \(searchSites.count) 个 API 站点")
         for site in searchSites.prefix(20) {  // 最多搜20个防止太慢
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
-            let api = siteApi
-            let searchURL = "\(api)\(encodedKW)"
+            let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
+            
+            // 构建正确的搜索URL
+            let searchURL: String
+            if api.contains("?") {
+                // API地址已包含查询参数
+                searchURL = "\(api)&wd=\(encodedKW)"
+            } else {
+                // 标准TVBox API格式
+                searchURL = "\(api)?ac=detail&wd=\(encodedKW)"
+            }
+            
+            print("[SpiderManager] 搜索URL: \(searchURL)")
 
             do {
                 if let url = URL(string: searchURL) {
