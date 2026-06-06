@@ -235,7 +235,7 @@ class CloudDriveManager: ObservableObject {
         let playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
 
         // Step 5: 30秒后清理
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 30)
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 4800)
 
         return PlayResult(
             url: playURL,
@@ -376,7 +376,7 @@ class CloudDriveManager: ObservableObject {
         let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? "", cookie: cookie)
 
         // Step 5: 30秒后清理
-        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 30)
+        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 4800)
 
         return result
     }
@@ -599,7 +599,7 @@ class CloudDriveManager: ObservableObject {
         let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
 
         // Step 5: 30秒后清理
-        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 30)
+        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 4800)
 
         return PlayResult(
             url: playURL,
