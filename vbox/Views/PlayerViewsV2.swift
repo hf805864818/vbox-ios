@@ -84,6 +84,7 @@ class PlayerState: ObservableObject {
     @Published var danmakuFontSize: CGFloat = 16
     @Published var isOrientationLocked = false
     @Published var volume: Double = 0.5
+    @Published var brightness: Double = 0.5
     @Published var danmakuItems: [DanmakuRenderItem] = []
     @Published var currentEpisodeIndex = 0
     
