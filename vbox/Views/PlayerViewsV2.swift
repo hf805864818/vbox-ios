@@ -91,6 +91,9 @@ struct VideoPlayerViewV2: View {
                     Image(systemName: "list.bullet")
                         .foregroundColor(.white)
                 }
+                
+                AirPlayViewV2()
+                    .frame(width: 30, height: 30)
 
                 Spacer()
             }
@@ -123,6 +126,14 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+}
+
+struct AirPlayViewV2: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        AVRoutePickerView()
+    }
+    
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
 // MARK: - 其他组件
