@@ -433,10 +433,12 @@ struct VideoPlayerViewV2: View {
         // 添加时间观察者更新进度条
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self = self else { return }
-            self.currentTime = time.seconds
-            if let itemDuration = p.currentItem?.duration {
-                self.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
+            guard let strongSelf = self else { return }
+            DispatchQueue.main.async {
+                strongSelf.currentTime = time.seconds
+                if let itemDuration = p.currentItem?.duration {
+                    strongSelf.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
+                }
             }
         }
         
