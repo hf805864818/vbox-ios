@@ -1125,7 +1125,7 @@ struct DanmakuSettingsPanelV2: View {
                     
                     Spacer()
                     
-                    Toggle("", isOn: $showDanmaku)
+                    Toggle("弹幕", isOn: $showDanmaku)
                         .labelsHidden()
                 }
                 .padding(.horizontal, 16)
