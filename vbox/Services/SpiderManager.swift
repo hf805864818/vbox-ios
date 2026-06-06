@@ -1095,20 +1095,32 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 解析单个网盘分享链接为播放地址
     func resolvePanURL(_ panURL: String) async -> (url: String, headers: [String: String])? {
         guard let driveType = CloudDriveManager.detectDrive(from: panURL) else {
-            print("[SpiderManager] resolvePanURL: 无法识别网盘类型: \(panURL.prefix(40))")
+            print("[SpiderManager] ❌ resolvePanURL: 无法识别网盘类型: \(panURL.prefix(40))")
             return nil
         }
+        print("[SpiderManager] 🔍 检测到网盘类型: \(driveType.displayName)")
         let tokens = CloudDriveManager.shared.tokens(for: driveType)
         guard let token = tokens.first else {
-            print("[SpiderManager] ⚠️ 未配置 \(driveType.displayName) Token")
+            print("[SpiderManager] ⚠️ 未配置 \(driveType.displayName) Token，请到设置中配置")
             return (panURL, [:])
         }
+        print("[SpiderManager] ✅ 获取到 \(driveType.displayName) Token: \(token.name)")
         do {
+            print("[SpiderManager] ⏳ 正在调用 \(driveType.displayName) API 解析播放地址...")
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: panURL)
-            print("[SpiderManager] ✅ \(driveType.displayName) 解析成功: \(result.url.prefix(60))...")
+            print("[SpiderManager] ✅ \(driveType.displayName) 解析成功! 播放地址: \(result.url.prefix(80))...")
+            if !result.headers.isEmpty {
+                print("[SpiderManager] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
+            }
             return (result.url, result.headers)
-        } catch {
+        } catch let error as CloudDriveManager.DriveError {
             print("[SpiderManager] ❌ \(driveType.displayName) 解析失败: \(error.localizedDescription)")
+            if case .notImplemented = error {
+                print("[SpiderManager] 💡 提示: Token 无效或已过期，请在设置中重新配置 \(driveType.displayName) Token")
+            }
+            return nil
+        } catch {
+            print("[SpiderManager] ❌ \(driveType.displayName) 解析异常: \(error.localizedDescription)")
             return nil
         }
     }
