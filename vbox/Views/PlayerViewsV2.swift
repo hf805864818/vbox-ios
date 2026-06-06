@@ -494,11 +494,16 @@ struct DanmakuOverlayViewV2: View {
             let item = allDanmaku[currentIndex]
             let y = CGFloat.random(in: 50...250)
             danmakuItems.append(DanmakuItemData(text: item.text, x: UIScreen.main.bounds.width + 50, y: y, id: currentIndex))
+            let itemId = currentIndex
             currentIndex += 1
 
-            withAnimation(.linear(duration: 8)) {
-                if let idx = danmakuItems.firstIndex(where: { $0.id == currentIndex - 1 }) {
-                    danmakuItems[idx].x = -100
+            DispatchQueue.main.async {
+                withAnimation(.linear(duration: 8)) {
+                    if let idx = danmakuItems.firstIndex(where: { $0.id == itemId }) {
+                        var updatedItem = danmakuItems[idx]
+                        updatedItem.x = -100
+                        danmakuItems[idx] = updatedItem
+                    }
                 }
             }
 
