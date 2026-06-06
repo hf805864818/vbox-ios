@@ -87,6 +87,39 @@ class CloudDriveManager: ObservableObject {
         saveTokens()
     }
 
+    // MARK: - 转存文件夹管理
+    /// 获取或创建"vbox播放"文件夹的 file_id
+    private func ensureVboxFolder(drive: DriveType, token: String) async throws -> String {
+        switch drive {
+        case .quark:
+            return try await quarkEnsureFolder(cookie: token)
+        case .baidu:
+            return try await baiduEnsureFolder(bduss: token)
+        case .uc:
+            return try await ucEnsureFolder(cookie: token)
+        default:
+            return "" // 阿里/115 不需要转存
+        }
+    }
+
+    // 转存完成后，异步清理转存的文件
+    private func scheduleCleanup(drive: DriveType, fileIds: [String], token: String, delay: TimeInterval = 30) {
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            await cleanupFiles(drive: drive, fileIds: fileIds, token: token)
+        }
+    }
+
+    private func cleanupFiles(drive: DriveType, fileIds: [String], token: String) async {
+        print("[CloudDrive] 清理 \(drive.rawValue) 转存文件: \(fileIds.count) 个")
+        switch drive {
+        case .quark: await quarkDeleteFiles(fileIds: fileIds, cookie: token)
+        case .baidu: await baiduDeleteFiles(fileIds: fileIds, bduss: token)
+        case .uc: await ucDeleteFiles(fileIds: fileIds, cookie: token)
+        default: break
+        }
+    }
+
     /// 获取某种类型的所有 Token
     func tokens(for type: DriveType) -> [DriveToken] {
         savedTokens.filter { $0.type == type.rawValue }
@@ -191,12 +224,18 @@ class CloudDriveManager: ObservableObject {
         // Step 1: 提取 pwd_id 和 share_id
         let (shareId, pwdId) = try await quarkExtractShareInfo(shareURL: shareURL, cookie: cookie)
 
-        // Step 2: 转存到自己的网盘
-        let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, cookie: cookie)
+        // Step 2: 获取 vbox 文件夹 ID
+        let folderId = try await quarkEnsureFolder(cookie: cookie)
 
-        // Step 3: 获取播放地址
+        // Step 3: 转存到 vbox 文件夹
+        let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, folderId: folderId, cookie: cookie)
+
+        // Step 4: 获取播放地址
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
         let playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
+
+        // Step 5: 30秒后清理
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 30)
 
         return PlayResult(
             url: playURL,
@@ -231,7 +270,52 @@ class CloudDriveManager: ObservableObject {
         return (shareId, pwdId)
     }
 
-    private func quarkSaveShare(shareId: String, pwdId: String, cookie: String) async throws -> [String] {
+    private func quarkEnsureFolder(cookie: String) async throws -> String {
+        let listURL = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file/sort")!
+        var req = URLRequest(url: listURL)
+        req.httpMethod = "POST"
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let listBody: [String: Any] = ["pdir_fid": "", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
+        req.httpBody = try JSONSerialization.data(withJSONObject: listBody)
+        let (data, _) = try await session.data(for: req)
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = json["data"] as? [String: Any],
+           let files = list["list"] as? [[String: Any]] {
+            for file in files {
+                if let name = file["file_name"] as? String, name == "vbox播放",
+                   let fid = file["fid"] as? String { return fid }
+            }
+        }
+        // 创建文件夹
+        let createURL = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file")!
+        var createReq = URLRequest(url: createURL)
+        createReq.httpMethod = "POST"
+        createReq.setValue(cookie, forHTTPHeaderField: "Cookie")
+        createReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let createBody: [String: Any] = ["pdir_fid": "", "file_name": "vbox播放", "dir": true, "dir_path": ""]
+        createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
+        let (createData, _) = try await session.data(for: createReq)
+        if let createJson = try JSONSerialization.jsonObject(with: createData) as? [String: Any],
+           let d = createJson["data"] as? [String: Any],
+           let fid = d["fid"] as? String { return fid }
+        return ""
+    }
+
+    private func quarkDeleteFiles(fileIds: [String], cookie: String) async {
+        guard !fileIds.isEmpty else { return }
+        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file/trash")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["file_ids": fileIds, "trash": true]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let _ = try? await session.data(for: req)
+        print("[CloudDrive] ✅ 夸克已删除 \(fileIds.count) 个转存文件")
+    }
+
+    private func quarkSaveShare(shareId: String, pwdId: String, folderId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/save")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -240,7 +324,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = [
             "share_id": shareId,
             "pwd_id": pwdId,
-            "to_pdir_fid": ""
+            "to_pdir_fid": folderId
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -250,7 +334,10 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.saveFailed
         }
 
-        // 返回转存的文件 ID 列表
+        // 返回真实 file_ids
+        if let d = json["data"] as? [String: Any], let fileIds = d["file_ids"] as? [String] {
+            return fileIds
+        }
         return [shareId]
     }
 
@@ -277,12 +364,21 @@ class CloudDriveManager: ObservableObject {
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
         // Step 1: 提取 surl 和 pwd
         let (surl, pwd) = extractBaiduShareInfo(from: shareURL)
+        let cookie = "BDUSS=\(bduss)"
 
-        // Step 2: 转存文件
-        let fsIds = try await baiduTransferFile(surl: surl, pwd: pwd, cookie: "BDUSS=\(bduss)")
+        // Step 2: 获取 vbox 文件夹路径
+        let _ = try await baiduEnsureFolder(bduss: bduss) // 确保文件夹存在
 
-        // Step 3: 获取 dlink
-        return try await baiduGetRealDownloadLink(fsId: fsIds.first ?? "", cookie: "BDUSS=\(bduss)")
+        // Step 3: 转存文件
+        let fsIds = try await baiduTransferFile(surl: surl, pwd: pwd, cookie: cookie)
+
+        // Step 4: 获取 dlink
+        let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? "", cookie: cookie)
+
+        // Step 5: 30秒后清理
+        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 30)
+
+        return result
     }
 
     private func extractBaiduShareInfo(from url: String) -> (surl: String, pwd: String) {
@@ -316,6 +412,41 @@ class CloudDriveManager: ObservableObject {
 
         // 返回 fs_ids
         return [surl]
+    }
+
+    private func baiduEnsureFolder(bduss: String) async throws -> String {
+        let listURL = URL(string: "https://pan.baidu.com/api/list?dir=/&order=time&desc=1&num=100&page=1&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+        var req = URLRequest(url: listURL)
+        req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        if let (data, _) = try? await session.data(for: req),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = json["list"] as? [[String: Any]] {
+            for item in list {
+                if let name = item["server_filename"] as? String, name == "vbox播放" { return "/vbox播放/" }
+            }
+        }
+        let createURL = URL(string: "https://pan.baidu.com/api/create?a=commit&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+        var createReq = URLRequest(url: createURL)
+        createReq.httpMethod = "POST"
+        createReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        createReq.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        let params = "path=/vbox播放&isdir=1&block_list=[]"
+        createReq.httpBody = params.data(using: .utf8)
+        let _ = try? await session.data(for: createReq)
+        return "/vbox播放/"
+    }
+
+    private func baiduDeleteFiles(fileIds: [String], bduss: String) async {
+        guard !fileIds.isEmpty else { return }
+        let url = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        let params = "filelist=[\"\(fileIds.first!)\"]&path=/vbox播放/"
+        req.httpBody = params.data(using: .utf8)
+        let _ = try? await session.data(for: req)
+        print("[CloudDrive] ✅ 百度已删除转存文件")
     }
 
     private func baiduGetRealDownloadLink(fsId: String, cookie: String) async throws -> PlayResult {
@@ -457,12 +588,18 @@ class CloudDriveManager: ObservableObject {
         // Step 1: 提取 share_id
         let shareId = extractUCShareId(from: shareURL)
 
-        // Step 2: 转存到网盘
-        let fileIds = try await ucSaveShare(shareId: shareId, cookie: cookie)
+        // Step 2: 获取 vbox 文件夹 ID
+        let folderId = try await ucEnsureFolder(cookie: cookie)
 
-        // Step 3: 获取播放地址
+        // Step 3: 转存
+        let fileIds = try await ucSaveShare(shareId: shareId, folderId: folderId, cookie: cookie)
+
+        // Step 4: 获取播放地址
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
         let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
+
+        // Step 5: 30秒后清理
+        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 30)
 
         return PlayResult(
             url: playURL,
@@ -480,7 +617,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// UC 转存分享文件
-    private func ucSaveShare(shareId: String, cookie: String) async throws -> [String] {
+    private func ucSaveShare(shareId: String, folderId: String, cookie: String) async throws -> [String] {
         var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/save")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -490,7 +627,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = [
             "share_id": shareId,
             "stoken": "",
-            "to_pdir_fid": ""
+            "to_pdir_fid": folderId
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -509,6 +646,55 @@ class CloudDriveManager: ObservableObject {
         }
 
         return [shareId]
+    }
+
+    /// UC 确保 vbox 文件夹存在
+    private func ucEnsureFolder(cookie: String) async throws -> String {
+        let listURL = URL(string: "https://drive.uc.cn/1/clouddrive/file/sort")!
+        var req = URLRequest(url: listURL)
+        req.httpMethod = "POST"
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        let body: [String: Any] = ["pdir_fid": "", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        if let (data, _) = try? await session.data(for: req),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let list = json["data"] as? [String: Any],
+           let files = list["list"] as? [[String: Any]] {
+            for f in files {
+                if let name = f["file_name"] as? String, name == "vbox播放",
+                   let fid = f["fid"] as? String { return fid }
+            }
+        }
+        let createURL = URL(string: "https://drive.uc.cn/1/clouddrive/file")!
+        var createReq = URLRequest(url: createURL)
+        createReq.httpMethod = "POST"
+        createReq.setValue(cookie, forHTTPHeaderField: "Cookie")
+        createReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createReq.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        let createBody: [String: Any] = ["pdir_fid": "", "file_name": "vbox播放", "dir": true, "dir_path": ""]
+        createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
+        if let (createData, _) = try? await session.data(for: createReq),
+           let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
+           let d = createJson["data"] as? [String: Any],
+           let fid = d["fid"] as? String { return fid }
+        return ""
+    }
+
+    /// UC 清理转存文件
+    private func ucDeleteFiles(fileIds: [String], cookie: String) async {
+        guard !fileIds.isEmpty else { return }
+        let url = URL(string: "https://drive.uc.cn/1/clouddrive/file/trash")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        let body: [String: Any] = ["file_ids": fileIds, "trash": true]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        let _ = try? await session.data(for: req)
+        print("[CloudDrive] ✅ UC 已删除 \(fileIds.count) 个转存文件")
     }
 
     /// UC 获取播放地址

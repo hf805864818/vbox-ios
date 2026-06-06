@@ -412,7 +412,11 @@ struct VideoPlayerView: View {
                 }
             }
             .statusBar(hidden: true)
-            .onAppear { setupPlayer() }
+            .onAppear {
+                UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+                UINavigationController.attemptRotationToDeviceOrientation()
+                setupPlayer()
+            }
             .onDisappear { player?.pause(); controlsTimer?.invalidate() }
             .sheet(isPresented: $showSettings) { PlayerSettingsView(speed: $playbackSpeed, onSpeedChange: changePlaybackSpeed) }
             .sheet(isPresented: $showEpisodePicker) { EpisodePickerView() }
@@ -881,7 +885,11 @@ struct PanPlayerView: View {
             else if let p = player { AVPlayerController2(player: p).ignoresSafeArea() }
         }
         .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-        .onAppear { Task { let result = await SpiderManager.shared.resolvePanURL(panURL); await MainActor.run { if let r = result, let url = URL(string: r.url) { if !r.headers.isEmpty { let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": r.headers]); player = AVPlayer(playerItem: AVPlayerItem(asset: asset)) } else { player = AVPlayer(url: url) }; player?.play(); isLoading = false } else { loadError = "解析失败，请检查是否配置了网盘Token" } } } }
+        .onAppear {
+            UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+            UINavigationController.attemptRotationToDeviceOrientation()
+            Task { let result = await SpiderManager.shared.resolvePanURL(panURL); await MainActor.run { if let r = result, let url = URL(string: r.url) { if !r.headers.isEmpty { let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": r.headers]); player = AVPlayer(playerItem: AVPlayerItem(asset: asset)) } else { player = AVPlayer(url: url) }; player?.play(); isLoading = false } else { loadError = "解析失败，请检查是否配置了网盘Token" } } }
+        }
     }
 }
 
