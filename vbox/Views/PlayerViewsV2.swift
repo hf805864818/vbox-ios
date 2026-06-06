@@ -80,20 +80,30 @@ class PlayerState: ObservableObject {
         setupPlayer(video: video)
     }
     
+    // MARK: - 播放地址解析
     private func resolvePlayUrl(video: VodItem) async {
-        print("开始解析播放地址: \(video.vodId)")
+        print("[PlayerV2] 开始解析播放地址: \(video.vodId)")
         
         let spider = SpiderManager.shared
         var playUrl: String? = video.vodPlayUrl
+        var playFrom: String? = video.vodPlayFrom
         
-        // 获取详情
+        // 步骤1: 优先通过 getDetail 获取最新详情
+        print("[PlayerV2] 步骤1: 获取视频详情...")
         if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
+            print("[PlayerV2] 步骤1: 获取详情成功")
             if let pu = detail.vodPlayUrl, !pu.isEmpty {
                 playUrl = pu
+                playFrom = detail.vodPlayFrom
+                print("[PlayerV2] 步骤1: 使用详情中的播放地址")
             }
+        } else {
+            print("[PlayerV2] 步骤1: 使用传入的播放地址")
         }
         
-        guard let finalUrl = playUrl, !finalUrl.isEmpty else {
+        // 步骤2: 检查 playUrl 的类型并处理
+        guard let finalPlayUrl = playUrl, !finalPlayUrl.isEmpty else {
+            print("[PlayerV2] 错误: 没有可用的播放地址")
             await MainActor.run {
                 loadError = "无法获取播放地址"
                 isLoading = false
@@ -101,38 +111,144 @@ class PlayerState: ObservableObject {
             return
         }
         
-        await handlePlayUrl(finalUrl, spider: spider, video: video)
+        print("[PlayerV2] 步骤2: 处理播放地址")
+        
+        // 情况A: 多集格式（包含 $ 或 #）
+        if finalPlayUrl.contains("$") || finalPlayUrl.contains("#") {
+            print("[PlayerV2] 步骤2: 检测到多集格式")
+            let urls = parsePlayUrls(playFrom: playFrom ?? "", playUrl: finalPlayUrl)
+            print("[PlayerV2] 步骤2: 解析出 \(urls.count) 个地址")
+            
+            if let firstUrl = urls.first, !firstUrl.isEmpty {
+                await handlePlayUrl(firstUrl, spider: spider, video: video)
+                return
+            }
+        }
+        
+        // 情况B: 单集或直链
+        await handlePlayUrl(finalPlayUrl, spider: spider, video: video)
     }
     
+    // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
+        print("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
+        
         // 检查是否是直链
         let isDirectLink = urlString.hasPrefix("http") && (
             urlString.contains(".m3u8") ||
             urlString.contains(".mp4") ||
             urlString.contains(".flv") ||
-            urlString.contains(".m4v")
+            urlString.contains(".m4v") ||
+            urlString.contains(".ts") ||
+            urlString.contains("/hls/") ||
+            urlString.contains("/video/")
         )
         
-        if isDirectLink, let url = URL(string: urlString) {
-            await MainActor.run { initPlayer(url: url) }
-            return
-        }
-        
-        // 需要解析的链接
-        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
-            if let pu = pr.playUrl ?? pr.url, !pu.isEmpty, let url = URL(string: pu) {
+        if isDirectLink {
+            print("[PlayerV2] 直链模式: 直接使用")
+            if let url = URL(string: urlString) {
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
         }
         
+        // 需要解析的链接：调用 getPlayerContent
+        print("[PlayerV2] 解析模式: 需要调用 playerContent")
+        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
+            let pu = pr.playUrl ?? pr.url
+            if let pu = pu, !pu.isEmpty {
+                print("[PlayerV2] 解析成功: \(pu.prefix(80))...")
+                if let url = URL(string: pu) {
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                }
+            }
+        }
+        
+        // 尝试 nativeDetail 作为备选
+        print("[PlayerV2] 备选: 尝试 nativeDetail...")
+        let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
+        if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
+            print("[PlayerV2] nativeDetail 成功")
+            // 处理多集格式
+            let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
+            let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? pu
+            if !du.isEmpty, let url = URL(string: du) {
+                await MainActor.run { initPlayer(url: url) }
+                return
+            }
+        }
+        
+        // 检查是否是网盘链接
+        print("[PlayerV2] 检查网盘链接...")
+        let playUrlToCheck = video.vodPlayUrl ?? nd?.vodPlayUrl ?? urlString
+        if !playUrlToCheck.isEmpty, let driveType = CloudDriveManager.detectDrive(from: playUrlToCheck) {
+            print("[PlayerV2] 检测到 \(driveType.displayName) 网盘链接")
+            do {
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
+                print("[PlayerV2] 网盘解析成功: \(result.url.prefix(60))...")
+                if let url = URL(string: result.url) {
+                    let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
+                    let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                    p.automaticallyWaitsToMinimizeStalling = true
+                    
+                    await MainActor.run {
+                        self.player = p
+                        self.isPlaying = true
+                        self.isLoading = false
+                    }
+                    
+                    // 添加时间观察者
+                    let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+                    timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+                        self?.currentTime = time.seconds
+                        if let itemDuration = p.currentItem?.duration {
+                            self?.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
+                        }
+                    }
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        p.play()
+                    }
+                    return
+                }
+            } catch {
+                print("[PlayerV2] 网盘解析失败: \(error.localizedDescription)")
+            }
+        }
+        
+        // 所有方式失败
+        print("[PlayerV2] 所有方式都失败")
         await MainActor.run {
             loadError = "无法解析播放地址"
             isLoading = false
         }
     }
     
+    // MARK: - 解析多集播放地址
+    private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
+        var urls: [String] = []
+        if playUrl.contains("#") {
+            let parts = playUrl.components(separatedBy: "#")
+            for part in parts {
+                if let range = part.range(of: "$") {
+                    let u = String(part[range.upperBound...])
+                    if !u.isEmpty { urls.append(u) }
+                } else if !part.isEmpty {
+                    urls.append(part)
+                }
+            }
+        } else if playUrl.contains("$$$") {
+            urls = playUrl.components(separatedBy: "$$$")
+        } else {
+            urls = [playUrl]
+        }
+        return urls.filter { !$0.isEmpty }
+    }
+    
     private func initPlayer(url: URL) {
+        print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(80))...")
+        
         let asset = AVURLAsset(url: url)
         let playerItem = AVPlayerItem(asset: asset)
         let p = AVPlayer(playerItem: playerItem)
@@ -151,8 +267,10 @@ class PlayerState: ObservableObject {
             }
         }
         
+        // 延迟播放确保UI准备好
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             p.play()
+            print("[PlayerV2] 播放器开始播放")
         }
     }
 }
