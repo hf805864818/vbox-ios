@@ -9,7 +9,26 @@ struct VideoDetailView: View {
     @State private var showPanPicker = false
     @State private var selectedPanURL: String?
     @State private var isFavorite = false
+    @State private var panLinks: [(url: String, name: String)] = []
+    @State private var isLoadingPan = false
     @Environment(\.dismiss) private var dismiss
+
+    private func loadPanLinks() {
+        isLoadingPan = true
+        Task {
+            if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
+                await MainActor.run {
+                    panLinks = result.links
+                    isLoadingPan = false
+                    if !result.links.isEmpty {
+                        showPanPicker = true
+                    }
+                }
+            } else {
+                await MainActor.run { isLoadingPan = false }
+            }
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -31,13 +50,18 @@ struct VideoDetailView: View {
                                        startPoint: .top, endPoint: .bottom)
 
                         Button(action: { 
-                            // 检查是否是网盘资源（多个链接）
-                            if video.vodRemarks?.hasPrefix("☁️") == true,
-                               let playUrl = video.vodPlayUrl,
-                               let data = playUrl.data(using: .utf8),
-                               let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
-                               !links.isEmpty {
-                                showPanPicker = true
+                            // 检查是否是网盘资源
+                            if video.vodRemarks?.hasPrefix("☁️") == true {
+                                // 如果 vodPlayUrl 为空（搜索结果直接进来的），调 getDetail 获取网盘链接列表
+                                if let playUrl = video.vodPlayUrl,
+                                   let data = playUrl.data(using: .utf8),
+                                   let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
+                                   !links.isEmpty {
+                                    showPanPicker = true
+                                } else {
+                                    // 还没加载网盘链接，加载
+                                    loadPanLinks()
+                                }
                             } else {
                                 showPlayer = true 
                             }
@@ -101,7 +125,7 @@ struct VideoDetailView: View {
                     .ignoresSafeArea()
             }
             .sheet(isPresented: $showPanPicker) {
-                PanLinkPickerView(video: video)
+                PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
             }
 
             // 返回
@@ -833,6 +857,7 @@ enum DanmakuError: LocalizedError {
 // MARK: - 网盘链接选择视图
 struct PanLinkPickerView: View {
     let video: VodItem
+    var preloadedLinks: [(url: String, name: String)]? = nil
     @State private var links: [(url: String, name: String)] = []
     @State private var isLoading = true
     @Environment(\.dismiss) private var dismiss
@@ -863,6 +888,9 @@ struct PanLinkPickerView: View {
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { dismiss() } } }
         }
         .onAppear {
+            if let pre = preloadedLinks, !pre.isEmpty {
+                links = pre; isLoading = false; return
+            }
             guard let playUrl = video.vodPlayUrl, let data = playUrl.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { isLoading = false; return }
             links = json.compactMap { item in guard let url = item["url"], let name = item["name"] else { return nil }; return (url, name) }
             isLoading = false
