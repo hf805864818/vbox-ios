@@ -546,11 +546,13 @@ globalThis.__JS_SPIDER__ = _spider;
         if ids.hasPrefix("http://") || ids.hasPrefix("https://") {
             print("[SpiderManager] getDetail 检测到详情页URL，走网盘解析: \(ids.prefix(80))")
             if let result = await resolveCloudPlay(from: ids) {
-                // 构造一个 VodItem，vodPlayUrl 存解析后的播放地址
-                let headerStr: String? = result.headers.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: result.headers)).flatMap { String(data: $0, encoding: .utf8) }
-                let item = VodItem(vodId: ids, vodName: name ?? "网盘资源", vodPic: "",
-                                   vodRemarks: "☁️网盘", vodActor: headerStr, vodPlayUrl: result.url)
-                return item
+                // 把所有网盘链接编码到 vodPlayUrl 中
+                if let linkData = try? JSONSerialization.data(withJSONObject: result.links.map { ["url": $0.url, "name": $0.name] }),
+                   let linkJSON = String(data: linkData, encoding: .utf8) {
+                    let item = VodItem(vodId: ids, vodName: result.siteName, vodPic: "",
+                                       vodRemarks: "☁️网盘", vodPlayUrl: linkJSON)
+                    return item
+                }
             }
             print("[SpiderManager] ❌ 网盘详情页解析失败")
             return nil
@@ -1003,8 +1005,8 @@ globalThis.__JS_SPIDER__ = _spider;
         return results
     }
 
-    /// 网盘资源详情解析（从详情页 HTML 中提取网盘链接）
-    func resolveCloudPlay(from detailURL: String) async -> (url: String, headers: [String: String])? {
+    /// 网盘资源详情解析（从详情页 HTML 中提取所有网盘链接+标题）
+    func resolveCloudPlay(from detailURL: String) async -> (links: [(url: String, name: String)], siteName: String)? {
         print("[SpiderManager] resolveCloudPlay: \(detailURL)")
         guard let url = URL(string: detailURL) else { return nil }
         var req = URLRequest(url: url)
@@ -1014,41 +1016,89 @@ globalThis.__JS_SPIDER__ = _spider;
             let (data, _) = try await URLSession.shared.data(for: req)
             guard let html = String(data: data, encoding: .utf8) else { return nil }
             
-            // 提取网盘分享链接（115网盘）
-            let aliyunPattern = #"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#
-            let quarkPattern = #"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#
-            let pan115Pattern = #"(https?://115cdn\.com/s/[^\s\"<>']*)"#
-            let baiduPattern = #"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#
-            let ucPattern = #"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#
+            // 提取视频名称（页面上找）
+            var videoName = ""
+            if let titleRegex = try? NSRegularExpression(pattern: #"<h1[^>]*class="[^"]*page-title[^"]*"[^>]*>([^<]+)"#),
+               let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let r = Range(m.range(at: 1), in: html) {
+                videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if videoName.isEmpty,
+               let titleRegex = try? NSRegularExpression(pattern: #"<title>([^<]+)"#),
+               let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let r = Range(m.range(at: 1), in: html) {
+                videoName = String(html[r]).trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "-.*$", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+            }
             
-            let patterns = [pan115Pattern, aliyunPattern, quarkPattern, baiduPattern, ucPattern]
-            for pattern in patterns {
+            // 提取所有网盘分享链接（去重），并识别网盘类型
+            let panPatterns: [(pattern: String, driveName: String)] = [
+                (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
+                (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
+                (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
+                (#"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#, "百度网盘"),
+                (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
+                (#"(https?://yun\.139\.com/[^\s\"<>']*)"#, "天翼云盘"),
+            ]
+            
+            var allLinks: [(url: String, name: String)] = []
+            var seenURLs = Set<String>()
+            
+            for (pattern, driveName) in panPatterns {
                 guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
-                if let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                   let range = Range(match.range(at: 1), in: html) {
-                    let panURL = String(html[range])
-                    print("[SpiderManager] ✅ 找到网盘链接: \(panURL)")
-                    // 检测网盘类型
-                    if let driveType = CloudDriveManager.detectDrive(from: panURL) {
-                        print("[SpiderManager] 网盘类型: \(driveType.displayName)")
-                        let tokens = CloudDriveManager.shared.tokens(for: driveType)
-                        if let token = tokens.first {
-                            let result = try await CloudDriveManager.shared.resolvePlayURL(from: panURL)
-                            print("[SpiderManager] ✅ 网盘解析成功: \(result.url.prefix(60))...")
-                            return (result.url, result.headers)
-                        } else {
-                            print("[SpiderManager] ⚠️ 未配置 \(driveType.displayName) Token")
-                            // 返回链接本身，让播放器走正常的 Step4 逻辑自己去提示
-                            return (panURL, [:])
+                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                for match in matches {
+                    if let r = Range(match.range(at: 1), in: html) {
+                        let panURL = String(html[r])
+                        if !seenURLs.contains(panURL) {
+                            seenURLs.insert(panURL)
+                            // 看看这个链接附近有没有描述文本（如 4K/1080P/国语等）
+                            var desc = driveName
+                            let pos = match.range(at: 1).location
+                            let start = Int(max(0, Int(pos) - 60))
+                            let len = min(Int(pos) + 80, html.count) - start
+                            if start >= 0, start + len <= html.count {
+                                let around = String(html[html.index(html.startIndex, offsetBy: start)..<html.index(html.startIndex, offsetBy: start + len)])
+                                if let qualityRegex = try? NSRegularExpression(pattern: #"(4K|1080[Pp]|720[Pp]|蓝光|高清|国语|粤语|中字|原盘|REMUX|HDR|60帧|DV)"#),
+                                   let qMatch = qualityRegex.firstMatch(in: around, range: NSRange(around.startIndex..., in: around)),
+                                   let qRange = Range(qMatch.range(at: 1), in: around) {
+                                    desc = "\(String(around[qRange]))·\(driveName)"
+                                }
+                            }
+                            allLinks.append((panURL, desc))
                         }
                     }
-                    return (panURL, [:])
                 }
             }
-            print("[SpiderManager] ❌ 未找到网盘链接")
-            return nil
+            
+            if allLinks.isEmpty {
+                print("[SpiderManager] ❌ 未找到网盘链接")
+                return nil
+            }
+            print("[SpiderManager] ✅ 找到 \(allLinks.count) 个网盘链接: \(allLinks.map { $0.name })")
+            return (allLinks, videoName.isEmpty ? "网盘资源" : videoName)
         } catch {
             print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 解析单个网盘分享链接为播放地址
+    func resolvePanURL(_ panURL: String) async -> (url: String, headers: [String: String])? {
+        guard let driveType = CloudDriveManager.detectDrive(from: panURL) else {
+            print("[SpiderManager] resolvePanURL: 无法识别网盘类型: \(panURL.prefix(40))")
+            return nil
+        }
+        let tokens = CloudDriveManager.shared.tokens(for: driveType)
+        guard let token = tokens.first else {
+            print("[SpiderManager] ⚠️ 未配置 \(driveType.displayName) Token")
+            return (panURL, [:])
+        }
+        do {
+            let result = try await CloudDriveManager.shared.resolvePlayURL(from: panURL)
+            print("[SpiderManager] ✅ \(driveType.displayName) 解析成功: \(result.url.prefix(60))...")
+            return (result.url, result.headers)
+        } catch {
+            print("[SpiderManager] ❌ \(driveType.displayName) 解析失败: \(error.localizedDescription)")
             return nil
         }
     }

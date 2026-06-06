@@ -1,5 +1,4 @@
 import SwiftUI
-import AVKit
 
 // vbox 主入口在 App/VBoxApp.swift
 
@@ -965,20 +964,6 @@ struct SearchResultsView: View {
             VideoDetailView(video: video)
         }
     }
-}
-
-// MARK: - AVPlayer 控制器封装
-struct AVPlayerController: UIViewControllerRepresentable {
-    let player: AVPlayer
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let c = AVPlayerViewController()
-        c.player = player
-        c.showsPlaybackControls = true
-        c.entersFullScreenWhenPlaybackBegins = true
-        c.canStartPictureInPictureAutomaticallyFromInline = true
-        return c
-    }
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
 
 // 搜索结果行 — 封面 + 详情标签

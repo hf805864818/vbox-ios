@@ -6,6 +6,8 @@ import AVFoundation
 struct VideoDetailView: View {
     let video: VodItem
     @State private var showPlayer = false
+    @State private var showPanPicker = false
+    @State private var selectedPanURL: String?
     @State private var isFavorite = false
     @Environment(\.dismiss) private var dismiss
 
@@ -28,7 +30,18 @@ struct VideoDetailView: View {
                         LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)],
                                        startPoint: .top, endPoint: .bottom)
 
-                        Button(action: { showPlayer = true }) {
+                        Button(action: { 
+                            // 检查是否是网盘资源（多个链接）
+                            if video.vodRemarks?.hasPrefix("☁️") == true,
+                               let playUrl = video.vodPlayUrl,
+                               let data = playUrl.data(using: .utf8),
+                               let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
+                               !links.isEmpty {
+                                showPanPicker = true
+                            } else {
+                                showPlayer = true 
+                            }
+                        }) {
                             ZStack {
                                 Circle().fill(Color(hex: "E11D48")).frame(width: 70, height: 70)
                                 Image(systemName: "play.fill").font(.system(size: 28, weight: .bold)).foregroundColor(.white).offset(x: 3)
@@ -86,6 +99,9 @@ struct VideoDetailView: View {
                 VideoPlayerView(video: video)
                     .supportedOrientations(.landscape)
                     .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showPanPicker) {
+                PanLinkPickerView(video: video)
             }
 
             // 返回
@@ -808,4 +824,72 @@ enum DanmakuError: LocalizedError {
         case .networkError(let m): return m
         }
     }
+}
+
+// MARK: - 网盘链接选择视图
+struct PanLinkPickerView: View {
+    let video: VodItem
+    @State private var links: [(url: String, name: String)] = []
+    @State private var isLoading = true
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationView {
+            ZStack { Color(hex: "0F0F23").ignoresSafeArea()
+                if isLoading { VStack(spacing: 16) { ProgressView().scaleEffect(1.5).tint(.white); Text("正在解析网盘链接...").foregroundColor(.secondary) } }
+                else if links.isEmpty { VStack(spacing: 16) { Image(systemName: "cloud.slash").font(.system(size: 40)).foregroundColor(.gray); Text("未找到可用的网盘链接").foregroundColor(.secondary) } }
+                else {
+                    ScrollView { VStack(spacing: 12) {
+                        HStack { Image(systemName: "cloud.fill").foregroundColor(.blue); Text(video.vodName).font(.system(size: 18, weight: .bold)); Spacer() }.padding(.horizontal, 20).padding(.top, 16)
+                        Text("选择网盘资源播放").font(.system(size: 14)).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
+                        ForEach(Array(links.enumerated()), id: \.offset) { idx, link in
+                            NavigationLink(destination: PanPlayerView(panURL: link.url, title: "\(video.vodName) - \(link.name)")) {
+                                HStack(spacing: 14) {
+                                    ZStack { RoundedRectangle(cornerRadius: 12).fill(driveColor(for: link.name).opacity(0.15)).frame(width: 48, height: 48)
+                                        Image(systemName: driveIcon(for: link.name)).font(.system(size: 22)).foregroundColor(driveColor(for: link.name)) }
+                                    VStack(alignment: .leading, spacing: 4) { Text(link.name).font(.system(size: 15, weight: .semibold)); Text(link.url).font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1) }
+                                    Spacer()
+                                    Image(systemName: "play.circle.fill").font(.system(size: 28)).foregroundColor(Color(hex: "E11D48"))
+                                }.padding(14).background(Color.white.opacity(0.05)).cornerRadius(14)
+                            }.buttonStyle(.plain).padding(.horizontal, 16)
+                        }
+                    }.padding(.bottom, 40) }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { dismiss() } } }
+        }
+        .onAppear {
+            guard let playUrl = video.vodPlayUrl, let data = playUrl.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else { isLoading = false; return }
+            links = json.compactMap { item in guard let url = item["url"], let name = item["name"] else { return nil }; return (url, name) }
+            isLoading = false
+        }
+    }
+    private func driveColor(for name: String) -> Color { if name.contains("115") { return .orange }; if name.contains("阿里") { return .blue }; if name.contains("夸克") { return .purple }; if name.contains("百度") { return .green }; return .gray }
+    private func driveIcon(for name: String) -> String { if name.contains("115") { return "1.circle.fill" }; if name.contains("阿里") { return "a.circle.fill" }; if name.contains("夸克") { return "q.circle.fill" }; if name.contains("百度") { return "b.circle.fill" }; return "cloud.fill" }
+}
+
+// MARK: - 网盘播放视图
+struct PanPlayerView: View {
+    let panURL: String; let title: String
+    @State private var player: AVPlayer?
+    @State private var isLoading = true; @State private var loadError: String?
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        ZStack { Color.black.ignoresSafeArea()
+            if isLoading { VStack(spacing: 16) { ProgressView().scaleEffect(1.5).tint(.white); Text("解析网盘链接...").font(.system(size: 14)).foregroundColor(.secondary) } }
+            else if let e = loadError { VStack(spacing: 16) { Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundColor(.yellow); Text(e).font(.system(size: 14)).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40); Button(action: { dismiss() }) { Text("返回").foregroundColor(.blue) } } }
+            else if let p = player { AVPlayerController2(player: p).ignoresSafeArea() }
+        }
+        .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+        .onAppear { Task { let result = await SpiderManager.shared.resolvePanURL(panURL); await MainActor.run { if let r = result, let url = URL(string: r.url) { if !r.headers.isEmpty { let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": r.headers]); player = AVPlayer(playerItem: AVPlayerItem(asset: asset)) } else { player = AVPlayer(url: url) }; player?.play(); isLoading = false } else { loadError = "解析失败，请检查是否配置了网盘Token" } } } }
+    }
+}
+
+// MARK: - AVPlayer 控制器封装
+struct AVPlayerController2: UIViewControllerRepresentable {
+    let player: AVPlayer
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let c = AVPlayerViewController(); c.player = player; c.showsPlaybackControls = true; c.entersFullScreenWhenPlaybackBegins = true; c.canStartPictureInPictureAutomaticallyFromInline = true; return c
+    }
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
