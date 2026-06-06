@@ -162,44 +162,151 @@ struct VideoPlayerViewV2: View {
 
     private var playerControlsView: some View {
         VStack {
+            // 顶部返回栏
             HStack {
                 Button(action: { dismiss() }) {
                     Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
                 }
                 Spacer()
             }
-            .padding()
-
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            
             Spacer()
-
-            HStack {
-                Button(action: { isPlaying.toggle() }) {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+            
+            // 底部控制栏
+            VStack(spacing: 0) {
+                // 进度条区域
+                HStack(spacing: 12) {
+                    Text(formatTime(currentTime))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
-                }
-
-                Button(action: { showQualityPicker = true }) {
-                    Text(qualities[selectedQuality])
+                        .monospacedDigit()
+                    
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            // 背景轨道
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.white.opacity(0.3))
+                                .frame(height: 4)
+                            
+                            // 进度条
+                            if duration > 0 {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Color(hex: "#00BEFF"))
+                                    .frame(width: max(0, min(CGFloat(currentTime / duration) * geometry.size.width, geometry.size.width)), height: 4)
+                            }
+                        }
+                    }
+                    .frame(height: 20)
+                    
+                    Text(formatTime(duration))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
+                        .monospacedDigit()
                 }
-
-                Button(action: { showEpisodePicker = true }) {
-                    Image(systemName: "list.bullet")
-                        .foregroundColor(.white)
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
                 
-                AirPlayViewV2()
-                    .frame(width: 30, height: 30)
-                
-                Button(action: { showDanmakuSettings = true }) {
-                    Image(systemName: "text.bubble")
+                // 按钮控制栏
+                HStack(spacing: 20) {
+                    // 播放/暂停
+                    Button(action: { isPlaying.toggle() }) {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                    }
+                    
+                    // 下一个（如果是多集）
+                    Button(action: { /* 下一集 */ }) {
+                        Image(systemName: "forward.end.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                    }
+                    
+                    Spacer()
+                    
+                    // 选集
+                    Button(action: { showEpisodePicker = true }) {
+                        VStack(spacing: 2) {
+                            Image(systemName: "list.bullet")
+                                .font(.system(size: 18))
+                            Text("选集")
+                                .font(.system(size: 10))
+                        }
                         .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                    }
+                    
+                    // 清晰度
+                    Button(action: { showQualityPicker = true }) {
+                        Text(qualities[selectedQuality])
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                    
+                    // AirPlay
+                    AirPlayViewV2()
+                        .frame(width: 44, height: 44)
+                    
+                    // 弹幕
+                    Button(action: { showDanmakuSettings = true }) {
+                        VStack(spacing: 2) {
+                            Image(systemName: "text.bubble")
+                                .font(.system(size: 18))
+                            Text("弹幕")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(showDanmaku ? Color(hex: "#00BEFF") : .white)
+                        .frame(width: 44, height: 44)
+                    }
+                    
+                    // 更多设置
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                    }
                 }
-
-                Spacer()
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
             }
-            .padding()
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0),
+                        Color.black.opacity(0.6),
+                        Color.black.opacity(0.8)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+    }
+    
+    private func formatTime(_ time: Double) -> String {
+        let hours = Int(time) / 3600
+        let minutes = (Int(time) % 3600) / 60
+        let seconds = Int(time) % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%02d:%02d", minutes, seconds)
         }
     }
 
@@ -322,6 +429,16 @@ struct VideoPlayerViewV2: View {
         self.player = p
         self.isPlaying = true
         self.isLoading = false
+        
+        // 添加时间观察者更新进度条
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self = self else { return }
+            self.currentTime = time.seconds
+            if let itemDuration = p.currentItem?.duration {
+                self.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
+            }
+        }
         
         // 延迟播放确保UI准备好
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
