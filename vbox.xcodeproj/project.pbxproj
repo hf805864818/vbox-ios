@@ -24,7 +24,7 @@
 		A10024 /* LogVarDanmakuService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* LogVarDanmakuService.swift */; };
 		A10025 /* PlayerViewsV2_Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* PlayerViewsV2_Extensions.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
-		A10013 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
+		A10026 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
 		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
@@ -212,7 +212,7 @@
 				A10010 /* SettingsViews.swift in Sources */,
 				A10011 /* QJSSpiderEngine.swift in Sources */,
 				A10012 /* QuickJSBridge.m in Sources */,
-				A10013 /* SubscriptionManager.swift in Sources */,
+				A10026 /* SubscriptionManager.swift in Sources */,
 				A10014 /* CloudDriveManager.swift in Sources */,
 				A10017 /* SpiderManager.swift in Sources */,
 				A10019 /* UpdateSheet.swift in Sources */,
@@ -313,10 +313,13 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 				MARKETING_VERSION = 3.44;
+				OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 				PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "vbox/vbox-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
