@@ -375,19 +375,23 @@ private var progressSliderView: some View {
     private func observePlayerDuration() {
         guard let playerItem = playerItem else { return }
 
-        observer = playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
+        let durationObserver = playerItem.observe(\.duration, options: [.new, .initial]) { item, _ in
             if item.duration.seconds.isFinite && item.duration.seconds > 0 {
                 self.duration = item.duration.seconds
             }
         }
 
-        NotificationCenter.default.addObserver(
+        observer = durationObserver
+
+        let endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
         ) { [self] _ in
             isPlaying = false
         }
+
+        observer = endObserver
     }
 
     private var observer: NSObjectProtocol?
