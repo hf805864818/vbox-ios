@@ -547,7 +547,7 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] getDetail 检测到详情页URL，走网盘解析: \(ids.prefix(80))")
             if let result = await resolveCloudPlay(from: ids) {
                 // 构造一个 VodItem，vodPlayUrl 存解析后的播放地址
-                var item = VodItem(vodId: ids, vodName: name ?? "网盘资源")
+                var item = VodItem(vodId: ids, vodName: name ?? "网盘资源", vodPic: "")
                 item.vodPlayUrl = result.url
                 // 如果有 headers，也存下来
                 if !result.headers.isEmpty, let headerData = try? JSONSerialization.data(withJSONObject: result.headers) {

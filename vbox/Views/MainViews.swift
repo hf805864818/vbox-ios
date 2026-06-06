@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 // vbox 主入口在 App/VBoxApp.swift
 
