@@ -309,12 +309,25 @@ struct VideoPlayerViewV2: View {
     }
     
     private func initPlayer(url: URL) {
+        print("初始化播放器，URL: \(url.absoluteString.prefix(80))")
+        
         let asset = AVURLAsset(url: url)
-        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-        p.play()
-        player = p
-        isPlaying = true
-        isLoading = false
+        let playerItem = AVPlayerItem(asset: asset)
+        
+        // 创建播放器
+        let p = AVPlayer(playerItem: playerItem)
+        p.automaticallyWaitsToMinimizeStalling = true
+        
+        // 设置播放器
+        self.player = p
+        self.isPlaying = true
+        self.isLoading = false
+        
+        // 延迟播放确保UI准备好
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            p.play()
+            print("播放器开始播放")
+        }
     }
 }
 
@@ -326,10 +339,16 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false
+        controller.videoGravity = .resizeAspectFill
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        // 确保播放器更新
+        if uiViewController.player !== player {
+            uiViewController.player = player
+        }
+    }
 }
 
 struct DanmakuSettingsViewV2: View {
