@@ -415,11 +415,12 @@ struct PanPlayerView: View {
                         if !r.headers.isEmpty { addDebug("📋 附加请求头: \(r.headers.keys.joined(separator: ", "))") }
                         if !r.headers.isEmpty {
                             let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": r.headers])
-                            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                            let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                            p.play(); player = p; isLoading = false
                         } else {
-                            player = AVPlayer(url: url)
+                            let p = AVPlayer(url: url)
+                            p.play(); player = p; isLoading = false
                         }
-                        player.play(); isLoading = false
                     } else {
                         addDebug("❌ 解析失败")
                         loadError = "解析失败，请检查是否配置了网盘Token"
