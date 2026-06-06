@@ -82,7 +82,10 @@ class PlayerState: ObservableObject {
     @Published var showDanmaku = true
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
-    @Published var isOrientationLocked = false  // 屏幕锁定状态
+    @Published var isOrientationLocked = false
+    @Published var volume: Double = 0.5
+    @Published var danmakuItems: [DanmakuRenderItem] = []
+    @Published var currentEpisodeIndex = 0
     
     private var timeObserver: Any?
     private var statusObserver: AnyCancellable?
