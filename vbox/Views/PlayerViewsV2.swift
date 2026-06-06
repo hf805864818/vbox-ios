@@ -40,6 +40,15 @@ struct VideoPlayerViewV2: View {
                 ZStack {
                     AVPlayerControllerRepresentableV2(player: player)
                         .ignoresSafeArea()
+                    
+                    if showDanmaku {
+                        DanmakuOverlayViewV2(
+                            showDanmaku: $showDanmaku,
+                            opacity: danmakuOpacity,
+                            fontSize: danmakuFontSize
+                        )
+                        .allowsHitTesting(false)
+                    }
 
                     if showControls {
                         playerControlsView
@@ -167,6 +176,37 @@ struct DanmakuSettingsViewV2: View {
                 }
             }
             .navigationTitle("弹幕设置")
+        }
+    }
+}
+
+// MARK: - 弹幕数据模型
+private struct DanmakuItemData: Identifiable {
+    let text: String
+    var x: CGFloat
+    let y: CGFloat
+    let id: Int
+}
+
+// MARK: - 弹幕覆盖层
+struct DanmakuOverlayViewV2: View {
+    @Binding var showDanmaku: Bool
+    let opacity: Double
+    let fontSize: CGFloat
+
+    @State private var danmakuItems: [DanmakuItemData] = []
+    @State private var allDanmaku: [(time: Double, text: String)] = []
+    @State private var currentIndex = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            ForEach(danmakuItems) { item in
+                Text(item.text)
+                    .font(.system(size: fontSize, weight: .bold))
+                    .foregroundColor(.white.opacity(opacity))
+                    .shadow(color: .black, radius: 2)
+                    .position(x: item.x, y: item.y)
+            }
         }
     }
 }
