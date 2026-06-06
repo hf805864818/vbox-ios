@@ -27,8 +27,8 @@ struct VideoPlayerViewV2: View {
     @State private var danmakuOpacity: Double = 0.8
     @State private var danmakuFontSize: CGFloat = 16
     @State private var selectedQuality = 1
-    private var durationObserver: NSKeyValueObservation?
-    private var endObserver: NSObjectProtocol?
+    @State private var durationObserver: NSKeyValueObservation?
+    @State private var endObserver: Any?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -338,7 +338,7 @@ struct VideoPlayerViewV2: View {
 
         if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
             if let pu = detail.vodPlayUrl, !pu.isEmpty, let url = URL(string: pu) {
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { [self] in initPlayer(url: url) }
                 return
             }
         }
@@ -346,7 +346,7 @@ struct VideoPlayerViewV2: View {
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: video.vodPlayUrl ?? "") {
             let pu = pr.playUrl ?? pr.url
             if let pu = pu, !pu.isEmpty, let url = URL(string: pu) {
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { [self] in initPlayer(url: url) }
                 return
             }
         }
@@ -387,8 +387,8 @@ struct VideoPlayerViewV2: View {
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
-        ) { [self] _ in
-            isPlaying = false
+        ) { [weak self] _ in
+            self?.isPlaying = false
         }
     }
 
@@ -412,7 +412,7 @@ struct VideoPlayerViewV2: View {
 
     private func startControlsTimer() {
         controlsTimer?.invalidate()
-        controlsTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { _ in
+        controlsTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [self] _ in
             withAnimation(.easeInOut(duration: 0.25)) {
                 showControls = false
             }
@@ -427,7 +427,7 @@ struct VideoPlayerViewV2: View {
             forName: UIDevice.orientationDidChangeNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [self] _ in
             isLandscape = UIDevice.current.orientation.isLandscape
         }
     }
@@ -497,7 +497,7 @@ struct DanmakuOverlayViewV2: View {
             let itemId = currentIndex
             currentIndex += 1
 
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [self] in
                 withAnimation(.linear(duration: 8)) {
                     if let idx = danmakuItems.firstIndex(where: { $0.id == itemId }) {
                         var updatedItem = danmakuItems[idx]
@@ -561,7 +561,7 @@ struct EpisodePickerViewV2: View {
         NavigationView {
             ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
-                    ForEach(1..<101) { ep in
+                    ForEach(1..<101, id: \.self) { ep in
                         Button(action: { dismiss() }) {
                             Text("\(ep)")
                                 .font(.system(size: 14))
