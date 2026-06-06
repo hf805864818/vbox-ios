@@ -212,10 +212,8 @@ struct VideoPlayerView: View {
 
     private func initPlayer(url: URL) {
         let asset = AVURLAsset(url: url)
-        player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-        player.play()
-        isPlaying = true
-        isLoading = false
+        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        p.play(); player = p; isPlaying = true; isLoading = false
     }
 
     private func toggleLock() {
