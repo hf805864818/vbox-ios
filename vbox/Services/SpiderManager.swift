@@ -597,10 +597,42 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
         var searchSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
-        // 如果没有订阅源站点，用硬编码的兜底
+        // 如果没有订阅源站点，返回空结果
         if searchSites.isEmpty {
             print("[SpiderManager] nativeSearch 无订阅源站点，跳过 API 搜索")
             return []
+        }
+        
+        // 遍历搜索站点获取结果
+        for site in searchSites {
+            guard let api = site.api, !api.isEmpty else { continue }
+            let searchURL = api.hasSuffix("/") ? api + "?ac=videolist&wd=" + encodedKW : api + "/?ac=videolist&wd=" + encodedKW
+            
+            do {
+                guard let url = URL(string: searchURL) else { continue }
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 10
+                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                
+                let (data, _) = try await URLSession.shared.data(for: req)
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let list = json["list"] as? [[String: Any]] {
+                    for item in list {
+                        let vodItem = Self.makeVodItem(from: item, siteName: site.name)
+                        let id = vodItem.vodId.isEmpty ? vodItem.vodName : vodItem.vodId
+                        if !seenIds.contains(id) {
+                            seenIds.insert(id)
+                            allResults.append(vodItem)
+                        }
+                    }
+                }
+            } catch {
+                print("[SpiderManager] nativeSearch " + site.name + " 失败")
+            }
+        }
+        
+        return allResults
+    }
 
     // MARK: - 网盘资源专用搜索（独立通道）
     /// 只搜索网盘资源站（video_sources.json 中的 HTML 网页站点）

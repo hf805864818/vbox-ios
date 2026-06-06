@@ -468,7 +468,7 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
-    private func baiduEnsureFolder(bduss: String) async throws -> String {private func baiduEnsureFolder(bduss: String) async throws -> String {
+    private func baiduEnsureFolder(bduss: String) async throws -> String {
         let listURL = URL(string: "https://pan.baidu.com/api/list?dir=/&order=time&desc=1&num=100&page=1&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
         var req = URLRequest(url: listURL)
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
@@ -503,30 +503,6 @@ class CloudDriveManager: ObservableObject {
         print("[CloudDrive] ✅ 百度已删除转存文件")
     }
 
-    private func baiduGetRealDownloadLink(fsId: String, cookie: String) async throws -> PlayResult {
-        var components = URLComponents(string: "https://pan.baidu.com/api/filemetas")!
-        components.queryItems = [
-            URLQueryItem(name: "fsids", value: "[\(fsId)]"),
-            URLQueryItem(name: "dlink", value: "1")
-        ]
-        
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = json["info"] as? [[String: Any]],
-              let dlink = list.first?["dlink"] as? String else {
-            throw DriveError.noPlayURL
-        }
-
-        return PlayResult(
-            url: dlink,
-            headers: ["Cookie": cookie, "User-Agent": "pan.baidu.com"],
-            driveType: .baidu
-        )
-    }
 
     // MARK: - 115 网盘
 
