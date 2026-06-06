@@ -11,9 +11,7 @@ struct LogVarDanmakuItem: Identifiable, Codable {
     var pool: Int = 0     // 弹幕池
 }
 
-struct DanmakuSegment: Codable {
-    let items: [DanmakuItem]
-}
+
 
 // MARK: - 弹幕 API 客户端
 class LogVarDanmakuService: ObservableObject {
