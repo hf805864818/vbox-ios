@@ -246,6 +246,8 @@ class SubscriptionManager: ObservableObject {
             await setError("\(error.localizedDescription)")
         }
     }
+}
+}
 
     private func loadCachedConfig() {
         guard let data = defaults.data(forKey: cacheKey) else { return }
