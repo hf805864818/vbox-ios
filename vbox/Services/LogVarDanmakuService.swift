@@ -1,137 +1,92 @@
 import Foundation
 import Combine
 
-// MARK: - 弹幕数据模型
 struct LogVarDanmakuItem: Identifiable, Codable {
-    let id: Int           // 弹幕ID
-    let time: Double      // 出现时间（秒）
-    let type: Int         // 类型：1=滚动 4=底部 5=顶部
-    let color: Int        // 颜色（十进制）
-    let content: String   // 弹幕内容
-    var pool: Int = 0     // 弹幕池
+    let id: Int
+    let time: Double
+    let type: Int
+    let color: Int
+    let content: String
+    var pool: Int = 0
 }
 
-
-
-// MARK: - 弹幕 API 客户端
 class LogVarDanmakuService: ObservableObject {
     static let shared = LogVarDanmakuService()
-    
     private let baseURL = "https://uzdm.616222.xyz/87654321"
     private let session: URLSession
-    private var cache: [String: [LogVarDanmakuItem]] = [:]  // "animeId_episode" -> items
-    private var searchCache: [String: Int] = [:]      // "keyword" -> animeId
-    private var retryCount = 0
+    private var cache: [String: [LogVarDanmakuItem]] = [:]
+    private var searchCache: [String: Int] = [:]
     private let maxRetries = 3
-    
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.httpAdditionalHeaders = ["User-Agent": "vbox-ios/1.0"]
         session = URLSession(configuration: config)
     }
-    
-    // MARK: - 搜索剧集获取 anime_id
+
     func searchAnime(keyword: String) async -> Int? {
-        let cacheKey = keyword.trimmingCharacters(in: .whitespaces)
-        if let cached = searchCache[cacheKey] { return cached }
-        
-        guard let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(baseURL)/search/anime?keyword=\(encoded)") else { return nil }
-        
+        let key = keyword.trimmingCharacters(in: .whitespaces)
+        if let c = searchCache[key] { return c }
+        guard let e = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let u = URL(string: "\(baseURL)/search/anime?keyword=\(e)") else { return nil }
         do {
-            let (data, _) = try await session.data(from: url)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-               let first = json.first,
-               let animeId = first["anime_id"] as? Int {
-                searchCache[cacheKey] = animeId
-                return animeId
+            let (d, _) = try await session.data(from: u)
+            if let j = try JSONSerialization.jsonObject(with: d) as? [[String: Any]],
+               let f = j.first, let aid = f["anime_id"] as? Int {
+                searchCache[key] = aid; return aid
             }
-        } catch { print("[Danmaku] 搜索失败: \(error.localizedDescription)") }
+        } catch { print("[Danmaku] search: \(error)") }
         return nil
     }
-    
-    // MARK: - 获取弹幕数据
+
     func fetchDanmaku(animeId: Int, episode: Int) async -> [LogVarDanmakuItem] {
-        let cacheKey = "\(animeId)_\(episode)"
-        if let cached = cache[cacheKey] { return cached }
-        
-        let urlStr = "\(baseURL)/danmaku/\(animeId)/\(episode)?withSegment=true"
-        guard let url = URL(string: urlStr) else { return [] }
-        
-        for attempt in 0..<maxRetries {
+        let ck = "\(animeId)_\(episode)"
+        if let c = cache[ck] { return c }
+        guard let u = URL(string: "\(baseURL)/danmaku/\(animeId)/\(episode)?withSegment=true") else { return [] }
+        for i in 0..<maxRetries {
             do {
-                let (data, _) = try await session.data(from: url)
-                let items = try parseDanmakuResponse(data)
-                cache[cacheKey] = items
-                retryCount = 0
-                return items
+                let (d, _) = try await session.data(from: u)
+                let items = try parseDanmakuResponse(d)
+                cache[ck] = items; return items
             } catch {
-                print("[Danmaku] 获取失败(\(attempt+1)/\(maxRetries)): \(error.localizedDescription)")
-                if attempt < maxRetries - 1 {
-                    try? await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
+                print("[Danmaku] fetch \(i+1)/\(maxRetries): \(error)")
+                if i < maxRetries - 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(pow(2, Double(i)) * 1_000_000_000))
                 }
             }
         }
         return []
     }
-    
-    // MARK: - 解析弹幕响应（兼容 XML 和 JSON）
-    private func parseDanmakuResponse(_ data: Data) throws -> [LogVarDanmakuItem] {
-        // 尝试 JSON 解析
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let comments = json["comments"] as? [[String: Any]] {
-            return comments.compactMap { dict in
-                guard let cid = dict["cid"] as? Int ?? dict["id"] as? Int,
-                      let p = dict["p"] as? String ?? dict["progress"] as? Double ?? (dict["time"] as? Double) else { return nil }
-                let time: Double
-                if let pStr = dict["p"] as? String {
-                    time = Double(pStr.components(separatedBy: ",").first ?? "0") ?? 0
-                } else {
-                    time = (dict["progress"] as? Double) ?? (dict["time"] as? Double) ?? 0
-                }
-                let type = dict["type"] as? Int ?? 1
-                let color = dict["color"] as? Int ?? 16777215
-                let content = dict["m"] as? String ?? dict["content"] as? String ?? dict["text"] as? String ?? ""
-                return LogVarDanmakuItem(id: cid, time: time, type: type, color: color, content: content)
+
+    private func parseDanmakuResponse(_ d: Data) throws -> [LogVarDanmakuItem] {
+        if let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+           let comments = j["comments"] as? [[String: Any]] {
+            return comments.compactMap { dd in
+                guard let cid = dd["cid"] as? Int ?? dd["id"] as? Int else { return nil }
+                let time: Double = {
+                    if let p = dd["p"] as? String { return Double(p.components(separatedBy: ",").first ?? "0") ?? 0 }
+                    return (dd["progress"] as? Double) ?? (dd["time"] as? Double) ?? 0
+                }()
+                return LogVarDanmakuItem(id: cid, time: time, type: dd["type"] as? Int ?? 1, color: dd["color"] as? Int ?? 16777215, content: dd["m"] as? String ?? dd["content"] as? String ?? dd["text"] as? String ?? "")
             }
         }
-        
-        // 尝试 XML（弹弹play格式）解析
-        if let xmlStr = String(data: data, encoding: .utf8) {
-            return parseDanmakuXML(xmlStr)
-        }
-        
+        if let x = String(data: d, encoding: .utf8) { return parseDanmakuXML(x) }
         return []
     }
-    
+
     private func parseDanmakuXML(_ xml: String) -> [LogVarDanmakuItem] {
         var items: [LogVarDanmakuItem] = []
-        let pattern = #"<d p="([^"]+)"[^>]*>([^<]+)</d>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        
-        let matches = regex.matches(in: xml, range: NSRange(xml.startIndex..., in: xml))
-        for (idx, match) in matches.enumerated() {
-            guard match.numberOfRanges >= 3,
-                  let pRange = Range(match.range(at: 1), in: xml),
-                  let cRange = Range(match.range(at: 2), in: xml) else { continue }
-            
-            let pStr = String(xml[pRange])
-            let content = String(xml[cRange])
-            let parts = pStr.components(separatedBy: ",")
-            guard parts.count >= 4,
-                  let time = Double(parts[0]),
-                  let type = Int(parts[1]),
-                  let color = Int(parts[3]) else { continue }
-            
-            items.append(LogVarDanmakuItem(id: idx, time: time, type: type, color: color, content: content))
+        let p = NSRegularExpression.escapedPattern(for: #"<d p="([^"]+)"[^>]*>([^<]+)</d>"#)
+        guard let r = try? NSRegularExpression(pattern: p) else { return [] }
+        for (idx, m) in r.matches(in: xml, range: NSRange(xml.startIndex..., in: xml)).enumerated() {
+            guard m.numberOfRanges >= 3, let r1 = Range(m.range(at: 1), in: xml), let r2 = Range(m.range(at: 2), in: xml) else { continue }
+            let ps = String(xml[r1]).components(separatedBy: ",")
+            guard ps.count >= 4, let t = Double(ps[0]), let tp = Int(ps[1]), let c = Int(ps[3]) else { continue }
+            items.append(LogVarDanmakuItem(id: idx, time: t, type: tp, color: c, content: String(xml[r2])))
         }
         return items
     }
-    
-    // MARK: - 清理缓存
-    func clearCache() {
-        cache.removeAll()
-        searchCache.removeAll()
-    }
+
+    func clearCache() { cache.removeAll(); searchCache.removeAll() }
 }

@@ -21,6 +21,8 @@
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
 		A10022 /* PlayerSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* PlayerSubViews.swift */; };
 		A10023 /* PlayerViewsV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* PlayerViewsV2.swift */; };
+		A10024 /* LogVarDanmakuService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* LogVarDanmakuService.swift */; };
+		A10025 /* PlayerViewsV2_Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* PlayerViewsV2_Extensions.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
@@ -43,6 +45,8 @@
 		B10009 /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
 		B10010 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 		B10023 /* PlayerViewsV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2.swift; sourceTree = "<group>"; };
+		B10024 /* LogVarDanmakuService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogVarDanmakuService.swift; sourceTree = "<group>"; };
+		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
 		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -102,6 +106,7 @@
 				B10019 /* SpiderManager.swift */,
 				B10015 /* SubscriptionManager.swift */,
 				B10016 /* CloudDriveManager.swift */,
+				B10024 /* LogVarDanmakuService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -125,6 +130,7 @@
 				B10010 /* SettingsViews.swift */,
 				B10022 /* PlayerSubViews.swift */,
 				B10023 /* PlayerViewsV2.swift */,
+				B10025 /* PlayerViewsV2_Extensions.swift */,
 				B10021 /* UpdateSheet.swift */,
 			);
 			path = Views;
@@ -213,6 +219,8 @@
 				A10018 /* UpdateManager.swift in Sources */,
 				A10022 /* PlayerSubViews.swift in Sources */,
 				A10023 /* PlayerViewsV2.swift in Sources */,
+				A10024 /* LogVarDanmakuService.swift in Sources */,
+				A10025 /* PlayerViewsV2_Extensions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
