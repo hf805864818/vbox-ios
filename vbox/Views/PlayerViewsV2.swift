@@ -2,6 +2,28 @@ import SwiftUI
 import AVKit
 import AVFoundation
 import Combine
+import UIKit
+
+// 屏幕方向辅助类
+class OrientationHelper {
+    static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
+        }
+    }
+    
+    static func unlockOrientation() {
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
+        }
+    }
+    
+    static func rotateToLandscape() {
+        // 强制旋转到横屏
+        let value = UIInterfaceOrientation.landscapeRight.rawValue
+        UIDevice.current.setValue(value, forKey: "orientation")
+    }
+}
 
 // MARK: - 新版本播放器 (爱奇艺风格) - 简化版本，确保编译通过
 struct VideoPlayerViewV2: View {
@@ -33,9 +55,14 @@ struct VideoPlayerViewV2: View {
             }
         }
         .onAppear {
+            // 强制横屏
+            OrientationHelper.rotateToLandscape()
             playerState.setupPlayer(video: video)
         }
         .onDisappear {
+            // 恢复竖屏
+            OrientationHelper.lockOrientation(.portrait)
+            OrientationHelper.unlockOrientation()
             playerState.cleanup()
         }
     }
@@ -59,6 +86,7 @@ class PlayerState: ObservableObject {
     @Published var showDanmaku = true
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
+    @Published var isOrientationLocked = false  // 屏幕锁定状态
     
     private var timeObserver: Any?
     private var statusObserver: AnyCancellable?
@@ -520,7 +548,25 @@ struct PlayerControlsView: View {
                         .background(Color.black.opacity(0.3))
                         .clipShape(Circle())
                 }
+                
                 Spacer()
+                
+                // 屏幕锁定按钮
+                Button(action: { 
+                    playerState.isOrientationLocked.toggle()
+                    if playerState.isOrientationLocked {
+                        OrientationHelper.lockOrientation(.landscape)
+                    } else {
+                        OrientationHelper.unlockOrientation()
+                    }
+                }) {
+                    Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -645,24 +691,36 @@ struct PlayerControlsView: View {
                 )
             )
         }
-        .sheet(isPresented: $playerState.showSettings) {
-            PlayerSettingsViewV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
-                player.rate = Float(speed)
-            })
-        }
-        .sheet(isPresented: $playerState.showEpisodePicker) {
-            EpisodePickerViewV2(video: video)
-        }
-        .sheet(isPresented: $playerState.showQualityPicker) {
-            QualityPickerViewV2(selectedQuality: $playerState.selectedQuality, onQualityChange: { _ in })
-        }
-        .sheet(isPresented: $playerState.showDanmakuSettings) {
-            DanmakuSettingsViewV2(
-                showDanmaku: $playerState.showDanmaku,
-                opacity: $playerState.danmakuOpacity,
-                fontSize: $playerState.danmakuFontSize
-            )
-        }
+        // 侧边栏弹窗 - 播放设置
+        .overlay(
+            SidePanelView(isPresented: $playerState.showSettings, title: "播放设置") {
+                PlayerSettingsPanelV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
+                    player.rate = Float(speed)
+                })
+            }
+        )
+        // 侧边栏弹窗 - 选集
+        .overlay(
+            SidePanelView(isPresented: $playerState.showEpisodePicker, title: "选集") {
+                EpisodePickerPanelV2(video: video)
+            }
+        )
+        // 侧边栏弹窗 - 清晰度
+        .overlay(
+            SidePanelView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
+                QualityPickerPanelV2(selectedQuality: $playerState.selectedQuality, onQualityChange: { _ in })
+            }
+        )
+        // 侧边栏弹窗 - 弹幕设置
+        .overlay(
+            SidePanelView(isPresented: $playerState.showDanmakuSettings, title: "弹幕设置") {
+                DanmakuSettingsPanelV2(
+                    showDanmaku: $playerState.showDanmaku,
+                    opacity: $playerState.danmakuOpacity,
+                    fontSize: $playerState.danmakuFontSize
+                )
+            }
+        )
     }
     
     private func formatTime(_ time: Double) -> String {
@@ -862,5 +920,263 @@ struct QualityPickerViewV2: View {
             }
             .navigationTitle("清晰度")
         }
+    }
+}
+
+// MARK: - 侧边栏弹窗容器
+struct SidePanelView<Content: View>: View {
+    @Binding var isPresented: Bool
+    let title: String
+    let content: Content
+    
+    init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content) {
+        self._isPresented = isPresented
+        self.title = title
+        self.content = content()
+    }
+    
+    var body: some View {
+        ZStack {
+            if isPresented {
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            isPresented = false
+                        }
+                    }
+                
+                HStack {
+                    Spacer()
+                    
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text(title)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    isPresented = false
+                                }
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(width: 36, height: 36)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color.black.opacity(0.9))
+                        
+                        content
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color(hex: "1A1A1A"))
+                    }
+                    .frame(width: UIScreen.main.bounds.width * 0.45, maxHeight: .infinity)
+                    .background(Color(hex: "1A1A1A"))
+                    .cornerRadius(12, corners: [.topLeft, .bottomLeft])
+                    .transition(.move(edge: .trailing))
+                }
+                .ignoresSafeArea()
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: isPresented)
+    }
+}
+
+// MARK: - 播放设置面板 (侧边栏版本)
+struct PlayerSettingsPanelV2: View {
+    @Binding var speed: Double
+    var onSpeedChange: (Double) -> Void
+    
+    let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Text("播放速度")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(speeds, id: \.self) { s in
+                        Button(action: {
+                            speed = s
+                            onSpeedChange(s)
+                        }) {
+                            let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
+                            Text(speedText + "X")
+                                .font(.system(size: 16, weight: speed == s ? .semibold : .regular))
+                                .foregroundColor(speed == s ? Color(hex: "00BEFF") : .white)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(speed == s ? Color(hex: "00BEFF").opacity(0.2) : Color.white.opacity(0.1))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(speed == s ? Color(hex: "00BEFF") : Color.clear, lineWidth: 1)
+                                )
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                
+                Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - 选集面板 (侧边栏版本)
+struct EpisodePickerPanelV2: View {
+    let video: VodItem
+    
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(1..<21, id: \.self) { ep in
+                    Button(action: {
+                        // 选集逻辑
+                    }) {
+                        Text("\(ep)")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(minWidth: 56, minHeight: 56)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.white.opacity(0.1))
+                            )
+                    }
+                }
+            }
+            .padding(16)
+        }
+    }
+}
+
+// MARK: - 清晰度面板 (侧边栏版本)
+struct QualityPickerPanelV2: View {
+    @Binding var selectedQuality: Int
+    var onQualityChange: (Int) -> Void
+    
+    let qualities = ["标清", "高清", "蓝光"]
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(0..<qualities.count, id: \.self) { index in
+                    Button(action: {
+                        selectedQuality = index
+                        onQualityChange(index)
+                    }) {
+                        HStack {
+                            Text(qualities[index])
+                                .font(.system(size: 16, weight: selectedQuality == index ? .semibold : .regular))
+                                .foregroundColor(selectedQuality == index ? Color(hex: "00BEFF") : .white)
+                            
+                            Spacer()
+                            
+                            if selectedQuality == index {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(Color(hex: "00BEFF"))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedQuality == index ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
+                        )
+                    }
+                }
+            }
+            .padding(16)
+        }
+    }
+}
+
+// MARK: - 弹幕设置面板 (侧边栏版本)
+struct DanmakuSettingsPanelV2: View {
+    @Binding var showDanmaku: Bool
+    @Binding var opacity: Double
+    @Binding var fontSize: CGFloat
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                HStack {
+                    Text("开启弹幕")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $showDanmaku)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("弹幕透明度")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text("\(Int(opacity * 100))%")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    Slider(value: $opacity, in: 0...1, step: 0.1)
+                        .padding(.horizontal, 16)
+                }
+                
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("弹幕字体大小")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text("\(Int(fontSize))px")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    Slider(value: $fontSize, in: 12...24, step: 1)
+                        .padding(.horizontal, 16)
+                }
+                
+                Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - View Extension for Corner Radius
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+    
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
     }
 }
