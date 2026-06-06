@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 // MARK: - 弹幕数据模型
-struct DanmakuItem: Identifiable, Codable {
+struct LogVarDanmakuItem: Identifiable, Codable {
     let id: Int           // 弹幕ID
     let time: Double      // 出现时间（秒）
     let type: Int         // 类型：1=滚动 4=底部 5=顶部
@@ -21,7 +21,7 @@ class LogVarDanmakuService: ObservableObject {
     
     private let baseURL = "https://uzdm.616222.xyz/87654321"
     private let session: URLSession
-    private var cache: [String: [DanmakuItem]] = [:]  // "animeId_episode" -> items
+    private var cache: [String: [LogVarDanmakuItem]] = [:]  // "animeId_episode" -> items
     private var searchCache: [String: Int] = [:]      // "keyword" -> animeId
     private var retryCount = 0
     private let maxRetries = 3
@@ -54,7 +54,7 @@ class LogVarDanmakuService: ObservableObject {
     }
     
     // MARK: - 获取弹幕数据
-    func fetchDanmaku(animeId: Int, episode: Int) async -> [DanmakuItem] {
+    func fetchDanmaku(animeId: Int, episode: Int) async -> [LogVarDanmakuItem] {
         let cacheKey = "\(animeId)_\(episode)"
         if let cached = cache[cacheKey] { return cached }
         
@@ -79,7 +79,7 @@ class LogVarDanmakuService: ObservableObject {
     }
     
     // MARK: - 解析弹幕响应（兼容 XML 和 JSON）
-    private func parseDanmakuResponse(_ data: Data) throws -> [DanmakuItem] {
+    private func parseDanmakuResponse(_ data: Data) throws -> [LogVarDanmakuItem] {
         // 尝试 JSON 解析
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let comments = json["comments"] as? [[String: Any]] {
@@ -95,7 +95,7 @@ class LogVarDanmakuService: ObservableObject {
                 let type = dict["type"] as? Int ?? 1
                 let color = dict["color"] as? Int ?? 16777215
                 let content = dict["m"] as? String ?? dict["content"] as? String ?? dict["text"] as? String ?? ""
-                return DanmakuItem(id: cid, time: time, type: type, color: color, content: content)
+                return LogVarDanmakuItem(id: cid, time: time, type: type, color: color, content: content)
             }
         }
         
@@ -107,8 +107,8 @@ class LogVarDanmakuService: ObservableObject {
         return []
     }
     
-    private func parseDanmakuXML(_ xml: String) -> [DanmakuItem] {
-        var items: [DanmakuItem] = []
+    private func parseDanmakuXML(_ xml: String) -> [LogVarDanmakuItem] {
+        var items: [LogVarDanmakuItem] = []
         let pattern = #"<d p="([^"]+)"[^>]*>([^<]+)</d>"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         
@@ -126,7 +126,7 @@ class LogVarDanmakuService: ObservableObject {
                   let type = Int(parts[1]),
                   let color = Int(parts[3]) else { continue }
             
-            items.append(DanmakuItem(id: idx, time: time, type: type, color: color, content: content))
+            items.append(LogVarDanmakuItem(id: idx, time: time, type: type, color: color, content: content))
         }
         return items
     }
