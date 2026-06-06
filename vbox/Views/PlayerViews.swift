@@ -159,8 +159,6 @@ struct VideoDetailView: View {
             .ignoresSafeArea()
             .fullScreenCover(isPresented: $showPlayer) {
                 VideoPlayerView(video: video)
-                    .supportedOrientations(.landscape)
-                    .ignoresSafeArea()
             }
             .sheet(isPresented: $showPanPicker) {
                 PanLinkPickerView(video: video, preloadedLinks: panLinks.isEmpty ? nil : panLinks)
