@@ -21,6 +21,7 @@ struct VideoPlayerViewV2: View {
     @State private var showDanmaku = true
     @State private var danmakuOpacity: Double = 0.8
     @State private var danmakuFontSize: CGFloat = 16
+    @State private var loadTimeoutTask: Task<Void, Never>?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -30,13 +31,8 @@ struct VideoPlayerViewV2: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if isLoading {
-                ProgressView()
-                    .scaleEffect(1.5)
-            } else if let error = loadError {
-                Text(error)
-                    .foregroundColor(.white)
-            } else if let player = player {
+            // 播放器主体 - 始终显示（即使没有视频也显示黑屏）
+            if let player = player {
                 ZStack {
                     AVPlayerControllerRepresentableV2(player: player)
                         .ignoresSafeArea()
@@ -56,6 +52,87 @@ struct VideoPlayerViewV2: View {
                 }
                 .onTapGesture {
                     showControls.toggle()
+                }
+            }
+            
+            // 加载指示器 - 叠加在播放器上方
+            if isLoading {
+                VStack {
+                    Spacer()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                        Text("正在解析播放地址...")
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.subheadline)
+                    }
+                    Spacer()
+                }
+                // 顶部返回按钮
+                VStack {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.left")
+                                .foregroundColor(.white)
+                                .font(.title2)
+                                .padding()
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding()
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+            
+            // 错误提示 - 叠加在播放器上方
+            if let error = loadError {
+                VStack {
+                    Spacer()
+                    VStack(spacing: 20) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 50))
+                            .foregroundColor(.orange)
+                        Text("加载失败")
+                            .foregroundColor(.white)
+                            .font(.title2)
+                        Text(error)
+                            .foregroundColor(.white.opacity(0.7))
+                            .font(.body)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        Button(action: { 
+                            loadError = nil
+                            isLoading = true
+                            setupPlayer() 
+                        }) {
+                            Text("重试")
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 40)
+                                .padding(.vertical, 12)
+                                .background(Color.blue)
+                                .cornerRadius(8)
+                        }
+                    }
+                    Spacer()
+                }
+                // 顶部返回按钮
+                VStack {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.left")
+                                .foregroundColor(.white)
+                                .font(.title2)
+                                .padding()
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding()
+                        Spacer()
+                    }
+                    Spacer()
                 }
             }
         }
