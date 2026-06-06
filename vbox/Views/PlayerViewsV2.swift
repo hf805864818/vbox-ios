@@ -134,6 +134,33 @@ class PlayerState: ObservableObject {
         await handlePlayUrl(finalPlayUrl, spider: spider, video: video)
     }
     
+    // MARK: - 安全创建URL（处理编码）
+    private func createURL(from urlString: String) -> URL? {
+        // 先尝试直接创建
+        if let url = URL(string: urlString) {
+            return url
+        }
+        
+        // 如果失败，尝试进行URL编码
+        if let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            if let url = URL(string: encoded) {
+                print("[PlayerV2] URL编码成功: \(urlString.prefix(50))... -> \(encoded.prefix(50))...")
+                return url
+            }
+        }
+        
+        // 尝试对路径部分编码
+        if let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) {
+            if let url = URL(string: encoded) {
+                print("[PlayerV2] URL编码成功(2): \(urlString.prefix(50))...")
+                return url
+            }
+        }
+        
+        print("[PlayerV2] ❌ URL创建失败: \(urlString)")
+        return nil
+    }
+    
     // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
         print("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
@@ -151,10 +178,11 @@ class PlayerState: ObservableObject {
         
         if isDirectLink {
             print("[PlayerV2] 直链模式: 直接使用")
-            if let url = URL(string: urlString) {
+            if let url = createURL(from: urlString) {
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
+            print("[PlayerV2] ❌ 直链URL创建失败")
         }
         
         // 需要解析的链接：调用 getPlayerContent
@@ -163,10 +191,11 @@ class PlayerState: ObservableObject {
             let pu = pr.playUrl ?? pr.url
             if let pu = pu, !pu.isEmpty {
                 print("[PlayerV2] 解析成功: \(pu.prefix(80))...")
-                if let url = URL(string: pu) {
+                if let url = createURL(from: pu) {
                     await MainActor.run { initPlayer(url: url) }
                     return
                 }
+                print("[PlayerV2] ❌ 解析后的URL创建失败")
             }
         }
         
@@ -177,10 +206,17 @@ class PlayerState: ObservableObject {
             print("[PlayerV2] nativeDetail 成功")
             // 处理多集格式
             let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
+            print("[PlayerV2] 解析出 \(urls.count) 个播放地址")
+            for (index, videoUrl) in urls.enumerated() {
+                print("[PlayerV2] 地址\(index): \(videoUrl.prefix(60))...")
+            }
             let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? pu
-            if !du.isEmpty, let url = URL(string: du) {
-                await MainActor.run { initPlayer(url: url) }
-                return
+            if !du.isEmpty {
+                if let url = createURL(from: du) {
+                    await MainActor.run { initPlayer(url: url) }
+                    return
+                }
+                print("[PlayerV2] ❌ nativeDetail URL创建失败")
             }
         }
         
@@ -252,36 +288,46 @@ class PlayerState: ObservableObject {
     }
     
     private func initPlayer(url: URL) {
-        print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(80))...")
+        print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
         
-        // 如果URL是HTTP（非HTTPS），需要设置允许任意加载
-        if url.absoluteString.hasPrefix("http://") {
-            assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
-                "Referer": url.absoluteString
-            ]
+        // 提取域名作为Referer
+        var referer = url.absoluteString
+        if let host = url.host {
+            referer = "https://\(host)/"
         }
         
+        // 设置HTTP头（m3u8播放通常需要正确的User-Agent和Referer）
+        assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": referer
+        ]
+        
+        print("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+        
         // 创建Asset和PlayerItem
-        let asset = AVURLAsset(url: url, options: assetOptions.isEmpty ? nil : assetOptions)
+        let asset = AVURLAsset(url: url, options: assetOptions)
         let playerItem = AVPlayerItem(asset: asset)
         
         // 配置PlayerItem（针对HLS/m3u8优化）
-        playerItem.preferredForwardBufferDuration = 5.0 // 预缓冲5秒
+        playerItem.preferredForwardBufferDuration = 10.0 // 预缓冲10秒
         
-        // 使用Combine监听PlayerItem状态
-        statusObserver = playerItem.publisher(for: \.status)
+        // 监听PlayerItem状态
+        var localStatusObserver: AnyCancellable?
+        localStatusObserver = playerItem.publisher(for: \.status)
             .sink { [weak self] status in
                 switch status {
                 case .readyToPlay:
                     print("[PlayerV2] PlayerItem 准备就绪")
                 case .failed:
-                    print("[PlayerV2] ❌ PlayerItem 失败: \(playerItem.error?.localizedDescription ?? "未知错误")")
+                    let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
+                    print("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
                     Task { @MainActor in
-                        self?.loadError = "加载失败: \(playerItem.error?.localizedDescription ?? "未知错误")"
+                        self?.loadError = "加载失败: \(errorDesc)"
                         self?.isLoading = false
                         self?.player = nil
                     }
@@ -291,6 +337,7 @@ class PlayerState: ObservableObject {
                     break
                 }
             }
+        statusObserver = localStatusObserver
         
         // 创建播放器
         let p = AVPlayer(playerItem: playerItem)
