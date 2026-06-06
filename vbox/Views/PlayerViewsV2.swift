@@ -15,8 +15,12 @@ struct VideoPlayerViewV2: View {
     @State private var showSettings = false
     @State private var showEpisodePicker = false
     @State private var showQualityPicker = false
+    @State private var showDanmakuSettings = false
     @State private var selectedQuality = 1
     @State private var playbackSpeed: Double = 1.0
+    @State private var showDanmaku = true
+    @State private var danmakuOpacity: Double = 0.8
+    @State private var danmakuFontSize: CGFloat = 16
 
     @Environment(\.dismiss) private var dismiss
 
@@ -61,6 +65,13 @@ struct VideoPlayerViewV2: View {
         .sheet(isPresented: $showQualityPicker) {
             QualityPickerViewV2(selectedQuality: $selectedQuality, onQualityChange: { _ in })
         }
+        .sheet(isPresented: $showDanmakuSettings) {
+            DanmakuSettingsViewV2(
+                showDanmaku: $showDanmaku,
+                opacity: $danmakuOpacity,
+                fontSize: $danmakuFontSize
+            )
+        }
     }
 
     private var playerControlsView: some View {
@@ -94,6 +105,11 @@ struct VideoPlayerViewV2: View {
                 
                 AirPlayViewV2()
                     .frame(width: 30, height: 30)
+                
+                Button(action: { showDanmakuSettings = true }) {
+                    Image(systemName: "text.bubble")
+                        .foregroundColor(.white)
+                }
 
                 Spacer()
             }
@@ -126,6 +142,33 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+}
+
+struct DanmakuSettingsViewV2: View {
+    @Binding var showDanmaku: Bool
+    @Binding var opacity: Double
+    @Binding var fontSize: CGFloat
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("弹幕开关") {
+                    Toggle("开启弹幕", isOn: $showDanmaku)
+                }
+
+                Section("弹幕透明度") {
+                    Slider(value: $opacity, in: 0...1, step: 0.1)
+                }
+
+                Section("弹幕字体大小") {
+                    Slider(value: $fontSize, in: 12...24, step: 2)
+                }
+            }
+            .navigationTitle("弹幕设置")
+        }
+    }
 }
 
 struct AirPlayViewV2: UIViewRepresentable {
