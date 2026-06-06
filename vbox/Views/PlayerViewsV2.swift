@@ -977,10 +977,10 @@ struct SidePanelView<Content: View>: View {
                             .background(Color.black.opacity(0.9))
                             
                             content
-                                .frame(maxWidth: .infinity, height: .infinity)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .background(Color(hex: "1A1A1A"))
                         }
-                        .frame(width: geometry.size.width * 0.45, height: .infinity)
+                        .frame(width: geometry.size.width * 0.45)
                         .background(Color(hex: "1A1A1A"))
                         .cornerRadius(12, corners: [.topLeft, .bottomLeft])
                         .transition(.move(edge: .trailing))
