@@ -27,6 +27,7 @@
 		A10026 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
 		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		A10020 /* js in Resources */ = {isa = PBXBuildFile; fileRef = B10030 /* js */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
@@ -50,6 +51,7 @@
 		B10024 /* LogVarDanmakuService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogVarDanmakuService.swift; sourceTree = "<group>"; };
 		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
 		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
@@ -148,6 +150,7 @@
 			isa = PBXGroup;
 			children = (
 				B10013 /* Assets.xcassets */,
+				B10030 /* js */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -251,6 +254,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10013 /* Assets.xcassets in Resources */,
+				A10020 /* js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
