@@ -182,54 +182,47 @@ struct LiquidBackground: View {
     }
 }
 
-// MARK: - 首页视图
+// MARK: - 首页视图（豆瓣推荐）
 struct HomeView: View {
-    @StateObject private var spiderManager = SpiderManager.shared
+    @StateObject private var doubanService = DoubanService.shared
     @EnvironmentObject private var settings: AppSettings
     @State private var isLoading = true
+    @State private var bannerSubjects: [DoubanSubject] = []
+    @State private var hotMovies: [DoubanSubject] = []
+    @State private var hotTV: [DoubanSubject] = []
+    @State private var hotVariety: [DoubanSubject] = []
+    @State private var top250: [DoubanSubject] = []
+    @State private var currentIndex = 0
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                SearchBarHeader(onSearch: { query in
-                    settings.triggerSearch(query)
-                })
-
                 if isLoading {
                     VStack(spacing: 20) {
                         ProgressView().scaleEffect(1.5).padding(.top, 100)
                         Text("正在加载...").font(.system(size: 14)).foregroundColor(.secondary)
                     }
-                } else if spiderManager.homeVideos.isEmpty {
-                    FeaturedCarousel(videos: mockVideos.prefix(5).map{ $0 })
-
-                    SectionHeader(title: "站点列表 (" + String(spiderManager.loadedSiteCount) + ")", icon: "antenna.radiowaves.left.and.right")
-                    LazyVStack(spacing: 6) {
-                        ForEach(spiderManager.allSites.prefix(30), id: \.key) { site in
-                            HStack {
-                                Text(site.name).font(.system(size: 14)).lineLimit(1)
-                                Spacer()
-                                Text(site.type == 3 ? "JS" : "API").font(.system(size: 10)).foregroundColor(.white)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color(hex: "E11D48").opacity(0.8))
-                                    .cornerRadius(4)
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(Color.white.opacity(0.03))
-                        }
-                    }
-                    .padding(.horizontal, 16)
                 } else {
-                    let v = spiderManager.homeVideos
-                    FeaturedCarousel(videos: Array(v.prefix(5)))
-                    SectionHeader(title: "热门推荐", icon: "flame.fill")
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
-                        ForEach(Array(v.prefix(6))) { video in VideoCard(video: video) }
-                    }.padding(.horizontal, 16)
-                    SectionHeader(title: "最新更新", icon: "clock.fill")
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
-                        ForEach(Array(v.dropFirst(6).prefix(6))) { video in VideoCard(video: video) }
-                    }.padding(.horizontal, 16)
+                    if !bannerSubjects.isEmpty {
+                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex)
+                    }
+                    CategoryTilesView()
+                    if !hotMovies.isEmpty {
+                        SectionHeader(title: "热门电影", icon: "flame.fill")
+                        HorizontalSubjectRow(subjects: hotMovies)
+                    }
+                    if !top250.isEmpty {
+                        SectionHeader(title: "TOP250", icon: "crown.fill")
+                        HorizontalSubjectRow(subjects: top250)
+                    }
+                    if !hotTV.isEmpty {
+                        SectionHeader(title: "热门剧集", icon: "tv.fill")
+                        HorizontalSubjectRow(subjects: hotTV)
+                    }
+                    if !hotVariety.isEmpty {
+                        SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
+                        HorizontalSubjectRow(subjects: hotVariety)
+                    }
                 }
             }
             .padding(.bottom, 100)
@@ -241,7 +234,20 @@ struct HomeView: View {
     private func loadData() {
         isLoading = true
         Task {
-            await spiderManager.initialize()
+            do {
+                async let banner = doubanService.fetchTop250(start: 0, count: 10)
+                async let movies = doubanService.fetchHotMovies(start: 0, count: 10)
+                async let tv = doubanService.fetchHotTV(start: 0, count: 10)
+                async let variety = doubanService.fetchHotVariety(start: 0, count: 10)
+                async let top = doubanService.fetchTop250(start: 0, count: 10)
+                bannerSubjects = try await banner
+                hotMovies = try await movies
+                hotTV = try await tv
+                hotVariety = try await variety
+                top250 = try await top
+            } catch {
+                print("Douban API error: \(error)")
+            }
             isLoading = false
         }
     }
