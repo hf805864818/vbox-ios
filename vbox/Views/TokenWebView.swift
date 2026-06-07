@@ -109,37 +109,53 @@ struct TokenWebView: UIViewRepresentable {
 struct TokenFetcherView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var cloudDriveManager: CloudDriveManager
+    var onTokenDetected: ((String, String) -> Void)? = nil
     @State private var detectedToken: (type: String, value: String)? = nil
     @State private var isLoading = true
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                if isLoading {
-                    TokenWebView(onTokenDetected: { type, value in
-                        detectedToken = (type, value)
-                        // 自动填入
-                        let name = CloudDriveManager.DriveType(rawValue: type)?.displayName ?? type
-                        cloudDriveManager.addToken(type: CloudDriveManager.DriveType(rawValue: type) ?? .ali, name: name, value: value)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                TokenWebView(onTokenDetected: { type, value in
+                    detectedToken = (type, value)
+                    // 调用回调函数自动填入
+                    onTokenDetected?(type, value)
+                }, isLoading: $isLoading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                if detectedToken == nil && isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在加载页面...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
+                        Text("请扫码登录后，页面会自动检测Token")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray.opacity(0.8))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .padding(.bottom, 40)
+                } else if let token = detectedToken {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.green)
+                        Text("成功获取 Token")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("类型: \(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
+                        Text("已自动填入，请保存")
+                            .font(.system(size: 13))
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.bottom, 40)
+                    .onAppear {
+                        // 2秒后自动关闭
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             dismiss()
                         }
-                    }, isLoading: $isLoading)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
-                    if detectedToken == nil {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("等待扫码登录...")
-                                .font(.system(size: 14))
-                                .foregroundColor(.gray)
-                            Text("请扫码登录后，页面会自动检测Token")
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
-                        }
-                        .padding(.bottom, 40)
                     }
                 }
             }
@@ -152,9 +168,6 @@ struct TokenFetcherView: View {
                     }
                 }
             }
-        }
-        .onDisappear {
-            // 自动刷新
         }
     }
 }
