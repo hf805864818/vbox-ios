@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var showTokenFetcher = false
     @State private var showSubscribeSheet = false
     @State private var showFallbackSheet = false
+    @State private var showParserSheet = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -101,10 +102,34 @@ struct SettingsView: View {
                     .padding(.vertical, 14)
                 }
                 .background(Color.gray.opacity(0.04))
+                
+                Button(action: { showParserSheet = true }) {
+                    HStack {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        Text("管理自定义解析器")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.black)
+                        Spacer()
+                        Text("\(spiderManager.customParsers.count) 个")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .background(Color.gray.opacity(0.04))
             }
         }
         .sheet(isPresented: $showFallbackSheet) {
             FallbackConfigView()
+        }
+        .sheet(isPresented: $showParserSheet) {
+            ParserConfigView()
         }
     }
 
@@ -601,5 +626,149 @@ struct FallbackConfigView: View {
         spiderManager.addCustomFallbackSite(name: newSiteName, api: newSiteAPI)
         newSiteName = ""
         newSiteAPI = ""
+    }
+}
+
+// MARK: - 解析器配置视图
+struct ParserConfigView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var spiderManager = SpiderManager.shared
+    @State private var newParserName = ""
+    @State private var newParserUrl = ""
+    @State private var showDeleteAlert = false
+    @State private var parserToDelete: Int? = nil
+    
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    // 自定义解析器列表
+                    if !spiderManager.customParsers.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("自定义解析器")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 4)
+                            
+                            ForEach(Array(spiderManager.customParsers.enumerated()), id: \.offset) { index, parser in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(parser.name)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.black)
+                                        Text(parser.url)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.gray)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Button(action: {
+                                        parserToDelete = index
+                                        showDeleteAlert = true
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.gray.opacity(0.04))
+                                .cornerRadius(8)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    } else {
+                        VStack(spacing: 12) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 40))
+                                .foregroundColor(.gray)
+                            Text("暂无自定义解析器")
+                                .font(.system(size: 14))
+                                .foregroundColor(.gray)
+                            Text("添加解析器后可提高切片资源播放成功率")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    }
+                    
+                    // 添加新解析器
+                    VStack(spacing: 16) {
+                        Text("添加自定义解析器")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("解析器名称")
+                                .font(.system(size: 13, weight: .medium))
+                            TextField("如：777 解析", text: $newParserName)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 13))
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("解析器地址")
+                                .font(.system(size: 13, weight: .medium))
+                            TextField("https://jx.xxx.com/player/?url=", text: $newParserUrl)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 12))
+                        }
+                        
+                        Button(action: addCustomParser) {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 16))
+                                Text("添加解析器")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                Color(hex: "E11D48")
+                                    .opacity(newParserName.isEmpty || newParserUrl.isEmpty ? 0.5 : 1)
+                            )
+                            .cornerRadius(12)
+                        }
+                        .disabled(newParserName.isEmpty || newParserUrl.isEmpty)
+                    }
+                    .padding(20)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+                    .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 20)
+            }
+            .background(Color.white)
+            .navigationTitle("解析器管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Text("关闭").foregroundColor(Color(hex: "E11D48"))
+                    }
+                }
+            }
+            .alert("删除确认", isPresented: $showDeleteAlert) {
+                Button("取消", role: .cancel) {}
+                Button("删除", role: .destructive) {
+                    if let index = parserToDelete {
+                        spiderManager.removeCustomParser(at: index)
+                    }
+                }
+            } message: {
+                Text("确定要删除这个解析器吗？")
+            }
+        }
+    }
+    
+    private func addCustomParser() {
+        guard !newParserName.isEmpty && !newParserUrl.isEmpty else { return }
+        spiderManager.addCustomParser(name: newParserName, url: newParserUrl)
+        newParserName = ""
+        newParserUrl = ""
     }
 }
