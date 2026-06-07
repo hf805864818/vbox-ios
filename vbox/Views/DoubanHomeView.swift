@@ -348,13 +348,40 @@ struct SubjectCard: View {
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 120, height: 160)
                         case .failure(_):
-                            // 加载失败显示占位图
                             ZStack {
                                 Rectangle().fill(Color.gray.opacity(0.15))
                                 Image(systemName: "photo")
                                     .font(.system(size: 30))
                                     .foregroundColor(.gray)
                             }
+                            .frame(width: 120, height: 160)
+                        case .empty:
+                            ZStack {
+                                Rectangle().fill(Color.gray.opacity(0.08))
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(.gray)
+                            }
+                            .frame(width: 120, height: 160)
+                        @unknown default:
+                            Rectangle().fill(Color.gray.opacity(0.1))
+                                .frame(width: 120, height: 160)
+                        }
+                    }
+                } else {
+                    ZStack {
+                        Rectangle().fill(Color.gray.opacity(0.1))
+                        VStack(spacing: 4) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 30))
+                                .foregroundColor(.gray)
+                            Text("暂无封面")
+                                .font(.system(size: 10))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .frame(width: 120, height: 160)
+                }
                             .frame(width: 120, height: 160)
                         case .empty:
                             // 加载中
