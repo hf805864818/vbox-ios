@@ -176,15 +176,11 @@ class CloudDriveManager: ObservableObject {
         return try JSONDecoder().decode(AliTokenResponse.self, from: data)
     }
 
-    private func aliGetShareToken(shareURL: String, token: String) async throws -> String {
-        // 从分享链接中提取 share_id 和 file_id
+    private func aliGetShareToken(shareId: String, token: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v3/share_file/get_share_token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "Authorization")
-
-        // 从URL提取 share_id
-        let shareId = extractAliShareId(from: shareURL)
         let body: [String: Any] = ["share_id": shareId]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -797,6 +793,7 @@ enum DriveError: LocalizedError {
     case invalidShareURL
     case saveFailed
     case notImplemented
+    case tokenNotConfigured(String)
 
     var errorDescription: String? {
         switch self {
@@ -805,6 +802,7 @@ enum DriveError: LocalizedError {
         case .invalidShareURL: return "无效的分享链接"
         case .saveFailed: return "转存失败"
         case .notImplemented: return "该网盘暂不支持"
+        case .tokenNotConfigured(let name): return "未配置\(name) Token，请在设置中添加"
         }
     }
 }
