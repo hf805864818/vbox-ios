@@ -152,7 +152,7 @@ class CloudDriveManager: ObservableObject {
         let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: fileId, token: accessToken)
 
         guard let playURL = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList?.first?.url else {
-            throw DriveError.noPlayURL
+            throw DriveError.noPlayURL("阿里: 未获取到转码播放地址")
         }
 
         return PlayResult(
@@ -208,7 +208,7 @@ class CloudDriveManager: ObservableObject {
               let items = json["items"] as? [[String: Any]],
               let first = items.first,
               let fid = first["file_id"] as? String else {
-            throw DriveError.noPlayURL
+            throw DriveError.noPlayURL("阿里: 文件列表为空")
         }
         return fid
     }
@@ -243,23 +243,27 @@ class CloudDriveManager: ObservableObject {
 
     /// 夸克网盘：分享链接 → 转存 → file/v2/play → 播放地址
     func resolveQuarkPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+        print("[Quark] 开始解析: \(shareURL)")
         // Step 1: 提取 pwd_id 和 share_id
         let (shareId, pwdId) = try await quarkExtractShareInfo(shareURL: shareURL, cookie: cookie)
+        print("[Quark] shareId=\(shareId) pwdId=\(pwdId)")
 
         // Step 2: 获取 share_token（夸克新版需要）
         let shareToken = try await quarkGetShareToken(shareId: shareId, pwdId: pwdId, cookie: cookie)
+        print("[Quark] shareToken=\(shareToken.isEmpty ? "空" : "已获取")")
 
         // Step 3: 获取 vbox 文件夹 ID
         let folderId = try await quarkEnsureFolder(cookie: cookie)
+        print("[Quark] folderId=\(folderId.isEmpty ? "空" : folderId)")
 
         // Step 4: 转存到 vbox 文件夹（带 share_token）
         let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, shareToken: shareToken, folderId: folderId, cookie: cookie)
+        print("[Quark] 转存完成 fileIds=\(fileIds)")
 
-        // Step 4: 获取播放地址
-        guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
+        guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
         let playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
+        print("[Quark] ✅ 播放地址: \(playURL.prefix(80))")
 
-        // Step 5: 30秒后清理
         scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 4800)
 
         return PlayResult(
@@ -353,8 +357,11 @@ class CloudDriveManager: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
+        let respStr = String(data: data, encoding: .utf8) ?? "nil"
+        print("[Quark] saveShare 响应: \(respStr.prefix(200))")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = json["status"] as? Int, status == 200 else {
+            print("[Quark] ❌ 转存失败: status != 200")
             throw DriveError.saveFailed
         }
 
@@ -362,6 +369,7 @@ class CloudDriveManager: ObservableObject {
         if let d = json["data"] as? [String: Any], let fileIds = d["file_ids"] as? [String] {
             return fileIds
         }
+        print("[Quark] ⚠️ 响应中无file_ids，使用shareId")
         return [shareId]
     }
 
@@ -377,7 +385,7 @@ class CloudDriveManager: ObservableObject {
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let playURL = json["play_url"] as? String else {
-            throw DriveError.noPlayURL
+            throw DriveError.noPlayURL("夸克: 未返回播放地址(play_url为空)")
         }
         return playURL
     }
@@ -387,11 +395,16 @@ class CloudDriveManager: ObservableObject {
     /// 百度网盘：BDUSS → 分享链接 → transfer → dlink → 播放地址
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
         let cookie = "BDUSS=\(bduss)"
+        print("[Baidu] 开始解析: \(shareURL)")
         let (shareid, shareUk, fsId) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie)
-        guard !fsId.isEmpty else { throw DriveError.noPlayURL }
+        print("[Baidu] shareid=\(shareid) shareUk=\(shareUk) fsId=\(fsId)")
+        guard !fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID(fsId为空)") }
         let _ = try await baiduEnsureFolder(bduss: bduss)
-        let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
+        let surl = shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? ""
+        let fsIds = try await baiduTransferFile(shareid: shareid, surl: surl, shareUk: shareUk, fsId: fsId, cookie: cookie)
+        print("[Baidu] 转存完成 fsIds=\(fsIds)")
         let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? fsId, cookie: cookie)
+        print("[Baidu] ✅ 播放地址: \(result.url.prefix(80))")
         scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 4800)
         return result
     }
@@ -454,7 +467,7 @@ class CloudDriveManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let list = json["info"] as? [[String: Any]],
               let dlink = list.first?["dlink"] as? String else {
-            throw DriveError.noPlayURL
+            throw DriveError.noPlayURL("百度: 未获取到下载链接(dlink为空)")
         }
 
         return PlayResult(
@@ -511,7 +524,7 @@ class CloudDriveManager: ObservableObject {
         let snapResult = try await one15Snap(shareCode: shareCode, receiveCode: receiveCode, cid: cid)
 
         // Step 2: 获取下载地址
-        guard let fileId = snapResult.fileId else { throw DriveError.noPlayURL }
+        guard let fileId = snapResult.fileId else { throw DriveError.noPlayURL("115: snap未返回文件ID") }
         let downloadURL = try await one15GetDownloadURL(fileId: fileId, cid: cid)
 
         return PlayResult(
@@ -603,7 +616,7 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
-        throw DriveError.noPlayURL
+        throw DriveError.noPlayURL("115: 未获取到下载地址")
     }
 
     // MARK: - UC 网盘
@@ -621,7 +634,7 @@ class CloudDriveManager: ObservableObject {
         let fileIds = try await ucSaveShare(shareId: shareId, folderId: folderId, cookie: cookie)
 
         // Step 4: 获取播放地址
-        guard let fileId = fileIds.first else { throw DriveError.noPlayURL }
+        guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
         let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
 
         // Step 5: 30秒后清理
@@ -738,7 +751,7 @@ class CloudDriveManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataObj = json["data"] as? [String: Any],
               let playURL = dataObj["play_url"] as? String else {
-            throw DriveError.noPlayURL
+            throw DriveError.noPlayURL("UC: 未返回播放地址")
         }
         return playURL
     }
@@ -788,7 +801,7 @@ enum DriveTypeAlias: String {
 }
 
 enum DriveError: LocalizedError {
-    case noPlayURL
+    case noPlayURL(String)
     case invalidResponse
     case invalidShareURL
     case saveFailed
@@ -797,7 +810,7 @@ enum DriveError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noPlayURL: return "无法获取播放地址"
+        case .noPlayURL(let reason): return "无法获取播放地址: \(reason)"
         case .invalidResponse: return "服务器响应无效"
         case .invalidShareURL: return "无效的分享链接"
         case .saveFailed: return "转存失败"

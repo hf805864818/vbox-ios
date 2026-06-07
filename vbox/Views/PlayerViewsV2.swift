@@ -364,7 +364,7 @@ class PlayerState: ObservableObject {
                 let msg: String
                 switch error {
                 case .tokenNotConfigured(let name): msg = "未配置\(name) Token，请到 设置→网盘播放 中添加"
-                case .noPlayURL: msg = "\(driveType.displayName) 无法获取播放地址，资源可能已失效"
+                case .noPlayURL(let reason): msg = "\(driveType.displayName) \(reason)"
                 case .invalidShareURL: msg = "无效的\(driveType.displayName)分享链接"
                 case .saveFailed: msg = "\(driveType.displayName) 转存失败"
                 case .invalidResponse: msg = "\(driveType.displayName) 服务器响应异常"
