@@ -297,7 +297,7 @@ class PlayerState: ObservableObject {
         }
         
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
             self?.currentTime = time.seconds
             if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
         }
@@ -527,7 +527,7 @@ class PlayerState: ObservableObject {
                         self.player = p; self.isPlaying = true; self.isLoading = false
                     }
                     let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-                    timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+                    timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
                         self?.currentTime = time.seconds
                         if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
                     }
@@ -734,7 +734,7 @@ class PlayerState: ObservableObject {
         
         // 添加时间观察者
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
             self?.currentTime = time.seconds
             if let itemDuration = p.currentItem?.duration {
                 self?.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0

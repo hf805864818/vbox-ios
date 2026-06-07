@@ -1255,18 +1255,6 @@ globalThis.__JS_SPIDER__ = _spider;
         
         return nil
     }
-                        } else if result.hasPrefix("http") {
-                            return result
-                        }
-                    }
-                }
-            }
-        } catch {
-            print("[SpiderManager] 解析器请求失败: \(error.localizedDescription)")
-        }
-
-        return nil
-    }
 
     // 从vodPlayUrl中提取第一集URL
     private func extractFirstPlayableUrl(from vodPlayUrl: String?) -> String? {
