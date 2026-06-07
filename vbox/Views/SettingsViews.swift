@@ -1,6 +1,5 @@
 import SwiftUI
 
-// MARK: - 设置视图
 struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
@@ -26,181 +25,26 @@ struct SettingsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                // 导航栏
-                NavigationBar(
-                    title: "设置",
-                    showBackButton: true
-                ) {
-                    // 返回
-                }
+                // 标题
+                Text("设置")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 16)
 
                 VStack(spacing: 20) {
-                    // 订阅源管理
-                    SettingsSection(title: "订阅源管理") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                TextField("输入订阅源JSON地址...", text: $newURL)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .font(.system(size: 14))
-                                    .autocapitalization(.none)
-                                    .disableAutocorrection(true)
-
-                                Button(action: addSubscription) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(Color(hex: "E11D48"))
-                                }
-                                .disabled(newURL.trimmingCharacters(in: .whitespaces).isEmpty)
-                            }
-
-                            if spiderManager.isLoading {
-                                HStack {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                    Text("加载中...")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            if let error = spiderManager.errorMessage {
-                                Text(error)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.red)
-                            }
-
-                            if !spiderManager.savedURLs.isEmpty {
-                                Text("已保存的订阅源 (\(spiderManager.savedURLs.count) 个)")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                    .padding(.top, 4)
-
-                                ForEach(Array(spiderManager.savedURLs.enumerated()), id: \.offset) { index, url in
-                                    HStack {
-                                        // 激活指示器
-                                        Button(action: {
-                                            if index != spiderManager.subManager.activeURLIndex {
-                                                spiderManager.switchToSubscription(at: index)
-                                            }
-                                        }) {
-                                            HStack(spacing: 6) {
-                                                Image(systemName: index == spiderManager.subManager.activeURLIndex
-                                                    ? "checkmark.circle.fill"
-                                                    : "circle")
-                                                    .font(.system(size: 14))
-                                                    .foregroundColor(index == spiderManager.subManager.activeURLIndex
-                                                        ? Color(hex: "E11D48") : .gray)
-                                                Text(url)
-                                                    .font(.system(size: 11))
-                                                    .lineLimit(1)
-                                                    .foregroundColor(.primary)
-                                            }
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
-
-                                        Spacer()
-
-                                        Button(action: { spiderManager.removeSubscriptionURL(url) }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.gray)
-                                        }
-                                    }
-                                    .padding(.vertical, 4)
-                                }
-                            }
-
-                            if spiderManager.isInitialized {
-                                Text("已加载 \(spiderManager.subscribedSites.count) 个站点")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.green)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-
-                    // 切片搜索兜底源
-                    FallbackSitesSection(spiderManager: spiderManager)
-
                     // 播放设置
                     SettingsSection(title: "播放设置") {
-                        SettingsToggleRow(
-                            title: "自动播放下一集",
-                            subtitle: "播放完成后自动播放下一集",
-                            isOn: $autoPlayNext
-                        )
-
-                        SettingsToggleRow(
-                            title: "后台播放",
-                            subtitle: "最小化后继续播放",
-                            isOn: $playInBackground
-                        )
-
-                        SettingsToggleRow(
-                            title: "画中画模式",
-                            subtitle: "使用画中画窗口播放",
-                            isOn: $usePictureInPicture
-                        )
-
-                        SettingsToggleRow(
-                            title: "播放调试日志",
-                            subtitle: "播放时显示解析过程日志浮层",
-                            isOn: $showDebugOverlay
-                        )
-
-                        SettingsNavigationRow(
-                            title: "默认画质",
-                            subtitle: selectedQuality,
-                            icon: "tv"
-                        ) {
-                            // 显示画质选择
-                        }
-
-                        SettingsNavigationRow(
-                            title: "默认倍速",
-                            subtitle: "\(selectedSpeed)x",
-                            icon: "speedometer"
-                        ) {
-                            // 显示倍速选择
-                        }
-                    }
-
-                    // 订阅管理
-                    SettingsSection(title: "订阅管理") {
-                        SettingsNavigationRow(
-                            title: "订阅源配置",
-                            subtitle: "管理视频源订阅",
-                            icon: "link"
-                        ) {
-                            // 跳转到订阅配置页面
-                        }
-
-                        SettingsNavigationRow(
-                            title: "源管理",
-                            subtitle: "已配置 3 个源",
-                            icon: "list.bullet"
-                        ) {
-                            // 显示源列表
-                        }
-
-                        SettingsNavigationRow(
-                            title: "添加新源",
-                            subtitle: "从URL添加视频源",
-                            icon: "plus.circle.fill"
-                        ) {
-                            // 添加新源
-                        }
+                        SettingsToggleRow(title: "自动播放下一个", icon: "play.circle.fill", isOn: $autoPlayNext)
+                        SettingsToggleRow(title: "后台播放", icon: "headphones", isOn: $playInBackground)
+                        SettingsToggleRow(title: "画中画", icon: "rectangle.on.rectangle", isOn: $usePictureInPicture)
+                        SettingsToggleRow(title: "调试信息浮层", icon: "ladybug.fill", isOn: $showDebugOverlay)
                     }
 
                     // 网盘管理
                     SettingsSection(title: "网盘播放") {
                         VStack(alignment: .leading, spacing: 12) {
                             if !cloudDriveManager.savedTokens.isEmpty {
-                                Text("已配置 \(cloudDriveManager.savedTokens.count) 个网盘Token")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-
                                 ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
                                     HStack {
                                         Image(systemName: iconForDriveType(token.type))
@@ -210,27 +54,46 @@ struct SettingsView: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
                                                 .font(.system(size: 14, weight: .medium))
+                                                .foregroundColor(.black)
                                             Text(token.name)
                                                 .font(.system(size: 11))
-                                                .foregroundColor(.secondary)
+                                                .foregroundColor(.gray)
                                                 .lineLimit(1)
                                         }
 
                                         Spacer()
 
-                                        Button(action: {
-                                            cloudDriveManager.removeToken(at: index)
-                                        }) {
+                                        Button(action: { cloudDriveManager.removeToken(at: index) }) {
                                             Image(systemName: "trash")
                                                 .font(.system(size: 14))
                                                 .foregroundColor(.red)
                                         }
                                     }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(Color.primary.opacity(0.05))
+                                    .padding(.horizontal, 14).padding(.vertical, 10)
+                                    .background(Color.gray.opacity(0.06))
                                     .cornerRadius(8)
                                 }
+                            }
+
+                            // 获取Token按钮
+                            Button(action: {
+                                if let url = URL(string: "https://cookie-butler.douer.me") {
+                                    UIApplication.shared.open(url)
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "key.fill")
+                                        .font(.system(size: 16))
+                                    Text("获取Token")
+                                        .font(.system(size: 14, weight: .medium))
+                                    Text("→")
+                                        .font(.system(size: 12))
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color(hex: "E11D48"))
+                                .cornerRadius(10)
                             }
 
                             HStack {
@@ -275,988 +138,63 @@ struct SettingsView: View {
                             title: "缓存管理",
                             subtitle: cacheSize,
                             icon: "externaldrive.fill"
-                        ) {
-                            showCacheAlert = true
-                        }
-
-                        SettingsNavigationRow(
-                            title: "下载设置",
-                            subtitle: "仅WiFi下载",
-                            icon: "arrow.down.circle.fill"
-                        ) {
-                            // 下载设置
-                        }
+                        ) { showCacheAlert = true }
                     }
 
-                    // 自定义解析器管理
-                    SettingsSection(title: "自定义解析接口") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            // 添加解析器
+                    // 关于
+                    SettingsSection(title: "关于") {
+                        HStack {
+                            Text("版本").foregroundColor(.black)
+                            Spacer()
+                            Text("3.60").foregroundColor(.gray)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+
+                        Button(action: { showUpdateSheet = true }) {
                             HStack {
-                                TextField("解析接口名称", text: $newParserName)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .font(.system(size: 13))
-                                    .frame(width: 80)
-
-                                TextField("https://example.com/?url=", text: $newParserURL)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .font(.system(size: 13))
-                                    .autocapitalization(.none)
-                                    .disableAutocorrection(true)
-
-                                Button(action: addParser) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 22))
-                                        .foregroundColor(Color(hex: "E11D48"))
-                                }
-                                .disabled(newParserName.trimmingCharacters(in: .whitespaces).isEmpty ||
-                                          newParserURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                                Text("检查更新").foregroundColor(.black)
+                                Spacer()
+                                if isChecking { ProgressView().scaleEffect(0.8) }
+                                else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
                             }
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                        }
 
-                            if !spiderManager.customParsers.isEmpty {
-                                Text("已添加 \(spiderManager.customParsers.count) 个自定义解析器")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-
-                                ForEach(Array(spiderManager.customParsers.enumerated()), id: \.offset) { index, parser in
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(parser.name)
-                                                .font(.system(size: 14, weight: .medium))
-                                            Text(parser.url)
-                                                .font(.system(size: 11))
-                                                .foregroundColor(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                        Spacer()
-
-                                        Button(action: {
-                                            spiderManager.removeCustomParser(at: index)
-                                        }) {
-                                            Image(systemName: "trash")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(.red)
-                                        }
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(Color.primary.opacity(0.05))
-                                    .cornerRadius(8)
-                                }
-                            } else {
-                                Text("暂无自定义解析器，添加后可用于解析HTML播放页获取视频直链")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                    .padding(.vertical, 8)
+                        NavigationLink(destination: SubscribeConfigView()) {
+                            HStack {
+                                Text("订阅配置").foregroundColor(.black)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray)
                             }
-                        }
-                        .padding(16)
-                    }
-
-                    // 其他设置
-                    SettingsSection(title: "其他") {
-                        HStack {
-                            Text("版本")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3")
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(Color.primary.opacity(0.05))
-
-                        HStack {
-                            Text("构建")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text("build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(Color.primary.opacity(0.05))
-
-                        SettingsNavigationRow(
-                            title: "隐私政策",
-                            subtitle: "",
-                            icon: "doc.text.fill"
-                        ) {
-                            // 隐私政策
-                        }
-
-                        SettingsNavigationRow(
-                            title: "用户协议",
-                            subtitle: "",
-                            icon: "doc.plaintext.fill"
-                        ) {
-                            // 用户协议
+                            .padding(.horizontal, 16).padding(.vertical, 12)
                         }
                     }
                 }
-                .padding(.bottom, 100)
+                .padding(.horizontal, 16)
             }
         }
-        .background(Color(hex: "000000"))
-        .alert("清理缓存", isPresented: $showCacheAlert) {
-            Button("取消", role: .cancel) { }
-            Button("确定", role: .destructive) {
-                // 执行清理缓存操作
-                cacheSize = "0 MB"
-            }
-        } message: {
-            Text("确定要清理所有缓存吗？这将删除所有已缓存的视频数据。")
-        }
-    }
-
-    private func addSubscription() {
-        let url = newURL.trimmingCharacters(in: .whitespaces)
-        guard !url.isEmpty else { return }
-        spiderManager.saveSubscriptionURL(url)
-        Task {
-            await spiderManager.loadSubscribeConfig(from: url)
-            newURL = ""
-        }
-    }
-
-    private func addParser() {
-        let name = newParserName.trimmingCharacters(in: .whitespaces)
-        let url = newParserURL.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !url.isEmpty else { return }
-        spiderManager.addCustomParser(name: name, url: url)
-        newParserName = ""
-        newParserURL = ""
+        .background(Color.white)
+        .alert("清除缓存", isPresented: $showCacheAlert) {
+            Button("取消", role: .cancel) {}
+            Button("确定", role: .destructive) {}
+        } message: { Text("确定要清除所有缓存数据吗？") }
+        .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
     }
 
     private func addDriveToken() {
-        let name = driveTokenName.trimmingCharacters(in: .whitespaces)
-        let value = driveTokenValue.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !value.isEmpty else { return }
-        cloudDriveManager.addToken(type: selectedDriveType, name: name, value: value)
-        driveTokenName = ""
-        driveTokenValue = ""
+        guard !driveTokenName.isEmpty, !driveTokenValue.isEmpty else { return }
+        cloudDriveManager.saveToken(type: selectedDriveType.rawValue, name: driveTokenName, value: driveTokenValue)
+        driveTokenName = ""; driveTokenValue = ""
     }
 
     private func iconForDriveType(_ type: String) -> String {
         switch type {
-        case "ali": return "cloud.fill"
+        case "115": return "1.circle.fill"
+        case "ali": return "a.circle.fill"
         case "quark": return "q.circle.fill"
         case "baidu": return "b.circle.fill"
-        case "115": return "1.circle.fill"
         case "uc": return "u.circle.fill"
-        default: return "externaldrive.fill"
+        default: return "cloud.fill"
         }
-    }
-}
-
-// 设置区块
-struct SettingsSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color.secondary)
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-
-            VStack(spacing: 1) {
-                content
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.thinMaterial)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .padding(.horizontal, 16)
-        }
-    }
-}
-
-// 设置开关行
-struct SettingsToggleRow: View {
-    let title: String
-    let subtitle: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.primary)
-
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 13))
-                        .foregroundColor(Color.secondary)
-                }
-            }
-
-            Spacer()
-
-            // 毛玻璃开关
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            Color.primary.opacity(0.05)
-        )
-    }
-}
-
-// 设置导航行
-struct SettingsNavigationRow: View {
-    let title: String
-    let subtitle: String
-    let icon: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundColor(Color(hex: "E11D48"))
-                    .frame(width: 28)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary)
-
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: 13))
-                            .foregroundColor(Color.secondary)
-                    }
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                Color.primary.opacity(0.05)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - 订阅配置视图
-struct SubscribeConfigView: View {
-    @StateObject private var spiderManager = SpiderManager.shared
-    @State private var subscribeURL = ""
-    @State private var isLoading = false
-    @State private var showSuccessAlert = false
-    @State private var showErrorAlert = false
-    @State private var errorMessage = ""
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                // 导航栏
-                NavigationBar(
-                    title: "订阅配置",
-                    showBackButton: true
-                ) {
-                    // 返回
-                }
-
-                VStack(spacing: 24) {
-                    // 说明卡片
-                    InfoCard(
-                        icon: "info.circle.fill",
-                        title: "什么是订阅源？",
-                        description: "订阅源是一个包含多个视频站点配置的JSON文件，通过订阅源可以聚合观看来自不同站点的视频内容。"
-                    )
-
-                    // 添加订阅源表单
-                    VStack(spacing: 16) {
-                        Text("添加新订阅源")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // URL输入框
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("订阅地址")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.primary)
-
-                            HStack(spacing: 10) {
-                                Image(systemName: "link")
-                                    .foregroundColor(Color.secondary)
-
-                                TextField("https://example.com/config.json", text: $subscribeURL)
-                                    .foregroundColor(.primary)
-                                    .textInputAutocapitalization(.never)
-                                    .keyboardType(.URL)
-                                    .autocorrectionDisabled()
-
-                                if !subscribeURL.isEmpty {
-                                    Button(action: {
-                                        subscribeURL = ""
-                                    }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(Color.secondary)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(
-                                        subscribeURL.isEmpty
-                                            ? Color.white.opacity(0.1)
-                                            : Color(hex: "E11D48").opacity(0.3),
-                                        lineWidth: 1
-                                    )
-                            )
-                        }
-
-                        // 添加按钮
-                        Button(action: {
-                            loadSubscribeConfig()
-                        }) {
-                            HStack(spacing: 8) {
-                                if isLoading {
-                                    ProgressView()
-                                        .tint(.white)
-                                } else {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 18))
-                                }
-
-                                Text(isLoading ? "加载中..." : "添加订阅源")
-                                    .font(.system(size: 16, weight: .semibold))
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                ZStack {
-                                    // 液态背景
-                                    if !isLoading {
-                                        LiquidBackground()
-                                            .blur(radius: 10)
-                                            .opacity(0.4)
-                                    }
-
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                }
-                            )
-                        }
-                        .disabled(subscribeURL.isEmpty || isLoading)
-                        .opacity(subscribeURL.isEmpty || isLoading ? 0.6 : 1.0)
-                    }
-                    .padding(.horizontal, 16)
-
-                    // 已配置的订阅源
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("已配置的订阅源")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.primary)
-
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-
-                        LazyVStack(spacing: 12) {
-                            let realURLs = spiderManager.savedURLs
-                            if realURLs.isEmpty {
-                                Text("暂无配置的订阅源")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 20)
-                            } else {
-                                ForEach(Array(realURLs.enumerated()), id: \.offset) { idx, url in
-                                    SubscribeSourceCard(
-                                        source: SubscribeSource(
-                                            name: URL(string: url)?.lastPathComponent ?? "订阅源 \(idx+1)",
-                                            url: url,
-                                            siteCount: spiderManager.subManager.config?.sites.count ?? 0,
-                                            lastUpdated: ""
-                                        ),
-                                        isActive: idx == spiderManager.subManager.activeURLIndex
-                                    )
-                                    .onTapGesture {
-                                        spiderManager.subManager.switchToSubscription(at: idx)
-                                        Task { await spiderManager.loadActiveSubscription() }
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-
-                    // 常用订阅源推荐
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("常用订阅源推荐")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.primary)
-
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-
-                        LazyVStack(spacing: 12) {
-                            ForEach(recommendedSources) { source in
-                                RecommendedSourceCard(source: source) {
-                                    subscribeURL = source.url
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-                }
-                .padding(.bottom, 100)
-            }
-        }
-        .background(Color(hex: "000000"))
-        .alert("成功", isPresented: $showSuccessAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text("订阅源添加成功！")
-        }
-        .alert("错误", isPresented: $showErrorAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text(errorMessage)
-        }
-    }
-
-    private func loadSubscribeConfig() {
-        guard !subscribeURL.isEmpty else { return }
-        isLoading = true
-
-        Task {
-            await SpiderManager.shared.loadSubscribeConfig(from: subscribeURL)
-            await MainActor.run {
-                isLoading = false
-                if let error = SpiderManager.shared.errorMessage {
-                    errorMessage = error
-                    showErrorAlert = true
-                } else {
-                    showSuccessAlert = true
-                    subscribeURL = ""
-                }
-            }
-        }
-    }
-}
-
-// 信息卡片
-struct InfoCard: View {
-    let icon: String
-    let title: String
-    let description: String
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundColor(Color(hex: "E11D48"))
-                .frame(width: 40, height: 40)
-                .background(
-                    Circle()
-                        .fill(Color(hex: "E11D48").opacity(0.15))
-                )
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.primary)
-
-                Text(description)
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.secondary)
-                    .lineSpacing(2)
-            }
-
-            Spacer()
-
-            Button(action: {}) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color.secondary)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: "E11D48").opacity(0.2),
-                            Color(hex: "E11D48").opacity(0.0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .padding(.horizontal, 16)
-    }
-}
-
-// 订阅源卡片
-struct SubscribeSourceCard: View {
-    let source: SubscribeSource
-    var isActive: Bool = false
-    @State private var isExpanded = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                // 图标
-                ZStack {
-                    // 液态背景
-                    LiquidBackground()
-                        .frame(width: 50, height: 50)
-                        .blur(radius: 8)
-                        .opacity(0.4)
-
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 22))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: 50, height: 50)
-
-                // 信息
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(source.name)
-                            .font(.system(size: 16, weight: .semibold))
-                        if isActive {
-                            Text("当前")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green)
-                                .cornerRadius(4)
-                        }
-                    }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.primary)
-
-                    HStack(spacing: 8) {
-                        Label("\(source.siteCount) 个站点", systemImage: "tv.circle.fill")
-                        Label("上次更新: \(source.lastUpdated)", systemImage: "clock.circle.fill")
-                    }
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.secondary)
-                }
-
-                Spacer()
-
-                // 操作按钮
-                HStack(spacing: 12) {
-                    Button(action: {}) {
-                        Image(systemName: "arrow.clockwise.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(Color(hex: "E11D48"))
-                    }
-
-                    Button(action: {}) {
-                        Image(systemName: "trash.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.red)
-                    }
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color.secondary)
-                }
-            }
-            .padding(16)
-            .background(
-                Color.primary.opacity(0.05)
-            )
-
-            // 展开的详情
-            if isExpanded {
-                VStack(spacing: 12) {
-                    Divider()
-                        .background(Color.white.opacity(0.1))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("源地址")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color.secondary)
-
-                        Text(source.url)
-                            .font(.system(size: 13))
-                            .foregroundColor(.primary)
-                            .lineLimit(2)
-                    }
-
-                    HStack {
-                        Label("自动更新: 开启", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.green)
-
-                        Spacer()
-
-                        Label("状态: 正常", systemImage: "checkmark.seal.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.green)
-                    }
-                }
-                .padding(16)
-                .background(
-                    Color.primary.opacity(0.03)
-                )
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.1),
-                            Color.white.opacity(0.0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-        .onTapGesture {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isExpanded.toggle()
-            }
-        }
-    }
-}
-
-// 推荐源卡片
-struct RecommendedSourceCard: View {
-    let source: RecommendedSource
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 14) {
-            // 图标
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "E11D48").opacity(0.2), Color(hex: "F43F5E").opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 50, height: 50)
-
-                Image(systemName: "star.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            }
-
-            // 信息
-            VStack(alignment: .leading, spacing: 6) {
-                Text(source.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
-
-                Text(source.description)
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            // 添加按钮
-            Button(action: action) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundColor(Color(hex: "E11D48"))
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: "E11D48").opacity(0.15),
-                            Color(hex: "E11D48").opacity(0.0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-        )
-    }
-}
-
-// MARK: - 数据模型
-struct SubscribeSource: Identifiable {
-    let id = UUID()
-    let name: String
-    let url: String
-    let siteCount: Int
-    let lastUpdated: String
-}
-
-struct RecommendedSource: Identifiable {
-    let id = UUID()
-    let name: String
-    let url: String
-    let description: String
-}
-
-// Mock数据
-let mockSubscribeSources: [SubscribeSource] = [
-    SubscribeSource(
-        name: "官方推荐源",
-        url: "https://example.com/official.json",
-        siteCount: 156,
-        lastUpdated: "2024-01-15"
-    ),
-    SubscribeSource(
-        name: "高清影视源",
-        url: "https://example.com/hd.json",
-        siteCount: 89,
-        lastUpdated: "2024-01-10"
-    ),
-    SubscribeSource(
-        name: "动漫专区",
-        url: "https://example.com/anime.json",
-        siteCount: 45,
-        lastUpdated: "2024-01-08"
-    )
-]
-
-let recommendedSources: [RecommendedSource] = [
-    RecommendedSource(
-        name: "王二小放牛娃 (推荐)",
-        url: "https://9280.kstore.space/wex.json",
-        description: "78个站点，含豆瓣热播、B站等，更新活跃"
-    ),
-    RecommendedSource(
-        name: "主流聚合源",
-        url: "https://raw.liucn.cc/box/m.json",
-        description: "234个站点，涵盖影视、短剧、有声小说"
-    ),
-    RecommendedSource(
-        name: "TVBox多仓",
-        url: "https://dxawi.github.io/0/0.json",
-        description: "多仓库聚合源，含直播频道"
-    ),
-    RecommendedSource(
-        name: "NXOG源",
-        url: "http://tv.nxog.top/m/111.php",
-        description: "轻量影视源，适合网速一般的用户"
-    ),
-    RecommendedSource(
-        name: "Top98仓库",
-        url: "http://home.jundie.top:81/top98.json",
-        description: "含直播+点播的综合源"
-    ),
-    RecommendedSource(
-        name: "饭太硬TV",
-        url: "http://www.饭太硬.com/tv",
-        description: "经典影视源（可能需要代理访问）"
-    )
-]
-// MARK: - 兜底源管理组件
-struct FallbackSitesSection: View {
-    @ObservedObject var spiderManager: SpiderManager
-    @State private var newName = ""
-    @State private var newAPI = ""
-
-    var body: some View {
-        SettingsSection(title: "切片搜索兜底源") {
-            VStack(alignment: .leading, spacing: 12) {
-                // 开关
-                Toggle(isOn: $spiderManager.fallbackEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("启用兜底采集源")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("订阅源搜索为空时自动使用内置采集站")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .tint(Color(hex: "E11D48"))
-                .padding(.vertical, 4)
-
-                if spiderManager.fallbackEnabled {
-                    Divider()
-
-                    // 内置源列表（只读）
-                    Text("内置采集源（\(SpiderManager.builtinFallbackSites.count) 个）")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.secondary)
-
-                    ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { _, site in
-                        HStack(spacing: 8) {
-                            Circle().fill(Color.green).frame(width: 6, height: 6)
-                            Text(site.name)
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(URL(string: site.api)?.host ?? "")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Divider()
-
-                    // 自定义源
-                    Text("自定义兜底源（\(spiderManager.customFallbackSites.count) 个）")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.secondary)
-
-                    ForEach(Array(spiderManager.customFallbackSites.enumerated()), id: \.offset) { index, site in
-                        HStack(spacing: 8) {
-                            Circle().fill(Color.orange).frame(width: 6, height: 6)
-                            Text(site.name)
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(URL(string: site.api)?.host ?? "")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                            Button(action: { spiderManager.removeCustomFallbackSite(at: index) }) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-
-                    // 添加自定义源
-                    HStack(spacing: 8) {
-                        TextField("名称", text: $newName)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.system(size: 12))
-                            .frame(width: 70)
-                        TextField("API地址", text: $newAPI)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.system(size: 11))
-                            .autocapitalization(.none)
-                            .disableAutocorrection(true)
-                        Button(action: {
-                            let name = newName.trimmingCharacters(in: .whitespaces)
-                            let api = newAPI.trimmingCharacters(in: .whitespaces)
-                            guard !name.isEmpty, !api.isEmpty else { return }
-                            spiderManager.addCustomFallbackSite(name: name, api: api)
-                            newName = ""; newAPI = ""
-                        }) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(Color(hex: "E11D48"))
-                        }
-                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty ||
-                                  newAPI.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    .padding(.top, 4)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-    }
-}
-
-// 导航栏组件
-struct NavigationBar: View {
-    let title: String
-    let showBackButton: Bool
-    let action: () -> Void
-
-    var body: some View {
-        HStack {
-            // 返回按钮
-            if showBackButton {
-                Button(action: action) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 20))
-                        .foregroundColor(.primary)
-                        .frame(width: 40, height: 40)
-                }
-            }
-
-            Spacer()
-
-            // 标题
-            Text(title)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.primary)
-
-            Spacer()
-
-            // 占位，保持标题居中
-            if showBackButton {
-                Color.clear
-                    .frame(width: 40, height: 40)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(hex: "0F0F23").opacity(0.95),
-                    Color(hex: "000000").opacity(0.98)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
     }
 }

@@ -84,14 +84,20 @@ struct BannerCarousel: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            TabView(selection: $currentIndex) {
-                ForEach(0..<min(10, subjects.count), id: \.self) { index in
-                    BannerCard(subject: subjects[index], settings: settings)
-                        .tag(index)
+            GeometryReader { geo in
+                TabView(selection: $currentIndex) {
+                    ForEach(0..<min(10, subjects.count), id: \.self) { index in
+                        BannerCard(subject: subjects[index], settings: settings)
+                            .scaleEffect(currentIndex == index ? 1.0 : 0.85)
+                            .opacity(currentIndex == index ? 1.0 : 0.5)
+                            .animation(.easeOut(duration: 0.35), value: currentIndex)
+                            .tag(index)
+                    }
                 }
+                .frame(height: 200)
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .frame(height: 200)
-            .tabViewStyle(.page(indexDisplayMode: .never))
             
             HStack(spacing: 8) {
                 ForEach(0..<min(10, subjects.count), id: \.self) { index in
