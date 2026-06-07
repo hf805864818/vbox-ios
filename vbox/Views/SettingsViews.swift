@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var driveTokenName = ""
     @State private var driveTokenValue = ""
     @State private var showTokenFetcher = false
+    @State private var showSubscribeSheet = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -44,6 +45,7 @@ struct SettingsView: View {
     private var settingsContent: some View {
         VStack(spacing: 20) {
             playbackSettingsSection
+            subscriptionSection
             cloudDriveSection
             storageSection
             aboutSection
@@ -57,6 +59,40 @@ struct SettingsView: View {
             SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
             SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
             SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
+        }
+    }
+
+    private var subscriptionSection: some View {
+        SettingsSection(title: "订阅配置") {
+            Button(action: { showSubscribeSheet = true }) {
+                HStack {
+                    Image(systemName: "list.bullet.rectangle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    Text("管理订阅源")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.black)
+                    Spacer()
+                    if spiderManager.subscribedSites.isEmpty {
+                        Text("未配置")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                    } else {
+                        Text("\(spiderManager.subscribedSites.count) 个源")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(Color.gray.opacity(0.04))
+        }
+        .sheet(isPresented: $showSubscribeSheet) {
+            SubscribeConfigView()
         }
     }
 
@@ -103,17 +139,13 @@ struct SettingsView: View {
             .padding(.vertical, 12).background(Color(hex: "E11D48")).cornerRadius(10)
         }
         .sheet(isPresented: $showTokenFetcher) {
-            NavigationStack {
-                VStack(spacing: 16) {
-                    Text("Token获取指南").font(.system(size: 18, weight: .bold))
-                    Text("请前往对应网盘的网页端登录后获取Token/Cookie，然后返回此页面手动填入。")
-                        .font(.system(size: 14)).foregroundColor(.secondary)
-                        .multilineTextAlignment(.center).padding(.horizontal)
-                    Spacer()
-                }
-                .padding(.top, 40)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showTokenFetcher = false } } }
-            }
+            TokenFetcherView(cloudDriveManager: cloudDriveManager, onTokenDetected: { type, value in
+                // 自动填充到输入框
+                selectedDriveType = CloudDriveManager.DriveType(rawValue: type) ?? .ali
+                driveTokenName = CloudDriveManager.DriveType(rawValue: type)?.displayName ?? type
+                driveTokenValue = value
+                showTokenFetcher = false
+            })
         }
     }
 
@@ -152,12 +184,6 @@ struct SettingsView: View {
                     Text("检查更新").foregroundColor(.black); Spacer()
                     if isChecking { ProgressView().scaleEffect(0.8) }
                     else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
-                }.padding(.horizontal, 16).padding(.vertical, 12)
-            }
-            NavigationLink(destination: SubscribeConfigView()) {
-                HStack {
-                    Text("订阅配置").foregroundColor(.black); Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray)
                 }.padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
