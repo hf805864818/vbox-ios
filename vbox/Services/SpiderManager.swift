@@ -1060,7 +1060,7 @@ globalThis.__JS_SPIDER__ = _spider;
             // ids 失败，用名称搜索
             if let n = name, !n.isEmpty,
                let encN = n.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-               let searchURL = URL(string: "\(api)\(separator)ac=detail&wd=\(encN)") {
+               let searchURL = URL(string: "\(baseUrl)?ac=detail&wd=\(encN)") {
                 if let result = await fetchDetailFromSearchList(url: searchURL, siteName: site.name, targetName: n) {
                     print("[SpiderManager] ✅ nativeDetail 名称搜索成功: \(site.name)")
                     return result
