@@ -67,7 +67,6 @@ struct PanLinkPickerView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { dismiss() } } }
-        }
         .fullScreenCover(isPresented: $showPlayer) {
             if let panVideo = selectedPanVideo {
                 VideoPlayerViewV2(video: panVideo)
@@ -82,3 +81,4 @@ struct PanLinkPickerView: View {
     }
     private func driveColor(for name: String) -> Color { if name.contains("115") { return .orange }; if name.contains("阿里") { return .blue }; if name.contains("夸克") { return .purple }; if name.contains("百度") { return .green }; return .gray }
     private func driveIcon(for name: String) -> String { if name.contains("115") { return "1.circle.fill" }; if name.contains("阿里") { return "a.circle.fill" }; if name.contains("夸克") { return "q.circle.fill" }; if name.contains("百度") { return "b.circle.fill" }; return "cloud.fill" }
+}
