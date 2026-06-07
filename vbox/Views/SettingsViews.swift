@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
-    @ObservedObject private var cloudDriveManager = CloudDriveManager.shared
+    @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var autoPlayNext = true
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
@@ -159,8 +159,6 @@ struct SettingsView: View {
         }
     }
 }
-
-// MARK: - 辅助视图
 struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
@@ -194,7 +192,10 @@ struct SettingsToggleRow: View {
 }
 
 struct SettingsNavigationRow: View {
-    let title: String; let subtitle: String; let icon: String; let action: () -> Void
+    let title: String
+    let subtitle: String
+    let icon: String
+    let action: () -> Void
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
@@ -230,7 +231,7 @@ struct SubscribeConfigView: View {
                     Text("添加新订阅源").font(.system(size: 18, weight: .semibold)).foregroundColor(.black).frame(maxWidth: .infinity, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("订阅地址").font(.system(size: 13, weight: .medium)).foregroundColor(.black)
-                        TextField("https://example.com/config.json", text: $subscribeURL)
+                        TextField("URL", text: $subscribeURL)
                             .textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 13))
                             .autocapitalization(.none).disableAutocorrection(true)
                     }
@@ -270,12 +271,10 @@ struct SubscribeConfigView: View {
         }
         .background(Color.white)
         .navigationTitle("").navigationBarHidden(true)
-        .alert("添加成功", isPresented: $showSuccessAlert) {
-            Button("确定", role: .cancel) {}
-        } message: { Text("订阅源已添加并加载") }
-        .alert("添加失败", isPresented: $showErrorAlert) {
-            Button("确定", role: .cancel) {}
-        } message: { Text(errorMessage) }
+        .alert("添加成功", isPresented: $showSuccessAlert) { Button("确定", role: .cancel) {} }
+        message: { Text("订阅源已添加并加载") }
+        .alert("添加失败", isPresented: $showErrorAlert) { Button("确定", role: .cancel) {} }
+        message: { Text(errorMessage) }
     }
 
     private func addSubscription() {
@@ -284,11 +283,9 @@ struct SubscribeConfigView: View {
         Task {
             do {
                 try await spiderManager.addSubscription(url: subscribeURL)
-                subscribeURL = ""
-                showSuccessAlert = true
+                subscribeURL = ""; showSuccessAlert = true
             } catch {
-                errorMessage = error.localizedDescription
-                showErrorAlert = true
+                errorMessage = error.localizedDescription; showErrorAlert = true
             }
             isLoading = false
         }
