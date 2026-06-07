@@ -676,20 +676,6 @@ class CloudDriveManager: ObservableObject {
         print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), fsId=\(fsId)")
         return (shareid, shareUk, fsId)
     }
-                       let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                       let r = Range(match.range(at: 1), in: html) {
-                        let val = String(html[r])
-                        if key == "shareid" && shareid.isEmpty { shareid = val }
-                        else if key == "share_uk" && shareUk.isEmpty { shareUk = val }
-                        else if key == "fs_id" && fsId.isEmpty { fsId = val }
-                    }
-                }
-            }
-        }
-
-        print("[Baidu] 最终: shareid=\(shareid) shareUk=\(shareUk) fsId=\(fsId)")
-        return (shareid, shareUk, fsId)
-    }
 
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://pan.baidu.com/share/transfer")!
