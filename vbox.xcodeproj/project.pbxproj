@@ -34,7 +34,6 @@
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
 		A10027 /* DoubanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* DoubanService.swift */; };
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
-				A10029 /* TokenWebView.swift in Sources */,
 		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
 
 /* Begin PBXFileReference section */
