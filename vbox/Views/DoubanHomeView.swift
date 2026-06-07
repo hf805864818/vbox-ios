@@ -23,11 +23,6 @@ struct DoubanHomeView: View {
                 } else {
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
-                            .onReceive(timer) { _ in
-                                withAnimation(.easeInOut(duration: 0.5)) {
-                                    currentIndex = (currentIndex + 1) % min(10, bannerSubjects.count)
-                                }
-                            }
                     }
                     CategoryTilesView(settings: settings)
                     if !hotMovies.isEmpty {
@@ -52,6 +47,12 @@ struct DoubanHomeView: View {
         }
         .background(Color.white)
         .onAppear { loadData() }
+        .onReceive(timer) { _ in
+            guard !bannerSubjects.isEmpty else { return }
+            withAnimation(.easeInOut(duration: 0.5)) {
+                currentIndex = (currentIndex + 1) % min(10, bannerSubjects.count)
+            }
+        }
     }
     
     private func loadData() {

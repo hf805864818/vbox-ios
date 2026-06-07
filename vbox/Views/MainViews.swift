@@ -17,12 +17,14 @@ struct MainTabView: View {
                     }
                     .tag(0)
 
-                DoubanHomeView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 1 ? "film.fill" : "film")
-                        Text("豆瓣")
-                    }
-                    .tag(1)
+                NavigationView {
+                    DoubanHomeView()
+                }
+                .tabItem {
+                    Image(systemName: selectedTab == 1 ? "film.fill" : "film")
+                    Text("豆瓣")
+                }
+                .tag(1)
 
                 SearchView()
                     .tabItem {
