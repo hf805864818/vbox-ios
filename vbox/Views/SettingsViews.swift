@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var autoPlayNext = true
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
+    @AppStorage("show_debug_overlay") private var showDebugOverlay = false
     @State private var selectedQuality = "1080P"
     @State private var selectedSpeed = 1.0
     @State private var showCacheAlert = false
@@ -140,6 +141,12 @@ struct SettingsView: View {
                             title: "画中画模式",
                             subtitle: "使用画中画窗口播放",
                             isOn: $usePictureInPicture
+                        )
+
+                        SettingsToggleRow(
+                            title: "播放调试日志",
+                            subtitle: "播放时显示解析过程日志浮层",
+                            isOn: $showDebugOverlay
                         )
 
                         SettingsNavigationRow(
