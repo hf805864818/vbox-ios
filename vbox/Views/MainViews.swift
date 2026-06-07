@@ -204,24 +204,24 @@ struct HomeView: View {
                     }
                 } else {
                     if !bannerSubjects.isEmpty {
-                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
+                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex)
                     }
                     CategoryTilesView(settings: settings)
                     if !hotMovies.isEmpty {
                         SectionHeader(title: "热门电影", icon: "flame.fill")
-                        HorizontalSubjectRow(subjects: hotMovies)
+                        HorizontalSubjectRow(subjects: hotMovies, settings: settings)
                     }
                     if !top250.isEmpty {
                         SectionHeader(title: "TOP250", icon: "crown.fill")
-                        HorizontalSubjectRow(subjects: top250)
+                        HorizontalSubjectRow(subjects: top250, settings: settings)
                     }
                     if !hotTV.isEmpty {
                         SectionHeader(title: "热门剧集", icon: "tv.fill")
-                        HorizontalSubjectRow(subjects: hotTV)
+                        HorizontalSubjectRow(subjects: hotTV, settings: settings)
                     }
                     if !hotVariety.isEmpty {
                         SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
-                        HorizontalSubjectRow(subjects: hotVariety)
+                        HorizontalSubjectRow(subjects: hotVariety, settings: settings)
                     }
                 }
             }
