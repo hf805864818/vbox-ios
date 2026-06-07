@@ -663,9 +663,10 @@ struct SearchView: View {
         searchResults = []
         let keyword = searchText
         var seen = Set<String>()
+        print("[SearchView] 开始搜索: \(keyword)")
 
         Task {
-            // 路1: 流式切片搜索 — 每个站搜完立刻展示
+            // 路1: 流式切片搜索
             async let streamingTask: Void = {
                 await self.spiderManager.searchStream(keyword: keyword) { batch in
                     var newItems: [VodItem] = []
@@ -676,6 +677,7 @@ struct SearchView: View {
                         }
                     }
                     if !newItems.isEmpty {
+                        print("[SearchView] 流式回调 +\(newItems.count) 条，累计 \(seen.count) 条")
                         Task { @MainActor in
                             self.searchResults.append(contentsOf: newItems)
                             self.isSearchLoading = false
@@ -684,7 +686,7 @@ struct SearchView: View {
                 }
             }()
 
-            // 路2: 网盘资源搜索（独立通道，也在流式更新）
+            // 路2: 网盘资源搜索
             async let cloudTask: Void = {
                 let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword)
                 var newItems: [VodItem] = []
@@ -696,6 +698,7 @@ struct SearchView: View {
                     }
                 }
                 if !newItems.isEmpty {
+                    print("[SearchView] 网盘回调 +\(newItems.count) 条")
                     await MainActor.run {
                         self.searchResults.append(contentsOf: newItems)
                         self.isSearchLoading = false
@@ -703,8 +706,8 @@ struct SearchView: View {
                 }
             }()
 
-            // 等两路都完成
             _ = await (streamingTask, cloudTask)
+            print("[SearchView] 搜索结束，共 \(seen.count) 条")
             await MainActor.run { self.isSearchLoading = false }
         }
     }
