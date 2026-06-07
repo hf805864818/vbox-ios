@@ -10,12 +10,54 @@ struct DoubanSubject: Codable, Identifiable {
     let genres: [String]?
     let card_subtitle: String?
     let intro: String?
+    let photos_gadget: String?
+    let cover: DoubanCover?
     
-    // 计算属性兼容原有UI
+    // 计算属性兼容原有 UI
     var images: DoubanImages? {
-        guard let url = cover_url else { return nil }
-        return DoubanImages(small: url, medium: url, large: url)
+        // 优先使用 photos_gadget（豆瓣新版 API）
+        if let photoUrl = photos_gadget {
+            return DoubanImages(small: photoUrl, medium: photoUrl, large: photoUrl)
+        }
+        // 其次使用 cover_url
+        if let url = cover_url {
+            return DoubanImages(small: url, medium: url, large: url)
+        }
+        // 最后使用 cover.medium
+        if let coverUrl = cover?.medium {
+            return DoubanImages(small: coverUrl, medium: coverUrl, large: coverUrl)
+        }
+        return nil
     }
+    
+    /// 获取封面图 URL（带 HTTPS 处理）
+    var coverImageURL: String? {
+        guard let rawUrl = images?.large else { return nil }
+        
+        // 处理相对 URL
+        if rawUrl.hasPrefix("//") {
+            return "https:" + rawUrl
+        } else if !rawUrl.hasPrefix("http") {
+            return "https://" + rawUrl
+        }
+        return rawUrl
+    }
+    
+    var ratingValue: Double {
+        return rating?.value ?? 0
+    }
+    
+    var genreText: String {
+        return genres?.joined(separator: " / ") ?? ""
+    }
+}
+
+/// 豆瓣封面图结构
+struct DoubanCover: Codable {
+    let small: String?
+    let medium: String?
+    let large: String?
+}
     
     var ratingValue: Double {
         return rating?.value ?? 0

@@ -180,18 +180,8 @@ struct BannerCard3D: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // 封面图
-            if let coverUrl = subject.cover_url, !coverUrl.isEmpty {
-                // 处理豆瓣图片URL - 使用计算属性
-                let processedUrl: String = {
-                    if coverUrl.hasPrefix("//") {
-                        return "https:" + coverUrl
-                    } else if !coverUrl.hasPrefix("http") {
-                        return "https://" + coverUrl
-                    }
-                    return coverUrl
-                }()
-                
-                AsyncImage(url: URL(string: processedUrl)) { phase in
+            if let coverUrl = subject.coverImageURL, !coverUrl.isEmpty {
+                AsyncImage(url: URL(string: coverUrl)) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -349,7 +339,7 @@ struct SubjectCard: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 // 封面图
-                if let coverUrl = subject.cover_url, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+                if let coverUrl = subject.coverImageURL, let url = URL(string: coverUrl), !coverUrl.isEmpty {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
@@ -363,6 +353,31 @@ struct SubjectCard: View {
                                 Rectangle().fill(Color.gray.opacity(0.15))
                                 Image(systemName: "photo")
                                     .font(.system(size: 30))
+                                    .foregroundColor(.gray)
+                            }
+                            .frame(width: 120, height: 160)
+                        case .empty:
+                            // 加载中
+                            ZStack {
+                                Rectangle().fill(Color.gray.opacity(0.08))
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(.gray)
+                            }
+                            .frame(width: 120, height: 160)
+                        @unknown default:
+                            Rectangle().fill(Color.gray.opacity(0.1))
+                                .frame(width: 120, height: 160)
+                        }
+                    }
+                } else {
+                    // 没有 URL 时显示占位图
+                    ZStack {
+                        Rectangle().fill(Color.gray.opacity(0.1))
+                        VStack(spacing: 4) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 30))
+
                                     .foregroundColor(.gray)
                             }
                             .frame(width: 120, height: 160)
