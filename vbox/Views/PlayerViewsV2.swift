@@ -19,9 +19,14 @@ class OrientationHelper {
     }
     
     static func rotateToLandscape() {
+        // 方案1: UIDevice 私有API（最可靠）
+        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+        // 方案2: requestGeometryUpdate 公开API
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
         }
+        // 方案3: 触发系统旋转
+        UINavigationController.attemptRotationToDeviceOrientation()
     }
 }
 
@@ -684,7 +689,7 @@ struct ErrorView: View {
     }
 }
 
-// MARK: - 错误视图（带调试日志）
+// MARK: - 错误视图（简洁版，日志在绿色浮层里看）
 struct ErrorViewWithLogs: View {
     let error: String
     let logs: [String]
@@ -694,7 +699,7 @@ struct ErrorViewWithLogs: View {
     var body: some View {
         VStack {
             Spacer()
-            VStack(spacing: 16) {
+            VStack(spacing: 20) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 50))
                     .foregroundColor(.orange)
@@ -705,27 +710,7 @@ struct ErrorViewWithLogs: View {
                     .foregroundColor(.white.opacity(0.9))
                     .font(.system(size: 14))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                
-                // 调试日志
-                if !logs.isEmpty {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(logs.suffix(10), id: \.self) { log in
-                                Text(log)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.5))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                    }
-                    .frame(height: 100)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(8)
-                    .padding(.horizontal, 24)
-                }
-                
+                    .padding(.horizontal, 30)
                 HStack(spacing: 20) {
                     Button(action: onRetry) {
                         Text("重试").foregroundColor(.white)
