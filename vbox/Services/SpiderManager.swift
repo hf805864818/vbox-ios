@@ -1143,56 +1143,6 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] ❌ 所有解析器均失败")
         return nil
     }
-
-        print("[SpiderManager] 开始解析播放页: \(playPageUrl.prefix(60))...")
-
-        // 2. 优先使用自定义解析器
-        if !customParsers.isEmpty {
-            print("[SpiderManager] 尝试自定义解析器，共\(customParsers.count)个")
-            for (idx, parser) in customParsers.enumerated() {
-                print("[SpiderManager] [\(idx+1)/\(customParsers.count)] 尝试：\(parser.name) - \(parser.url)")
-                if let parsedUrl = await tryParser(parser.url, url: playPageUrl) {
-                    print("[SpiderManager] ✅ 自定义解析器成功：\(parser.name)")
-                    return parsedUrl
-                }
-            }
-        }
-
-        // 3. 优先使用订阅源的解析器（次优先）
-        if !subManager.parses.isEmpty {
-            print("[SpiderManager] 使用订阅源解析器，共(subManager.parses.count)个")
-            for (idx, parse) in subManager.parses.enumerated() {
-                print("[SpiderManager] [\(idx+1)/\(subManager.parses.count)] 尝试：\(parse.name) - \(parse.url)")
-                if let parsedUrl = await tryParser(parse.url, url: playPageUrl) {
-                    print("[SpiderManager] ✅ 订阅源解析器成功：\(parse.name)")
-                    print("[SpiderManager] 解析结果：(parsedUrl.prefix(80)...")
-                    return parsedUrl
-                }
-            }
-        }
-
-        // 4. 使用公共解析器兜底
-        print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
-        let parsers = [
-            "https://jx.xmflv.com/?url=",
-            "https://jx.quankan.app/?url=",
-            "https://jx.aidouer.net/?url=",
-            "https://jx.m3u8.tv/jiexi/?url=",
-            "https://jx.jsonplayer.com/api/?url="
-        ]
-
-        for parser in parsers {
-            if let parsedUrl = await tryParser(parser, url: playPageUrl) {
-                print("[SpiderManager] ✅ 解析器成功: \(parser)")
-                print("[SpiderManager] 解析结果: \(parsedUrl.prefix(80))...")
-                return parsedUrl
-            }
-        }
-
-        print("[SpiderManager] ❌ 所有解析器均失败")
-        return nil
-    }
-
     private func tryParser(_ parserBase: String, url: String) async -> String? {
         let parseUrl = "\(parserBase)\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
 
