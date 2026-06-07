@@ -153,8 +153,8 @@ struct VideoDetailView: View {
             VStack {
                 Button(action: { dismiss() }) {
                     ZStack {
-                        Circle().fill(.ultraThinMaterial).frame(width: 44, height: 44)
-                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+                        Circle().fill(.ultraThinMaterial).frame(width: 32, height: 32)
+                        Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
                     }
                 }.padding(.leading, 16).padding(.top, 12)
                 Spacer()

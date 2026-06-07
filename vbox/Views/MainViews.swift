@@ -612,7 +612,7 @@ struct SearchView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
         }
-        .background(Color(hex: "000000"))
+        .background(Color.white)
         .onChange(of: settings.searchQuery) { query in
             guard !query.isEmpty else { return }
             searchText = query
@@ -1047,7 +1047,7 @@ struct SearchResultRow: View {
                 // 详情
                 VStack(alignment: .leading, spacing: 5) {
                     Text(video.vodName)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.primary)
                         .lineLimit(2)
 
@@ -1131,7 +1131,7 @@ struct CategoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-        .background(Color(hex: "000000"))
+        .background(Color.white)
     }
 }
 
@@ -1219,7 +1219,7 @@ struct ProfileView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color(hex: "000000"))
+        .background(Color.white)
     }
 }
 
