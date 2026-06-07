@@ -432,8 +432,8 @@ class CloudDriveManager: ObservableObject {
         }
 
         // 从API响应提取
-        let shareid = String(describing: json["shareid"] ?? "")
-        let shareUk = String(describing: json["uk"] ?? "")
+        var shareid = String(describing: json["shareid"] ?? "")
+        var shareUk = String(describing: json["uk"] ?? "")
 
         // Step 3: 获取文件列表
         var listComponents = URLComponents(string: "https://pan.baidu.com/share/list")!
