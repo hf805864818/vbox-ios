@@ -161,7 +161,9 @@ struct SettingsView: View {
                 }.padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
-    }    private func addDriveToken() {
+    }
+
+    private func addDriveToken() {
         guard !driveTokenName.isEmpty, !driveTokenValue.isEmpty else { return }
         cloudDriveManager.addToken(type: selectedDriveType, name: driveTokenName, value: driveTokenValue)
         driveTokenName = ""; driveTokenValue = ""
