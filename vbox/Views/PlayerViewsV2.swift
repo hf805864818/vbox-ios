@@ -45,9 +45,29 @@ struct VideoPlayerViewV2: View {
                 video: video
             )
             
-            // 错误提示
+            // 错误提示（附带调试日志）
             if let error = playerState.loadError {
-                ErrorView(error: error, onRetry: { playerState.retry(video: video) })
+                ErrorViewWithLogs(error: error, logs: playerState.debugLogs, onRetry: { playerState.retry(video: video) })
+            }
+
+            // 调试日志浮层（加载中时显示）
+            if playerState.isLoading && !playerState.debugLogs.isEmpty {
+                VStack {
+                    Spacer()
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(playerState.debugLogs.suffix(8), id: \.self) { log in
+                                Text(log).font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        }.padding(8)
+                    }
+                    .frame(height: 120)
+                    .background(Color.black.opacity(0.7))
+                    .cornerRadius(8)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 80)
+                }
             }
         }
         .onAppear {
@@ -87,7 +107,18 @@ class PlayerState: ObservableObject {
     @Published var brightness: Double = 0.5
     @Published var danmakuItems: [DanmakuRenderItem] = []
     @Published var currentEpisodeIndex = 0
-    
+    @Published var debugLogs: [String] = []  // 可视化调试日志
+
+    /// 添加调试日志（同时打印到控制台和UI）
+    private func log(_ msg: String) {
+        print(msg)
+        let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
+        Task { @MainActor in
+            debugLogs.append(short)
+            if debugLogs.count > 30 { debugLogs.removeFirst() }
+        }
+    }
+
     private var timeObserver: Any?
     private var statusObserver: AnyCancellable?
     private var failureObserver: AnyCancellable?
@@ -123,28 +154,28 @@ class PlayerState: ObservableObject {
     
     // MARK: - 播放地址解析
     private func resolvePlayUrl(video: VodItem) async {
-        print("[PlayerV2] 开始解析播放地址: \(video.vodId)")
+        log("[PlayerV2] 开始解析播放地址: \(video.vodId)")
         
         let spider = SpiderManager.shared
         var playUrl: String? = video.vodPlayUrl
         var playFrom: String? = video.vodPlayFrom
         
         // 步骤1: 优先通过 getDetail 获取最新详情
-        print("[PlayerV2] 步骤1: 获取视频详情...")
+        log("[PlayerV2] 步骤1: 获取视频详情...")
         if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
-            print("[PlayerV2] 步骤1: 获取详情成功")
+            log("[PlayerV2] 步骤1: 获取详情成功")
             if let pu = detail.vodPlayUrl, !pu.isEmpty {
                 playUrl = pu
                 playFrom = detail.vodPlayFrom
-                print("[PlayerV2] 步骤1: 使用详情中的播放地址")
+                log("[PlayerV2] 步骤1: 使用详情中的播放地址")
             }
         } else {
-            print("[PlayerV2] 步骤1: 使用传入的播放地址")
+            log("[PlayerV2] 步骤1: 使用传入的播放地址")
         }
         
         // 步骤2: 检查 playUrl 的类型并处理
         guard let finalPlayUrl = playUrl, !finalPlayUrl.isEmpty else {
-            print("[PlayerV2] 错误: 没有可用的播放地址")
+            log("[PlayerV2] 错误: 没有可用的播放地址")
             await MainActor.run {
                 loadError = "服务器未返回播放地址（详情页无视频源），请尝试其他资源或站点"
                 isLoading = false
@@ -152,11 +183,11 @@ class PlayerState: ObservableObject {
             return
         }
         
-        print("[PlayerV2] 步骤2: 处理播放地址")
+        log("[PlayerV2] 步骤2: 处理播放地址")
         
         // 从 $$$ 多源格式中提取最佳 URL
         let bestUrl = extractBestPlayableUrl(playFrom: playFrom ?? "", playUrl: finalPlayUrl)
-        print("[PlayerV2] 最佳URL: \(bestUrl.prefix(80))...")
+        log("[PlayerV2] 最佳URL: \(bestUrl.prefix(80))...")
         
         await handlePlayUrl(bestUrl, spider: spider, video: video)
     }
@@ -171,7 +202,7 @@ class PlayerState: ObservableObject {
         // 如果失败，尝试进行URL编码
         if let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
             if let url = URL(string: encoded) {
-                print("[PlayerV2] URL编码成功: \(urlString.prefix(50))... -> \(encoded.prefix(50))...")
+                log("[PlayerV2] URL编码成功: \(urlString.prefix(50))... -> \(encoded.prefix(50))...")
                 return url
             }
         }
@@ -179,18 +210,18 @@ class PlayerState: ObservableObject {
         // 尝试对路径部分编码
         if let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) {
             if let url = URL(string: encoded) {
-                print("[PlayerV2] URL编码成功(2): \(urlString.prefix(50))...")
+                log("[PlayerV2] URL编码成功(2): \(urlString.prefix(50))...")
                 return url
             }
         }
         
-        print("[PlayerV2] ❌ URL创建失败: \(urlString)")
+        log("[PlayerV2] ❌ URL创建失败: \(urlString)")
         return nil
     }
     
     // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
-        print("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
+        log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
         
         // 检查是否是直链（通过URL后缀判断，支持带参数）
         let isDirectLink: Bool = {
@@ -213,21 +244,21 @@ class PlayerState: ObservableObject {
         }()
         
         if isDirectLink {
-            print("[PlayerV2] 直链模式: 直接使用")
+            log("[PlayerV2] 直链模式: 直接使用")
             if let url = createURL(from: urlString) {
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
-            print("[PlayerV2] ❌ 直链URL创建失败")
+            log("[PlayerV2] ❌ 直链URL创建失败")
         }
         
         // 需要解析的链接：先试解析器，再试 playerContent
-        print("[PlayerV2] 解析模式: 非直链，尝试解析器")
+        log("[PlayerV2] 解析模式: 非直链，尝试解析器")
         
         // 1. 优先用解析器（subManager.parses + customParsers）
         let allParsers = SpiderManager.shared.subManager.parses + SpiderManager.shared.customParsers
         if !allParsers.isEmpty {
-            print("[PlayerV2] 尝试 \(allParsers.count) 个解析器...")
+            log("[PlayerV2] 尝试 \(allParsers.count) 个解析器...")
             for parser in allParsers {
                 let parseURL = parser.url + (urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)
                 guard let reqURL = URL(string: parseURL) else { continue }
@@ -245,7 +276,7 @@ class PlayerState: ObservableObject {
                                let r = Range(match.range, in: resp) {
                                 let result = String(resp[r])
                                 if result.hasPrefix("http"), let url = createURL(from: result) {
-                                    print("[PlayerV2] ✅ 解析器[\(parser.name)]成功: \(result.prefix(60))")
+                                    log("[PlayerV2] ✅ 解析器[\(parser.name)]成功: \(result.prefix(60))")
                                     await MainActor.run { initPlayer(url: url) }
                                     return
                                 }
@@ -260,22 +291,22 @@ class PlayerState: ObservableObject {
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
             let pu = pr.playUrl ?? pr.url
             if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
-                print("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
+                log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
         }
         
         // 尝试 nativeDetail 作为备选
-        print("[PlayerV2] 备选: 尝试 nativeDetail...")
+        log("[PlayerV2] 备选: 尝试 nativeDetail...")
         let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
-            print("[PlayerV2] nativeDetail 成功")
+            log("[PlayerV2] nativeDetail 成功")
             // 处理多集格式
             let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
-            print("[PlayerV2] 解析出 \(urls.count) 个播放地址")
+            log("[PlayerV2] 解析出 \(urls.count) 个播放地址")
             for (index, videoUrl) in urls.enumerated() {
-                print("[PlayerV2] 地址\(index): \(videoUrl.prefix(60))...")
+                log("[PlayerV2] 地址\(index): \(videoUrl.prefix(60))...")
             }
             let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? pu
             if !du.isEmpty {
@@ -283,64 +314,80 @@ class PlayerState: ObservableObject {
                     await MainActor.run { initPlayer(url: url) }
                     return
                 }
-                print("[PlayerV2] ❌ nativeDetail URL创建失败")
+                log("[PlayerV2] ❌ nativeDetail URL创建失败")
             }
         }
         
         // 检查是否是网盘链接
-        print("[PlayerV2] 检查网盘链接...")
+        log("[PlayerV2] 步骤5: 检查网盘链接...")
         let playUrlToCheck = video.vodPlayUrl ?? nd?.vodPlayUrl ?? urlString
+        log("[PlayerV2] 待检测URL: \(playUrlToCheck.prefix(80))")
         if !playUrlToCheck.isEmpty, let driveType = CloudDriveManager.detectDrive(from: playUrlToCheck) {
-            print("[PlayerV2] 检测到 \(driveType.displayName) 网盘链接")
+            log("[PlayerV2] ✅ 检测到 \(driveType.displayName) 网盘链接")
+            // 检查是否配置了Token
+            let tokens = CloudDriveManager.shared.tokens(for: driveType)
+            log("[PlayerV2] \(driveType.displayName) Token数量: \(tokens.count)")
+            if tokens.isEmpty {
+                let msg = "未配置\(driveType.displayName) Token，请到 设置→网盘播放 中添加"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+                return
+            }
             do {
+                log("[PlayerV2] ⏳ 正在调用 \(driveType.displayName) API 解析...")
                 let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
-                print("[PlayerV2] 网盘解析成功: \(result.url.prefix(60))...")
+                log("[PlayerV2] ✅ 网盘解析成功! 播放地址: \(result.url.prefix(80))...")
+                log("[PlayerV2] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
                 if let url = URL(string: result.url) {
                     let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
                     let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
                     p.automaticallyWaitsToMinimizeStalling = true
-                    
                     await MainActor.run {
-                        // 清理旧观察者
-                        if let oldObserver = self.timeObserver {
-                            self.player?.removeTimeObserver(oldObserver)
-                        }
-                        cleanupObservers()
-                        self.player?.pause()
-                        
-                        self.player = p
-                        self.isPlaying = true
-                        self.isLoading = false
+                        if let oldObserver = self.timeObserver { self.player?.removeTimeObserver(oldObserver) }
+                        cleanupObservers(); self.player?.pause()
+                        self.player = p; self.isPlaying = true; self.isLoading = false
                     }
-                    
-                    // 添加时间观察者
                     let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
                     timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
                         self?.currentTime = time.seconds
-                        if let itemDuration = p.currentItem?.duration {
-                            self?.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
-                        }
+                        if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
                     }
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        p.play()
-                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.play() }
+                    return
+                } else {
+                    let msg = "\(driveType.displayName) 返回的播放地址无效: \(result.url.prefix(50))"
+                    log("[PlayerV2] ❌ \(msg)")
+                    await MainActor.run { loadError = msg; isLoading = false }
                     return
                 }
+            } catch let error as DriveError {
+                let msg: String
+                switch error {
+                case .tokenNotConfigured(let name): msg = "未配置\(name) Token，请到 设置→网盘播放 中添加"
+                case .noPlayURL: msg = "\(driveType.displayName) 无法获取播放地址，资源可能已失效"
+                case .invalidShareURL: msg = "无效的\(driveType.displayName)分享链接"
+                case .saveFailed: msg = "\(driveType.displayName) 转存失败"
+                case .invalidResponse: msg = "\(driveType.displayName) 服务器响应异常"
+                case .notImplemented: msg = "\(driveType.displayName) 暂不支持"
+                }
+                log("[PlayerV2] ❌ DriveError: \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+                return
             } catch {
-                print("[PlayerV2] 网盘解析失败: \(error.localizedDescription)")
+                let msg = "\(driveType.displayName) 解析异常: \(error.localizedDescription)"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+                return
             }
+        } else {
+            log("[PlayerV2] ⚠️ 未识别为网盘链接")
         }
         
         // 所有方式失败
-        print("[PlayerV2] 所有方式都失败")
+        log("[PlayerV2] ❌ 所有方式都失败")
         await MainActor.run {
-            cleanupObservers()
-            player?.pause()
-            if let observer = timeObserver {
-                player?.removeTimeObserver(observer)
-                timeObserver = nil
-            }
+            cleanupObservers(); player?.pause()
+            if let observer = timeObserver { player?.removeTimeObserver(observer); timeObserver = nil }
             player = nil
             loadError = "无法获取可用播放地址，请检查网络或更换其他资源"
             isLoading = false
@@ -366,19 +413,19 @@ class PlayerState: ObservableObject {
             let hasHttp = firstUrl.hasPrefix("http")
             if !firstUrl.isEmpty {
                 candidates.append((src, firstUrl, hasHttp))
-                print("[PlayerV2] 源[\(i)] \(src): \(firstUrl.prefix(60))... http=\(hasHttp)")
+                log("[PlayerV2] 源[\(i)] \(src): \(firstUrl.prefix(60))... http=\(hasHttp)")
             }
         }
         
         // 优先选有 http URL 的源
         if let best = candidates.first(where: { $0.hasHttp }) {
-            print("[PlayerV2] 选择源: \(best.source) (http直链)")
+            log("[PlayerV2] 选择源: \(best.source) (http直链)")
             return best.url
         }
         
         // 没有 http 源，返回第一个
         if let first = candidates.first {
-            print("[PlayerV2] 使用首个源: \(first.source)")
+            log("[PlayerV2] 使用首个源: \(first.source)")
             return first.url
         }
         
@@ -419,7 +466,7 @@ class PlayerState: ObservableObject {
     }
     
     private func initPlayer(url: URL) {
-        print("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
+        log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         
         // 清理旧的观察者（防止 retry 叠加）
         if let oldObserver = timeObserver {
@@ -447,7 +494,7 @@ class PlayerState: ObservableObject {
             "Referer": referer
         ]
         
-        print("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+        log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
         
         // 创建Asset和PlayerItem
         let asset = AVURLAsset(url: url, options: assetOptions)
@@ -462,17 +509,17 @@ class PlayerState: ObservableObject {
             .sink { [weak self] status in
                 switch status {
                 case .readyToPlay:
-                    print("[PlayerV2] PlayerItem 准备就绪")
+                    log("[PlayerV2] PlayerItem 准备就绪")
                 case .failed:
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
-                    print("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
+                    log("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
                     Task { @MainActor in
                         self?.loadError = "播放地址加载失败: \(errorDesc)"
                         self?.isLoading = false
                         self?.player = nil
                     }
                 case .unknown:
-                    print("[PlayerV2] PlayerItem 状态未知")
+                    log("[PlayerV2] PlayerItem 状态未知")
                 @unknown default:
                     break
                 }
@@ -487,7 +534,7 @@ class PlayerState: ObservableObject {
         failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
             .sink { [weak self] notification in
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
-                    print("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
+                    log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
                     Task { @MainActor in
                         self?.loadError = "播放失败: \(error.localizedDescription)"
                         self?.isLoading = false
@@ -499,7 +546,7 @@ class PlayerState: ObservableObject {
         // 监听播放结束
         endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
             .sink { _ in
-                print("[PlayerV2] 播放结束")
+                log("[PlayerV2] 播放结束")
             }
         
         self.player = p
@@ -518,7 +565,7 @@ class PlayerState: ObservableObject {
         // 延迟播放确保UI准备好
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             p.play()
-            print("[PlayerV2] 播放器开始播放")
+            log("[PlayerV2] 播放器开始播放")
         }
     }
     
@@ -629,6 +676,66 @@ struct ErrorView: View {
                             .padding(.vertical, 12)
                             .background(Color.gray)
                             .cornerRadius(8)
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+}
+
+// MARK: - 错误视图（带调试日志）
+struct ErrorViewWithLogs: View {
+    let error: String
+    let logs: [String]
+    let onRetry: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 50))
+                    .foregroundColor(.orange)
+                Text("加载失败")
+                    .foregroundColor(.white)
+                    .font(.title2)
+                Text(error)
+                    .foregroundColor(.white.opacity(0.9))
+                    .font(.system(size: 14))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                
+                // 调试日志
+                if !logs.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(logs.suffix(10), id: \.self) { log in
+                                Text(log)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                    }
+                    .frame(height: 100)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(8)
+                    .padding(.horizontal, 24)
+                }
+                
+                HStack(spacing: 20) {
+                    Button(action: onRetry) {
+                        Text("重试").foregroundColor(.white)
+                            .padding(.horizontal, 40).padding(.vertical, 12)
+                            .background(Color.blue).cornerRadius(8)
+                    }
+                    Button(action: { dismiss() }) {
+                        Text("返回").foregroundColor(.white)
+                            .padding(.horizontal, 40).padding(.vertical, 12)
+                            .background(Color.gray).cornerRadius(8)
                     }
                 }
             }
