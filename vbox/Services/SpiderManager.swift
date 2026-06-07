@@ -1424,7 +1424,7 @@ globalThis.__JS_SPIDER__ = _spider;
         return nil
     }
 
-nonisolated private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
+    private static func makeVodItem(from dict: [String: Any], siteName: String) -> VodItem {
         // 兼容多种字段名变体，包括各种拼写错误
         let vodId = String(describing: dict["vod_id"] ?? dict["id"] ?? dict["v_id"] ?? "")
         let vodName = (dict["vod_name"] as? String) ?? (dict["name"] as? String) ?? (dict["title"] as? String) ?? ""

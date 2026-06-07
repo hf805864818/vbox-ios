@@ -47,7 +47,7 @@ class CloudDriveManager: ObservableObject {
     private let tokenKey = "saved_drive_tokens"
 
     /// 保存的所有网盘 Token
-    private(set) var savedTokens: [DriveToken] = []
+    @Published private(set) var savedTokens: [DriveToken] = []
 
     private init() {
         let config = URLSessionConfiguration.default
