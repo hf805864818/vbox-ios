@@ -20,118 +20,8 @@ struct SettingsView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                Text("设置")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 16)
-
-                VStack(spacing: 20) {
-                    SettingsSection(title: "播放设置") {
-                        SettingsToggleRow(title: "自动播放下一个", isOn: $autoPlayNext)
-                        SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
-                        SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
-                        SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
-                    }
-
-                    SettingsSection(title: "网盘播放") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if !cloudDriveManager.savedTokens.isEmpty {
-                                ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
-                                    HStack {
-                                        Image(systemName: iconForDriveType(token.type))
-                                            .foregroundColor(Color(hex: "E11D48")).frame(width: 24)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
-                                                .font(.system(size: 14, weight: .medium)).foregroundColor(.black)
-                                            Text(token.name)
-                                                .font(.system(size: 11)).foregroundColor(.gray).lineLimit(1)
-                                        }
-                                        Spacer()
-                                        Button(action: { cloudDriveManager.removeToken(at: index) }) {
-                                            Image(systemName: "trash").font(.system(size: 14)).foregroundColor(.red)
-                                        }
-                                    }
-                                    .padding(.horizontal, 14).padding(.vertical, 10)
-                                    .background(Color.gray.opacity(0.06)).cornerRadius(8)
-                                }
-                            }
-
-                            Button(action: { showTokenFetcher = true }) {
-                                HStack {
-                                    Image(systemName: "key.fill").font(.system(size: 16))
-                                    Text("获取Token").font(.system(size: 14, weight: .medium))
-                                    Text("→").font(.system(size: 12))
-                                }
-                                .foregroundColor(.white).frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(hex: "E11D48")).cornerRadius(10)
-                            }
-                            .sheet(isPresented: $showTokenFetcher) {
-                                TokenFetcherView(cloudDriveManager: cloudDriveManager)
-                            }
-
-                            HStack {
-                                Picker("网盘类型", selection: $selectedDriveType) {
-                                    ForEach(CloudDriveManager.DriveType.allCases, id: \.self) { type in
-                                        Text(type.displayName).tag(type)
-                                    }
-                                }
-                                .pickerStyle(.menu).frame(width: 100)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                TextField("备注名称", text: $driveTokenName)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 13))
-                                TextField(selectedDriveType.tokenLabel, text: $driveTokenValue)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 12))
-                                    .autocapitalization(.none).disableAutocorrection(true)
-                            }
-
-                            Button(action: addDriveToken) {
-                                Text("保存Token").font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.white).frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color(hex: "E11D48")).cornerRadius(10)
-                            }
-                            .disabled(driveTokenName.isEmpty || driveTokenValue.isEmpty)
-                        }
-                        .padding(16)
-                    }
-
-                    SettingsSection(title: "存储管理") {
-                        SettingsNavigationRow(title: "缓存管理", subtitle: cacheSize, icon: "externaldrive.fill") { showCacheAlert = true }
-                    }
-
-                    SettingsSection(title: "关于") {
-                        HStack {
-                            Text("版本").foregroundColor(.black)
-                            Spacer()
-                            Text("3.60").foregroundColor(.gray)
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-
-                        Button(action: { showUpdateSheet = true }) {
-                            HStack {
-                                Text("检查更新").foregroundColor(.black)
-                                Spacer()
-                                if isChecking { ProgressView().scaleEffect(0.8) }
-                                else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                        }
-
-                        NavigationLink(destination: SubscribeConfigView()) {
-                            HStack {
-                                Text("订阅配置").foregroundColor(.black)
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray)
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
+                titleBar
+                settingsContent
             }
         }
         .background(Color.white)
@@ -142,9 +32,138 @@ struct SettingsView: View {
         .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
     }
 
-    private func addDriveToken() {
+    // MARK: - 拆分视图（解决编译器超时）
+    private var titleBar: some View {
+        Text("设置")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundColor(.black)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 16)
+    }
+
+    private var settingsContent: some View {
+        VStack(spacing: 20) {
+            playbackSettingsSection
+            cloudDriveSection
+            storageSection
+            aboutSection
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var playbackSettingsSection: some View {
+        SettingsSection(title: "播放设置") {
+            SettingsToggleRow(title: "自动播放下一个", isOn: $autoPlayNext)
+            SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
+            SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
+            SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
+        }
+    }
+
+    private var cloudDriveSection: some View {
+        SettingsSection(title: "网盘播放") {
+            VStack(alignment: .leading, spacing: 12) {
+                if !cloudDriveManager.savedTokens.isEmpty {
+                    ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
+                        driveTokenRow(index: index, token: token)
+                    }
+                }
+                fetchTokenButton
+                driveFormFields
+            }.padding(16)
+        }
+    }
+
+    private func driveTokenRow(index: Int, token: DriveToken) -> some View {
+        HStack {
+            Image(systemName: iconForDriveType(token.type))
+                .foregroundColor(Color(hex: "E11D48")).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
+                    .font(.system(size: 14, weight: .medium)).foregroundColor(.black)
+                Text(token.name).font(.system(size: 11)).foregroundColor(.gray).lineLimit(1)
+            }
+            Spacer()
+            Button(action: { cloudDriveManager.removeToken(at: index) }) {
+                Image(systemName: "trash").font(.system(size: 14)).foregroundColor(.red)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(Color.gray.opacity(0.06)).cornerRadius(8)
+    }
+
+    private var fetchTokenButton: some View {
+        Button(action: { showTokenFetcher = true }) {
+            HStack {
+                Image(systemName: "key.fill").font(.system(size: 16))
+                Text("获取Token").font(.system(size: 14, weight: .medium))
+                Text("→").font(.system(size: 12))
+            }
+            .foregroundColor(.white).frame(maxWidth: .infinity)
+            .padding(.vertical, 12).background(Color(hex: "E11D48")).cornerRadius(10)
+        }
+        .sheet(isPresented: $showTokenFetcher) {
+            NavigationStack {
+                VStack(spacing: 16) {
+                    Text("Token获取指南").font(.system(size: 18, weight: .bold))
+                    Text("请前往对应网盘的网页端登录后获取Token/Cookie，然后返回此页面手动填入。")
+                        .font(.system(size: 14)).foregroundColor(.secondary)
+                        .multilineTextAlignment(.center).padding(.horizontal)
+                    Spacer()
+                }
+                .padding(.top, 40)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showTokenFetcher = false } } }
+            }
+        }
+    }
+
+    private var driveFormFields: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("网盘类型", selection: $selectedDriveType) {
+                ForEach(CloudDriveManager.DriveType.allCases, id: \.self) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
+            .pickerStyle(.menu)
+            TextField("备注名称", text: $driveTokenName).textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 13))
+            TextField(selectedDriveType.tokenLabel, text: $driveTokenValue).textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 12))
+                .autocapitalization(.none).disableAutocorrection(true)
+            Button(action: addDriveToken) {
+                Text("保存Token").font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white).frame(maxWidth: .infinity)
+                    .padding(.vertical, 10).background(Color(hex: "E11D48")).cornerRadius(10)
+            }.disabled(driveTokenName.isEmpty || driveTokenValue.isEmpty)
+        }
+    }
+
+    private var storageSection: some View {
+        SettingsSection(title: "存储管理") {
+            SettingsNavigationRow(title: "缓存管理", subtitle: cacheSize, icon: "externaldrive.fill") { showCacheAlert = true }
+        }
+    }
+
+    private var aboutSection: some View {
+        SettingsSection(title: "关于") {
+            HStack {
+                Text("版本").foregroundColor(.black); Spacer(); Text("3.61").foregroundColor(.gray)
+            }.padding(.horizontal, 16).padding(.vertical, 12)
+            Button(action: { showUpdateSheet = true }) {
+                HStack {
+                    Text("检查更新").foregroundColor(.black); Spacer()
+                    if isChecking { ProgressView().scaleEffect(0.8) }
+                    else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
+                }.padding(.horizontal, 16).padding(.vertical, 12)
+            }
+            NavigationLink(destination: SubscribeConfigView()) {
+                HStack {
+                    Text("订阅配置").foregroundColor(.black); Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray)
+                }.padding(.horizontal, 16).padding(.vertical, 12)
+            }
+        }
+    }    private func addDriveToken() {
         guard !driveTokenName.isEmpty, !driveTokenValue.isEmpty else { return }
-        cloudDriveManager.saveToken(type: selectedDriveType.rawValue, name: driveTokenName, value: driveTokenValue)
+        cloudDriveManager.addToken(type: selectedDriveType, name: driveTokenName, value: driveTokenValue)
         driveTokenName = ""; driveTokenValue = ""
     }
 
@@ -159,6 +178,7 @@ struct SettingsView: View {
         }
     }
 }
+
 struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
@@ -252,11 +272,11 @@ struct SubscribeConfigView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("已订阅源 (\(spiderManager.subscribedSites.count))")
                             .font(.system(size: 16, weight: .semibold)).foregroundColor(.black).padding(.horizontal, 4)
-                        ForEach(spiderManager.subscribedSites, id: \.key) { site in
+                        ForEach(spiderManager.subscribedSites, id: \.self) { site in
                             HStack {
-                                Text(site.name).font(.system(size: 14, weight: .medium)).foregroundColor(.black)
+                                Text(site).font(.system(size: 14, weight: .medium)).foregroundColor(.black)
                                 Spacer()
-                                Text(site.type == 3 ? "JS" : "API")
+                                Text("API")
                                     .font(.system(size: 10)).foregroundColor(.white)
                                     .padding(.horizontal, 6).padding(.vertical, 2)
                                     .background(Color(hex: "E11D48").opacity(0.8)).cornerRadius(4)
@@ -281,13 +301,12 @@ struct SubscribeConfigView: View {
         guard !subscribeURL.isEmpty else { return }
         isLoading = true
         Task {
-            do {
-                try await spiderManager.addSubscription(url: subscribeURL)
-                subscribeURL = ""; showSuccessAlert = true
-            } catch {
-                errorMessage = error.localizedDescription; showErrorAlert = true
+            await spiderManager.loadSubscribeConfig(from: subscribeURL)
+            await MainActor.run {
+                subscribeURL = ""
+                isLoading = false
+                showSuccessAlert = true
             }
-            isLoading = false
         }
     }
 }

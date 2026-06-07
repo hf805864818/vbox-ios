@@ -120,7 +120,7 @@ struct TokenFetcherView: View {
                         detectedToken = (type, value)
                         // 自动填入
                         let name = CloudDriveManager.DriveType(rawValue: type)?.displayName ?? type
-                        cloudDriveManager.saveToken(type: type, name: name, value: value)
+                        cloudDriveManager.addToken(type: CloudDriveManager.DriveType(rawValue: type) ?? .ali, name: name, value: value)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                             dismiss()
                         }
