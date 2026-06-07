@@ -212,7 +212,7 @@ class PlayerState: ObservableObject {
         // 如果 vodId 是详情页URL，重新解析
         if video.vodId.hasPrefix("http") {
             log("[PlayerV2] 从详情页解析网盘链接...")
-            if let result = await SpiderManager.shared.resolveCloudPlay(from: vodId), !result.links.isEmpty {
+            if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId), !result.links.isEmpty {
                 log("[PlayerV2] 解析到 \(result.links.count) 个链接")
                 
                 for link in result.links {
