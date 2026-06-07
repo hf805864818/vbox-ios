@@ -99,7 +99,7 @@ struct BannerCarousel: View {
                         let scale = isCurrent ? 1.0 : sideScale
                         let opacity = isCurrent ? 1.0 : sideOpacity
                         let xOffset = offset * (cardWidth + spacing) + dragOffset
-                        let zIndex = isCurrent ? 1 : 0
+                        let zIndex = isCurrent ? 1.0 : 0.0
                         
                         BannerCard3D(subject: subjects[index], settings: settings, cardWidth: cardWidth, cardHeight: cardHeight)
                             .scaleEffect(scale)
@@ -324,6 +324,7 @@ struct SubjectCard: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
+                                .frame(width: 120, height: 160)
                         case .failure(_):
                             // 加载失败显示占位图
                             ZStack {
@@ -332,6 +333,7 @@ struct SubjectCard: View {
                                     .font(.system(size: 30))
                                     .foregroundColor(.gray)
                             }
+                            .frame(width: 120, height: 160)
                         case .empty:
                             // 加载中
                             ZStack {
@@ -340,8 +342,10 @@ struct SubjectCard: View {
                                     .scaleEffect(0.8)
                                     .tint(.gray)
                             }
+                            .frame(width: 120, height: 160)
                         @unknown default:
                             Rectangle().fill(Color.gray.opacity(0.1))
+                                .frame(width: 120, height: 160)
                         }
                     }
                 } else {
@@ -357,9 +361,8 @@ struct SubjectCard: View {
                                 .foregroundColor(.gray)
                         }
                     }
+                    .frame(width: 120, height: 160)
                 }
-                .frame(width: 120, height: 160)
-                .clipped()
                 
                 if subject.ratingValue > 0 {
                     HStack(spacing: 2) {
