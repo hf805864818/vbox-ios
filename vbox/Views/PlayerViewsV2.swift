@@ -423,12 +423,13 @@ class PlayerState: ObservableObject {
         }()
         
         if isDirectLink {
-            log("[PlayerV2] 直链模式: 直接使用")
+            log("[PlayerV2] 直链模式: 直接使用 URL=\(urlString.prefix(100))")
             if let url = createURL(from: urlString) {
+                log("[PlayerV2] ✅ URL创建成功, 协议=\(url.scheme ?? "nil"), 主机=\(url.host ?? "nil")")
                 await MainActor.run { initPlayer(url: url) }
                 return
             }
-            log("[PlayerV2] ❌ 直链URL创建失败")
+            log("[PlayerV2] ❌ 直链URL创建失败, raw=\(urlString.prefix(120))")
         }
         
         // 需要解析的链接：先试解析器，再试 playerContent
@@ -686,19 +687,27 @@ class PlayerState: ObservableObject {
         var localStatusObserver: AnyCancellable?
         localStatusObserver = playerItem.publisher(for: \.status)
             .sink { [weak self] status in
+                guard let self = self else { return }
                 switch status {
                 case .readyToPlay:
-                    self?.log("[PlayerV2] PlayerItem 准备就绪")
+                    self.log("[PlayerV2] PlayerItem 准备就绪")
                 case .failed:
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
-                    self?.log("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
+                    let errorCode = (playerItem.error as? NSError)?.code ?? -1
+                    let errorDomain = (playerItem.error as? NSError)?.domain ?? ""
+                    self.log("[PlayerV2] ❌ PlayerItem 失败: code=\(errorCode) domain=\(errorDomain) desc=\(errorDesc)")
+                    if let underlying = (playerItem.error as? NSError)?.userInfo[NSUnderlyingErrorKey] as? Error {
+                        self.log("[PlayerV2] ❌ 底层错误: \(underlying.localizedDescription)")
+                    }
+                    let errMsg = errorDesc.contains("不能") || errorDesc.contains("format") || errorDesc.contains("Invalid") 
+                        ? "播放地址格式不支持" : "播放地址加载失败: \(errorDesc)"
                     Task { @MainActor in
-                        self?.loadError = "播放地址加载失败: \(errorDesc)"
-                        self?.isLoading = false
-                        self?.player = nil
+                        self.loadError = errMsg
+                        self.isLoading = false
+                        self.player = nil
                     }
                 case .unknown:
-                    self?.log("[PlayerV2] PlayerItem 状态未知")
+                    self.log("[PlayerV2] PlayerItem 状态未知")
                 @unknown default:
                     break
                 }
@@ -731,6 +740,22 @@ class PlayerState: ObservableObject {
         self.player = p
         self.isPlaying = true
         self.isLoading = false
+        
+        // 10秒超时保护：如果PlayerItem一直没就绪，显示错误
+        let timeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard let self = self else { return }
+            if await MainActor.run { self.player != nil && self.loadError == nil } {
+                let status = await MainActor.run { p.currentItem?.status }
+                if status != .readyToPlay {
+                    await MainActor.run {
+                        self.log("[PlayerV2] ⏱️ 播放地址加载超时")
+                        self.loadError = "播放地址加载超时，请检查网络或更换资源"
+                        self.isLoading = false
+                    }
+                }
+            }
+        }
         
         // 添加时间观察者
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
