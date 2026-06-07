@@ -159,6 +159,152 @@ class PlayerState: ObservableObject {
         player = nil
     }
     
+    // MARK: - 网盘视频处理
+    private func handleCloudVideo(video: VodItem) async {
+        log("[PlayerV2] 处理网盘视频...")
+        
+        // 检查 vodPlayUrl 是否是 JSON 格式的网盘链接列表
+        if let playUrl = video.vodPlayUrl, playUrl.hasPrefix("[") {
+            do {
+                if let data = playUrl.data(using: .utf8),
+                   let links = try JSONSerialization.jsonObject(with: data) as? [[String: String]] {
+                    log("[PlayerV2] 解析到 \(links.count) 个网盘链接")
+                    
+                    // 尝试播放第一个有可用token的网盘链接
+                    for link in links {
+                        guard let url = link["url"], !url.isEmpty else { continue }
+                        
+                        if let driveType = CloudDriveManager.detectDrive(from: url) {
+                            let tokens = CloudDriveManager.shared.tokens(for: driveType)
+                            if !tokens.isEmpty {
+                                log("[PlayerV2] 尝试播放 \(driveType.displayName)")
+                                do {
+                                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: url)
+                                    await playDriveVideo(url: result.url, headers: result.headers)
+                                    return
+                                } catch {
+                                    log("[PlayerV2] \(driveType.displayName) 播放失败: \(error.localizedDescription)")
+                                    continue
+                                }
+                            }
+                        }
+                    }
+                    
+                    await MainActor.run {
+                        loadError = "网盘资源播放失败：请检查网盘Token配置"
+                        isLoading = false
+                    }
+                    return
+                }
+            } catch {
+                log("[PlayerV2] JSON解析失败: \(error)")
+            }
+        }
+        
+        // 检查 vodPlayUrl 是否是单个网盘链接
+        if let playUrl = video.vodPlayUrl, !playUrl.isEmpty,
+           let driveType = CloudDriveManager.detectDrive(from: playUrl) {
+            log("[PlayerV2] 单个网盘链接: \(driveType.displayName)")
+            await handleDriveUrl(playUrl, driveType: driveType)
+            return
+        }
+        
+        // 如果 vodId 是详情页URL，重新解析
+        if let vodId = video.vodId, vodId.hasPrefix("http") {
+            log("[PlayerV2] 从详情页解析网盘链接...")
+            if let result = await SpiderManager.shared.resolveCloudPlay(from: vodId), !result.links.isEmpty {
+                log("[PlayerV2] 解析到 \(result.links.count) 个链接")
+                
+                for link in result.links {
+                    if let driveType = CloudDriveManager.detectDrive(from: link.url) {
+                        let tokens = CloudDriveManager.shared.tokens(for: driveType)
+                        if !tokens.isEmpty {
+                            do {
+                                let playResult = try await CloudDriveManager.shared.resolvePlayURL(from: link.url)
+                                await playDriveVideo(url: playResult.url, headers: playResult.headers)
+                                return
+                            } catch {
+                                log("[PlayerV2] \(link.name) 失败: \(error.localizedDescription)")
+                                continue
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        await MainActor.run {
+            loadError = "网盘资源解析失败：未找到可播放链接"
+            isLoading = false
+        }
+    }
+    
+    private func handleDriveUrl(_ urlString: String, driveType: CloudDriveManager.DriveType) async {
+        let tokens = CloudDriveManager.shared.tokens(for: driveType)
+        guard !tokens.isEmpty else {
+            await MainActor.run {
+                loadError = "未配置\(driveType.displayName) Token"
+                isLoading = false
+            }
+            return
+        }
+        
+        do {
+            let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+            await playDriveVideo(url: result.url, headers: result.headers)
+        } catch let error as DriveError {
+            let msg: String
+            switch error {
+            case .tokenNotConfigured: msg = "未配置\(driveType.displayName) Token"
+            case .noPlayURL(let reason): msg = reason
+            case .invalidShareURL: msg = "无效的分享链接"
+            case .saveFailed: msg = "转存失败"
+            case .invalidResponse: msg = "服务器响应异常"
+            case .notImplemented: msg = "暂不支持"
+            }
+            await MainActor.run {
+                loadError = msg
+                isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                loadError = "解析异常: \(error.localizedDescription)"
+                isLoading = false
+            }
+        }
+    }
+    
+    private func playDriveVideo(url: String, headers: [String: String]) async {
+        guard let urlObj = createURL(from: url) else {
+            await MainActor.run {
+                loadError = "播放地址格式错误"
+                isLoading = false
+            }
+            return
+        }
+        
+        let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        p.automaticallyWaitsToMinimizeStalling = true
+        
+        await MainActor.run {
+            if let observer = timeObserver { player?.removeTimeObserver(observer) }
+            cleanupObservers()
+            player?.pause()
+            player = p
+            isPlaying = true
+            isLoading = false
+        }
+        
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            self?.currentTime = time.seconds
+            if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.play() }
+    }
+    
     func retry(video: VodItem) {
         currentTask?.cancel()
         loadError = nil
@@ -169,6 +315,25 @@ class PlayerState: ObservableObject {
     // MARK: - 播放地址解析
     private func resolvePlayUrl(video: VodItem) async {
         log("[PlayerV2] 开始解析播放地址: \(video.vodId)")
+        
+        // 检查是否是网盘资源（通过 vodRemarks 或 vodId 判断）
+        if video.vodRemarks?.contains("网盘") == true || video.vodRemarks?.hasPrefix("☁️") == true {
+            log("[PlayerV2] 检测到网盘资源，走网盘播放链路")
+            await handleCloudVideo(video: video)
+            return
+        }
+        
+        // 如果 vodId 是 HTTP URL，可能是网盘详情页
+        if video.vodId.hasPrefix("http://") || video.vodId.hasPrefix("https://") {
+            // 检查是否包含网盘域名
+            let panDomains = ["aliyundrive.com", "alipan.com", "pan.quark.cn", "pan.baidu.com", 
+                              "115.com", "115cdn.com", "drive.uc.cn", "pan.uc.cn"]
+            if panDomains.contains(where: { video.vodId.contains($0) }) {
+                log("[PlayerV2] 检测到网盘URL，走网盘播放链路")
+                await handleCloudVideo(video: video)
+                return
+            }
+        }
         
         let spider = SpiderManager.shared
         var playUrl: String? = video.vodPlayUrl

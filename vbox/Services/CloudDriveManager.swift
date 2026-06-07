@@ -203,14 +203,45 @@ class CloudDriveManager: ObservableObject {
             "order_direction": "ASC"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = json["items"] as? [[String: Any]],
-              let first = items.first,
-              let fid = first["file_id"] as? String else {
-            throw DriveError.noPlayURL("阿里: 文件列表为空")
+        let (data, response) = try await session.data(for: request)
+        
+        // 打印响应用于调试
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[Ali] 文件列表响应: \(respStr.prefix(500))")
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("[Ali] ❌ 文件列表响应非JSON")
+            throw DriveError.invalidResponse
         }
-        return fid
+        
+        // 检查 items
+        guard let items = json["items"] as? [[String: Any]] else {
+            // 检查是否有错误信息
+            if let code = json["code"] as? String, code != "OK" {
+                let message = json["message"] as? String ?? "未知错误"
+                print("[Ali] ❌ API错误: \(message)")
+                throw DriveError.noPlayURL("阿里: \(message)")
+            }
+            print("[Ali] ❌ 文件列表为空 (items字段缺失或格式错误)")
+            throw DriveError.noPlayURL("阿里: 分享为空或已失效")
+        }
+        
+        guard let first = items.first else {
+            print("[Ali] ❌ 文件列表为空数组")
+            throw DriveError.noPlayURL("阿里: 分享中没有文件")
+        }
+        
+        // 尝试获取 file_id
+        if let fid = first["file_id"] as? String {
+            print("[Ali] ✅ 获取到file_id: \(fid)")
+            return fid
+        } else if let fid = first["file_id"] as? Int {
+            print("[Ali] ✅ 获取到file_id(Int): \(fid)")
+            return String(fid)
+        }
+        
+        print("[Ali] ❌ 无法从文件项中提取file_id，可用字段: \(first.keys)")
+        throw DriveError.noPlayURL("阿里: 无法获取文件ID")
     }
 
     private func aliGetVideoPreviewPlayInfo(fileId: String, token: String) async throws -> AliVideoPreviewResponse {
@@ -225,8 +256,51 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
-        return try JSONDecoder().decode(AliVideoPreviewResponse.self, from: data)
+        let (data, response) = try await session.data(for: request)
+        
+        // 打印响应用于调试
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[Ali] 播放信息响应: \(respStr.prefix(500))")
+
+        // 先检查是否是错误响应
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let code = json["code"] as? String, code != "OK" {
+                let message = json["message"] as? String ?? "获取播放地址失败"
+                print("[Ali] ❌ API错误: \(message)")
+                throw DriveError.noPlayURL("阿里: \(message)")
+            }
+        }
+
+        do {
+            let result = try JSONDecoder().decode(AliVideoPreviewResponse.self, from: data)
+            
+            // 检查是否有播放地址
+            guard let taskList = result.videoPreviewPlayInfo?.liveTranscodingTaskList, !taskList.isEmpty else {
+                print("[Ali] ❌ 没有可用的转码任务列表")
+                throw DriveError.noPlayURL("阿里: 该文件无视频播放地址")
+            }
+            
+            // 尝试找到最佳清晰度
+            let qualities = ["FHD", "HD", "SD", "LD"]
+            for quality in qualities {
+                if let task = taskList.first(where: { $0.templateId?.contains(quality) == true }), let url = task.url {
+                    print("[Ali] ✅ 获取到播放地址 (\(quality))")
+                    return result
+                }
+            }
+            
+            // 如果没有匹配到指定清晰度，使用第一个可用的
+            if taskList.first?.url != nil {
+                print("[Ali] ✅ 获取到播放地址 (默认)")
+                return result
+            }
+            
+            print("[Ali] ❌ 转码任务列表中没有有效的URL")
+            throw DriveError.noPlayURL("阿里: 视频转码未完成")
+        } catch {
+            print("[Ali] ❌ JSON解码失败: \(error)")
+            throw DriveError.invalidResponse
+        }
     }
 
     private func extractAliShareId(from url: String) -> String {
@@ -356,16 +430,60 @@ class CloudDriveManager: ObservableObject {
         if !shareToken.isEmpty { body["share_token"] = shareToken }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let status = json["status"] as? Int, status == 200 else {
+        let (data, response) = try await session.data(for: request)
+        
+        // 打印响应用于调试
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[Quark] save响应: \(respStr.prefix(500))")
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("[Quark] ❌ 转存响应非JSON")
             throw DriveError.saveFailed
+        }
+        
+        // 检查status
+        if let status = json["status"] as? Int, status != 200 {
+            // 尝试提取错误消息
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "状态码: \(status)"
+            print("[Quark] ❌ 转存失败: \(message)")
+            throw DriveError.noPlayURL("夸克转存失败: \(message)")
+        }
+        
+        // 检查code
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码: \(code)"
+            print("[Quark] ❌ 转存失败: \(message)")
+            throw DriveError.noPlayURL("夸克转存失败: \(message)")
         }
 
         // 返回真实 file_ids
-        if let d = json["data"] as? [String: Any], let fileIds = d["file_ids"] as? [String] {
-            return fileIds
+        if let d = json["data"] as? [String: Any] {
+            // 尝试多种可能的字段名
+            if let fileIds = d["file_ids"] as? [String] {
+                print("[Quark] ✅ 转存成功，file_ids: \(fileIds)")
+                return fileIds
+            }
+            if let fileIds = d["file_ids"] as? [Int] {
+                let stringIds = fileIds.map { String($0) }
+                print("[Quark] ✅ 转存成功，file_ids(Int): \(stringIds)")
+                return stringIds
+            }
+            if let list = d["list"] as? [[String: Any]], let first = list.first {
+                if let fid = first["fid"] as? String {
+                    print("[Quark] ✅ 转存成功，从list获取fid: \(fid)")
+                    return [fid]
+                } else if let fid = first["fid"] as? Int {
+                    print("[Quark] ✅ 转存成功，从list获取fid(Int): \(fid)")
+                    return [String(fid)]
+                } else if let fileId = first["file_id"] as? String {
+                    return [fileId]
+                } else if let fileId = first["file_id"] as? Int {
+                    return [String(fileId)]
+                }
+            }
         }
+        
+        print("[Quark] ⚠️ 转存成功但未找到file_ids，返回shareId作为fallback")
         return [shareId]
     }
 
@@ -431,9 +549,27 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.invalidResponse
         }
 
-        // 从API响应提取
-        var shareid = String(describing: json["shareid"] ?? "")
-        var shareUk = String(describing: json["uk"] ?? "")
+        // 从API响应提取 - 正确处理各种类型
+        var shareid = ""
+        var shareUk = ""
+        
+        // 处理 shareid - 可能是Int或String
+        if let sid = json["shareid"] as? String {
+            shareid = sid
+        } else if let sid = json["shareid"] as? Int {
+            shareid = String(sid)
+        }
+        
+        // 处理 uk - 可能是Int或String
+        if let uk = json["uk"] as? String {
+            shareUk = uk
+        } else if let uk = json["uk"] as? Int {
+            shareUk = String(uk)
+        } else if let uk = json["share_uk"] as? String {
+            shareUk = uk
+        } else if let uk = json["share_uk"] as? Int {
+            shareUk = String(uk)
+        }
 
         // Step 3: 获取文件列表
         var listComponents = URLComponents(string: "https://pan.baidu.com/share/list")!
@@ -454,7 +590,12 @@ class CloudDriveManager: ObservableObject {
         if let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any],
            let list = listJson["list"] as? [[String: Any]],
            let first = list.first {
-            fsId = String(describing: first["fs_id"] ?? "")
+            // 处理 fs_id - 可能是Int或String
+            if let fid = first["fs_id"] as? String {
+                fsId = fid
+            } else if let fid = first["fs_id"] as? Int {
+                fsId = String(fid)
+            }
         }
 
         // 兜底：如果API没返回，从HTML正则提取
@@ -719,20 +860,58 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let status = json["status"] as? Int, status == 200 else {
+        let (data, response) = try await session.data(for: request)
+        
+        // 打印响应用于调试
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[UC] save响应: \(respStr.prefix(500))")
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("[UC] ❌ 转存响应非JSON")
             throw DriveError.saveFailed
         }
-
-        // 返回转存后的文件 ID
-        if let dataObj = json["data"] as? [String: Any],
-           let list = dataObj["list"] as? [[String: Any]],
-           let first = list.first,
-           let fid = first["fid"] ?? first["file_id"] {
-            return [String(describing: fid)]
+        
+        // 检查 status
+        if let status = json["status"] as? Int, status != 200 {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "状态码: \(status)"
+            print("[UC] ❌ 转存失败: \(message)")
+            throw DriveError.noPlayURL("UC转存失败: \(message)")
+        }
+        
+        // 检查 code
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码: \(code)"
+            print("[UC] ❌ 转存失败: \(message)")
+            throw DriveError.noPlayURL("UC转存失败: \(message)")
         }
 
+        // 返回转存后的文件 ID - 尝试多种可能的字段
+        if let dataObj = json["data"] as? [String: Any] {
+            if let list = dataObj["list"] as? [[String: Any]], let first = list.first {
+                if let fid = first["fid"] as? String {
+                    print("[UC] ✅ 转存成功，fid: \(fid)")
+                    return [fid]
+                } else if let fid = first["fid"] as? Int {
+                    print("[UC] ✅ 转存成功，fid(Int): \(fid)")
+                    return [String(fid)]
+                } else if let fileId = first["file_id"] as? String {
+                    return [fileId]
+                } else if let fileId = first["file_id"] as? Int {
+                    return [String(fileId)]
+                }
+            }
+            if let fileIds = dataObj["file_ids"] as? [String] {
+                print("[UC] ✅ 转存成功，file_ids: \(fileIds)")
+                return fileIds
+            }
+            if let fileIds = dataObj["file_ids"] as? [Int] {
+                let stringIds = fileIds.map { String($0) }
+                print("[UC] ✅ 转存成功，file_ids(Int): \(stringIds)")
+                return stringIds
+            }
+        }
+
+        print("[UC] ⚠️ 转存成功但未找到fileId，返回shareId作为fallback")
         return [shareId]
     }
 
