@@ -160,16 +160,15 @@ struct BannerCard3D: View {
         ZStack(alignment: .bottomLeading) {
             // 封面图
             if let coverUrl = subject.cover_url, !coverUrl.isEmpty {
-                // 处理豆瓣图片URL - 可能需要替换域名或添加协议
-                var processedUrl = coverUrl
-                // 如果URL以 // 开头，添加 https:
-                if processedUrl.hasPrefix("//") {
-                    processedUrl = "https:" + processedUrl
-                }
-                // 如果URL不包含协议，添加 https://
-                else if !processedUrl.hasPrefix("http") {
-                    processedUrl = "https://" + processedUrl
-                }
+                // 处理豆瓣图片URL - 使用计算属性
+                let processedUrl: String = {
+                    if coverUrl.hasPrefix("//") {
+                        return "https:" + coverUrl
+                    } else if !coverUrl.hasPrefix("http") {
+                        return "https://" + coverUrl
+                    }
+                    return coverUrl
+                }()
                 
                 AsyncImage(url: URL(string: processedUrl)) { phase in
                     switch phase {
