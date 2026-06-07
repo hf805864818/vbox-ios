@@ -83,6 +83,7 @@ struct BannerCarousel: View {
     @Binding var currentIndex: Int
     let settings: AppSettings
     @State private var dragOffset: CGFloat = 0
+    @State private var autoPlayTimer: Timer?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -113,25 +114,27 @@ struct BannerCarousel: View {
                 }
                 .frame(width: geo.size.width, height: cardHeight)
                 .contentShape(Rectangle())
+                .onAppear { startAutoPlay() }
+                .onDisappear { stopAutoPlay() }
                 .gesture(
                     DragGesture()
                         .onChanged { value in
+                            stopAutoPlay()
                             dragOffset = value.translation.width
                         }
                         .onEnded { value in
                             let threshold: CGFloat = 50
                             if value.translation.width < -threshold {
-                                // 向左滑动，下一张
                                 withAnimation(.easeOut(duration: 0.35)) {
                                     currentIndex = min(currentIndex + 1, min(10, subjects.count) - 1)
                                 }
                             } else if value.translation.width > threshold {
-                                // 向右滑动，上一张
                                 withAnimation(.easeOut(duration: 0.35)) {
                                     currentIndex = max(currentIndex - 1, 0)
                                 }
                             }
                             dragOffset = 0
+                            startAutoPlay()
                         }
                 )
             }
@@ -146,6 +149,24 @@ struct BannerCarousel: View {
             }
             .padding(.vertical, 8)
         }
+    }
+    
+    private func startAutoPlay() {
+        stopAutoPlay()
+        autoPlayTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            withAnimation(.easeOut(duration: 0.35)) {
+                if currentIndex < min(10, subjects.count) - 1 {
+                    currentIndex += 1
+                } else {
+                    currentIndex = 0
+                }
+            }
+        }
+    }
+    
+    private func stopAutoPlay() {
+        autoPlayTimer?.invalidate()
+        autoPlayTimer = nil
     }
 }
 

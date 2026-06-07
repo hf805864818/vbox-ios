@@ -1095,6 +1095,9 @@ struct CategoryView: View {
         ("音乐", "music.note"),
         ("体育", "sportscourt.fill")
     ]
+    
+    @State private var selectedCategory: String?
+    @State private var showCategorySheet = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1108,13 +1111,21 @@ struct CategoryView: View {
                 spacing: 16
             ) {
                 ForEach(categories, id: \.0) { category in
-                    CategoryCard(name: category.0, icon: category.1)
+                    CategoryCard(name: category.0, icon: category.1, onTap: {
+                        selectedCategory = category.0
+                        showCategorySheet = true
+                    })
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
         .background(Color.white)
+        .sheet(isPresented: $showCategorySheet) {
+            if let category = selectedCategory {
+                CategoryDetailView(categoryName: category)
+            }
+        }
     }
 }
 
@@ -1122,9 +1133,10 @@ struct CategoryView: View {
 struct CategoryCard: View {
     let name: String
     let icon: String
+    let onTap: () -> Void
 
     var body: some View {
-        Button(action: {}) {
+        Button(action: onTap) {
             VStack(spacing: 12) {
                 ZStack {
                     // 液态背景
