@@ -206,7 +206,7 @@ struct HomeView: View {
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex)
                     }
-                    CategoryTilesView()
+                    CategoryTilesView(settings: settings)
                     if !hotMovies.isEmpty {
                         SectionHeader(title: "热门电影", icon: "flame.fill")
                         HorizontalSubjectRow(subjects: hotMovies)
