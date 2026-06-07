@@ -519,14 +519,16 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduExtractShareMeta(shareURL: String, cookie: String) async throws -> (shareid: String, shareUk: String, fsId: String) {
-        print("[Baidu] 提取分享信息: \(shareURL)")
-        // Step 1: 从URL提取 surl（短链接码）
+        print("[Baidu] 提取分享信息：\(shareURL)")
+        
+        // Step 1: 从 URL 提取 surl（短链接码）
         let surl: String
         if let range = shareURL.range(of: #"/s/1([^/?]+)"#, options: .regularExpression) {
             surl = "1" + String(shareURL[range]).replacingOccurrences(of: "/s/", with: "")
         } else if let range = shareURL.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
             surl = String(shareURL[range]).replacingOccurrences(of: "/s/", with: "")
         } else {
+            print("[Baidu] ❌ 无法从 URL 提取 surl")
             throw DriveError.invalidShareURL
         }
         print("[Baidu] surl=\(surl)")
@@ -540,27 +542,34 @@ class CloudDriveManager: ObservableObject {
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 10
 
-        let (data, _) = try await session.data(for: req)
+        let (data, response) = try await session.data(for: req)
         let respStr = String(data: data, encoding: .utf8) ?? ""
-        print("[Baidu] share/info 响应: \(respStr.prefix(300))")
+        print("[Baidu] share/info 响应：\(respStr.prefix(500))")
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Baidu] ❌ share/info 响应非JSON")
+            print("[Baidu] ❌ share/info 响应非 JSON")
             throw DriveError.invalidResponse
         }
 
-        // 从API响应提取 - 正确处理各种类型
+        // 检查 errno
+        if let errno = json["errno"] as? Int, errno != 0 {
+            let errMsg = json["errmsg"] as? String ?? "错误码：\(errno)"
+            print("[Baidu] ❌ API 返回错误：\(errMsg)")
+            throw DriveError.noPlayURL("百度网盘 API 错误：\(errMsg)")
+        }
+
+        // 从 API 响应提取 - 正确处理各种类型
         var shareid = ""
         var shareUk = ""
         
-        // 处理 shareid - 可能是Int或String
+        // 处理 shareid - 可能是 Int 或 String
         if let sid = json["shareid"] as? String {
             shareid = sid
         } else if let sid = json["shareid"] as? Int {
             shareid = String(sid)
         }
         
-        // 处理 uk - 可能是Int或String
+        // 处理 uk - 可能是 Int 或 String
         if let uk = json["uk"] as? String {
             shareUk = uk
         } else if let uk = json["uk"] as? Int {
@@ -570,6 +579,8 @@ class CloudDriveManager: ObservableObject {
         } else if let uk = json["share_uk"] as? Int {
             shareUk = String(uk)
         }
+
+        print("[Baidu] shareid=\(shareid), shareUk=\(shareUk)")
 
         // Step 3: 获取文件列表
         var listComponents = URLComponents(string: "https://pan.baidu.com/share/list")!
@@ -584,33 +595,87 @@ class CloudDriveManager: ObservableObject {
 
         let (listData, _) = try await session.data(for: listReq)
         let listResp = String(data: listData, encoding: .utf8) ?? ""
-        print("[Baidu] share/list 响应: \(listResp.prefix(300))")
+        print("[Baidu] share/list 响应：\(listResp.prefix(500))")
+
+        guard let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any] else {
+            print("[Baidu] ❌ share/list 响应非 JSON")
+            throw DriveError.invalidResponse
+        }
+
+        // 检查 list 的 errno
+        if let errno = listJson["errno"] as? Int, errno != 0 {
+            let errMsg = listJson["errno_desc"] as? String ?? "错误码：\(errno)"
+            print("[Baidu] ❌ 文件列表返回错误：\(errMsg)")
+            throw DriveError.noPlayURL("百度网盘文件列表错误：\(errMsg)")
+        }
 
         var fsId = ""
-        if let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any],
-           let list = listJson["list"] as? [[String: Any]],
-           let first = list.first {
-            // 处理 fs_id - 可能是Int或String
+        if let list = listJson["list"] as? [[String: Any]], !list.isEmpty {
+            let first = list[0]
+            print("[Baidu] 文件信息：\(first)")
+            
+            // 处理 fs_id - 可能是 Int 或 String
             if let fid = first["fs_id"] as? String {
                 fsId = fid
+            } else if let fid = first["fs_id"] as? Int64 {
+                fsId = String(fid)
             } else if let fid = first["fs_id"] as? Int {
                 fsId = String(fid)
             }
+            
+            // 提取文件名用于调试
+            let fileName = first["server_filename"] as? String ?? first["name"] as? String ?? "未知"
+            print("[Baidu] 文件名=\(fileName), fs_id=\(fsId)")
+        } else {
+            print("[Baidu] ❌ 文件列表为空")
         }
 
-        // 兜底：如果API没返回，从HTML正则提取
-        if shareid.isEmpty || shareUk.isEmpty || fsId.isEmpty {
-            print("[Baidu] API未完整返回，尝试HTML正则兜底")
+        // 验证是否提取到必要信息
+        if shareid.isEmpty || shareUk.isEmpty {
+            print("[Baidu] ❌ 无法提取 shareid 或 shareUk")
+            throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
+        }
+
+        if fsId.isEmpty {
+            // 尝试 HTML 正则兜底
+            print("[Baidu] API 未返回 fs_id，尝试 HTML 正则兜底")
             let htmlReq = URLRequest(url: URL(string: shareURL)!)
             if let (htmlData, _) = try? await session.data(for: htmlReq),
                let html = String(data: htmlData, encoding: .utf8) {
                 let patterns: [(String, String)] = [
-                    (#"shareid":\s*"([^"]+)"#, "shareid"), (#"shareid":\s*(\d+)"#, "shareid"),
-                    (#"share_uk":\s*"([^"]+)"#, "share_uk"), (#"share_uk":\s*(\d+)"#, "share_uk"),
-                    (#"fs_id":\s*(\d+)"#, "fs_id"), (#"fs_id":\s*"([^"]+)"#, "fs_id"),
+                    (#""shareid":\s*"([^"]+)""#, "shareid"),
+                    (#""shareid":\s*(\d+)"#, "shareid"),
+                    (#""share_uk":\s*"([^"]+)""#, "share_uk"),
+                    (#""share_uk":\s*(\d+)"#, "share_uk"),
+                    (#""fs_id":\s*(\d+)"#, "fs_id"),
+                    (#""fs_id":\s*"([^"]+)""#, "fs_id"),
                 ]
                 for (pattern, key) in patterns {
                     if let regex = try? NSRegularExpression(pattern: pattern),
+                       let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                       let range = Range(match.range(at: 1), in: html) {
+                        let value = String(html[range])
+                        print("[Baidu] HTML 正则提取 \(key)=\(value)")
+                        switch key {
+                        case "shareid": if shareid.isEmpty { shareid = value }
+                        case "share_uk": if shareUk.isEmpty { shareUk = value }
+                        case "fs_id": if fsId.isEmpty { fsId = value }
+                        default: break
+                        }
+                    }
+                }
+            }
+        }
+
+        // 最终检查
+        if fsId.isEmpty {
+            print("[Baidu] ❌ 无法从分享页提取到文件 ID(fs_id)")
+            throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效且文件未失效")
+        }
+
+        print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), fsId=\(fsId)")
+        return (shareid, shareUk, fsId)
+    }
                        let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
                        let r = Range(match.range(at: 1), in: html) {
                         let val = String(html[r])
@@ -847,29 +912,100 @@ class CloudDriveManager: ObservableObject {
 
     /// UC 转存分享文件
     private func ucSaveShare(shareId: String, folderId: String, cookie: String) async throws -> [String] {
+        // Step 1: 先获取分享 token
+        let shareToken = try await ucGetShareToken(shareId: shareId, cookie: cookie)
+        print("[UC] shareToken=\(shareToken.isEmpty ? "空" : "已获取")")
+        
         var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/save")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "share_id": shareId,
-            "stoken": "",
             "to_pdir_fid": folderId
         ]
+        if !shareToken.isEmpty { body["share_token"] = shareToken }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
         
         // 打印响应用于调试
         let respStr = String(data: data, encoding: .utf8) ?? ""
-        print("[UC] save响应: \(respStr.prefix(500))")
+        print("[UC] save 响应：\(respStr.prefix(800))")
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[UC] ❌ 转存响应非JSON")
+            print("[UC] ❌ 转存响应非 JSON")
             throw DriveError.saveFailed
         }
+        
+        // 检查 status
+        if let status = json["status"] as? Int, status != 200 {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "状态码：\(status)"
+            print("[UC] ❌ 转存失败：\(message)")
+            throw DriveError.noPlayURL("UC 转存失败：\(message)")
+        }
+        
+        // 检查 code
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码：\(code)"
+            print("[UC] ❌ 转存失败：\(message)")
+            throw DriveError.noPlayURL("UC 转存失败：\(message)")
+        }
+
+        // 返回转存后的文件 ID - 尝试多种可能的字段
+        if let dataObj = json["data"] as? [String: Any] {
+            if let list = dataObj["list"] as? [[String: Any]], let first = list.first {
+                if let fid = first["fid"] as? String {
+                    print("[UC] ✅ 转存成功，fid: \(fid)")
+                    return [fid]
+                } else if let fid = first["fid"] as? Int {
+                    print("[UC] ✅ 转存成功，fid(Int): \(fid)")
+                    return [String(fid)]
+                } else if let fileId = first["file_id"] as? String {
+                    return [fileId]
+                } else if let fileId = first["file_id"] as? Int {
+                    return [String(fileId)]
+                }
+            }
+            if let fileIds = dataObj["file_ids"] as? [String] {
+                print("[UC] ✅ 转存成功，file_ids: \(fileIds)")
+                return fileIds
+            }
+            if let fileIds = dataObj["file_ids"] as? [Int] {
+                let stringIds = fileIds.map { String($0) }
+                print("[UC] ✅ 转存成功，file_ids(Int): \(stringIds)")
+                return stringIds
+            }
+        }
+
+        print("[UC] ⚠️ 转存成功但未找到 fileId，返回 shareId 作为 fallback")
+        return [shareId]
+    }
+    
+    /// UC 获取分享 token
+    private func ucGetShareToken(shareId: String, cookie: String) async throws -> String {
+        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        
+        let body: [String: Any] = ["share_id": shareId]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await session.data(for: request)
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[UC] token 响应：\(respStr.prefix(300))")
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let stoken = dataObj["stoken"] as? String else {
+            return ""
+        }
+        return stoken
+    }
         
         // 检查 status
         if let status = json["status"] as? Int, status != 200 {

@@ -1078,6 +1078,72 @@ globalThis.__JS_SPIDER__ = _spider;
             return playPageUrl
         }
 
+        print("[SpiderManager] 开始解析播放页：\(playPageUrl.prefix(60))...")
+
+        // 2. 优先使用自定义解析器
+        if !customParsers.isEmpty {
+            print("[SpiderManager] 尝试自定义解析器，共\(customParsers.count)个")
+            for (idx, parser) in customParsers.enumerated() {
+                print("[SpiderManager] [\(idx+1)/\(customParsers.count)] 尝试：\(parser.name) - \(parser.url)")
+                if let parsedUrl = await tryParser(parser.url, url: playPageUrl) {
+                    print("[SpiderManager] ✅ 自定义解析器成功：\(parser.name)")
+                    return parsedUrl
+                }
+            }
+        }
+
+        // 3. 优先使用订阅源的解析器（次优先）
+        if !subManager.parses.isEmpty {
+            print("[SpiderManager] 使用订阅源解析器，共\(subManager.parses.count)个")
+            for (idx, parse) in subManager.parses.enumerated() {
+                print("[SpiderManager] [\(idx+1)/\(subManager.parses.count)] 尝试：\(parse.name) - \(parse.url)")
+                if let parsedUrl = await tryParser(parse.url, url: playPageUrl) {
+                    print("[SpiderManager] ✅ 订阅源解析器成功：\(parse.name)")
+                    print("[SpiderManager] 解析结果：\(parsedUrl.prefix(80))...")
+                    return parsedUrl
+                }
+            }
+        }
+
+        // 4. 使用公共解析器兜底
+        print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
+        let parsers = [
+            ("777", "https://jx.777jiexi.com/player/?url="),
+            ("农民", "https://jiexi.nmypdm.com/nm.php?url="),
+            ("XMFlv", "https://jx.xmflv.com/?url="),
+            ("毛豆", "https://www.mdymv.com/jiexi/n.php?url="),
+            ("饭团", "https://www.fantuantmtv.com/jiexi/n.php?url="),
+            ("解析啦", "https://jx.jiexi.fun/?url="),
+            ("多多", "https://www.duoduozy.com/analysis/?url="),
+            ("量子", "https://lziplayer.com/?url="),
+            ("暴风", "https://bfzyplayer.com/player/?url="),
+            ("非凡", "https://ffzyplayer.com/player/?url="),
+            ("新浪", "https://svip.xnmap.com/?url="),
+            ("红牛", "https://player.hnzycoder.com/player/?url="),
+            ("卧龙", "https://mac.js.xn--z7x900a.com/player/?url="),
+            ("酷点", "https://jx.kudian20.com/player/?url="),
+            ("光速", "https://jx.gszyplayer.com/player/?url="),
+        ]
+
+        for (name, parser) in parsers {
+            print("[SpiderManager] 尝试公共解析器：\(name)")
+            if let parsedUrl = await tryParser(parser, url: playPageUrl) {
+                print("[SpiderManager] ✅ 公共解析器成功：\(name)")
+                print("[SpiderManager] 解析结果：\(parsedUrl.prefix(80))...")
+                return parsedUrl
+            }
+        }
+
+        // 5. 尝试直接请求播放页提取 m3u8
+        if let directUrl = await extractDirectPlayURL(from: playPageUrl) {
+            print("[SpiderManager] ✅ 从播放页直接提取成功：\(directUrl.prefix(80))...")
+            return directUrl
+        }
+
+        print("[SpiderManager] ❌ 所有解析器均失败")
+        return nil
+    }
+
         print("[SpiderManager] 开始解析播放页: \(playPageUrl.prefix(60))...")
 
         // 2. 优先使用自定义解析器
@@ -1139,7 +1205,7 @@ globalThis.__JS_SPIDER__ = _spider;
 
             let (data, _) = try await URLSession.shared.data(for: request)
 
-            // 尝试从响应中提取m3u8/mp4链接
+            // 尝试从响应中提取 m3u8/mp4 链接
             if let responseStr = String(data: data, encoding: .utf8) {
                 // 正则匹配视频链接
                 let patterns = [
@@ -1154,12 +1220,91 @@ globalThis.__JS_SPIDER__ = _spider;
 
                         let result = (responseStr as NSString).substring(with: match.range(at: match.numberOfRanges - 1))
 
-                        // 清理JSON格式的URL
+                        // 清理 JSON 格式的 URL
                         if result.hasPrefix("\"") && result.hasSuffix("\"") {
                             let cleaned = String(result.dropFirst().dropLast())
                             if cleaned.hasPrefix("http") {
                                 return cleaned
                             }
+                        } else if result.hasPrefix("http") {
+                            return result
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[SpiderManager] 解析器请求失败：\(error.localizedDescription)")
+        }
+
+        return nil
+    }
+    
+    /// 直接从播放页提取 m3u8/mp4链接
+    private func extractDirectPlayURL(from playUrl: String) async -> String? {
+        guard let url = URL(string: playUrl) else { return nil }
+        
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // 如果是 m3u8/mp4 直接返回
+            if let mimeType = (response as? HTTPURLResponse)?.allHeaderFields["Content-Type"] as? String {
+                if mimeType.contains("application/vnd.apple.mpegurl") || mimeType.contains("video/mp4") {
+                    return playUrl
+                }
+            }
+            
+            // 尝试从 HTML 中提取
+            if let html = String(data: data, encoding: .utf8) {
+                let patterns = [
+                    "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*",
+                    "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*",
+                    "player\\.src\\(\\{\\s*src:\\s*['\"]([^'\"]+)['\"]",
+                    "video\\.src\\(\\{\\s*src:\\s*['\"]([^'\"]+)['\"]",
+                    "config *= *\\{[^}]*url:\\s*['\"]([^'\"]+)['\"]",
+                    "\"playUrl\":\\s*\"([^\"]+)\"",
+                    "data-play-url=\"([^\"]+)\""
+                ]
+                
+                for pattern in patterns {
+                    if let regex = try? NSRegularExpression(pattern: pattern),
+                       let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
+                        let range = Range(match.range(at: 1), in: html) ?? Range(match.range(at: 0), in: html)
+                        if let r = range {
+                            var result = String(html[r])
+                            // 清理结果
+                            if result.hasPrefix("\"") && result.hasSuffix("\"") {
+                                result = String(result.dropFirst().dropLast())
+                            }
+                            if result.hasPrefix("http") {
+                                print("[SpiderManager] 直接从 HTML 提取：\(result.prefix(80))")
+                                return result
+                            }
+                            // 相对路径处理
+                            if result.hasPrefix("//") {
+                                result = "https:" + result
+                                return result
+                            }
+                            if result.hasPrefix("/") && url.host != nil {
+                                if let scheme = url.scheme {
+                                    result = "\(scheme)://\(url.host ?? "")" + result
+                                    return result
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[SpiderManager] 直接提取失败：\(error.localizedDescription)")
+        }
+        
+        return nil
+    }
                         } else if result.hasPrefix("http") {
                             return result
                         }
