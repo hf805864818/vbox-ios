@@ -9,61 +9,44 @@ struct VideoDetailView: View {
     @State private var isFavorite = false
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
-    // 网盘播放：选中的链接（用 nil/非nil 控制 fullScreenCover）
-    @State private var selectedPanURL: String?
-    @State private var selectedPanTitle: String = ""
+    @State private var selectedPanVideo: VodItem?
     @Environment(\.dismiss) private var dismiss
 
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
 
-    /// 加载网盘链接
     private func loadPanLinks() {
         guard panLinks.isEmpty, !isLoadingPan else { return }
         isLoadingPan = true
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
-                await MainActor.run {
-                    panLinks = result.links
-                    isLoadingPan = false
-                }
+                await MainActor.run { panLinks = result.links; isLoadingPan = false }
             } else {
                 await MainActor.run { isLoadingPan = false }
             }
         }
     }
 
-    /// 点击播放按钮
     private func handlePlay() {
         if isCloudVideo {
             if !panLinks.isEmpty {
-                // 有链接 → 播放第一个
                 playPanLink(panLinks[0])
             } else if !isLoadingPan {
-                // 没链接 → 加载，加载完自动播第一个
                 isLoadingPan = true
                 Task {
                     if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
                         await MainActor.run {
-                            panLinks = result.links
-                            isLoadingPan = false
-                            if let first = panLinks.first {
-                                playPanLink(first)
-                            }
+                            panLinks = result.links; isLoadingPan = false
+                            if let first = panLinks.first { playPanLink(first) }
                         }
-                    } else {
-                        await MainActor.run { isLoadingPan = false }
-                    }
+                    } else { await MainActor.run { isLoadingPan = false } }
                 }
             }
-        } else {
-            showPlayer = true
-        }
+        } else { showPlayer = true }
     }
 
-    /// 打开网盘播放器
     private func playPanLink(_ link: (url: String, name: String)) {
-        selectedPanTitle = "\(video.vodName) - \(link.name)"
-        selectedPanURL = link.url
+        selectedPanVideo = VodItem(vodId: link.url, vodName: "\(video.vodName) - \(link.name)",
+                                    vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
     }
 
     private func driveColor(_ name: String) -> Color {
@@ -83,16 +66,12 @@ struct VideoDetailView: View {
                     ZStack(alignment: .bottomLeading) {
                         AsyncImage(url: URL(string: video.vodPic)) { phase in
                             switch phase {
-                            case .success(let image):
-                                image.resizable().aspectRatio(contentMode: .fill)
-                            default:
-                                Rectangle().fill(Color.gray.opacity(0.3))
+                            case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                            default: Rectangle().fill(Color.gray.opacity(0.3))
                             }
-                        }
-                        .frame(height: 220).clipped()
+                        }.frame(height: 220).clipped()
 
-                        LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)],
-                                       startPoint: .top, endPoint: .bottom)
+                        LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
 
                         Button(action: handlePlay) {
                             ZStack {
@@ -108,7 +87,6 @@ struct VideoDetailView: View {
                         HStack(spacing: 12) {
                             TagLabel(text: video.vodRemarks ?? "")
                             TagLabel(text: video.vodYear ?? "")
-                            TagLabel(text: "高清")
                         }
 
                         HStack(spacing: 16) {
@@ -130,8 +108,7 @@ struct VideoDetailView: View {
                                     Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
                                     if isLoadingPan {
                                         Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.secondary)
-                                        Spacer()
-                                        ProgressView().scaleEffect(0.8)
+                                        Spacer(); ProgressView().scaleEffect(0.8)
                                     } else if panLinks.isEmpty {
                                         Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.secondary)
                                     } else {
@@ -140,79 +117,48 @@ struct VideoDetailView: View {
                                     Spacer()
                                 }
                                 if !isLoadingPan, !panLinks.isEmpty {
-                                    ForEach(Array(panLinks.enumerated()), id: \.offset) { idx, link in
+                                    ForEach(Array(panLinks.enumerated()), id: \.offset) { _, link in
                                         Button(action: { playPanLink(link) }) {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
                                                 Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
                                                 Spacer()
                                                 Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
-                                            }
-                                            .padding(10)
-                                            .background(Color.white.opacity(0.05))
-                                            .cornerRadius(8)
-                                        }
-                                        .buttonStyle(PlainButtonStyle())
+                                            }.padding(10).background(Color.white.opacity(0.05)).cornerRadius(8)
+                                        }.buttonStyle(PlainButtonStyle())
                                     }
                                 }
-                            }
-                            .padding(.vertical, 8)
+                            }.padding(.vertical, 8)
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("剧集列表").font(.system(size: 16, weight: .semibold))
-                                Spacer()
-                                Text("共 24 集").font(.system(size: 12)).foregroundColor(.secondary)
+                                Spacer(); Text("共 24 集").font(.system(size: 12)).foregroundColor(.secondary)
                             }
                             EpisodeGridView()
-                        }
-                        .padding(.top, 8)
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("弹幕").font(.system(size: 16, weight: .semibold))
-                                Spacer()
-                                Text("已有 1024 条弹幕").font(.system(size: 12)).foregroundColor(.secondary)
-                            }
-                            DanmakuInputView()
-                            DanmakuListView()
-                        }
-                    }
-                    .padding(20).padding(.bottom, 100)
+                        }.padding(.top, 8)
+                    }.padding(20).padding(.bottom, 100)
                 }
             }
             .background(Color(hex: "000000"))
             .ignoresSafeArea()
-            // 普通视频播放器
-            .fullScreenCover(isPresented: $showPlayer) {
-                VideoPlayerViewV2(video: video)
-            }
-            // 网盘播放器（用 selectedPanURL 非nil 触发）
-            .fullScreenCover(isPresented: Binding(
-                get: { selectedPanURL != nil },
-                set: { if !$0 { selectedPanURL = nil } }
-            )) {
-                if let panURL = selectedPanURL {
-                    PanPlayerView(panURL: panURL, title: selectedPanTitle)
-                }
-            }
-            .onAppear {
-                if isCloudVideo { loadPanLinks() }
-            }
+            // 普通视频 → 新版播放器
+            .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
+            // 网盘资源 → 新版播放器（构造 VodItem 传入）
+            .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
+            .onAppear { if isCloudVideo { loadPanLinks() } }
 
-            // 返回
+            // 返回按钮
             VStack {
                 Button(action: { dismiss() }) {
                     ZStack {
                         Circle().fill(.ultraThinMaterial).frame(width: 44, height: 44)
                         Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
                     }
-                }
-                .padding(.leading, 16).padding(.top, 12)
+                }.padding(.leading, 16).padding(.top, 12)
                 Spacer()
-            }
-            .zIndex(1000)
+            }.zIndex(1000)
         }
     }
 }
@@ -250,53 +196,6 @@ struct EpisodeGridView: View {
                         .foregroundColor(ep == selectedEpisode ? .white : .primary).frame(maxWidth: .infinity).padding(.vertical, 10)
                         .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.primary.opacity(0.1)))
                 }.buttonStyle(PlainButtonStyle())
-            }
-        }
-    }
-}
-
-// MARK: - 弹幕组件
-struct DanmakuItem: Identifiable {
-    let id = UUID()
-    let text: String
-    let time: Date
-}
-
-struct DanmakuInputView: View {
-    @State private var text = ""
-    @State private var danmakuList: [DanmakuItem] = []
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                TextField("输入弹幕内容...", text: $text)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .font(.system(size: 14))
-                Button(action: {
-                    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    danmakuList.append(DanmakuItem(text: text, time: Date()))
-                    text = ""
-                }) {
-                    Text("发送").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
-                        .background(Color(hex: "E11D48")).cornerRadius(8)
-                }
-            }
-        }
-    }
-}
-
-struct DanmakuListView: View {
-    @State private var danmakuList: [DanmakuItem] = []
-    var body: some View {
-        if danmakuList.isEmpty {
-            Text("暂无弹幕").font(.system(size: 13)).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 20)
-        } else {
-            ForEach(danmakuList) { item in
-                HStack {
-                    Text(item.text).font(.system(size: 13)).foregroundColor(.primary)
-                    Spacer()
-                    Text(item.time, style: .time).font(.system(size: 11)).foregroundColor(.secondary)
-                }.padding(.vertical, 4)
             }
         }
     }
