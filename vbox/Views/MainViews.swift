@@ -17,26 +17,33 @@ struct MainTabView: View {
                     }
                     .tag(0)
 
-                SearchView()
+                DoubanHomeView()
                     .tabItem {
-                        Image(systemName: selectedTab == 1 ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
-                        Text("搜索")
+                        Image(systemName: selectedTab == 1 ? "film.fill" : "film")
+                        Text("豆瓣")
                     }
                     .tag(1)
 
-                CategoryView()
+                SearchView()
                     .tabItem {
-                        Image(systemName: selectedTab == 2 ? "square.grid.3x3.fill" : "square.grid.3x3")
-                        Text("分类")
+                        Image(systemName: selectedTab == 2 ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
+                        Text("搜索")
                     }
                     .tag(2)
 
-                ProfileView()
+                CategoryView()
                     .tabItem {
-                        Image(systemName: selectedTab == 3 ? "person.fill" : "person")
-                        Text("我的")
+                        Image(systemName: selectedTab == 3 ? "square.grid.3x3.fill" : "square.grid.3x3")
+                        Text("分类")
                     }
                     .tag(3)
+
+                ProfileView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 4 ? "person.fill" : "person")
+                        Text("我的")
+                    }
+                    .tag(4)
             }
             .accentColor(Color(hex: "E11D48"))
 
@@ -53,6 +60,7 @@ struct GlassBottomTabBar: View {
 
     private let tabs: [(icon: String, iconFilled: String, title: String)] = [
         ("house", "house.fill", "首页"),
+        ("film", "film.fill", "豆瓣"),
         ("magnifyingglass.circle", "magnifyingglass.circle.fill", "搜索"),
         ("square.grid.3x3", "square.grid.3x3.fill", "分类"),
         ("person", "person.fill", "我的")
