@@ -1123,7 +1123,7 @@ struct CategoryView: View {
         .background(Color.white)
         .sheet(isPresented: $showCategorySheet) {
             if let category = selectedCategory {
-                CategoryDetailView(categoryName: category)
+                CategoryDetailView(categoryType: category.lowercased(), categoryName: category)
             }
         }
     }
