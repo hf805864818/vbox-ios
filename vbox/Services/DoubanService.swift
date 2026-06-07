@@ -8,10 +8,9 @@ struct DoubanSubject: Codable, Identifiable {
     let images: DoubanImages?
     let genres: [String]?
     let year: String?
-    let intro: String?
     
     enum CodingKeys: String, CodingKey {
-        case id, title, rating, images, genres, year, intro
+        case id, title, rating, images, genres, year
     }
 }
 
