@@ -204,7 +204,7 @@ struct HomeView: View {
                     }
                 } else {
                     if !bannerSubjects.isEmpty {
-                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex)
+                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
                     }
                     CategoryTilesView(settings: settings)
                     if !hotMovies.isEmpty {
