@@ -1327,7 +1327,7 @@ globalThis.__JS_SPIDER__ = _spider;
         return nil
     }
 
-    private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
+    nonisolated private func fetchDetail(url: URL, siteName: String) async -> VodItem? {
         do {
             var req = URLRequest(url: url)
             req.timeoutInterval = 5
@@ -1399,7 +1399,7 @@ globalThis.__JS_SPIDER__ = _spider;
     return nil
 }
 
-    private func fetchDetailFromSearchList(url: URL, siteName: String, targetName: String) async -> VodItem? {
+    nonisolated private func fetchDetailFromSearchList(url: URL, siteName: String, targetName: String) async -> VodItem? {
         do {
             var req = URLRequest(url: url)
             req.timeoutInterval = 10
