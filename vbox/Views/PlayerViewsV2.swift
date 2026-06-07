@@ -339,17 +339,46 @@ class PlayerState: ObservableObject {
         var playUrl: String? = video.vodPlayUrl
         var playFrom: String? = video.vodPlayFrom
         
-        // 步骤1: 优先通过 getDetail 获取最新详情
-        log("[PlayerV2] 步骤1: 获取视频详情...")
-        if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName) {
-            log("[PlayerV2] 步骤1: 获取详情成功")
-            if let pu = detail.vodPlayUrl, !pu.isEmpty {
-                playUrl = pu
-                playFrom = detail.vodPlayFrom
-                log("[PlayerV2] 步骤1: 使用详情中的播放地址")
+        // 步骤1: 先用传入的播放地址尝试播放，同时后台获取详情
+        log("[PlayerV2] 步骤1: 先尝试已有地址播放，后台异步获取详情...")
+        
+        // 先直接用已有地址尝试播放（如果有）
+        if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
+            let firstUrl = extractBestPlayableUrl(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
+            let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !firstUrlClean.isEmpty {
+                log("[PlayerV2] 步骤1: 先尝试已有地址: \(firstUrlClean.prefix(80))...")
+                await handlePlayUrl(firstUrlClean, spider: spider, video: video)
             }
-        } else {
-            log("[PlayerV2] 步骤1: 使用传入的播放地址")
+        }
+        
+        // 后台异步获取详情，成功后更新播放地址
+        Task { [weak self] in
+            guard let self = self else { return }
+            log("[PlayerV2] 步骤1: 后台获取详情...")
+            if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName),
+               let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
+                log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
+                let newBest = extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
+                if !newBest.isEmpty {
+                    await MainActor.run {
+                        if self.player == nil || self.loadError != nil {
+                            self.loadError = nil
+                            Task { await self.handlePlayUrl(newBest, spider: spider, video: video) }
+                        } else {
+                            log("[PlayerV2] 步骤1: 已有播放器在运行，跳过更新")
+                        }
+                    }
+                }
+            } else {
+                log("[PlayerV2] 步骤1: 后台详情无结果")
+            }
+        }
+        
+        // 如果已有地址不能播放，后面继续等后台详情更新
+        if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
+            log("[PlayerV2] 步骤1: 等待后台详情更新...")
+            return
         }
         
         // 步骤2: 检查 playUrl 的类型并处理
