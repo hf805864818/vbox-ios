@@ -83,7 +83,7 @@ struct VideoDetailView: View {
 
                     // 信息区
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(video.vodName).font(.system(size: 22, weight: .bold))
+                        Text(video.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.black)
                         HStack(spacing: 12) {
                             TagLabel(text: video.vodRemarks ?? "")
                             TagLabel(text: video.vodYear ?? "")
@@ -97,8 +97,8 @@ struct VideoDetailView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("剧情简介").font(.system(size: 16, weight: .semibold))
-                            Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
+                            Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
+                            Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.gray).lineSpacing(4)
                         }
 
                         // 网盘资源展示
@@ -107,10 +107,10 @@ struct VideoDetailView: View {
                                 HStack {
                                     Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
                                     if isLoadingPan {
-                                        Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.secondary)
+                                        Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.gray)
                                         Spacer(); ProgressView().scaleEffect(0.8)
                                     } else if panLinks.isEmpty {
-                                        Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.secondary)
+                                        Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.gray)
                                     } else {
                                         Text("网盘资源 (\(panLinks.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
                                     }
@@ -121,10 +121,10 @@ struct VideoDetailView: View {
                                         Button(action: { playPanLink(link) }) {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
-                                                Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
+                                                Text(link.name).font(.system(size: 13)).foregroundColor(.black)
                                                 Spacer()
                                                 Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
-                                            }.padding(10).background(Color.white.opacity(0.05)).cornerRadius(8)
+                                            }.padding(10).background(Color.gray.opacity(0.08)).cornerRadius(8)
                                         }.buttonStyle(PlainButtonStyle())
                                     }
                                 }
@@ -133,15 +133,15 @@ struct VideoDetailView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("剧集列表").font(.system(size: 16, weight: .semibold))
-                                Spacer(); Text("共 24 集").font(.system(size: 12)).foregroundColor(.secondary)
+                                Text("剧集列表").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
+                                Spacer(); Text("共 24 集").font(.system(size: 12)).foregroundColor(.gray)
                             }
                             EpisodeGridView()
                         }.padding(.top, 8)
                     }.padding(20).padding(.bottom, 100)
                 }
             }
-            .background(Color(hex: "000000"))
+            .background(Color.white)
             .ignoresSafeArea()
             // 普通视频 → 新版播放器
             .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
@@ -153,7 +153,7 @@ struct VideoDetailView: View {
             VStack {
                 Button(action: { dismiss() }) {
                     ZStack {
-                        Circle().fill(.ultraThinMaterial).frame(width: 32, height: 32)
+                        Circle().fill(Color.black.opacity(0.5)).frame(width: 32, height: 32)
                         Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
                     }
                 }.padding(.leading, 16).padding(.top, 12)
@@ -167,10 +167,10 @@ struct VideoDetailView: View {
 struct TagLabel: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.primary)
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.black)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Capsule().fill(.ultraThinMaterial))
-            .overlay(Capsule().stroke(LinearGradient(colors: [.white.opacity(0.1), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+            .background(Capsule().fill(Color.gray.opacity(0.1)))
+            .overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1))
     }
 }
 
@@ -180,7 +180,7 @@ struct ActionButton: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 22)).foregroundStyle(LinearGradient(colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")], startPoint: .top, endPoint: .bottom))
-                Text(title).font(.system(size: 12)).foregroundColor(.primary)
+                Text(title).font(.system(size: 12)).foregroundColor(.black)
             }.frame(maxWidth: .infinity)
         }.buttonStyle(PlainButtonStyle())
     }
@@ -193,8 +193,8 @@ struct EpisodeGridView: View {
             ForEach(1..<25) { ep in
                 Button(action: { selectedEpisode = ep }) {
                     Text("\(ep)").font(.system(size: 14, weight: ep == selectedEpisode ? .semibold : .medium))
-                        .foregroundColor(ep == selectedEpisode ? .white : .primary).frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.primary.opacity(0.1)))
+                        .foregroundColor(ep == selectedEpisode ? .white : .black).frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.gray.opacity(0.1)))
                 }.buttonStyle(PlainButtonStyle())
             }
         }
