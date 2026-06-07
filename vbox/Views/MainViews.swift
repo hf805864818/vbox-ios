@@ -227,7 +227,7 @@ struct HomeView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color(hex: "000000"))
+        .background(Color.white)
         .onAppear { loadData() }
     }
 
@@ -574,19 +574,17 @@ struct SectionHeader: View {
     var body: some View {
         HStack {
             Label(title, systemImage: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.primary)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.black)
 
             Spacer()
 
-            Button(action: {}) {
-                Text("查看更多")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(hex: "E11D48"))
-            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10))
+                .foregroundColor(.gray)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, 10)
     }
 }
 
