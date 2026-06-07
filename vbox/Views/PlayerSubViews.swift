@@ -63,10 +63,10 @@ struct PanLinkPickerView: View {
                         }.buttonStyle(.plain).padding(.horizontal, 16)
                     }
                 }.padding(.bottom, 40) } }
-                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("关闭") { dismiss() } } }
+        }
         .fullScreenCover(isPresented: $showPlayer) {
             if let panVideo = selectedPanVideo {
                 VideoPlayerViewV2(video: panVideo)
