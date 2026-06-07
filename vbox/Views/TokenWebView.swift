@@ -112,12 +112,20 @@ struct TokenFetcherView: View {
     var onTokenDetected: ((String, String) -> Void)? = nil
     @State private var detectedToken: (type: String, value: String)? = nil
     @State private var isLoading = true
+    @State private var autoAdded = false
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 TokenWebView(onTokenDetected: { type, value in
                     detectedToken = (type, value)
+                    // 自动添加到网盘管理器
+                    if !autoAdded {
+                        autoAdded = true
+                        if let driveType = CloudDriveManager.DriveType(rawValue: type) {
+                            cloudDriveManager.addToken(type: driveType, name: driveType.displayName, value: value)
+                        }
+                    }
                     // 调用回调函数自动填入
                     onTokenDetected?(type, value)
                 }, isLoading: $isLoading)
@@ -129,7 +137,7 @@ struct TokenFetcherView: View {
                         Text("正在加载页面...")
                             .font(.system(size: 14))
                             .foregroundColor(.gray)
-                        Text("请扫码登录后，页面会自动检测Token")
+                        Text("请扫码登录后，页面会自动检测Token并添加")
                             .font(.system(size: 12))
                             .foregroundColor(.gray.opacity(0.8))
                             .multilineTextAlignment(.center)
@@ -146,14 +154,14 @@ struct TokenFetcherView: View {
                         Text("类型: \(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)")
                             .font(.system(size: 14))
                             .foregroundColor(.gray)
-                        Text("已自动填入，请保存")
+                        Text("已自动添加到网盘列表")
                             .font(.system(size: 13))
                             .foregroundColor(.blue)
                     }
                     .padding(.bottom, 40)
                     .onAppear {
-                        // 2秒后自动关闭
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        // 1.5秒后自动关闭
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             dismiss()
                         }
                     }

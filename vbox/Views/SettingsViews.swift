@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var driveTokenValue = ""
     @State private var showTokenFetcher = false
     @State private var showSubscribeSheet = false
+    @State private var showFallbackSheet = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -46,6 +47,7 @@ struct SettingsView: View {
         VStack(spacing: 20) {
             playbackSettingsSection
             subscriptionSection
+            fallbackSection
             cloudDriveSection
             storageSection
             aboutSection
@@ -62,6 +64,50 @@ struct SettingsView: View {
         }
     }
 
+    private var fallbackSection: some View {
+        SettingsSection(title: "切片资源") {
+            VStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    Text("启用兜底切片资源")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.black)
+                    Spacer()
+                    Toggle("", isOn: $spiderManager.fallbackEnabled)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                
+                Button(action: { showFallbackSheet = true }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        Text("管理自定义切片源")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.black)
+                        Spacer()
+                        Text("\(spiderManager.customFallbackSites.count) 个")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .background(Color.gray.opacity(0.04))
+            }
+        }
+        .sheet(isPresented: $showFallbackSheet) {
+            FallbackConfigView()
+        }
+    }
+
     private var subscriptionSection: some View {
         SettingsSection(title: "订阅配置") {
             Button(action: { showSubscribeSheet = true }) {
@@ -73,12 +119,12 @@ struct SettingsView: View {
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.black)
                     Spacer()
-                    if spiderManager.subscribedSites.isEmpty {
+                    if SpiderManager.shared.subManager.configURLs.isEmpty {
                         Text("未配置")
                             .font(.system(size: 13))
                             .foregroundColor(.gray)
                     } else {
-                        Text("\(spiderManager.subscribedSites.count) 个源")
+                        Text("\(SpiderManager.shared.subManager.configURLs.count) 个源")
                             .font(.system(size: 13))
                             .foregroundColor(.gray)
                     }
@@ -177,7 +223,7 @@ struct SettingsView: View {
     private var aboutSection: some View {
         SettingsSection(title: "关于") {
             HStack {
-                Text("版本").foregroundColor(.black); Spacer(); Text("3.61").foregroundColor(.gray)
+                Text("版本").foregroundColor(.black); Spacer(); Text("3.63").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
             Button(action: { showUpdateSheet = true }) {
                 HStack {
@@ -263,7 +309,7 @@ struct SettingsNavigationRow: View {
 }
 
 struct SubscribeConfigView: View {
-    @StateObject private var spiderManager = SpiderManager.shared
+    @StateObject private var subManager = SpiderManager.shared.subManager
     @State private var subscribeURL = ""
     @State private var isLoading = false
     @State private var showSuccessAlert = false
@@ -296,21 +342,24 @@ struct SubscribeConfigView: View {
                 .padding(20).background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
                 .padding(.horizontal, 16)
 
-                if !spiderManager.subscribedSites.isEmpty {
+                if !subManager.configURLs.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("已订阅源 (\(spiderManager.subscribedSites.count))")
+                        Text("已订阅源 (点击切换激活，左滑删除)")
                             .font(.system(size: 16, weight: .semibold)).foregroundColor(.black).padding(.horizontal, 4)
-                        ForEach(spiderManager.subscribedSites, id: \.self) { site in
-                            HStack {
-                                Text(site).font(.system(size: 14, weight: .medium)).foregroundColor(.black)
-                                Spacer()
-                                Text("API")
-                                    .font(.system(size: 10)).foregroundColor(.white)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color(hex: "E11D48").opacity(0.8)).cornerRadius(4)
-                            }
-                            .padding(.horizontal, 12).padding(.vertical, 8)
-                            .background(Color.gray.opacity(0.04)).cornerRadius(8)
+                        
+                        ForEach(Array(subManager.configURLs.enumerated()), id: \.offset) { index, url in
+                            SubscriptionRow(
+                                url: url,
+                                isActive: index == subManager.activeURLIndex,
+                                onTap: { 
+                                    subManager.switchToSubscription(at: index)
+                                    SpiderManager.shared.switchToSubscription(at: index)
+                                },
+                                onDelete: {
+                                    subManager.removeURL(url)
+                                    SpiderManager.shared.removeSubscriptionURL(url)
+                                }
+                            )
                         }
                     }
                     .padding(.horizontal, 16)
@@ -329,12 +378,228 @@ struct SubscribeConfigView: View {
         guard !subscribeURL.isEmpty else { return }
         isLoading = true
         Task {
-            await spiderManager.loadSubscribeConfig(from: subscribeURL)
+            await SpiderManager.shared.loadSubscribeConfig(from: subscribeURL)
             await MainActor.run {
                 subscribeURL = ""
                 isLoading = false
-                showSuccessAlert = true
+                if SpiderManager.shared.subManager.config != nil || !SpiderManager.shared.subManager.allSites.isEmpty {
+                    showSuccessAlert = true
+                } else if let err = SpiderManager.shared.subManager.errorMessage {
+                    errorMessage = err
+                    showErrorAlert = true
+                } else {
+                    showSuccessAlert = true
+                }
             }
         }
+    }
+}
+
+struct SubscriptionRow: View {
+    let url: String
+    let isActive: Bool
+    let onTap: () -> Void
+    let onDelete: () -> Void
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(shortenURL(url))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(isActive ? Color(hex: "E11D48") : .black)
+                    .lineLimit(1)
+                Text(url)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if isActive {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(Color(hex: "E11D48"))
+                    .font(.system(size: 18))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(isActive ? Color(hex: "E11D48").opacity(0.1) : Color.gray.opacity(0.04))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isActive ? Color(hex: "E11D48").opacity(0.5) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .contextMenu {
+            Button(role: .destructive, action: onDelete) {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
+    
+    private func shortenURL(_ url: String) -> String {
+        if let host = URL(string: url)?.host {
+            return host
+        }
+        return url.prefix(30).description + (url.count > 30 ? "..." : "")
+    }
+}
+
+// MARK: - 兜底切片资源配置视图
+struct FallbackConfigView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var spiderManager = SpiderManager.shared
+    @State private var newSiteName = ""
+    @State private var newSiteAPI = ""
+    @State private var showDeleteAlert = false
+    @State private var siteToDelete: Int? = nil
+    
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    // 内置兜底源列表
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("内置兜底源")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 4)
+                        
+                        ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { index, site in
+                            HStack {
+                                Text(site.name)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.black)
+                                Spacer()
+                                Text("内置")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.gray.opacity(0.5))
+                                    .cornerRadius(4)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Color.gray.opacity(0.04))
+                            .cornerRadius(8)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    // 自定义兜底源列表
+                    if !spiderManager.customFallbackSites.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("自定义兜底源")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 4)
+                            
+                            ForEach(Array(spiderManager.customFallbackSites.enumerated()), id: \.offset) { index, site in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(site.name)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.black)
+                                        Text(site.api)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.gray)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Button(action: {
+                                        siteToDelete = index
+                                        showDeleteAlert = true
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.gray.opacity(0.04))
+                                .cornerRadius(8)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    
+                    // 添加新源
+                    VStack(spacing: 16) {
+                        Text("添加自定义切片源")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("源名称")
+                                .font(.system(size: 13, weight: .medium))
+                            TextField("如：我的资源站", text: $newSiteName)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 13))
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("API地址")
+                                .font(.system(size: 13, weight: .medium))
+                            TextField("https://example.com/api.php/provide/vod", text: $newSiteAPI)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 12))
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                        }
+                        
+                        Button(action: addCustomSite) {
+                            HStack {
+                                Image(systemName: "plus")
+                                Text("添加")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                Color(hex: "E11D48")
+                                    .opacity(newSiteName.isEmpty || newSiteAPI.isEmpty ? 0.5 : 1)
+                            )
+                            .cornerRadius(12)
+                        }
+                        .disabled(newSiteName.isEmpty || newSiteAPI.isEmpty)
+                    }
+                    .padding(20)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+                    .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 20)
+            }
+            .background(Color.white)
+            .navigationTitle("切片资源管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Text("关闭").foregroundColor(Color(hex: "E11D48"))
+                    }
+                }
+            }
+            .alert("删除确认", isPresented: $showDeleteAlert) {
+                Button("取消", role: .cancel) {}
+                Button("删除", role: .destructive) {
+                    if let index = siteToDelete {
+                        spiderManager.removeCustomFallbackSite(at: index)
+                    }
+                }
+            } message: {
+                Text("确定要删除这个自定义切片源吗？")
+            }
+        }
+    }
+    
+    private func addCustomSite() {
+        guard !newSiteName.isEmpty && !newSiteAPI.isEmpty else { return }
+        spiderManager.addCustomFallbackSite(name: newSiteName, api: newSiteAPI)
+        newSiteName = ""
+        newSiteAPI = ""
     }
 }

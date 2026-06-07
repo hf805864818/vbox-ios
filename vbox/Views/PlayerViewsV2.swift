@@ -57,22 +57,31 @@ struct VideoPlayerViewV2: View {
                 VStack {
                     Spacer()
                     ScrollViewReader { proxy in
-                        ScrollView {
+                        ScrollView(showsIndicators: true) {
                             LazyVStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array(playerState.debugLogs.suffix(10).enumerated()), id: \.offset) { _, log in
-                                    Text(log).font(.system(size: 9, design: .monospaced))
+                                ForEach(Array(playerState.debugLogs.enumerated()), id: \.offset) { idx, log in
+                                    Text(log)
+                                        .font(.system(size: 9, design: .monospaced))
                                         .foregroundColor(.green.opacity(0.9))
+                                        .id(idx)
                                 }
-                            }.padding(6)
+                            }
+                            .padding(6)
+                            .onChange(of: playerState.debugLogs.count) { _ in
+                                if let last = playerState.debugLogs.indices.last {
+                                    withAnimation {
+                                        proxy.scrollTo(last, anchor: .bottom)
+                                    }
+                                }
+                            }
                         }
                     }
-                    .frame(height: 100)
+                    .frame(height: 120)
                     .background(Color.black.opacity(0.75))
                     .cornerRadius(6)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 60)
                 }
-                .allowsHitTesting(false)
             }
         }
         .onAppear {
