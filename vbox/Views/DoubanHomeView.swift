@@ -81,21 +81,58 @@ struct BannerCarousel: View {
     let subjects: [DoubanSubject]
     @Binding var currentIndex: Int
     let settings: AppSettings
+    @State private var dragOffset: CGFloat = 0
     
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                TabView(selection: $currentIndex) {
+                let cardWidth = geo.size.width * 0.75
+                let cardHeight: CGFloat = 200
+                let spacing: CGFloat = 12
+                let sideScale: CGFloat = 0.85
+                let sideOpacity: CGFloat = 0.5
+                
+                ZStack {
                     ForEach(0..<min(10, subjects.count), id: \.self) { index in
-                        BannerCard(subject: subjects[index], settings: settings)
-                            .scaleEffect(currentIndex == index ? 1.0 : 0.85)
-                            .opacity(currentIndex == index ? 1.0 : 0.5)
+                        let offset = CGFloat(index - currentIndex)
+                        let isCurrent = index == currentIndex
+                        let scale = isCurrent ? 1.0 : sideScale
+                        let opacity = isCurrent ? 1.0 : sideOpacity
+                        let xOffset = offset * (cardWidth + spacing) + dragOffset
+                        let zIndex = isCurrent ? 1 : 0
+                        
+                        BannerCard3D(subject: subjects[index], settings: settings, cardWidth: cardWidth, cardHeight: cardHeight)
+                            .scaleEffect(scale)
+                            .opacity(opacity)
+                            .offset(x: xOffset)
+                            .zIndex(zIndex)
                             .animation(.easeOut(duration: 0.35), value: currentIndex)
-                            .tag(index)
+                            .animation(.easeOut(duration: 0.2), value: dragOffset)
                     }
                 }
-                .frame(height: 200)
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(width: geo.size.width, height: cardHeight)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            dragOffset = value.translation.width
+                        }
+                        .onEnded { value in
+                            let threshold: CGFloat = 50
+                            if value.translation.width < -threshold {
+                                // 向左滑动，下一张
+                                withAnimation(.easeOut(duration: 0.35)) {
+                                    currentIndex = min(currentIndex + 1, min(10, subjects.count) - 1)
+                                }
+                            } else if value.translation.width > threshold {
+                                // 向右滑动，上一张
+                                withAnimation(.easeOut(duration: 0.35)) {
+                                    currentIndex = max(currentIndex - 1, 0)
+                                }
+                            }
+                            dragOffset = 0
+                        }
+                )
             }
             .frame(height: 200)
             
@@ -111,24 +148,62 @@ struct BannerCarousel: View {
     }
 }
 
-// MARK: - Banner卡片
-struct BannerCard: View {
+// MARK: - Banner卡片(3D轮播版)
+struct BannerCard3D: View {
     let subject: DoubanSubject
     let settings: AppSettings
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
-                if let image = phase.image {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else if phase.error != nil {
+            // 封面图
+            if let coverUrl = subject.cover_url, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure(let error):
+                        // 加载失败显示占位图
+                        ZStack {
+                            Rectangle().fill(Color.gray.opacity(0.2))
+                            VStack(spacing: 8) {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.gray)
+                                Text("加载失败")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    case .empty:
+                        // 加载中
+                        ZStack {
+                            Rectangle().fill(Color.gray.opacity(0.1))
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(.gray)
+                        }
+                    @unknown default:
+                        Rectangle().fill(Color.gray.opacity(0.1))
+                    }
+                }
+            } else {
+                // 没有URL时显示占位图
+                ZStack {
                     Rectangle().fill(Color.gray.opacity(0.15))
-                } else {
-                    Rectangle().fill(Color.gray.opacity(0.05))
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                        Text("暂无封面")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
                 }
             }
-            .frame(width: UIScreen.main.bounds.width, height: 200)
-            .clipped()
             
             LinearGradient(
                 colors: [Color.black.opacity(0), Color.black.opacity(0.5), Color.black.opacity(0.85)],
@@ -161,11 +236,16 @@ struct BannerCard: View {
             }
             .padding(12)
         }
+        .frame(width: cardWidth, height: cardHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
         .onTapGesture {
             settings.triggerSearch(subject.title)
         }
     }
 }
+
+
 
 // MARK: - 分类磁贴
 struct CategoryTilesView: View {
@@ -236,13 +316,46 @@ struct SubjectCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
-                    if let image = phase.image {
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } else if phase.error != nil {
+                // 封面图
+                if let coverUrl = subject.cover_url, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        case .failure(_):
+                            // 加载失败显示占位图
+                            ZStack {
+                                Rectangle().fill(Color.gray.opacity(0.15))
+                                Image(systemName: "photo")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(.gray)
+                            }
+                        case .empty:
+                            // 加载中
+                            ZStack {
+                                Rectangle().fill(Color.gray.opacity(0.08))
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(.gray)
+                            }
+                        @unknown default:
+                            Rectangle().fill(Color.gray.opacity(0.1))
+                        }
+                    }
+                } else {
+                    // 没有URL时显示占位图
+                    ZStack {
                         Rectangle().fill(Color.gray.opacity(0.1))
-                    } else {
-                        Rectangle().fill(Color.gray.opacity(0.05))
+                        VStack(spacing: 4) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 30))
+                                .foregroundColor(.gray)
+                            Text("暂无封面")
+                                .font(.system(size: 10))
+                                .foregroundColor(.gray)
+                        }
                     }
                 }
                 .frame(width: 120, height: 160)

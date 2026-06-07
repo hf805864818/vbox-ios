@@ -629,13 +629,14 @@ struct SearchView: View {
         } else if isSearchLoading {
             VStack(spacing: 20) {
                 ProgressView().scaleEffect(1.5).padding(.top, 80)
-                Text("搜索中...").font(.system(size: 14)).foregroundColor(.secondary)
+                Text("搜索中...").font(.system(size: 14)).foregroundColor(.gray)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
         } else {
             VStack(spacing: 20) {
                 Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
-                Text("未找到结果").font(.system(size: 16)).foregroundColor(.secondary)
+                Text("未找到结果").font(.system(size: 16)).foregroundColor(.gray)
                 if spiderManager.loadedSiteCount > 0 {
                     Text("已加载 " + String(spiderManager.loadedSiteCount) + " 个站点").font(.system(size: 13)).foregroundColor(.orange)
                 }
@@ -647,6 +648,7 @@ struct SearchView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
         }
     }
 
@@ -736,10 +738,10 @@ struct SearchBar: View {
             // 搜索输入框
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(Color.secondary)
+                    .foregroundColor(Color.gray)
 
                 TextField("搜索视频、剧集...", text: $searchText)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.black)
                     .onSubmit {
                         performSearch()
                     }
@@ -750,7 +752,7 @@ struct SearchBar: View {
                         isSearching = false
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(Color.secondary)
+                            .foregroundColor(Color.gray)
                     }
                 }
             }
@@ -758,19 +760,12 @@ struct SearchBar: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.gray.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0.05)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
+                        Color.gray.opacity(0.3),
                         lineWidth: 1
                     )
             )
@@ -787,16 +782,7 @@ struct SearchBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(hex: "0F0F23").opacity(0.95),
-                    Color(hex: "000000").opacity(0.98)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(Color.white)
     }
 
     private func performSearch() {
@@ -820,7 +806,7 @@ struct SearchSuggestionsView: View {
                             .foregroundColor(Color(hex: "E11D48"))
                         Text("热门搜索")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(.black)
                     }
 
                     FlowLayout(spacing: 10) {
@@ -838,7 +824,7 @@ struct SearchSuggestionsView: View {
                             .foregroundColor(Color(hex: "E11D48"))
                         Text("最近搜索")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(.black)
                     }
 
                     ForEach(recentSearches, id: \.self) { keyword in
@@ -849,6 +835,7 @@ struct SearchSuggestionsView: View {
             }
             .padding(.vertical, 20)
         }
+        .background(Color.white)
     }
 }
 
@@ -860,27 +847,20 @@ struct KeywordButton: View {
         Button(action: {}) {
             Text(keyword)
                 .font(.system(size: 14))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(Color.black.opacity(0.2))
+                        .fill(Color.gray.opacity(0.1))
                 )
                 .overlay(
                     Capsule()
                         .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.15),
-                                    Color.white.opacity(0.0)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
+                            Color.gray.opacity(0.3),
                             lineWidth: 1
                         )
-            )
+                )
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -894,20 +874,20 @@ struct RecentSearchRow: View {
         HStack {
             Text(keyword)
                 .font(.system(size: 15))
-                .foregroundColor(.primary)
+                .foregroundColor(.black)
 
             Spacer()
 
             Button(action: {}) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12))
-                    .foregroundColor(Color.secondary)
+                    .foregroundColor(Color.gray)
             }
         }
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(Color.gray.opacity(0.08))
         )
     }
 }
@@ -954,21 +934,21 @@ struct SearchResultsView: View {
                                     Button(action: { selectedSource = name }) {
                                         Text(name)
                                             .font(.system(size: 13, weight: sel ? .bold : .regular))
-                                            .foregroundColor(sel ? .white : .gray)
+                                            .foregroundColor(sel ? Color(hex: "E11D48") : .black)
                                             .lineLimit(1)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.vertical, 11)
                                             .padding(.horizontal, 10)
-                                            .background(sel ? Color.blue.opacity(0.2) : Color.clear)
+                                            .background(sel ? Color(hex: "E11D48").opacity(0.1) : Color.clear)
                                     }
                                 }
                             }
                             .padding(.vertical, 4)
                         }
                         .frame(width: min(110, geometry.size.width * 0.25))
-                        .background(Color(hex: "1A1A2E"))
+                        .background(Color.white)
 
-                        Divider().background(Color.white.opacity(0.1))
+                        Divider().background(Color.gray.opacity(0.3))
 
                         // 右侧：视频列表
                         ScrollView(showsIndicators: false) {
@@ -982,6 +962,7 @@ struct SearchResultsView: View {
                             }
                             .padding(12)
                         }
+                        .background(Color.white)
                     }
                 }
                 .fullScreenCover(item: $selectedVideo) { video in
@@ -1026,19 +1007,19 @@ struct SearchResultRow: View {
                         image.resizable().aspectRatio(contentMode: .fill)
                     case .failure(_):
                         ZStack {
-                            Rectangle().fill(Color.gray.opacity(0.25))
+                            Rectangle().fill(Color.gray.opacity(0.15))
                             VStack(spacing: 6) {
                                 Image(systemName: "film").font(.title2).foregroundColor(.gray)
-                                Text("加载失败").font(.caption2).foregroundColor(.secondary)
+                                Text("加载失败").font(.caption2).foregroundColor(.gray)
                             }
                         }
                     case .empty:
                         ZStack {
-                            Rectangle().fill(Color.gray.opacity(0.15))
+                            Rectangle().fill(Color.gray.opacity(0.1))
                             ProgressView()
                         }
                     @unknown default:
-                        Rectangle().fill(Color.gray.opacity(0.25))
+                        Rectangle().fill(Color.gray.opacity(0.15))
                     }
                 }
                 .frame(width: 85, height: 110)
@@ -1048,7 +1029,7 @@ struct SearchResultRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(video.vodName)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.primary)
+                        .foregroundColor(.black)
                         .lineLimit(2)
 
                     // 标签
@@ -1065,10 +1046,10 @@ struct SearchResultRow: View {
                     }
 
                     if let d = video.vodDirector, !d.isEmpty {
-                        Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                        Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1)
                     }
                     if let a = video.vodActor, !a.isEmpty {
-                        Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                        Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1)
                     }
 
                     Spacer()
@@ -1081,7 +1062,7 @@ struct SearchResultRow: View {
                     .foregroundColor(Color(hex: "E11D48"))
             }
             .padding(10)
-            .background(Color.white.opacity(0.05))
+            .background(Color.gray.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -1368,8 +1349,8 @@ struct SiteRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(site.name).font(.system(size: 14, weight: .medium))
-                Text(site.key).font(.system(size: 11)).foregroundColor(.secondary)
+                Text(site.name).font(.system(size: 14, weight: .medium)).foregroundColor(.black)
+                Text(site.key).font(.system(size: 11)).foregroundColor(.gray)
             }
             Spacer()
             Text(site.type == 3 ? "JS" : "API").font(.system(size: 10)).foregroundColor(.white)
@@ -1377,7 +1358,7 @@ struct SiteRow: View {
                 .background(Color(hex: "E11D48")).cornerRadius(4)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(Color.primary.opacity(0.05))
+        .background(Color.gray.opacity(0.08))
     }
 }
 
