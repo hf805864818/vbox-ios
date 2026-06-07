@@ -259,7 +259,7 @@ struct CategoryTilesView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(categories, id: \.0) { item in
-                    CategoryTile(icon: item.1, title: item.2, settings: settings)
+                    CategoryTile(icon: item.1, title: item.2, categoryType: item.0, settings: settings)
                 }
             }
             .padding(.horizontal, 16)
@@ -272,20 +272,20 @@ struct CategoryTilesView: View {
 struct CategoryTile: View {
     let icon: String
     let title: String
+    let categoryType: String
     let settings: AppSettings
     
     var body: some View {
-        VStack(spacing: 6) {
-            Text(icon).font(.system(size: 28))
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.black)
-        }
-        .frame(width: 80, height: 70)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.15), lineWidth: 1))
-        .onTapGesture {
-            settings.triggerSearch(title)
+        NavigationLink(destination: CategoryDetailView(categoryType: categoryType, categoryName: title)) {
+            VStack(spacing: 6) {
+                Text(icon).font(.system(size: 28))
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.black)
+            }
+            .frame(width: 80, height: 70)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.15), lineWidth: 1))
         }
     }
 }

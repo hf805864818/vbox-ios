@@ -92,6 +92,11 @@ class DoubanService: ObservableObject {
         return try await fetchCollection("tv_animation_hot", start: start, count: count)
     }
     
+    func fetchRecommendFeed(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        // 使用电影实时热门作为推荐内容
+        return try await fetchCollection("movie_real_time_hotest", start: start, count: count)
+    }
+    
     func toVodItem(subject: DoubanSubject) -> VodItem {
         return VodItem(
             vodId: subject.id,
