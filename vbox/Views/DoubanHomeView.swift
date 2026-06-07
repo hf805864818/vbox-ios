@@ -11,6 +11,7 @@ struct DoubanHomeView: View {
     @State private var hotVariety: [DoubanSubject] = []
     @State private var top250: [DoubanSubject] = []
     @State private var currentIndex = 0
+    let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -22,8 +23,13 @@ struct DoubanHomeView: View {
                 } else {
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
+                            .onReceive(timer) { _ in
+                                withAnimation(.easeInOut(duration: 0.5)) {
+                                    currentIndex = (currentIndex + 1) % min(10, bannerSubjects.count)
+                                }
+                            }
                     }
-                    CategoryTilesView()
+                    CategoryTilesView(settings: settings)
                     if !hotMovies.isEmpty {
                         SectionHeader(title: "热门电影", icon: "flame.fill")
                         HorizontalSubjectRow(subjects: hotMovies, settings: settings)
@@ -77,23 +83,25 @@ struct BannerCarousel: View {
     let settings: AppSettings
     
     var body: some View {
-        TabView(selection: $currentIndex) {
-            ForEach(0..<min(10, subjects.count), id: \.self) { index in
-                BannerCard(subject: subjects[index], settings: settings)
-                    .tag(index)
+        VStack(spacing: 0) {
+            TabView(selection: $currentIndex) {
+                ForEach(0..<min(10, subjects.count), id: \.self) { index in
+                    BannerCard(subject: subjects[index], settings: settings)
+                        .tag(index)
+                }
             }
-        }
-        .frame(height: 200)
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        
-        HStack(spacing: 8) {
-            ForEach(0..<min(10, subjects.count), id: \.self) { index in
-                Circle()
-                    .fill(currentIndex == index ? Color(hex: "E11D48") : Color.gray.opacity(0.3))
-                    .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
+            .frame(height: 200)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            
+            HStack(spacing: 8) {
+                ForEach(0..<min(10, subjects.count), id: \.self) { index in
+                    Circle()
+                        .fill(currentIndex == index ? Color(hex: "E11D48") : Color.gray.opacity(0.3))
+                        .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
+                }
             }
+            .padding(.vertical, 8)
         }
-        .padding(.vertical, 8)
     }
 }
 
@@ -105,17 +113,12 @@ struct BannerCard: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                case .failure(_):
-                    Rectangle().fill(Color.gray.opacity(0.1))
-                case .empty:
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else if phase.error != nil {
+                    Rectangle().fill(Color.gray.opacity(0.15))
+                } else {
                     Rectangle().fill(Color.gray.opacity(0.05))
-                @unknown default:
-                    Rectangle().fill(Color.gray.opacity(0.1))
                 }
             }
             .frame(width: UIScreen.main.bounds.width, height: 200)
@@ -160,6 +163,7 @@ struct BannerCard: View {
 
 // MARK: - 分类磁贴
 struct CategoryTilesView: View {
+    let settings: AppSettings
     let categories = [
         ("movie", "🎬", "电影"), ("tv", "📺", "剧集"), ("variety", "🎭", "综艺"),
         ("top250", "🏆", "榜单"), ("animation", "🎨", "动漫"), ("hot", "🔥", "热门")
@@ -169,7 +173,7 @@ struct CategoryTilesView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(categories, id: \.0) { item in
-                    CategoryTile(icon: item.1, title: item.2)
+                    CategoryTile(icon: item.1, title: item.2, settings: settings)
                 }
             }
             .padding(.horizontal, 16)
@@ -182,30 +186,20 @@ struct CategoryTilesView: View {
 struct CategoryTile: View {
     let icon: String
     let title: String
-    @State private var showList = false
+    let settings: AppSettings
     
     var body: some View {
-        Button(action: { showList = true }) {
-            VStack(spacing: 6) {
-                Text(icon)
-                    .font(.system(size: 28))
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.black)
-            }
-            .frame(width: 80, height: 70)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray.opacity(0.15), lineWidth: 1)
-            )
+        VStack(spacing: 6) {
+            Text(icon).font(.system(size: 28))
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.black)
         }
-        .buttonStyle(PlainButtonStyle())
-        .fullScreenCover(isPresented: $showList) {
-            DoubanCategoryListView(category: title)
+        .frame(width: 80, height: 70)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.15), lineWidth: 1))
+        .onTapGesture {
+            settings.triggerSearch(title)
         }
     }
 }
@@ -237,17 +231,12 @@ struct SubjectCard: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure(_):
-                        Rectangle().fill(Color.gray.opacity(0.08))
-                    case .empty:
+                    if let image = phase.image {
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } else if phase.error != nil {
+                        Rectangle().fill(Color.gray.opacity(0.1))
+                    } else {
                         Rectangle().fill(Color.gray.opacity(0.05))
-                    @unknown default:
-                        Rectangle().fill(Color.gray.opacity(0.08))
                     }
                 }
                 .frame(width: 120, height: 160)
@@ -281,63 +270,3 @@ struct SubjectCard: View {
         }
     }
 }
-
-// MARK: - 分类列表页
-struct DoubanCategoryListView: View {
-    let category: String
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var settings: AppSettings
-    @StateObject private var doubanService = DoubanService.shared
-    @State private var subjects: [DoubanSubject] = []
-    @State private var isLoading = true
-    
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                if isLoading {
-                    ProgressView().padding(.top, 100)
-                } else {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
-                        ForEach(subjects) { subject in
-                            SubjectCard(subject: subject, settings: settings)
-                        }
-                    }
-                    .padding(16)
-                }
-            }
-            .background(Color.white)
-            .navigationTitle(category)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark").foregroundColor(.black)
-                    }
-                }
-            }
-            .onAppear { loadData() }
-        }
-    }
-    
-    private func loadData() {
-        isLoading = true
-        Task {
-            do {
-                switch category {
-                case "电影": subjects = try await doubanService.fetchHotMovies(start: 0, count: 40)
-                case "剧集": subjects = try await doubanService.fetchHotTV(start: 0, count: 40)
-                case "综艺": subjects = try await doubanService.fetchHotVariety(start: 0, count: 40)
-                case "榜单": subjects = try await doubanService.fetchTop250(start: 0, count: 40)
-                case "动漫": subjects = try await doubanService.fetchHotAnimation(start: 0, count: 40)
-                case "热门": subjects = try await doubanService.fetchHotMovies(start: 0, count: 40)
-                default: subjects = try await doubanService.fetchTop250(start: 0, count: 40)
-                }
-            } catch {
-                print("Error: \(error)")
-            }
-            isLoading = false
-        }
-    }
-}
-
-// SectionHeader 使用 MainViews.swift 中的定义
