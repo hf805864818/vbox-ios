@@ -34,7 +34,8 @@
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
 		A10027 /* DoubanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* DoubanService.swift */; };
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
-/* End PBXBuildFile section */
+				A10029 /* TokenWebView.swift in Sources */,
+		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
 
 /* Begin PBXFileReference section */
 		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
@@ -60,6 +61,7 @@
 		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
 		B10026 /* DoubanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanService.swift; sourceTree = "<group>"; };
 		B10027 /* DoubanHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanHomeView.swift; sourceTree = "<group>"; };
+		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
@@ -232,6 +234,7 @@
 				A10025 /* PlayerViewsV2_Extensions.swift in Sources */,
 				A10027 /* DoubanService.swift in Sources */,
 				A10028 /* DoubanHomeView.swift in Sources */,
+				A10029 /* TokenWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
