@@ -347,7 +347,12 @@ struct PanLinkPickerView: View {
                     HStack { Image(systemName: "cloud.fill").foregroundColor(.blue); Text(video.vodName).font(.system(size: 18, weight: .bold)); Spacer() }.padding(.horizontal, 20).padding(.top, 16)
                     Text("选择网盘资源播放").font(.system(size: 14)).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
                     ForEach(Array(links.enumerated()), id: \.offset) { idx, link in
-                        NavigationLink(destination: PanPlayerView(panURL: link.url, title: "\(video.vodName) - \(link.name)")) {
+            Button(action: {
+                let panVideo = VodItem(vodId: link.url, vodName: "\(video.vodName) - \(link.name)",
+                                      vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
+                // 通过 fullScreenCover 打开新版播放器
+                // 通知父视图打开播放器
+            }) {
                             HStack(spacing: 14) {
                                 ZStack { RoundedRectangle(cornerRadius: 12).fill(driveColor(for: link.name).opacity(0.15)).frame(width: 48, height: 48)
                                     Image(systemName: driveIcon(for: link.name)).font(.system(size: 22)).foregroundColor(driveColor(for: link.name)) }
@@ -355,7 +360,7 @@ struct PanLinkPickerView: View {
                                 Spacer()
                                 Image(systemName: "play.circle.fill").font(.system(size: 28)).foregroundColor(Color(hex: "E11D48"))
                             }.padding(14).background(Color.white.opacity(0.05)).cornerRadius(14)
-                        }.buttonStyle(.plain).padding(.horizontal, 16)
+            }.buttonStyle(.plain).padding(.horizontal, 16)
                     }
                 }.padding(.bottom, 40) }
                 }
