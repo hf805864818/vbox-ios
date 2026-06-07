@@ -382,61 +382,6 @@ struct SubjectCard: View {
                     }
                     .frame(width: 120, height: 160)
                 }
-                            .frame(width: 120, height: 160)
-                        case .empty:
-                            // 加载中
-                            ZStack {
-                                Rectangle().fill(Color.gray.opacity(0.08))
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.gray)
-                            }
-                            .frame(width: 120, height: 160)
-                        @unknown default:
-                            Rectangle().fill(Color.gray.opacity(0.1))
-                                .frame(width: 120, height: 160)
-                        }
-                    }
-                } else {
-                    // 没有 URL 时显示占位图
-                    ZStack {
-                        Rectangle().fill(Color.gray.opacity(0.1))
-                        VStack(spacing: 4) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 30))
-
-                                    .foregroundColor(.gray)
-                            }
-                            .frame(width: 120, height: 160)
-                        case .empty:
-                            // 加载中
-                            ZStack {
-                                Rectangle().fill(Color.gray.opacity(0.08))
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.gray)
-                            }
-                            .frame(width: 120, height: 160)
-                        @unknown default:
-                            Rectangle().fill(Color.gray.opacity(0.1))
-                                .frame(width: 120, height: 160)
-                        }
-                    }
-                } else {
-                    // 没有URL时显示占位图
-                    ZStack {
-                        Rectangle().fill(Color.gray.opacity(0.1))
-                        VStack(spacing: 4) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 30))
-                                .foregroundColor(.gray)
-                            Text("暂无封面")
-                                .font(.system(size: 10))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .frame(width: 120, height: 160)
-                }
                 
                 if subject.ratingValue > 0 {
                     HStack(spacing: 2) {
