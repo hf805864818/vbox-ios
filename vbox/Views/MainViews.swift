@@ -1047,7 +1047,7 @@ struct SearchResultRow: View {
                 // 详情
                 VStack(alignment: .leading, spacing: 5) {
                     Text(video.vodName)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.primary)
                         .lineLimit(2)
 
