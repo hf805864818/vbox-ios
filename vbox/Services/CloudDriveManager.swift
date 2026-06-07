@@ -357,11 +357,8 @@ class CloudDriveManager: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
-        let respStr = String(data: data, encoding: .utf8) ?? "nil"
-        print("[Quark] saveShare 响应: \(respStr.prefix(200))")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = json["status"] as? Int, status == 200 else {
-            print("[Quark] ❌ 转存失败: status != 200")
             throw DriveError.saveFailed
         }
 
@@ -369,7 +366,6 @@ class CloudDriveManager: ObservableObject {
         if let d = json["data"] as? [String: Any], let fileIds = d["file_ids"] as? [String] {
             return fileIds
         }
-        print("[Quark] ⚠️ 响应中无file_ids，使用shareId")
         return [shareId]
     }
 
@@ -395,16 +391,11 @@ class CloudDriveManager: ObservableObject {
     /// 百度网盘：BDUSS → 分享链接 → transfer → dlink → 播放地址
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
         let cookie = "BDUSS=\(bduss)"
-        print("[Baidu] 开始解析: \(shareURL)")
         let (shareid, shareUk, fsId) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie)
-        print("[Baidu] shareid=\(shareid) shareUk=\(shareUk) fsId=\(fsId)")
         guard !fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID(fsId为空)") }
         let _ = try await baiduEnsureFolder(bduss: bduss)
-        let surl = shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? ""
-        let fsIds = try await baiduTransferFile(shareid: shareid, surl: surl, shareUk: shareUk, fsId: fsId, cookie: cookie)
-        print("[Baidu] 转存完成 fsIds=\(fsIds)")
+        let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
         let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? fsId, cookie: cookie)
-        print("[Baidu] ✅ 播放地址: \(result.url.prefix(80))")
         scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 4800)
         return result
     }
