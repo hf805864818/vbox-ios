@@ -119,6 +119,9 @@ struct SettingsView: View {
                         .padding(.vertical, 12)
                     }
 
+                    // 切片搜索兜底源
+                    FallbackSitesSection(spiderManager: spiderManager)
+
                     // 播放设置
                     SettingsSection(title: "播放设置") {
                         SettingsToggleRow(
@@ -1101,6 +1104,108 @@ let recommendedSources: [RecommendedSource] = [
         description: "经典影视源（可能需要代理访问）"
     )
 ]
+// MARK: - 兜底源管理组件
+struct FallbackSitesSection: View {
+    @ObservedObject var spiderManager: SpiderManager
+    @State private var newName = ""
+    @State private var newAPI = ""
+
+    var body: some View {
+        SettingsSection(title: "切片搜索兜底源") {
+            VStack(alignment: .leading, spacing: 12) {
+                // 开关
+                Toggle(isOn: $spiderManager.fallbackEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("启用兜底采集源")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("订阅源搜索为空时自动使用内置采集站")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .tint(Color(hex: "E11D48"))
+                .padding(.vertical, 4)
+
+                if spiderManager.fallbackEnabled {
+                    Divider()
+
+                    // 内置源列表（只读）
+                    Text("内置采集源（\(SpiderManager.builtinFallbackSites.count) 个）")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+
+                    ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { _, site in
+                        HStack(spacing: 8) {
+                            Circle().fill(Color.green).frame(width: 6, height: 6)
+                            Text(site.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(URL(string: site.api)?.host ?? "")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    // 自定义源
+                    Text("自定义兜底源（\(spiderManager.customFallbackSites.count) 个）")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+
+                    ForEach(Array(spiderManager.customFallbackSites.enumerated()), id: \.offset) { index, site in
+                        HStack(spacing: 8) {
+                            Circle().fill(Color.orange).frame(width: 6, height: 6)
+                            Text(site.name)
+                                .font(.system(size: 12))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(URL(string: site.api)?.host ?? "")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                            Button(action: { spiderManager.removeCustomFallbackSite(at: index) }) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
+
+                    // 添加自定义源
+                    HStack(spacing: 8) {
+                        TextField("名称", text: $newName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 12))
+                            .frame(width: 70)
+                        TextField("API地址", text: $newAPI)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 11))
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                        Button(action: {
+                            let name = newName.trimmingCharacters(in: .whitespaces)
+                            let api = newAPI.trimmingCharacters(in: .whitespaces)
+                            guard !name.isEmpty, !api.isEmpty else { return }
+                            spiderManager.addCustomFallbackSite(name: name, api: api)
+                            newName = ""; newAPI = ""
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(Color(hex: "E11D48"))
+                        }
+                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                                  newAPI.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+}
+
 // 导航栏组件
 struct NavigationBar: View {
     let title: String

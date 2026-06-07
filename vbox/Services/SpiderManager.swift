@@ -18,14 +18,70 @@ class SpiderManager: ObservableObject {
     @Published var allSites: [SiteConfig] = []
     @Published var engineError: String?
     @Published var customParsers: [ParseConfig] = []  // 用户自定义解析器
+    @Published var fallbackEnabled: Bool {   // 兜底源开关
+        didSet { UserDefaults.standard.set(fallbackEnabled, forKey: "fallback_enabled") }
+    }
+    @Published var customFallbackSites: [(name: String, api: String)] = []  // 自定义兜底源
     var enginesCount: Int { engines.count }
+
+    // 内置兜底采集 API 站
+    static let builtinFallbackSites: [(name: String, api: String)] = [
+        ("酷点资源",   "https://kudian10.com/api.php/provide/vod"),
+        ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
+        ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
+        ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
+        ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
+        ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
+        ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
+        ("卧龙资源",   "https://collect.wolongzyw.com/api.php/provide/vod"),
+        ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
+    ]
 
     let subManager = SubscriptionManager()
     private var engines: [String: JSSpiderEngine] = [:]
 
     private init() {
+        self.fallbackEnabled = UserDefaults.standard.object(forKey: "fallback_enabled") as? Bool ?? true
         savedURLs = subManager.configURLs
         loadCustomParsers()
+        loadCustomFallbackSites()
+    }
+
+    // MARK: - 兜底源管理
+    func saveCustomFallbackSites() {
+        let arr = customFallbackSites.map { ["name": $0.name, "api": $0.api] }
+        UserDefaults.standard.set(arr, forKey: "custom_fallback_sites")
+    }
+
+    private func loadCustomFallbackSites() {
+        guard let arr = UserDefaults.standard.array(forKey: "custom_fallback_sites") as? [[String: String]] else { return }
+        customFallbackSites = arr.compactMap { dict in
+            guard let name = dict["name"], let api = dict["api"] else { return nil }
+            return (name, api)
+        }
+    }
+
+    func addCustomFallbackSite(name: String, api: String) {
+        guard !customFallbackSites.contains(where: { $0.api == api }) else { return }
+        customFallbackSites.append((name, api))
+        saveCustomFallbackSites()
+    }
+
+    func removeCustomFallbackSite(at index: Int) {
+        guard index >= 0, index < customFallbackSites.count else { return }
+        customFallbackSites.remove(at: index)
+        saveCustomFallbackSites()
+    }
+
+    /// 所有兜底源 = 内置 + 自定义
+    var allFallbackSites: [(name: String, api: String)] {
+        var sites = Self.builtinFallbackSites
+        for cs in customFallbackSites {
+            if !sites.contains(where: { $0.api == cs.api }) {
+                sites.append(cs)
+            }
+        }
+        return sites
     }
 
     /// 加载自定义解析器
@@ -540,6 +596,61 @@ globalThis.__JS_SPIDER__ = _spider;
         return allResults.isEmpty ? nativeResults : allResults
     }
 
+    /// 流式搜索 — 每个站点搜完立刻回调，不等全部完成
+    func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void) async {
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+
+        // 1. QuickJS 蜘蛛（每个引擎一个任务）
+        for (key, engine) in engines {
+            do {
+                if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
+                    var tagged = items
+                    for i in 0..<tagged.count {
+                        if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
+                            tagged[i].vodRemarks = key
+                        }
+                    }
+                    onBatch(tagged)
+                }
+            } catch { continue }
+        }
+
+        // 2. 合并订阅源 + 兜底源
+        struct Site { let name: String; let api: String }
+        var sites: [Site] = []
+        var seenDomains = Set<String>()
+        for s in subManager.allSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
+            if let api = s.api, let host = URL(string: api)?.host, !seenDomains.contains(host) {
+                seenDomains.insert(host)
+                sites.append(Site(name: s.name, api: api))
+            }
+        }
+        if fallbackEnabled {
+            for fb in allFallbackSites {
+                if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
+                    seenDomains.insert(host)
+                    sites.append(Site(name: fb.name, api: fb.api))
+                }
+            }
+        }
+
+        guard !sites.isEmpty else { return }
+
+        // 3. 并发搜索，每个站搜完立刻回调
+        await withTaskGroup(of: [VodItem]?.self) { group in
+            for site in sites.prefix(8) {
+                group.addTask {
+                    await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                }
+            }
+            for await items in group {
+                if let items = items, !items.isEmpty {
+                    onBatch(items)
+                }
+            }
+        }
+    }
+
     /// 通过引擎获取详情，失败时回退到原生 API 详情
     func getDetail(ids: String, name: String? = nil) async -> VodItem? {
         // 0. 如果 ids 是 HTTP URL（网盘详情页），直接解析
@@ -598,20 +709,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
         let subSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
 
-        // ====== 搜索源 1: 硬编码可靠的采集 API 兜底 ======
-        let fallbackSites: [(name: String, api: String)] = [
-            ("酷点资源",   "https://kudian10.com/api.php/provide/vod"),
-            ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
-            ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
-            ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
-            ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
-            ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
-            ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
-            ("卧龙资源",   "https://collect.wolongzyw.com/api.php/provide/vod"),
-            ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
-        ]
-
-        // 合并：订阅源优先，硬编码补充（去重 api 域名）
+        // ====== 搜索源 1: 兜底采集 API（开关控制）======
         struct SearchSite { let name: String; let api: String }
         var mergedSites: [SearchSite] = []
         var seenDomains = Set<String>()
@@ -623,9 +721,9 @@ globalThis.__JS_SPIDER__ = _spider;
                 mergedSites.append(SearchSite(name: site.name, api: api))
             }
         }
-        // 硬编码源只在订阅源不足时补充
-        if mergedSites.count < 3 {
-            for fb in fallbackSites {
+        // 兜底源：开关打开时补充（订阅源不足3个 或 直接补上）
+        if fallbackEnabled {
+            for fb in allFallbackSites {
                 if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
                     seenDomains.insert(host)
                     mergedSites.append(SearchSite(name: fb.name, api: fb.api))

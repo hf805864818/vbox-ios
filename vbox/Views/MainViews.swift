@@ -662,41 +662,49 @@ struct SearchView: View {
         isSearchLoading = true
         searchResults = []
         let keyword = searchText
+        var seen = Set<String>()
+
         Task {
-            // 用 TaskGroup 并发搜 3 路：QuickJS蜘蛛、订阅源API、网盘
-            await withTaskGroup(of: (source: String, items: [VodItem]).self) { group in
-                // 路1: 蜘蛛+订阅源
-                group.addTask {
-                    let items = await self.spiderManager.search(keyword: keyword)
-                    return ("normal", items)
-                }
-                // 路2: 网盘资源
-                group.addTask {
-                    let items = await self.spiderManager.cloudSearch(keyword: keyword)
-                    return ("cloud", items)
-                }
-                // 谁先完成谁先展示
-                var seen = Set<String>()
-                for await result in group {
+            // 路1: 流式切片搜索 — 每个站搜完立刻展示
+            async let streamingTask: Void = {
+                await self.spiderManager.searchStream(keyword: keyword) { batch in
                     var newItems: [VodItem] = []
-                    for var item in result.items {
+                    for item in batch {
                         let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                        if !seen.contains(id) {
-                            seen.insert(id)
-                            if result.source == "cloud" {
-                                item.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
-                            }
+                        if seen.insert(id).inserted {
                             newItems.append(item)
                         }
                     }
                     if !newItems.isEmpty {
-                        await MainActor.run {
+                        Task { @MainActor in
                             self.searchResults.append(contentsOf: newItems)
                             self.isSearchLoading = false
                         }
                     }
                 }
-            }
+            }()
+
+            // 路2: 网盘资源搜索（独立通道，也在流式更新）
+            async let cloudTask: Void = {
+                let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword)
+                var newItems: [VodItem] = []
+                for var item in cloudItems {
+                    let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                    if seen.insert(id).inserted {
+                        item.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
+                        newItems.append(item)
+                    }
+                }
+                if !newItems.isEmpty {
+                    await MainActor.run {
+                        self.searchResults.append(contentsOf: newItems)
+                        self.isSearchLoading = false
+                    }
+                }
+            }()
+
+            // 等两路都完成
+            _ = await (streamingTask, cloudTask)
             await MainActor.run { self.isSearchLoading = false }
         }
     }
