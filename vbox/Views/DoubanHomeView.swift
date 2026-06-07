@@ -151,7 +151,8 @@ struct BannerCard: View {
                     Spacer()
                     
                     // 评分
-                    if let rating = subject.rating?.ratingValue, rating > 0 {
+                    if subject.ratingValue > 0 {
+                        let rating = subject.ratingValue
                         ZStack {
                             Circle()
                                 .fill(Color.yellow.opacity(0.9))
@@ -287,7 +288,8 @@ struct SubjectCard: View {
                     .clipped()
                     
                     // 评分
-                    if let rating = subject.rating?.ratingValue, rating > 0 {
+                    if subject.ratingValue > 0 {
+                        let rating = subject.ratingValue
                         ZStack {
                             Circle()
                                 .fill(Color.yellow.opacity(0.9))
@@ -407,7 +409,8 @@ struct DoubanDetailView: View {
                         .font(.system(size: 24, weight: .bold))
                         .multilineTextAlignment(.center)
                     
-                    if let rating = subject.rating?.ratingValue, rating > 0 {
+                    if subject.ratingValue > 0 {
+                        let rating = subject.ratingValue
                         HStack {
                             Image(systemName: "star.fill")
                                 .foregroundColor(.yellow)

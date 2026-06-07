@@ -4,34 +4,47 @@ import Foundation
 struct DoubanSubject: Codable, Identifiable {
     let id: String
     let title: String
+    let cover_url: String?
     let rating: DoubanRating?
-    let images: DoubanImages?
-    let genres: [String]?
     let year: String?
+    let genres: [String]?
+    let card_subtitle: String?
     let intro: String?
     
-    enum CodingKeys: String, CodingKey {
-        case id, title, rating, images, genres, year, intro
+    // 计算属性兼容原有UI
+    var images: DoubanImages? {
+        guard let url = cover_url else { return nil }
+        return DoubanImages(small: url, medium: url, large: url)
+    }
+    
+    var ratingValue: Double {
+        return rating?.value ?? 0
+    }
+    
+    var yearValue: String {
+        return year ?? ""
+    }
+    
+    var genreText: String {
+        return genres?.joined(separator: "/") ?? ""
     }
 }
 
 struct DoubanRating: Codable {
     let value: Double?
-    let average: String?
     let count: Int?
     let max: Int?
-    
-    var ratingValue: Double {
-        if let v = value { return v }
-        if let a = average, let d = Double(a) { return d }
-        return 0
-    }
+    let star_count: Double?
 }
 
 struct DoubanImages: Codable {
     let small: String?
     let medium: String?
     let large: String?
+}
+
+struct DoubanCollectionResponse: Codable {
+    let subject_collection_items: [DoubanSubject]?
 }
 
 // MARK: - Douban Service
@@ -47,55 +60,44 @@ class DoubanService: ObservableObject {
             "Referer": "https://movie.douban.com",
             "Accept": "application/json"
         ]
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
     }
     
-    func fetchTop250(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        let url = URL(string: "\(baseURL)/subject_collection/movie_top250/items?start=\(start)&count=\(count)")!
+    private func fetchCollection(_ collectionId: String, start: Int, count: Int) async throws -> [DoubanSubject] {
+        let url = URL(string: "\(baseURL)/subject_collection/\(collectionId)/items?start=\(start)&count=\(count)")!
         let (data, _) = try await session.data(from: url)
-        struct Result: Codable { let items: [DoubanSubject]? }
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.items ?? []
+        let result = try JSONDecoder().decode(DoubanCollectionResponse.self, from: data)
+        return result.subject_collection_items ?? []
+    }
+    
+    func fetchTop250(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_top250", start: start, count: count)
     }
     
     func fetchHotMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        let url = URL(string: "\(baseURL)/subject_collection/movie_real_time_hotest/items?start=\(start)&count=\(count)")!
-        let (data, _) = try await session.data(from: url)
-        struct Result: Codable { let items: [DoubanSubject]? }
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.items ?? []
+        return try await fetchCollection("movie_real_time_hotest", start: start, count: count)
     }
     
     func fetchHotTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        let url = URL(string: "\(baseURL)/subject_collection/tv_hot/items?start=\(start)&count=\(count)")!
-        let (data, _) = try await session.data(from: url)
-        struct Result: Codable { let items: [DoubanSubject]? }
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.items ?? []
+        return try await fetchCollection("tv_hot", start: start, count: count)
     }
     
     func fetchHotVariety(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        let url = URL(string: "\(baseURL)/subject_collection/tv_variety_show_hot/items?start=\(start)&count=\(count)")!
-        let (data, _) = try await session.data(from: url)
-        struct Result: Codable { let items: [DoubanSubject]? }
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.items ?? []
+        return try await fetchCollection("tv_variety_show_hot", start: start, count: count)
     }
     
     func fetchHotAnimation(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        let url = URL(string: "\(baseURL)/subject_collection/tv_animation_hot/items?start=\(start)&count=\(count)")!
-        let (data, _) = try await session.data(from: url)
-        struct Result: Codable { let items: [DoubanSubject]? }
-        let result = try JSONDecoder().decode(Result.self, from: data)
-        return result.items ?? []
+        return try await fetchCollection("tv_animation_hot", start: start, count: count)
     }
     
     func toVodItem(subject: DoubanSubject) -> VodItem {
         return VodItem(
             vodId: subject.id,
             vodName: subject.title,
-            vodPic: subject.images?.large ?? subject.images?.medium ?? subject.images?.small ?? "",
-            vodRemarks: subject.genres?.joined(separator: "/") ?? "",
+            vodPic: subject.cover_url ?? "",
+            vodRemarks: subject.card_subtitle ?? subject.genreText,
             vodYear: subject.year
         )
     }
