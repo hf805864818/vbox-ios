@@ -599,7 +599,6 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 流式搜索 — 每个站点搜完立刻回调，不等全部完成
     func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void) async {
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        print("[searchStream] ====== 开始流式搜索: \(keyword) ======")
 
         // 1. QuickJS 蜘蛛（每个引擎一个任务）
         for (key, engine) in engines {
@@ -611,7 +610,6 @@ globalThis.__JS_SPIDER__ = _spider;
                             tagged[i].vodRemarks = key
                         }
                     }
-                    print("[searchStream] QuickJS[\(key)] 返回 \(tagged.count) 条")
                     onBatch(tagged)
                 }
             } catch { continue }
@@ -621,15 +619,12 @@ globalThis.__JS_SPIDER__ = _spider;
         struct Site { let name: String; let api: String }
         var sites: [Site] = []
         var seenDomains = Set<String>()
-        let subAllSites = subManager.allSites
-        print("[searchStream] subManager.allSites=\(subAllSites.count) 条, config=\(subManager.config != nil ? "有" : "nil"), isLoaded=\(subManager.isLoaded)")
-        for s in subAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
+        for s in subManager.allSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
             if let api = s.api, let host = URL(string: api)?.host, !seenDomains.contains(host) {
                 seenDomains.insert(host)
                 sites.append(Site(name: s.name, api: api))
             }
         }
-        print("[searchStream] 订阅源 type=1/0 站点: \(sites.count) 个")
         if fallbackEnabled {
             for fb in allFallbackSites {
                 if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
@@ -638,12 +633,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        print("[searchStream] 合计搜索站点: \(sites.count) 个")
 
-        guard !sites.isEmpty else {
-            print("[searchStream] ⚠️ 无可用搜索站点，退出")
-            return
-        }
+        guard !sites.isEmpty else { return }
 
         // 3. 并发搜索，每个站搜完立刻回调
         await withTaskGroup(of: [VodItem]?.self) { group in
@@ -1030,21 +1021,16 @@ globalThis.__JS_SPIDER__ = _spider;
 
         for site in detailSites {
             guard let siteApi = site.api, !siteApi.isEmpty else { continue }
-            // 剥离查询参数，取纯基地址（兼容 apiyuan 的 ?ac=detail&wd= 格式）
-            let baseUrl: String
-            if let qIndex = siteApi.firstIndex(of: "?") {
-                baseUrl = String(siteApi[..<qIndex])
-            } else if siteApi.hasSuffix("/") {
-                baseUrl = String(siteApi.dropLast())
-            } else {
-                baseUrl = siteApi
-            }
+            let api = siteApi.hasSuffix("/") ? String(siteApi.dropLast()) : siteApi
             
+            // 判断api是否已包含查询参数
+            let separator = api.contains("?") ? "&" : "?"
+
             // 尝试多种API格式
             let apiFormats = [
-                "\(baseUrl)?ac=videolist&ids=\(ids)",
-                "\(baseUrl)?ac=detail&ids=\(ids)",
-                "\(baseUrl)?ac=videolist&ids=\(ids)&pg=1"
+                "\(api)\(separator)ac=videolist&ids=\(ids)",
+                "\(api)\(separator)ac=detail&ids=\(ids)",
+                "\(api)\(separator)ac=videolist&ids=\(ids)&pg=1"
             ]
 
             for format in apiFormats {
