@@ -154,20 +154,11 @@ class PlayerState: ObservableObject {
         
         print("[PlayerV2] 步骤2: 处理播放地址")
         
-        // 情况A: 多集格式（包含 $ 或 #）
-        if finalPlayUrl.contains("$") || finalPlayUrl.contains("#") {
-            print("[PlayerV2] 步骤2: 检测到多集格式")
-            let urls = parsePlayUrls(playFrom: playFrom ?? "", playUrl: finalPlayUrl)
-            print("[PlayerV2] 步骤2: 解析出 \(urls.count) 个地址")
-            
-            if let firstUrl = urls.first, !firstUrl.isEmpty {
-                await handlePlayUrl(firstUrl, spider: spider, video: video)
-                return
-            }
-        }
+        // 从 $$$ 多源格式中提取最佳 URL
+        let bestUrl = extractBestPlayableUrl(playFrom: playFrom ?? "", playUrl: finalPlayUrl)
+        print("[PlayerV2] 最佳URL: \(bestUrl.prefix(80))...")
         
-        // 情况B: 单集或直链
-        await handlePlayUrl(finalPlayUrl, spider: spider, video: video)
+        await handlePlayUrl(bestUrl, spider: spider, video: video)
     }
     
     // MARK: - 安全创建URL（处理编码）
@@ -230,17 +221,48 @@ class PlayerState: ObservableObject {
             print("[PlayerV2] ❌ 直链URL创建失败")
         }
         
-        // 需要解析的链接：调用 getPlayerContent
-        print("[PlayerV2] 解析模式: 需要调用 playerContent")
+        // 需要解析的链接：先试解析器，再试 playerContent
+        print("[PlayerV2] 解析模式: 非直链，尝试解析器")
+        
+        // 1. 优先用解析器（subManager.parses + customParsers）
+        let allParsers = SpiderManager.shared.subManager.parses + SpiderManager.shared.customParsers
+        if !allParsers.isEmpty {
+            print("[PlayerV2] 尝试 \(allParsers.count) 个解析器...")
+            for parser in allParsers {
+                let parseURL = parser.url + (urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString)
+                guard let reqURL = URL(string: parseURL) else { continue }
+                do {
+                    var req = URLRequest(url: reqURL)
+                    req.timeoutInterval = 8
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+                    if let resp = String(data: data, encoding: .utf8) {
+                        // 从响应中提取 m3u8/mp4 链接
+                        let patterns = ["https?://[^\\s\"<>]+\\.m3u8[^\\s\"<>]*", "https?://[^\\s\"<>]+\\.mp4[^\\s\"<>]*"]
+                        for pattern in patterns {
+                            if let regex = try? NSRegularExpression(pattern: pattern),
+                               let match = regex.firstMatch(in: resp, range: NSRange(resp.startIndex..., in: resp)),
+                               let r = Range(match.range, in: resp) {
+                                let result = String(resp[r])
+                                if result.hasPrefix("http"), let url = createURL(from: result) {
+                                    print("[PlayerV2] ✅ 解析器[\(parser.name)]成功: \(result.prefix(60))")
+                                    await MainActor.run { initPlayer(url: url) }
+                                    return
+                                }
+                            }
+                        }
+                    }
+                } catch { continue }
+            }
+        }
+        
+        // 2. 尝试 QuickJS playerContent
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
             let pu = pr.playUrl ?? pr.url
-            if let pu = pu, !pu.isEmpty {
-                print("[PlayerV2] 解析成功: \(pu.prefix(80))...")
-                if let url = createURL(from: pu) {
-                    await MainActor.run { initPlayer(url: url) }
-                    return
-                }
-                print("[PlayerV2] ❌ 解析后的URL创建失败")
+            if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
+                print("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
+                await MainActor.run { initPlayer(url: url) }
+                return
             }
         }
         
@@ -325,28 +347,71 @@ class PlayerState: ObservableObject {
         }
     }
     
-    // MARK: - 解析多集播放地址（支持 TVBox 标准格式）
+    // MARK: - 从 $$$ 多源格式中提取最佳播放 URL
+    private func extractBestPlayableUrl(playFrom: String, playUrl: String) -> String {
+        // 不含 $$$ → 单源，按 # 和 $ 提取第一集
+        if !playUrl.contains("$$$") {
+            return extractFirstEpisodeUrl(playUrl)
+        }
+        
+        // 含 $$$ → 多源，按 $$$ 分割
+        let froms = playFrom.components(separatedBy: "$$$")
+        let urlBlocks = playUrl.components(separatedBy: "$$$")
+        
+        // 为每个源提取第一集URL，按优先级排序：有 http 的 > 有 parse 可解析的 > 其他
+        var candidates: [(source: String, url: String, hasHttp: Bool)] = []
+        for i in 0..<min(froms.count, urlBlocks.count) {
+            let src = froms[i]
+            let firstUrl = extractFirstEpisodeUrl(urlBlocks[i])
+            let hasHttp = firstUrl.hasPrefix("http")
+            if !firstUrl.isEmpty {
+                candidates.append((src, firstUrl, hasHttp))
+                print("[PlayerV2] 源[\(i)] \(src): \(firstUrl.prefix(60))... http=\(hasHttp)")
+            }
+        }
+        
+        // 优先选有 http URL 的源
+        if let best = candidates.first(where: { $0.hasHttp }) {
+            print("[PlayerV2] 选择源: \(best.source) (http直链)")
+            return best.url
+        }
+        
+        // 没有 http 源，返回第一个
+        if let first = candidates.first {
+            print("[PlayerV2] 使用首个源: \(first.source)")
+            return first.url
+        }
+        
+        return playUrl
+    }
+    
+    /// 从单个源块（如 "第1集$url1#第2集$url2"）提取第一集URL
+    private func extractFirstEpisodeUrl(_ block: String) -> String {
+        if block.contains("#") {
+            // 取第一集
+            let firstEp = block.components(separatedBy: "#").first ?? block
+            if let range = firstEp.range(of: "$") {
+                return String(firstEp[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+            return firstEp.trimmingCharacters(in: .whitespaces)
+        } else if block.contains("$") {
+            if let range = block.range(of: "$") {
+                return String(block[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return block.trimmingCharacters(in: .whitespaces)
+    }
+    
+    // 保留旧方法供其他地方使用
     private func parsePlayUrls(playFrom: String, playUrl: String) -> [String] {
         var urls: [String] = []
-        // TVBox标准格式：第1集$url1#第2集$url2
         if playUrl.contains("#") {
-            let parts = playUrl.components(separatedBy: "#")
-            for part in parts {
+            for part in playUrl.components(separatedBy: "#") {
                 if let range = part.range(of: "$") {
                     let u = String(part[range.upperBound...])
                     if !u.isEmpty { urls.append(u) }
-                } else if !part.isEmpty {
-                    urls.append(part)
-                }
+                } else if !part.isEmpty { urls.append(part) }
             }
-        } else if playUrl.contains("$$$") {
-            urls = playUrl.components(separatedBy: "$$$")
-        } else if playUrl.contains("$$") {
-            // 部分源用 $$ 做分隔
-            urls = playUrl.components(separatedBy: "$$")
-        } else if playUrl.contains("|") {
-            // 部分源用 | 做分隔（如 盘搜）
-            urls = playUrl.components(separatedBy: "|")
         } else {
             urls = [playUrl]
         }
