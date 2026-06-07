@@ -992,50 +992,6 @@ class CloudDriveManager: ObservableObject {
         }
         return stoken
     }
-        
-        // 检查 status
-        if let status = json["status"] as? Int, status != 200 {
-            let message = json["message"] as? String ?? json["msg"] as? String ?? "状态码: \(status)"
-            print("[UC] ❌ 转存失败: \(message)")
-            throw DriveError.noPlayURL("UC转存失败: \(message)")
-        }
-        
-        // 检查 code
-        if let code = json["code"] as? Int, code != 0 {
-            let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码: \(code)"
-            print("[UC] ❌ 转存失败: \(message)")
-            throw DriveError.noPlayURL("UC转存失败: \(message)")
-        }
-
-        // 返回转存后的文件 ID - 尝试多种可能的字段
-        if let dataObj = json["data"] as? [String: Any] {
-            if let list = dataObj["list"] as? [[String: Any]], let first = list.first {
-                if let fid = first["fid"] as? String {
-                    print("[UC] ✅ 转存成功，fid: \(fid)")
-                    return [fid]
-                } else if let fid = first["fid"] as? Int {
-                    print("[UC] ✅ 转存成功，fid(Int): \(fid)")
-                    return [String(fid)]
-                } else if let fileId = first["file_id"] as? String {
-                    return [fileId]
-                } else if let fileId = first["file_id"] as? Int {
-                    return [String(fileId)]
-                }
-            }
-            if let fileIds = dataObj["file_ids"] as? [String] {
-                print("[UC] ✅ 转存成功，file_ids: \(fileIds)")
-                return fileIds
-            }
-            if let fileIds = dataObj["file_ids"] as? [Int] {
-                let stringIds = fileIds.map { String($0) }
-                print("[UC] ✅ 转存成功，file_ids(Int): \(stringIds)")
-                return stringIds
-            }
-        }
-
-        print("[UC] ⚠️ 转存成功但未找到fileId，返回shareId作为fallback")
-        return [shareId]
-    }
 
     /// UC 确保 vbox 文件夹存在
     private func ucEnsureFolder(cookie: String) async throws -> String {
