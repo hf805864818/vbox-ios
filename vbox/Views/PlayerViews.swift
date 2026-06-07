@@ -6,13 +6,19 @@ import AVFoundation
 struct VideoDetailView: View {
     let video: VodItem
     @State private var showPlayer = false
-    @State private var showPanPicker = false
     @State private var isFavorite = false
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
+    // 网盘播放：选中的链接（用 nil/非nil 控制 fullScreenCover）
+    @State private var selectedPanURL: String?
+    @State private var selectedPanTitle: String = ""
     @Environment(\.dismiss) private var dismiss
 
+    private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
+
+    /// 加载网盘链接
     private func loadPanLinks() {
+        guard panLinks.isEmpty, !isLoadingPan else { return }
         isLoadingPan = true
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
@@ -24,6 +30,40 @@ struct VideoDetailView: View {
                 await MainActor.run { isLoadingPan = false }
             }
         }
+    }
+
+    /// 点击播放按钮
+    private func handlePlay() {
+        if isCloudVideo {
+            if !panLinks.isEmpty {
+                // 有链接 → 播放第一个
+                playPanLink(panLinks[0])
+            } else if !isLoadingPan {
+                // 没链接 → 加载，加载完自动播第一个
+                isLoadingPan = true
+                Task {
+                    if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
+                        await MainActor.run {
+                            panLinks = result.links
+                            isLoadingPan = false
+                            if let first = panLinks.first {
+                                playPanLink(first)
+                            }
+                        }
+                    } else {
+                        await MainActor.run { isLoadingPan = false }
+                    }
+                }
+            }
+        } else {
+            showPlayer = true
+        }
+    }
+
+    /// 打开网盘播放器
+    private func playPanLink(_ link: (url: String, name: String)) {
+        selectedPanTitle = "\(video.vodName) - \(link.name)"
+        selectedPanURL = link.url
     }
 
     private func driveColor(_ name: String) -> Color {
@@ -54,17 +94,7 @@ struct VideoDetailView: View {
                         LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)],
                                        startPoint: .top, endPoint: .bottom)
 
-                        Button(action: {
-                            if video.vodRemarks?.hasPrefix("☁️") == true {
-                                if panLinks.isEmpty {
-                                    loadPanLinks()
-                                } else {
-                                    showPanPicker = true
-                                }
-                            } else {
-                                showPlayer = true
-                            }
-                        }) {
+                        Button(action: handlePlay) {
                             ZStack {
                                 Circle().fill(Color(hex: "E11D48")).frame(width: 70, height: 70)
                                 Image(systemName: "play.fill").font(.system(size: 28, weight: .bold)).foregroundColor(.white).offset(x: 3)
@@ -82,22 +112,11 @@ struct VideoDetailView: View {
                         }
 
                         HStack(spacing: 16) {
-                            ActionButton(icon: "play.fill", title: "播放") { showPlayer = true }
+                            ActionButton(icon: "play.fill", title: "播放") { handlePlay() }
                             ActionButton(icon: "list.bullet", title: "选集") {}
                             ActionButton(icon: "square.and.arrow.down", title: "下载") {}
                             ActionButton(icon: "square.and.arrow.up", title: "分享") {}
                         }
-
-                        // HStack(spacing: 8) {
-                        //     Button(action: { useNewPlayer.toggle() }) {
-                        //         Text(useNewPlayer ? "新播放器 ✓" : "旧播放器")
-                        //             .font(.system(size: 12, weight: .medium))
-                        //             .foregroundColor(useNewPlayer ? Color(hex: "E11D48") : .secondary)
-                        //             .padding(.horizontal, 12)
-                        //             .padding(.vertical, 6)
-                        //             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1)))
-                        //     }
-                        // }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold))
@@ -105,7 +124,7 @@ struct VideoDetailView: View {
                         }
 
                         // 网盘资源展示
-                        if video.vodRemarks?.hasPrefix("☁️") == true {
+                        if isCloudVideo {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
                                     Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
@@ -122,7 +141,7 @@ struct VideoDetailView: View {
                                 }
                                 if !isLoadingPan, !panLinks.isEmpty {
                                     ForEach(Array(panLinks.enumerated()), id: \.offset) { idx, link in
-                                        NavigationLink(destination: PanPlayerView(panURL: link.url, title: "\(video.vodName) - \(link.name)")) {
+                                        Button(action: { playPanLink(link) }) {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
                                                 Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
@@ -133,6 +152,7 @@ struct VideoDetailView: View {
                                             .background(Color.white.opacity(0.05))
                                             .cornerRadius(8)
                                         }
+                                        .buttonStyle(PlainButtonStyle())
                                     }
                                 }
                             }
@@ -164,22 +184,22 @@ struct VideoDetailView: View {
             }
             .background(Color(hex: "000000"))
             .ignoresSafeArea()
+            // 普通视频播放器
             .fullScreenCover(isPresented: $showPlayer) {
                 VideoPlayerViewV2(video: video)
             }
-            .fullScreenCover(isPresented: $showPanPicker) {
-                if let firstLink = panLinks.first {
-                    PanPlayerView(panURL: firstLink.url, title: "\(video.vodName) - \(firstLink.name)")
-                } else {
-                    PanPlayerView(panURL: "", title: video.vodName)
+            // 网盘播放器（用 selectedPanURL 非nil 触发）
+            .fullScreenCover(isPresented: Binding(
+                get: { selectedPanURL != nil },
+                set: { if !$0 { selectedPanURL = nil } }
+            )) {
+                if let panURL = selectedPanURL {
+                    PanPlayerView(panURL: panURL, title: selectedPanTitle)
                 }
             }
             .onAppear {
-                if video.vodRemarks?.hasPrefix("☁️") == true, panLinks.isEmpty {
-                    loadPanLinks()
-                }
+                if isCloudVideo { loadPanLinks() }
             }
-            .onDisappear { }
 
             // 返回
             VStack {
