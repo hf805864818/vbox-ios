@@ -19,11 +19,8 @@ class OrientationHelper {
     }
     
     static func rotateToLandscape() {
-        // 强制旋转到横屏 - 使用 UIDevice 的 orientation 属性
-        DispatchQueue.main.async {
-            let orientation = UIInterfaceOrientation.landscapeRight.rawValue
-            UIDevice.current.setValue(orientation, forKey: "orientation")
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
         }
     }
 }
@@ -50,24 +47,27 @@ struct VideoPlayerViewV2: View {
                 ErrorViewWithLogs(error: error, logs: playerState.debugLogs, onRetry: { playerState.retry(video: video) })
             }
 
-            // 调试日志浮层（加载中时显示）
-            if playerState.isLoading && !playerState.debugLogs.isEmpty {
+            // 调试日志浮层（开关控制，加载中+播放中都显示）
+            if UserDefaults.standard.bool(forKey: "show_debug_overlay") && !playerState.debugLogs.isEmpty {
                 VStack {
                     Spacer()
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(playerState.debugLogs.suffix(8), id: \.self) { log in
-                                Text(log).font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.7))
-                            }
-                        }.padding(8)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(playerState.debugLogs.suffix(10).enumerated()), id: \.offset) { _, log in
+                                    Text(log).font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(.green.opacity(0.9))
+                                }
+                            }.padding(6)
+                        }
                     }
-                    .frame(height: 120)
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(8)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 80)
+                    .frame(height: 100)
+                    .background(Color.black.opacity(0.75))
+                    .cornerRadius(6)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 60)
                 }
+                .allowsHitTesting(false)
             }
         }
         .onAppear {
