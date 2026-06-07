@@ -112,7 +112,7 @@ struct BannerCard: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // 封面图片
-            AsyncImage(url: URL(string: subject.images?.large ?? "")) { phase in
+            AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -270,18 +270,18 @@ struct SubjectCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 // 封面
                 ZStack(alignment: .topTrailing) {
-                    AsyncImage(url: URL(string: subject.images?.large ?? "")) { phase in
+                    AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
                         switch phase {
                         case .success(let image):
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         case .failure(_):
-                            Rectangle().fill(Color.gray.opacity(0.25))
+                            Rectangle().fill(Color.gray.opacity(0.3))
                         case .empty:
-                            Rectangle().fill(Color.gray.opacity(0.15))
+                            Rectangle().fill(Color.gray.opacity(0.2))
                         @unknown default:
-                            Rectangle().fill(Color.gray.opacity(0.25))
+                            Rectangle().fill(Color.gray.opacity(0.3))
                         }
                     }
                     .frame(width: 120, height: 180)
@@ -387,7 +387,7 @@ struct DoubanDetailView: View {
         ScrollView {
             VStack(spacing: 20) {
                 // 封面
-                AsyncImage(url: URL(string: subject.images?.large ?? "")) { phase in
+                AsyncImage(url: URL(string: subject.cover_url ?? "")) { phase in
                     switch phase {
                     case .success(let image):
                         image
