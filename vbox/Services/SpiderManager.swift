@@ -596,42 +596,108 @@ globalThis.__JS_SPIDER__ = _spider;
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
 
         // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
-        var searchSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
-        // 如果没有订阅源站点，返回空结果
-        if searchSites.isEmpty {
-            print("[SpiderManager] nativeSearch 无订阅源站点，跳过 API 搜索")
+        let subSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
+
+        // ====== 搜索源 1: 硬编码可靠的采集 API 兜底 ======
+        let fallbackSites: [(name: String, api: String)] = [
+            ("酷点资源",   "https://kudian10.com/api.php/provide/vod"),
+            ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
+            ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
+            ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
+            ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
+            ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
+            ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
+            ("卧龙资源",   "https://collect.wolongzyw.com/api.php/provide/vod"),
+            ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
+        ]
+
+        // 合并：订阅源优先，硬编码补充（去重 api 域名）
+        struct SearchSite { let name: String; let api: String }
+        var mergedSites: [SearchSite] = []
+        var seenDomains = Set<String>()
+
+        for site in subSites {
+            guard let api = site.api, !api.isEmpty else { continue }
+            if let host = URL(string: api)?.host, !seenDomains.contains(host) {
+                seenDomains.insert(host)
+                mergedSites.append(SearchSite(name: site.name, api: api))
+            }
+        }
+        // 硬编码源只在订阅源不足时补充
+        if mergedSites.count < 3 {
+            for fb in fallbackSites {
+                if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
+                    seenDomains.insert(host)
+                    mergedSites.append(SearchSite(name: fb.name, api: fb.api))
+                }
+            }
+        }
+
+        if mergedSites.isEmpty {
+            print("[SpiderManager] nativeSearch 无可用站点")
             return []
         }
-        
-        // 遍历搜索站点获取结果
-        for site in searchSites {
-            guard let api = site.api, !api.isEmpty else { continue }
-            let searchURL = api.hasSuffix("/") ? api + "?ac=videolist&wd=" + encodedKW : api + "/?ac=videolist&wd=" + encodedKW
-            
-            do {
-                guard let url = URL(string: searchURL) else { continue }
-                var req = URLRequest(url: url)
-                req.timeoutInterval = 10
-                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-                
-                let (data, _) = try await URLSession.shared.data(for: req)
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let list = json["list"] as? [[String: Any]] {
-                    for item in list {
-                        let vodItem = Self.makeVodItem(from: item, siteName: site.name)
-                        let id = vodItem.vodId.isEmpty ? vodItem.vodName : vodItem.vodId
+
+        print("[SpiderManager] nativeSearch 合并搜索站点 \(mergedSites.count) 个（订阅\(subSites.count) + 兜底）")
+
+        // 并发搜索（限制并发数避免爆内存）
+        await withTaskGroup(of: [VodItem]?.self) { group in
+            // 每批最多搜 8 个站
+            for site in mergedSites.prefix(8) {
+                group.addTask {
+                    await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                }
+            }
+            for await items in group {
+                if let items = items {
+                    for item in items {
+                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
                         if !seenIds.contains(id) {
                             seenIds.insert(id)
-                            allResults.append(vodItem)
+                            allResults.append(item)
                         }
                     }
                 }
-            } catch {
-                print("[SpiderManager] nativeSearch " + site.name + " 失败")
             }
         }
-        
+
+        print("[SpiderManager] nativeSearch 完成: \(allResults.count) 条")
         return allResults
+    }
+
+    /// 搜索单个 API 站点
+    private func searchOneSite(name: String, api: String, keyword: String) async -> [VodItem]? {
+        // 构造搜索URL：兼容 api 已含参数 和 纯基地址 两种情况
+        let searchURL: String
+        if api.hasSuffix("=") || api.hasSuffix("&") {
+            // api 已含查询参数（如 apiyuan 的 searchurl），直接拼关键词
+            searchURL = api + keyword
+        } else {
+            // 纯基地址，正确拼接（不要多余 /）
+            let separator = api.contains("?") ? "&" : "?"
+            searchURL = api + separator + "ac=videolist&wd=" + keyword
+        }
+
+        guard let url = URL(string: searchURL) else {
+            print("[SpiderManager] nativeSearch \(name) URL无效: \(searchURL.prefix(80))")
+            return nil
+        }
+
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]], !list.isEmpty {
+                let items = list.map { Self.makeVodItem(from: $0, siteName: name) }
+                print("[SpiderManager] nativeSearch \(name): \(items.count) 条")
+                return items
+            }
+        } catch {
+            print("[SpiderManager] nativeSearch \(name) 失败: \(error.localizedDescription)")
+        }
+        return nil
     }
 
     // MARK: - 网盘资源专用搜索（独立通道）
