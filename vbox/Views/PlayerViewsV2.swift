@@ -256,7 +256,7 @@ class PlayerState: ObservableObject {
         log("[PlayerV2] 解析模式: 非直链，尝试解析器")
         
         // 1. 优先用解析器（subManager.parses + customParsers）
-        let allParsers = SpiderManager.shared.subManager.parses + SpiderManager.shared.customParsers
+        let allParsers = await MainActor.run { SpiderManager.shared.subManager.parses + SpiderManager.shared.customParsers }
         if !allParsers.isEmpty {
             log("[PlayerV2] 尝试 \(allParsers.count) 个解析器...")
             for parser in allParsers {
@@ -509,17 +509,17 @@ class PlayerState: ObservableObject {
             .sink { [weak self] status in
                 switch status {
                 case .readyToPlay:
-                    log("[PlayerV2] PlayerItem 准备就绪")
+                    self?.log("[PlayerV2] PlayerItem 准备就绪")
                 case .failed:
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
-                    log("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
+                    self?.log("[PlayerV2] ❌ PlayerItem 失败: \(errorDesc)")
                     Task { @MainActor in
                         self?.loadError = "播放地址加载失败: \(errorDesc)"
                         self?.isLoading = false
                         self?.player = nil
                     }
                 case .unknown:
-                    log("[PlayerV2] PlayerItem 状态未知")
+                    self?.log("[PlayerV2] PlayerItem 状态未知")
                 @unknown default:
                     break
                 }
@@ -534,7 +534,7 @@ class PlayerState: ObservableObject {
         failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
             .sink { [weak self] notification in
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
-                    log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
+                    self?.log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
                     Task { @MainActor in
                         self?.loadError = "播放失败: \(error.localizedDescription)"
                         self?.isLoading = false
@@ -545,8 +545,8 @@ class PlayerState: ObservableObject {
         
         // 监听播放结束
         endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-            .sink { _ in
-                log("[PlayerV2] 播放结束")
+            .sink { [weak self] _ in
+                self?.log("[PlayerV2] 播放结束")
             }
         
         self.player = p
@@ -563,9 +563,9 @@ class PlayerState: ObservableObject {
         }
         
         // 延迟播放确保UI准备好
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             p.play()
-            log("[PlayerV2] 播放器开始播放")
+            self?.log("[PlayerV2] 播放器开始播放")
         }
     }
     
