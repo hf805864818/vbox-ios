@@ -47,6 +47,10 @@ struct DoubanSubject: Codable, Identifiable {
         return rating?.value ?? 0
     }
     
+    var yearString: String {
+        return year ?? ""
+    }
+    
     var genreText: String {
         return genres?.joined(separator: " / ") ?? ""
     }
@@ -57,19 +61,6 @@ struct DoubanCover: Codable {
     let small: String?
     let medium: String?
     let large: String?
-}
-    
-    var ratingValue: Double {
-        return rating?.value ?? 0
-    }
-    
-    var yearValue: String {
-        return year ?? ""
-    }
-    
-    var genreText: String {
-        return genres?.joined(separator: "/") ?? ""
-    }
 }
 
 struct DoubanRating: Codable {
