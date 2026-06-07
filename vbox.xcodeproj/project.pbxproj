@@ -142,6 +142,7 @@
 				B10025 /* PlayerViewsV2_Extensions.swift */,
 				B10021 /* UpdateSheet.swift */,
 				B10027 /* DoubanHomeView.swift */,
+				B10031 /* TokenWebView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
