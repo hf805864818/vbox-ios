@@ -635,9 +635,12 @@ class CloudDriveManager: ObservableObject {
                 currentCookie += "; " + setCookies.joined(separator: "; ")
             }
             
+            NSLog("[Baidu] 响应状态码: \(httpResp.statusCode), URL: \(currentReq.url?.absoluteString ?? "nil")")
+            
             if httpResp.statusCode >= 300 && httpResp.statusCode < 400 {
                 // 重定向
                 guard var location = httpResp.allHeaderFields["Location"] as? String else {
+                    print("[Baidu] ❌ 302但没有Location头")
                     throw DriveError.invalidResponse
                 }
                 // 处理相对路径
@@ -647,6 +650,7 @@ class CloudDriveManager: ObservableObject {
                 print("[Baidu] 重定向到: \(location)")
                 
                 guard let redirectURL = URL(string: location) else {
+                    print("[Baidu] ❌ 重定向URL格式错误: \(location)")
                     throw DriveError.invalidResponse
                 }
                 currentReq = URLRequest(url: redirectURL)
