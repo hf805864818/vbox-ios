@@ -860,11 +860,11 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 用 PCS 下载接口获取百度网盘文件直链（iBox 方案）
-    /// 转存到 /vbox 播放/ 后，通过文件路径获取带签名的播放地址
+    /// 转存到 /vbox播放/ 后，通过文件路径获取带签名的播放地址
     private func baiduGetPCSPlayURL(fileName: String, cookie: String) async throws -> PlayResult {
         // 对文件名进行 URL 编码
         let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
-        let filePath = "/vbox 播放/\(encodedName)"
+        let filePath = "/vbox播放/\(encodedName)"
         
         var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
         components.queryItems = [
