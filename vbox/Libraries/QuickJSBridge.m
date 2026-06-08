@@ -1,6 +1,6 @@
-#import "QuickJSBridge.h"
-#import "quickjs.h"
-#import "quickjs-libc.h"
+#import "Libraries/QuickJSBridge.h"
+#import "Libraries/quickjs.h"
+#import "Libraries/quickjs-libc.h"
 #import <Foundation/Foundation.h>
 #import <string.h>
 
