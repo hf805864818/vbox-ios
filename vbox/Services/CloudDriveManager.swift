@@ -58,9 +58,6 @@ class CloudDriveManager: ObservableObject {
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        config.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
-        ]
         session = URLSession(configuration: config)
         loadTokens()
     }
