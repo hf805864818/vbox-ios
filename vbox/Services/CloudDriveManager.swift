@@ -605,10 +605,9 @@ class CloudDriveManager: ObservableObject {
         return result
     }
 
-        private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+            private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
         
-        // Step 1: 从 URL 提取 surl 和 pwd
         let surl: String
         if let match = try? NSRegularExpression(pattern: #"/s/1([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let r = Range(match.range(at: 1), in: shareURL) {
@@ -631,42 +630,36 @@ class CloudDriveManager: ObservableObject {
         }
         
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        
-        // Step 2: 请求 /share/init 获取基本 yunData
-        guard let initURL = URL(string: "https://pan.baidu.com/share/init?surl=\(surl)") else {
-            throw DriveError.invalidShareURL
-        }
         var currentCookie = cookie
         
-        func makeRequest(url: URL) -> URLRequest {
-            var r = URLRequest(url: url)
-            r.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-            r.setValue(ua, forHTTPHeaderField: "User-Agent")
-            r.timeoutInterval = 15
-            return r
-        }
+        guard let pageURL = URL(string: shareURL) else { throw DriveError.invalidShareURL }
+        var req = URLRequest(url: pageURL)
+        req.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 15
         
-        baiduLog("[Baidu] 请求 /share/init...")
-        var (data, response) = try await session.data(for: makeRequest(url: initURL))
+        baiduLog("[Baidu] 请求原始链接...")
+        let (data, response) = try await session.data(for: req)
         guard let httpResp = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
-        guard httpResp.statusCode == 200 else {
-            baiduLog("[Baidu] ❌ /share/init 返回状态码: \(httpResp.statusCode)")
+        
+        if httpResp.statusCode != 200 {
+            baiduLog("[Baidu] ❌ 返回状态码: \(httpResp.statusCode)")
             if httpResp.statusCode == 404 {
                 throw DriveError.noPlayURL("百度网盘：分享链接不存在或已失效")
             }
             throw DriveError.noPlayURL("百度网盘：请求失败(\(httpResp.statusCode))")
         }
+        
         if let sc = httpResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
         } else if let scs = httpResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
         
         guard var html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
-            baiduLog("[Baidu] ❌ 无法解码响应内容")
+            baiduLog("[Baidu] ❌ 无法解码")
             throw DriveError.noPlayURL("百度网盘：服务器返回异常数据")
         }
         
-        // Step 3: 如果有提取码且页面需要验证，调 verify
-        if let pwd = pwd, html.contains("请输入提取码") || html.contains("accessCode") {
-            baiduLog("[Baidu] 需要验证提取码，调 verify...")
+        if let pwd = pwd, (html.contains("请输入提取码") || html.contains("accessCode")) {
+            baiduLog("[Baidu] 需要验证提取码...")
             guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=0") else {
                 throw DriveError.invalidResponse
             }
@@ -676,13 +669,11 @@ class CloudDriveManager: ObservableObject {
             verifyReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
             verifyReq.setValue(ua, forHTTPHeaderField: "User-Agent")
             verifyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-            verifyReq.setValue("https://pan.baidu.com/share/init?surl=\(surl)", forHTTPHeaderField: "Referer")
+            verifyReq.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
             verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
             
             let (vData, vResp) = try await session.data(for: verifyReq)
-            
-            // 合并 verify 响应的 Cookie（含 randsk）
             if let vHTTPResp = vResp as? HTTPURLResponse {
                 if let sc = vHTTPResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
                 } else if let scs = vHTTPResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
@@ -691,12 +682,13 @@ class CloudDriveManager: ObservableObject {
             if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
                let errno = vJson["errno"] as? Int, errno == 0 {
                 baiduLog("[Baidu] ✅ 提取码验证成功")
-                // 用合并了 randsk 的 Cookie 重新请求 share/init
-                (data, response) = try await session.data(for: makeRequest(url: initURL))
-                guard let httpResp2 = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
-                if let sc = httpResp2.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
-                } else if let scs = httpResp2.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
-                guard let newHtml = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+                var req2 = URLRequest(url: pageURL)
+                req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+                req2.setValue(ua, forHTTPHeaderField: "User-Agent")
+                req2.timeoutInterval = 15
+                let (data2, _) = try await session.data(for: req2)
+                guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
+                      let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
                     throw DriveError.invalidResponse
                 }
                 html = newHtml
@@ -707,59 +699,57 @@ class CloudDriveManager: ObservableObject {
             }
         }
         
-        // Step 4: 从 HTML 提取 yunData
-        guard let yunDataRange = html.range(of: "window.yunData="),
-              let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
-              let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") else {
-            baiduLog("[Baidu] ❌ 未找到 yunData")
-            throw DriveError.noPlayURL("百度网盘：无法解析分享页，请确认链接有效")
-        }
-        
-        let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
-        let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
-        let jStr = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)])
-        
-        guard let jData = jStr.data(using: .utf8),
-              let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] else {
-            baiduLog("[Baidu] ❌ yunData JSON 解析失败")
-            throw DriveError.invalidResponse
-        }
-        
-        baiduLog("[Baidu] ✅ 分享页解析成功")
-        
         var shareid = ""
-        if let sid = yunData["shareid"] as? String { shareid = sid
-        } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
-        
         var shareUk = ""
-        if let uk = yunData["share_uk"] as? String { shareUk = uk
-        } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
-        } else if let uk = yunData["uk"] as? String { shareUk = uk
-        } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
+        if let yunDataRange = html.range(of: "window.yunData="),
+           let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+           let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
+            let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+            let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+            if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
+               let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] {
+                if let sid = yunData["shareid"] as? String { shareid = sid
+                } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
+                if let uk = yunData["share_uk"] as? String { shareUk = uk
+                } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
+                } else if let uk = yunData["uk"] as? String { shareUk = uk
+                } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
+            }
+        }
         
         var files: [BaiduFileItem] = []
-        if let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
-            for item in fileList {
-                var fsId = ""
-                if let fid = item["fs_id"] as? String { fsId = fid
-                } else if let fid = item["fs_id"] as? Int64 { fsId = String(fid)
-                } else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
-                let fileName = item["server_filename"] as? String ?? "未知"
-                if !fsId.isEmpty {
-                    files.append(BaiduFileItem(fsId: fsId, name: fileName))
+        if let yunDataRange = html.range(of: "window.yunData="),
+           let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+           let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
+            let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+            let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+            if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
+               let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any],
+               let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
+                for item in fileList {
+                    var fsId = ""
+                    if let fid = item["fs_id"] as? String { fsId = fid
+                    } else if let fid = item["fs_id"] as? Int64 { fsId = String(fid)
+                    } else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
+                    let fileName = item["server_filename"] as? String ?? "未知"
+                    if !fsId.isEmpty { files.append(BaiduFileItem(fsId: fsId, name: fileName)) }
                 }
+                baiduLog("[Baidu] yunData文件列表: \(files.map { $0.name })")
             }
-            baiduLog("[Baidu] 文件列表: \(files.map { $0.name })")
-        } else {
-            baiduLog("[Baidu] ⚠️ 页面未返回文件列表，尝试从HTML正则提取...")
-            if let fidMatch = try? NSRegularExpression(pattern: #""fs_id":\s*(\d+)"#),
-               let nameMatch = try? NSRegularExpression(pattern: #""server_filename":\s*"([^"]+)"#) {
-                let fidResults = fidMatch.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                let nameResults = nameMatch.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                for i in 0..<min(fidResults.count, nameResults.count > 0 ? nameResults.count : fidResults.count) {
-                    if let fidR = Range(fidResults[i].range(at: 1), in: html) {
+        }
+        
+        if files.isEmpty {
+            if let fidRegex = try? NSRegularExpression(pattern: #""fs_id":\s*(\d+)"#),
+               let nameRegex = try? NSRegularExpression(pattern: #""server_filename":\s*"([^"]+)"#) {
+                let fidMatches = fidRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                let nameMatches = nameRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                for i in 0..<fidMatches.count {
+                    if let fidR = Range(fidMatches[i].range(at: 1), in: html) {
                         let fsId = String(html[fidR])
-                        let fileName = (nameResults.count > i && Range(nameResults[i].range(at: 1), in: html) != nil) ? String(html[Range(nameResults[i].range(at: 1), in: html)!]) : "文件\(i+1)"
+                        var fileName = "文件\(i+1)"
+                        if i < nameMatches.count, let nameR = Range(nameMatches[i].range(at: 1), in: html) {
+                            fileName = String(html[nameR])
+                        }
                         files.append(BaiduFileItem(fsId: fsId, name: fileName))
                     }
                 }
@@ -774,11 +764,11 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
         if files.isEmpty {
-            baiduLog("[Baidu] ❌ 文件列表为空")
-            throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
+            baiduLog("[Baidu] ❌ 无法提取文件列表")
+            throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID")
         }
         
-        baiduLog("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), 共\(files.count)个文件")
+        baiduLog("[Baidu] ✅ shareid=\(shareid), shareUk=\(shareUk), 文件=\(files[0].name)")
         return (shareid, shareUk, files)
     }
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
