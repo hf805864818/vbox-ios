@@ -11,11 +11,27 @@ class BaiduWebViewBridge: NSObject {
     private let queue = DispatchQueue(label: "baidu.webview.bridge")
     private var requestIdCounter = 0
     
+    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
+    private var ready = false
+    
     private override init() {
         super.init()
-        // WKWebView 必须在主线程创建
         DispatchQueue.main.sync {
             self.setupWebView()
+        }
+    }
+    
+    /// 等待 WebView JS 环境就绪
+    private func waitReady() async {
+        if ready { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                if self?.ready == true {
+                    continuation.resume()
+                } else {
+                    self?.readyContinuations.append(continuation)
+                }
+            }
         }
     }
     
@@ -26,11 +42,11 @@ class BaiduWebViewBridge: NSObject {
         
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
         wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        wv.navigationDelegate = self
         
-        // 加载空白页初始化 JS 环境
+        // 加载空白页，完成后通知就绪
         wv.loadHTMLString("<html><body></body></html>", baseURL: URL(string: "https://pan.baidu.com"))
         
-        // 挂到主 window
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first {
             window.addSubview(wv)
@@ -48,6 +64,7 @@ class BaiduWebViewBridge: NSObject {
         timeout: TimeInterval = 15
     ) async throws -> (data: Data, response: HTTPURLResponse?) {
         
+        await waitReady()
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, HTTPURLResponse?), Error>) in
             guard let wv = self.webView else {
                 continuation.resume(throwing: BridgeError.notReady)
@@ -147,6 +164,19 @@ class BaiduWebViewBridge: NSObject {
     }
 }
 
+// MARK: - WKNavigationDelegate
+extension BaiduWebViewBridge: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        queue.async { [weak self] in
+            self?.ready = true
+            let conts = self?.readyContinuations ?? []
+            self?.readyContinuations = []
+            for c in conts { c.resume() }
+        }
+    }
+}
+
+// MARK: - WKScriptMessageHandler
 extension BaiduWebViewBridge: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let dict = message.body as? [String: Any],
