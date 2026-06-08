@@ -710,10 +710,10 @@ class CloudDriveManager: ObservableObject {
             verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
             
-            let (vData, vResp) = try await session.data(for: verifyReq)
+            let (vData, _) = try await session.data(for: verifyReq)
             
             // 从验证响应中提取 randsk 并加入 Cookie
-            // 百度网盘验证接口返回示例: {"errno":0,"msg":"succ","randsk":"..."}
+            // 百度网盘验证接口返回示例：{"errno":0,"msg":"succ","randsk":"..."}
             var randsk = ""
             baiduLog("[Baidu] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
             
@@ -737,10 +737,10 @@ class CloudDriveManager: ObservableObject {
                         req2.timeoutInterval = 15
                         
                         baiduLog("[Baidu] 重新请求分享页（带 randsk）...")
-                        let (data2, resp2) = try await session.data(for: req2)
+                        let (data2, response2) = try await session.data(for: req2)
                         
-                        guard let httpResp2 = resp2 as? HTTPURLResponse, httpResp2.statusCode == 200 else {
-                            baiduLog("[Baidu] ❌ 重新请求失败：状态码=\((resp2 as? HTTPURLResponse)?.statusCode ?? -1)")
+                        guard let httpResp2 = response2 as? HTTPURLResponse, httpResp2.statusCode == 200 else {
+                            baiduLog("[Baidu] ❌ 重新请求失败：状态码=\((response2 as? HTTPURLResponse)?.statusCode ?? -1)")
                             throw DriveError.invalidResponse
                         }
                         
