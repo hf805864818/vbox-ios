@@ -248,7 +248,7 @@ struct SettingsView: View {
     private var aboutSection: some View {
         SettingsSection(title: "关于") {
             HStack {
-                Text("版本").foregroundColor(.black); Spacer(); Text("3.71").foregroundColor(.gray)
+                Text("版本").foregroundColor(.black); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
             Button(action: { showUpdateSheet = true }) {
                 HStack {
