@@ -730,79 +730,59 @@ class CloudDriveManager: ObservableObject {
             verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
             
-            let (vData, _) = try await session.data(for: verifyReq)
-            
-            // 从验证响应中提取 randsk 并加入 Cookie
-            // 百度网盘验证接口返回示例：{"errno":0,"msg":"succ","randsk":"..."}
+            // verify 带重试（最大2次，风控时延迟重试）
             var randsk = ""
-            baiduLog("[Baidu] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
-            
-            if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any] {
-                if let r = vJson["randsk"] as? String { 
-                    randsk = r 
-                    baiduLog("[Baidu] 提取到 randsk: \(r.prefix(20))...")
-                }
-                if let errno = vJson["errno"] as? Int {
-                    if errno == 0 {
-                        baiduLog("[Baidu] ✅ 提取码验证成功")
-                        // randsk 需要添加到 Cookie 中，用于后续访问
-                        if !randsk.isEmpty {
-                            currentCookie += "; randsk=\(randsk)"
-                            baiduLog("[Baidu] randsk 已合并到 Cookie")
-                        }
-                        // 验证成功后，重新用新 Cookie 请求原始页面
-                        var req2 = URLRequest(url: pageURL)
-                        req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                        req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                        req2.timeoutInterval = 15
-                        
-                        baiduLog("[Baidu] 重新请求分享页（带 randsk）...")
-                        let (data2, response2) = try await session.data(for: req2)
-                        
-                        guard let httpResp2 = response2 as? HTTPURLResponse, httpResp2.statusCode == 200 else {
-                            baiduLog("[Baidu] ❌ 重新请求失败：状态码=\((response2 as? HTTPURLResponse)?.statusCode ?? -1)")
-                            throw DriveError.invalidResponse
-                        }
-                        
-                        guard let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
-                            baiduLog("[Baidu] ❌ 重新请求数据无法解码")
-                            throw DriveError.invalidResponse
-                        }
-                        html = newHtml
-                        baiduLog("[Baidu] ✅ 重新请求成功，继续解析 yunData")
-                    } else if errno == -9 {
-                        baiduLog("[Baidu] ❌ 提取码错误 (errno=-9)")
-                        throw DriveError.noPlayURL("百度网盘：提取码错误")
-                    } else if errno == 105 {
-                        baiduLog("[Baidu] ❌ 触发风控 (errno=105)")
-                        if !vidShareid.isEmpty, !vidUk.isEmpty {
-                            let shareid = vidShareid
-                            let shareUk = vidUk
-                            do {
-                                let bypassed = try await baiduBypassVerify(shareid: vidShareid, uk: vidUk, surl: surl, cookie: currentCookie)
-                                let files = [BaiduFileItem(fsId: bypassed.fsId, name: bypassed.name)]
-                                baiduLog("[Baidu] ✅ 绕过风控成功")
-                                return (shareid, shareUk, files)
-                            } catch {
-                                baiduLog("[Baidu] ⚠️ 绕过失败: \(error.localizedDescription)")
-                            }
-                        }
-                        throw DriveError.noPlayURL("百度网盘：触发安全验证，请更换网络环境后重试")
-                    } else if errno == 4 {
-                        baiduLog("[Baidu] ❌ 需要验证码 (errno=4)")
-                        throw DriveError.noPlayURL("百度网盘：需要图形验证码，请在浏览器中访问获取完整 Cookie")
-                    } else {
-                        let errmsg = vJson["errmsg"] as? String ?? vJson["msg"] as? String ?? "错误码：\(errno)"
-                        baiduLog("[Baidu] ❌ 提取码验证失败 (errno=\(errno)): \(errmsg)")
-                        throw DriveError.noPlayURL("百度网盘：提取码验证失败 (\(errmsg))")
-                    }
-                } else {
-                    baiduLog("[Baidu] ❌ 验证响应没有 errno 字段")
+            var verifyRetryCount = 0
+            var verifyOK = false
+            verifyLoop: while verifyRetryCount < 3 {
+                let (vData, _) = try await session.data(for: verifyReq)
+                baiduLog("[Baidu] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
+                
+                guard let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
+                      let errno = vJson["errno"] as? Int else {
+                    baiduLog("[Baidu] ❌ 验证响应解析失败")
                     throw DriveError.invalidResponse
                 }
-            } else {
-                baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8)?.prefix(200) ?? "无法解码")")
-                throw DriveError.invalidResponse
+                
+                if let r = vJson["randsk"] as? String { randsk = r }
+                
+                if errno == 0 { verifyOK = true; break verifyLoop }
+                else if errno == -9 { throw DriveError.noPlayURL("百度网盘：提取码错误") }
+                else if errno == 4 { throw DriveError.noPlayURL("百度网盘：需要图形验证码，请在浏览器中访问获取完整 Cookie") }
+                else if errno == 105 {
+                    verifyRetryCount += 1
+                    if verifyRetryCount < 3 {
+                        let delay = verifyRetryCount * 3
+                        baiduLog("[Baidu] ❌ 风控 (errno=105)，\(delay)秒后重试 (\(verifyRetryCount)/2)")
+                        try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+                        continue verifyLoop
+                    }
+                    baiduLog("[Baidu] ❌ 2次风控重试均失败")
+                    throw DriveError.noPlayURL("百度网盘：触发安全验证，请稍后重试")
+                } else {
+                    let em = vJson["errmsg"] as? String ?? "errno=\(errno)"
+                    baiduLog("[Baidu] ❌ 验证失败: \(em)")
+                    throw DriveError.noPlayURL("百度网盘：验证失败 (\(em))")
+                }
+            }
+            
+            // 验证成功后处理 randsk + 重新请求页面
+            if verifyOK {
+                baiduLog("[Baidu] ✅ 提取码验证成功")
+                if !randsk.isEmpty {
+                    currentCookie += "; randsk=\(randsk)"
+                    baiduLog("[Baidu] 已提取 randsk: \(randsk.prefix(20))...")
+                }
+                var req2 = URLRequest(url: pageURL)
+                req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+                req2.setValue(ua, forHTTPHeaderField: "User-Agent")
+                req2.timeoutInterval = 15
+                let (data2, _) = try await session.data(for: req2)
+                guard let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
+                    throw DriveError.invalidResponse
+                }
+                html = newHtml
+                baiduLog("[Baidu] ✅ 重新请求分享页成功，继续解析 yunData")
             }
         }
         
