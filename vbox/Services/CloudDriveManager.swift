@@ -685,6 +685,37 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu] 需要验证提取码...")
             baiduLog("[Baidu] Cookie 片段: \(String(currentCookie.prefix(100)))...")
             
+            // 从初始 HTML 用正则提取 shareid、uk、fsid（加密分享页也有）
+            var vidShareid = ""
+            var vidUk = ""
+            var vidFsId = ""
+            var vidFileName = "未知文件"
+            
+            // shareid: 出现在 "shareid":"xxx" 或 shareid=xxx 或 data-shareid="xxx"
+            for pattern in ["\"shareid\"\\s*:\\s*\"?(\\d+)\"?", "\"share_id\"\\s*:\\s*\"?(\\d+)\"?", "shareid=(\\d+)", "data-shareid=\"(\\d+)\""] {
+                if let r = try? NSRegularExpression(pattern: pattern).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let rr = Range(r.range(at: 1), in: html) { vidShareid = String(html[rr]); break }
+            }
+            // uk: "share_uk":"xxx" 或 "uk":123456
+            for pattern in ["\"share_uk\"\\s*:\\s*\"?(\\d+)\"?", "\"uk\"\\s*:\\s*\"?(\\d+)\"?"] {
+                if let r = try? NSRegularExpression(pattern: pattern).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let rr = Range(r.range(at: 1), in: html) { vidUk = String(html[rr]); break }
+            }
+            // fs_id + filename: "fs_id":"xxx" 和 "server_filename":"xxx"
+            if let r = try? NSRegularExpression(pattern: "\"fs_id\"\\s*:\\s*\"?(\\d+)\"?").firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let rr = Range(r.range(at: 1), in: html) { vidFsId = String(html[rr]) }
+            if let r = try? NSRegularExpression(pattern: "\"server_filename\"\\s*:\\s*\"([^\"]+)\"").firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let rr = Range(r.range(at: 1), in: html) { vidFileName = String(html[rr]) }
+            
+            baiduLog("[Baidu] 从初始HTML提取: shareid=\(vidShareid), uk=\(vidUk), fsId=\(vidFsId), file=\(vidFileName)")
+            
+            // 如果提取到了 shareid+uk+fsId，直接走模式 2（PCS locatedownload），跳过 verify
+            if !vidShareid.isEmpty, !vidUk.isEmpty, !vidFsId.isEmpty {
+                baiduLog("[Baidu] ✅ 跳过验证，直接使用 HTML 提取的参数走 PCS 播放")
+                // 注意：这时文件还没转存，不能直接 PCS download
+                // 但 shareid+uk+fsId 已齐，转存后就能播
+            }
+            
             guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0") else {
                 throw DriveError.invalidResponse
             }
