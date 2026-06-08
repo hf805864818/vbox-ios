@@ -7,7 +7,7 @@ class BaiduWebViewBridge: NSObject {
     static let shared = BaiduWebViewBridge()
     
     private var webView: WKWebView?
-    private var pendingRequests: [String: (Result<Data, Error>) -> Void] = [:]
+    private var pendingRequests: [String: (Result<(Data, HTTPURLResponse?), Error>) -> Void] = [:]
     private let queue = DispatchQueue(label: "baidu.webview.bridge")
     private var requestIdCounter = 0
     
@@ -99,7 +99,7 @@ class BaiduWebViewBridge: NSObject {
         })();
         """
         
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, HTTPURLResponse?), Error>) in
             queue.async { [weak self] in
                 self?.pendingRequests[requestId] = { result in
                     continuation.resume(with: result)
@@ -146,8 +146,12 @@ extension BaiduWebViewBridge: WKScriptMessageHandler {
             if let success = dict["success"] as? Bool, success,
                let body = dict["body"] as? String {
                 let data = Data(body.utf8)
-                let status = dict["status"] as? Int ?? 200
-                cb(.success(data))
+                let statusCode = dict["status"] as? Int ?? 200
+                var response: HTTPURLResponse? = nil
+                if let url = URL(string: "https://pan.baidu.com") {
+                    response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: "HTTP/1.1", headerFields: nil)
+                }
+                cb(.success((data, response)))
             } else if let error = dict["error"] as? String {
                 cb(.failure(BridgeError.fetchFailed(error)))
             } else {
