@@ -912,46 +912,88 @@ class CloudDriveManager: ObservableObject {
     /// 百度某些风控场景下验证失败，但可用 HTML 中提取的参数直接调 sharedownload
     private func baiduBypassVerify(shareid: String, uk: String, surl: String, cookie: String) async throws -> (fsId: String, name: String) {
         baiduLog("[Baidu-Bypass] 尝试绕过验证获取文件信息...")
-        var components = URLComponents(string: "https://pan.baidu.com/api/sharedownload")!
-        components.queryItems = [
+        
+        // 方案 1: wap 分享页（不需要提取码）
+        let wapURL = URL(string: "https://pan.baidu.com/wap/share/wxlist?shareid=\(shareid)&uk=\(uk)&surl=\(surl)&dir=%2F")!
+        var req = URLRequest(url: wapURL)
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Referer")
+        req.timeoutInterval = 15
+        
+        let (data, _) = try await session.data(for: req)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        
+        // wap 返回的 HTML 里有 yunData，或 JSON 响应里有 list
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            baiduLog("[Baidu-Bypass] WAP wxlist 响应: errno=\(json["errno"] ?? "nil")")
+            if let errno = json["errno"] as? Int, errno == 0,
+               let list = json["list"] as? [[String: Any]], let first = list.first {
+                let (fsId, name) = Self.extractFileInfo(first)
+                if !fsId.isEmpty { baiduLog("[Baidu-Bypass] ✅ 绕过成功: fsId=\(fsId), name=\(name)"); return (fsId, name) }
+            }
+        }
+        
+        // 从 HTML 提取
+        for pattern in ["\"fs_id\"\\s*:\\s*\"?(\\d+)\"?", "fs_id=(\\d+)", "\"fs_id\"\\s*:\\s*(\\d+)"] {
+            if let r = try? NSRegularExpression(pattern: pattern).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let rr = Range(r.range(at: 1), in: html) {
+                let fsId = String(html[rr])
+                var name = "未知"
+                if let rn = try? NSRegularExpression(pattern: "\"server_filename\"\\s*:\\s*\"([^\"]+)\"").firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let rrN = Range(rn.range(at: 1), in: html) { name = String(html[rrN]) }
+                baiduLog("[Baidu-Bypass] ✅ HTML提取成功: fsId=\(fsId), name=\(name)")
+                return (fsId, name)
+            }
+        }
+        
+        // 方案 2: share/list（桌面版 API，不需要验证）
+        baiduLog("[Baidu-Bypass] WAP 失败，尝试 share/list...")
+        var components2 = URLComponents(string: "https://pan.baidu.com/share/list")!
+        components2.queryItems = [
             URLQueryItem(name: "shareid", value: shareid),
-            URLQueryItem(name: "from", value: surl),
             URLQueryItem(name: "uk", value: uk),
+            URLQueryItem(name: "surl", value: surl),
+            URLQueryItem(name: "dir", value: "/"),
+            URLQueryItem(name: "order", value: "time"),
+            URLQueryItem(name: "desc", value: "1"),
             URLQueryItem(name: "app_id", value: "250528"),
             URLQueryItem(name: "channel", value: "chunlei"),
             URLQueryItem(name: "clienttype", value: "0"),
             URLQueryItem(name: "web", value: "1"),
         ]
-        var req = URLRequest(url: components.url!)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        req.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
-        req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-        req.httpBody = "encodings=1&primaryid=\(shareid)&uk=\(uk)".data(using: .utf8)
-        req.timeoutInterval = 15
+        var req2 = URLRequest(url: components2.url!)
+        req2.httpMethod = "GET"
+        req2.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req2.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        req2.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
+        req2.timeoutInterval = 15
         
-        let (data, _) = try await session.data(for: req)
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let errno = json["errno"] as? Int, errno == 0,
-           let list = json["list"] as? [[String: Any]], let first = list.first {
-            var fsId = ""
-            if let fid = first["fs_id"] as? String { fsId = fid }
-            else if let fid = first["fs_id"] as? Int64 { fsId = String(fid) }
-            else if let fid = first["fs_id"] as? Int { fsId = String(fid) }
-            let name = first["server_filename"] as? String ?? first["filename"] as? String ?? "未知"
-            if !fsId.isEmpty {
-                baiduLog("[Baidu-Bypass] ✅ 绕过成功: fsId=\(fsId), name=\(name)")
-                return (fsId, name)
+        let (data2, _) = try await session.data(for: req2)
+        if let json = try? JSONSerialization.jsonObject(with: data2) as? [String: Any] {
+            baiduLog("[Baidu-Bypass] share/list 响应: errno=\(json["errno"] ?? "nil")")
+            if let errno = json["errno"] as? Int, errno == 0,
+               let list = json["list"] as? [[String: Any]], let first = list.first {
+                let (fsId, name) = Self.extractFileInfo(first)
+                if !fsId.isEmpty { baiduLog("[Baidu-Bypass] ✅ 绕过成功: fsId=\(fsId), name=\(name)"); return (fsId, name) }
             }
         }
-        if let errno = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["errno"] as? Int {
+        
+        if let errno = (try? JSONSerialization.jsonObject(with: data2) as? [String: Any])?["errno"] as? Int {
             baiduLog("[Baidu-Bypass] ❌ 绕过失败: errno=\(errno)")
         } else {
             baiduLog("[Baidu-Bypass] ❌ 绕过失败: 响应解析失败")
         }
         throw DriveError.noPlayURL("百度网盘：验证失败且无法绕过")
+    }
+    
+    private static func extractFileInfo(_ item: [String: Any]) -> (String, String) {
+        var fsId = ""
+        if let fid = item["fs_id"] as? String { fsId = fid }
+        else if let fid = item["fs_id"] as? Int64 { fsId = String(fid) }
+        else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
+        let name = item["server_filename"] as? String ?? item["filename"] as? String ?? "未知"
+        return (fsId, name)
     }
 
     /// 用 PCS 下载接口获取百度网盘文件直链（iBox 方案）
