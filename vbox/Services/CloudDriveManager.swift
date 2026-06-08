@@ -755,26 +755,6 @@ class CloudDriveManager: ObservableObject {
                 baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8).prefix(200))")
                 throw DriveError.invalidResponse
             }
-                    var req2 = URLRequest(url: pageURL)
-                    req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                    req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                    req2.timeoutInterval = 15
-                    let (data2, _) = try await session.data(for: req2)
-                    guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
-                          let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
-                        throw DriveError.invalidResponse
-                    }
-                    html = newHtml
-                } else {
-                    let errno = vJson["errno"] as? Int ?? -1
-                    baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
-                    throw DriveError.noPlayURL("百度网盘：提取码验证失败")
-                }
-            } else {
-                // JSON解析失败
-                baiduLog("[Baidu] ❌ verify响应非JSON")
-                throw DriveError.invalidResponse
-            }
         }
         
         var shareid = ""
@@ -848,6 +828,8 @@ class CloudDriveManager: ObservableObject {
         
         baiduLog("[Baidu] ✅ shareid=\(shareid), shareUk=\(shareUk), 文件=\(files[0].name)")
         return (shareid, shareUk, files)
+    }
+
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://pan.baidu.com/share/transfer")!
         var request = URLRequest(url: url)
@@ -1398,6 +1380,7 @@ class CloudDriveManager: ObservableObject {
             return try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
         }
     }
+}
 
 // MARK: - 数据结构
 
