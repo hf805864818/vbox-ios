@@ -575,10 +575,14 @@ class CloudDriveManager: ObservableObject {
         
         // Step 1: 从 URL 提取 surl（短链接码）
         let surl: String
-        if let range = shareURL.range(of: #"/s/1([^/?]+)"#, options: .regularExpression) {
-            surl = "1" + String(shareURL[range]).replacingOccurrences(of: "/s/", with: "")
-        } else if let range = shareURL.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
-            surl = String(shareURL[range]).replacingOccurrences(of: "/s/", with: "")
+        // 用捕获组提取 surl，避免重复添加 1 前缀
+        // 格式: /s/1xxxxx 或 /s/xxxxx
+        if let match = try? NSRegularExpression(pattern: #"/s/1([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+           let r = Range(match.range(at: 1), in: shareURL) {
+            surl = "1" + String(shareURL[r])
+        } else if let match = try? NSRegularExpression(pattern: #"/s/([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+                  let r = Range(match.range(at: 1), in: shareURL) {
+            surl = String(shareURL[r])
         } else {
             print("[Baidu] ❌ 无法从 URL 提取 surl")
             throw DriveError.invalidShareURL
