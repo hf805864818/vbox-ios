@@ -289,6 +289,10 @@ class PlayerState: ObservableObject {
         
         // 百度网盘：先获取文件列表，多文件则展示选择列表
         if driveType == .baidu {
+            // 注册百度日志回调到悬浮日志
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
             log("[Baidu] ①请求分享页...")
             do {
                 let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: tokens[0].value)

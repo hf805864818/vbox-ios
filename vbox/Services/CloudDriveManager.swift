@@ -61,6 +61,16 @@ class CloudDriveManager: ObservableObject {
         session = URLSession(configuration: config)
         loadTokens()
     }
+    
+    /// 调试日志回调（供播放器显示悬浮日志用）
+    static var onLog: ((String) -> Void)?
+
+    private func baiduLog(_ msg: String) {
+        print(msg)
+        if let handler = CloudDriveManager.onLog {
+            handler(msg)
+        }
+    }
 
     /// 加载已保存的 Token
     private func loadTokens() {
@@ -596,14 +606,14 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
-        print("[Baidu] 提取分享信息：\(shareURL)")
+        baiduLog("[Baidu] 提取分享信息：\(shareURL)")
 
         // Step 1: 从 URL 提取 pwd（提取码）
         let pwd: String?
         if let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let r = Range(match.range(at: 1), in: shareURL) {
             pwd = String(shareURL[r])
-            print("[Baidu] 检测到提取码: \(pwd!)")
+            baiduLog("[Baidu] 检测到提取码: \(pwd!)")
         } else {
             pwd = nil
         }
@@ -635,22 +645,22 @@ class CloudDriveManager: ObservableObject {
                 currentCookie += "; " + setCookies.joined(separator: "; ")
             }
             
-            NSLog("[Baidu] 响应状态码: \(httpResp.statusCode), URL: \(currentReq.url?.absoluteString ?? "nil")")
+            baiduLog("[Baidu] 响应状态码: \(httpResp.statusCode), URL: \(currentReq.url?.absoluteString ?? "nil")")
             
             if httpResp.statusCode >= 300 && httpResp.statusCode < 400 {
                 // 重定向
                 guard var location = httpResp.allHeaderFields["Location"] as? String else {
-                    print("[Baidu] ❌ 302但没有Location头")
+                    baiduLog("[Baidu] ❌ 302但没有Location头")
                     throw DriveError.invalidResponse
                 }
                 // 处理相对路径
                 if location.hasPrefix("/") {
                     location = "https://pan.baidu.com" + location
                 }
-                print("[Baidu] 重定向到: \(location)")
+                baiduLog("[Baidu] 重定向到: \(location)")
                 
                 guard let redirectURL = URL(string: location) else {
-                    print("[Baidu] ❌ 重定向URL格式错误: \(location)")
+                    baiduLog("[Baidu] ❌ 重定向URL格式错误: \(location)")
                     throw DriveError.invalidResponse
                 }
                 currentReq = URLRequest(url: redirectURL)
@@ -660,31 +670,31 @@ class CloudDriveManager: ObservableObject {
                 continue
             } else if httpResp.statusCode == 200 {
                 html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii)
-                print("[Baidu] ✅ 200 OK，HTML长度: \(html?.count ?? 0)")
+                baiduLog("[Baidu] ✅ 200 OK，HTML长度: \(html?.count ?? 0)")
                 break
             } else {
-                print("[Baidu] ❌ 请求返回状态码: \(httpResp.statusCode)")
+                baiduLog("[Baidu] ❌ 请求返回状态码: \(httpResp.statusCode)")
                 throw DriveError.noPlayURL("百度网盘：请求失败(\(httpResp.statusCode))")
             }
         }
         
         guard let pageHTML = html else {
-            print("[Baidu] ❌ 获取分享页失败(html为空)")
+            baiduLog("[Baidu] ❌ 获取分享页失败(html为空)")
             throw DriveError.invalidResponse
         }
         
-        print("[Baidu] HTML长度: \(pageHTML.count)，前200字: \(pageHTML.prefix(200))")
+        baiduLog("[Baidu] HTML长度: \(pageHTML.count)，前200字: \(pageHTML.prefix(200))")
 
         // 从 HTML 中提取 yunData JSON
         guard let yunDataRange = pageHTML.range(of: "window.yunData="),
               let jsonStart = pageHTML[yunDataRange.upperBound...].range(of: "{"),
               let jsonEnd = pageHTML[yunDataRange.upperBound...].range(of: "};") else {
-            print("[Baidu] ❌ 未找到 yunData")
+            baiduLog("[Baidu] ❌ 未找到 yunData")
             if pageHTML.contains("errno") || pageHTML.contains("error") || pageHTML.contains("验证") || pageHTML.contains("检测到") {
-                print("[Baidu] 页面包含 验证/错误 关键字")
+                baiduLog("[Baidu] 页面包含 验证/错误 关键字")
                 throw DriveError.noPlayURL("百度网盘：分享链接可能已失效或需要验证")
             }
-            print("[Baidu] 页面内容前500字: \(pageHTML.prefix(500))")
+            baiduLog("[Baidu] 页面内容前500字: \(pageHTML.prefix(500))")
             throw DriveError.noPlayURL("百度网盘：无法解析分享页，请确认链接有效")
         }
         
@@ -696,11 +706,11 @@ class CloudDriveManager: ObservableObject {
         
         guard let jsonData = jsonStr.data(using: .utf8),
               let yunData = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            print("[Baidu] ❌ yunData JSON 解析失败")
+            baiduLog("[Baidu] ❌ yunData JSON 解析失败")
             throw DriveError.invalidResponse
         }
 
-        print("[Baidu] ✅ 分享页解析成功")
+        baiduLog("[Baidu] ✅ 分享页解析成功")
 
         // 提取 shareid
         var shareid = ""
@@ -727,21 +737,21 @@ class CloudDriveManager: ObservableObject {
                     files.append(BaiduFileItem(fsId: fsId, name: fileName))
                 }
             }
-            print("[Baidu] 文件列表: \(files.map { $0.name })")
+            baiduLog("[Baidu] 文件列表: \(files.map { $0.name })")
         } else {
-            print("[Baidu] ❌ 文件列表为空")
+            baiduLog("[Baidu] ❌ 文件列表为空")
         }
 
         if shareid.isEmpty || shareUk.isEmpty {
-            print("[Baidu] ❌ 无法提取 shareid 或 shareUk")
+            baiduLog("[Baidu] ❌ 无法提取 shareid 或 shareUk")
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
         if files.isEmpty {
-            print("[Baidu] ❌ 无法从分享页提取文件列表")
+            baiduLog("[Baidu] ❌ 无法从分享页提取文件列表")
             throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
         }
 
-        print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), 共\(files.count)个文件")
+        baiduLog("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), 共\(files.count)个文件")
         return (shareid, shareUk, files)
     }
 
@@ -761,7 +771,7 @@ class CloudDriveManager: ObservableObject {
         guard let errno = json["errno"] as? Int, errno == 0 else {
             let errno = json["errno"] as? Int ?? -1
             let errmsg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? "未知错误(\(errno))"
-            print("[Baidu] ❌ 转存失败: errno=\(errno), msg=\(errmsg)")
+            baiduLog("[Baidu] ❌ 转存失败: errno=\(errno), msg=\(errmsg)")
             if errno == 112 {
                 throw DriveError.noPlayURL("百度: 转存需要登录验证(STOKEN)，请在设置中配置BDUSS|STOKEN格式的Token")
             } else if errno == -9 || errno == 10 {
@@ -802,7 +812,7 @@ class CloudDriveManager: ObservableObject {
         
         // 检查错误
         if let errno = json["errno"] as? Int, errno != 0 {
-            print("[Baidu] ❌ PCS错误: errno=\(errno)")
+            baiduLog("[Baidu] ❌ PCS错误: errno=\(errno)")
             throw DriveError.noPlayURL("百度: 获取播放地址失败(errno=\(errno))")
         }
         
