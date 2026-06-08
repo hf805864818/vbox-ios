@@ -1363,22 +1363,40 @@ class CloudDriveManager: ObservableObject {
         print("[CloudDrive] ✅ detectDrive: \(driveType.rawValue)")
 
         let tokens = tokens(for: driveType)
-        guard let token = tokens.first else {
+        guard !tokens.isEmpty else {
             throw DriveError.tokenNotConfigured(driveType.displayName)
         }
 
-        switch driveType {
-        case .ali:
-            return try await resolveAliPlayURL(shareURL: shareURL, refreshToken: token.value)
-        case .quark:
-            return try await resolveQuarkPlayURL(shareURL: shareURL, cookie: token.value)
-        case .baidu:
-            return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
-        case .one15:
-            return try await resolve115PlayURL(shareURL: shareURL, cid: token.value)
-        case .uc:
-            return try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
+        var lastError: Error?
+        for (index, token) in tokens.enumerated() {
+            let label = tokens.count > 1 ? " [\(index + 1)/\(tokens.count)]" : ""
+            print("[CloudDrive] 🔄 尝试 \(driveType.displayName) Token\(label): \(token.name)")
+            do {
+                let result: PlayResult
+                switch driveType {
+                case .ali:
+                    result = try await resolveAliPlayURL(shareURL: shareURL, refreshToken: token.value)
+                case .quark:
+                    result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: token.value)
+                case .baidu:
+                    result = try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
+                case .one15:
+                    result = try await resolve115PlayURL(shareURL: shareURL, cid: token.value)
+                case .uc:
+                    result = try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
+                }
+                print("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
+                return result
+            } catch {
+                lastError = error
+                print("[CloudDrive] ⚠️ \(driveType.displayName) Token \"\(token.name)\" 失败: \(error.localizedDescription)")
+                continue
+            }
         }
+        
+        let count = tokens.count
+        print("[CloudDrive] ❌ 所有 \(count) 个 \(driveType.displayName) Token 均失败")
+        throw lastError ?? DriveError.tokenNotConfigured(driveType.displayName)
     }
 }
 
