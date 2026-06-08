@@ -35,7 +35,7 @@ class CloudDriveManager: ObservableObject {
             switch self {
             case .ali: return "Refresh Token"
             case .quark: return "Cookie"
-            case .baidu: return "BDUSS"
+            case .baidu: return "BDUSS|STOKEN"
             case .one15: return "CID"
             case .uc: return "Cookie"
             }
@@ -506,15 +506,67 @@ class CloudDriveManager: ObservableObject {
 
     // MARK: - 百度网盘
 
+    /// 将用户填写的百度 Token 标准化为完整 Cookie 字符串
+    /// 支持三种输入格式：
+    ///   1. "BDUSS=xxx; STOKEN=yyy;" - 完整 Cookie 格式
+    ///   2. "BDUSS=xxx|STOKEN=yyy" - 竖线分隔格式
+    ///   3. "BDUSS=xxx" 或纯 BDUSS 值 - 仅 BDUSS 兼容
+    /// 返回: (cookie: String, bdussOnly: String) 供需要纯BDUSS的场景使用
+    private func parseBaiduToken(_ raw: String) -> (cookie: String, bdussOnly: String) {
+        // 情况1: 完整 Cookie 格式 "BDUSS=xxx; STOKEN=yyy;"
+        if raw.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression) != nil {
+            var bduss = ""
+            var stoken = ""
+            // 提取 BDUSS 值
+            if let r1 = raw.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression),
+               let eq = raw[r1].firstIndex(of: "=") {
+                let val = String(raw[raw.index(after: eq)..<r1.upperBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                bduss = val
+            }
+            // 提取 STOKEN 值
+            if let r2 = raw.range(of: #"STOKEN=([^;|]+)"#, options: .regularExpression),
+               let eq = raw[r2].firstIndex(of: "=") {
+                let val = String(raw[raw.index(after: eq)..<r2.upperBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                stoken = val
+            }
+            if !bduss.isEmpty {
+                var cookie = "BDUSS=\(bduss)"
+                if !stoken.isEmpty { cookie += "; STOKEN=\(stoken)" }
+                return (cookie, bduss)
+            }
+        }
+        
+        // 情况2: 竖线分隔格式 "BDUSS=xxx|STOKEN=yyy" 或 "xxx|yyy"
+        if raw.contains("|") {
+            var parts: [String]
+            // BDUSS= 前缀存在则去掉
+            let cleaned = raw.replacingOccurrences(of: #"^BDUSS="#, with: "", options: .regularExpression)
+            parts = cleaned.components(separatedBy: "|")
+            let bduss = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            var cookie = "BDUSS=\(bduss)"
+            if parts.count >= 2 {
+                let stoken = parts[1].replacingOccurrences(of: #"^STOKEN="#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+                cookie += "; STOKEN=\(stoken)"
+            }
+            return (cookie, bduss)
+        }
+        
+        // 情况3: 纯 BDUSS 值或 "BDUSS=值"
+        let bduss = raw.replacingOccurrences(of: "BDUSS=", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return ("BDUSS=\(bduss)", bduss)
+    }
+
     /// 百度网盘：BDUSS → 分享链接 → transfer → dlink → 播放地址
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
-        let cookie = "BDUSS=\(bduss)"
+        let parsed = parseBaiduToken(bduss)
+        let cookie = parsed.cookie
+        let bdussOnly = parsed.bdussOnly
         let (shareid, shareUk, fsId) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie)
         guard !fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID(fsId为空)") }
-        let _ = try await baiduEnsureFolder(bduss: bduss)
+        let _ = try await baiduEnsureFolder(bduss: bdussOnly)
         let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
         let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? fsId, cookie: cookie)
-        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bduss, delay: 4800)
+        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bdussOnly, delay: 4800)
         return result
     }
 
@@ -683,11 +735,24 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let params = "shareid=\(shareid)&from=\(surl)&share_uk=\(shareUk)&sekey=&pwd=&fsidlist=[\(fsId)]&path=/vbox播放/"
         request.httpBody = params.data(using: .utf8)
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let errno = json["errno"] as? Int, errno == 0 else {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("百度: 转存接口返回非JSON")
+        }
+        guard let errno = json["errno"] as? Int, errno == 0 else {
+            let errno = json["errno"] as? Int ?? -1
+            let errmsg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? "未知错误(\(errno))"
+            print("[Baidu] ❌ 转存失败: errno=\(errno), msg=\(errmsg)")
+            if errno == 112 {
+                throw DriveError.noPlayURL("百度: 转存需要登录验证(STOKEN)，请在设置中配置BDUSS|STOKEN格式的Token")
+            } else if errno == -9 || errno == 10 {
+                throw DriveError.noPlayURL("百度: 分享文件可能需要提取码或已失效")
+            } else if errno == 2 {
+                throw DriveError.noPlayURL("百度: 转存路径错误或网盘空间不足")
+            }
             throw DriveError.saveFailed
         }
         return [fsId]
@@ -697,23 +762,44 @@ class CloudDriveManager: ObservableObject {
         var components = URLComponents(string: "https://pan.baidu.com/api/filemetas")!
         components.queryItems = [
             URLQueryItem(name: "fsids", value: "[\(fsId)]"),
-            URLQueryItem(name: "dlink", value: "1")
+            URLQueryItem(name: "dlink", value: "1"),
+            URLQueryItem(name: "bdstoken", value: ""),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0"),
         ]
         
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let list = json["info"] as? [[String: Any]],
-              let dlink = list.first?["dlink"] as? String else {
+              let first = list.first,
+              let dlink = first["dlink"] as? String else {
             throw DriveError.noPlayURL("百度: 未获取到下载链接(dlink为空)")
+        }
+        
+        // 组装完整的播放URL：dlink + sign + timestamp + ua等参数
+        var playURL = dlink
+        
+        // 提取 sign 和 timestamp（百度盘 filemetas 返回的同级字段）
+        if let sign = first["sign"] as? String {
+            let ts = first["timestamp"] as? Int64 ?? first["ts"] as? Int64 ?? 0
+            let separator = playURL.contains("?") ? "&" : "?"
+            playURL += "\(separator)sign=\(sign)&timestamp=\(ts)"
         }
 
         return PlayResult(
-            url: dlink,
-            headers: ["Cookie": cookie, "User-Agent": "pan.baidu.com", "Referer": "https://pan.baidu.com/"],
+            url: playURL,
+            headers: [
+                "Cookie": cookie,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://pan.baidu.com/",
+            ],
             driveType: .baidu
         )
     }
@@ -722,6 +808,7 @@ class CloudDriveManager: ObservableObject {
         let listURL = URL(string: "https://pan.baidu.com/api/list?dir=/&order=time&desc=1&num=100&page=1&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
         var req = URLRequest(url: listURL)
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         if let (data, _) = try? await session.data(for: req),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let list = json["list"] as? [[String: Any]] {
@@ -734,6 +821,7 @@ class CloudDriveManager: ObservableObject {
         createReq.httpMethod = "POST"
         createReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         createReq.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        createReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let params = "path=/vbox播放&isdir=1&block_list=[]"
         createReq.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: createReq)
@@ -747,6 +835,7 @@ class CloudDriveManager: ObservableObject {
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let params = "filelist=[\"\(fileIds.first!)\"]&path=/vbox播放/"
         req.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: req)
