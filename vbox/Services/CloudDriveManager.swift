@@ -752,7 +752,7 @@ class CloudDriveManager: ObservableObject {
                     throw DriveError.invalidResponse
                 }
             } else {
-                baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8).prefix(200))")
+                baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8)?.prefix(200) ?? "无法解码")")
                 throw DriveError.invalidResponse
             }
         }
