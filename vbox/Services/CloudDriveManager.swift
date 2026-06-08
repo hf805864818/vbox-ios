@@ -572,176 +572,89 @@ class CloudDriveManager: ObservableObject {
 
     private func baiduExtractShareMeta(shareURL: String, cookie: String) async throws -> (shareid: String, shareUk: String, fsId: String) {
         print("[Baidu] 提取分享信息：\(shareURL)")
-        
-        // Step 1: 从 URL 提取 surl（短链接码）
-        let surl: String
-        // 用捕获组提取 surl，避免重复添加 1 前缀
-        // 格式: /s/1xxxxx 或 /s/xxxxx
-        if let match = try? NSRegularExpression(pattern: #"/s/1([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
-           let r = Range(match.range(at: 1), in: shareURL) {
-            surl = "1" + String(shareURL[r])
-        } else if let match = try? NSRegularExpression(pattern: #"/s/([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
-                  let r = Range(match.range(at: 1), in: shareURL) {
-            surl = String(shareURL[r])
-        } else {
-            print("[Baidu] ❌ 无法从 URL 提取 surl")
-            throw DriveError.invalidShareURL
-        }
-        print("[Baidu] surl=\(surl)")
 
-        // 从 URL 中提取 pwd（提取码，如果有的话）
-        let pwd: String?
+        // Step 1: 构建分享页 URL（带 pwd）
+        var sharePageURL = shareURL
         if let pwdRange = shareURL.range(of: #"[?&]pwd=([^&]+)"#, options: .regularExpression),
            let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let r = Range(match.range(at: 1), in: shareURL) {
-            pwd = String(shareURL[r])
-            print("[Baidu] 检测到提取码: \(pwd!)")
-        } else {
-            pwd = nil
+            let pwd = String(shareURL[r])
+            print("[Baidu] 检测到提取码: \(pwd)")
         }
 
-        // Step 2: 用百度 API 获取分享元数据
-        var apiURL = URL(string: "https://pan.baidu.com/share/info")!
-        var components = URLComponents(url: apiURL, resolvingAgainstBaseURL: false)!
-        var queryItems = [URLQueryItem(name: "shorturl", value: surl)]
-        if let pwd = pwd { queryItems.append(URLQueryItem(name: "pwd", value: pwd)) }
-        components.queryItems = queryItems
-        var req = URLRequest(url: components.url!)
+        // Step 2: 请求分享页 HTML 并提取 yunData
+        guard let pageUrl = URL(string: shareURL) else { throw DriveError.invalidShareURL }
+        var req = URLRequest(url: pageUrl)
         req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        req.timeoutInterval = 10
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        req.timeoutInterval = 15
 
-        let (data, response) = try await session.data(for: req)
-        let respStr = String(data: data, encoding: .utf8) ?? ""
-        print("[Baidu] share/info 响应：\(respStr.prefix(500))")
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Baidu] ❌ share/info 响应非 JSON")
+        let (data, _) = try await session.data(for: req)
+        guard let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+            print("[Baidu] ❌ 分享页内容非文本")
             throw DriveError.invalidResponse
         }
 
-        // 检查 errno
-        if let errno = json["errno"] as? Int, errno != 0 {
-            let errMsg = json["errmsg"] as? String ?? "错误码：\(errno)"
-            print("[Baidu] ❌ API 返回错误：\(errMsg)")
-            throw DriveError.noPlayURL("百度网盘 API 错误：\(errMsg)")
-        }
-
-        // 从 API 响应提取 - 正确处理各种类型
-        var shareid = ""
-        var shareUk = ""
-        
-        // 处理 shareid - 可能是 Int 或 String
-        if let sid = json["shareid"] as? String {
-            shareid = sid
-        } else if let sid = json["shareid"] as? Int {
-            shareid = String(sid)
-        }
-        
-        // 处理 uk - 可能是 Int 或 String
-        if let uk = json["uk"] as? String {
-            shareUk = uk
-        } else if let uk = json["uk"] as? Int {
-            shareUk = String(uk)
-        } else if let uk = json["share_uk"] as? String {
-            shareUk = uk
-        } else if let uk = json["share_uk"] as? Int {
-            shareUk = String(uk)
-        }
-
-        print("[Baidu] shareid=\(shareid), shareUk=\(shareUk)")
-
-        // Step 3: 获取文件列表
-        var listComponents = URLComponents(string: "https://pan.baidu.com/share/list")!
-        var listQueryItems: [URLQueryItem] = [
-            URLQueryItem(name: "shorturl", value: surl),
-            URLQueryItem(name: "dir", value: "/"),
-            URLQueryItem(name: "page", value: "1"),
-        ]
-        if let pwd = pwd { listQueryItems.append(URLQueryItem(name: "pwd", value: pwd)) }
-        listComponents.queryItems = listQueryItems
-        var listReq = URLRequest(url: listComponents.url!)
-        listReq.setValue(cookie, forHTTPHeaderField: "Cookie")
-        listReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-
-        let (listData, _) = try await session.data(for: listReq)
-        let listResp = String(data: listData, encoding: .utf8) ?? ""
-        print("[Baidu] share/list 响应：\(listResp.prefix(500))")
-
-        guard let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any] else {
-            print("[Baidu] ❌ share/list 响应非 JSON")
-            throw DriveError.invalidResponse
-        }
-
-        // 检查 list 的 errno
-        if let errno = listJson["errno"] as? Int, errno != 0 {
-            let errMsg = listJson["errno_desc"] as? String ?? "错误码：\(errno)"
-            print("[Baidu] ❌ 文件列表返回错误：\(errMsg)")
-            throw DriveError.noPlayURL("百度网盘文件列表错误：\(errMsg)")
-        }
-
-        var fsId = ""
-        if let list = listJson["list"] as? [[String: Any]], !list.isEmpty {
-            let first = list[0]
-            print("[Baidu] 文件信息：\(first)")
-            
-            // 处理 fs_id - 可能是 Int 或 String
-            if let fid = first["fs_id"] as? String {
-                fsId = fid
-            } else if let fid = first["fs_id"] as? Int64 {
-                fsId = String(fid)
-            } else if let fid = first["fs_id"] as? Int {
-                fsId = String(fid)
+        // 从 HTML 中提取 yunData JSON
+        // 格式: window.yunData={...}
+        guard let yunDataRange = html.range(of: "window.yunData="),
+              let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+              let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") else {
+            print("[Baidu] ❌ 未找到 yunData")
+            // 尝试检查页面是否包含错误信息
+            if html.contains("errno") || html.contains("error") {
+                throw DriveError.noPlayURL("百度网盘：分享链接可能已失效")
             }
-            
-            // 提取文件名用于调试
-            let fileName = first["server_filename"] as? String ?? first["name"] as? String ?? "未知"
-            print("[Baidu] 文件名=\(fileName), fs_id=\(fsId)")
+            throw DriveError.noPlayURL("百度网盘：无法解析分享页，请确认链接有效")
+        }
+
+        let jsonRawStart = yunDataRange.upperBound
+        let jsonContentStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+        let jsonContentEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+        let jsonStartIndex = html.index(html.startIndex, offsetBy: jsonContentStart)
+        let jsonEndIndex = html.index(html.startIndex, offsetBy: jsonContentEnd + 1)
+        let jsonStr = String(html[jsonStartIndex..<jsonEndIndex])
+        
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let yunData = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            print("[Baidu] ❌ yunData JSON 解析失败")
+            throw DriveError.invalidResponse
+        }
+
+        print("[Baidu] ✅ 分享页解析成功")
+
+        // 提取 shareid
+        var shareid = ""
+        if let sid = yunData["shareid"] as? String { shareid = sid
+        } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
+
+        // 提取 share_uk
+        var shareUk = ""
+        if let uk = yunData["share_uk"] as? String { shareUk = uk
+        } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
+        } else if let uk = yunData["uk"] as? String { shareUk = uk
+        } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
+
+        // 提取文件列表中的 fsId
+        var fsId = ""
+        if let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
+            let first = fileList[0]
+            if let fid = first["fs_id"] as? String { fsId = fid
+            } else if let fid = first["fs_id"] as? Int64 { fsId = String(fid)
+            } else if let fid = first["fs_id"] as? Int { fsId = String(fid) }
+            let fileName = first["server_filename"] as? String ?? "未知"
+            print("[Baidu] 文件名=\(fileName), fs_id=\(fsId), 共\(fileList.count)个文件")
         } else {
             print("[Baidu] ❌ 文件列表为空")
         }
 
-        // 验证是否提取到必要信息
         if shareid.isEmpty || shareUk.isEmpty {
             print("[Baidu] ❌ 无法提取 shareid 或 shareUk")
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
-
         if fsId.isEmpty {
-            // 尝试 HTML 正则兜底
-            print("[Baidu] API 未返回 fs_id，尝试 HTML 正则兜底")
-            let htmlReq = URLRequest(url: URL(string: shareURL)!)
-            if let (htmlData, _) = try? await session.data(for: htmlReq),
-               let html = String(data: htmlData, encoding: .utf8) {
-                let patterns: [(String, String)] = [
-                    (#""shareid":\s*"([^"]+)""#, "shareid"),
-                    (#""shareid":\s*(\d+)"#, "shareid"),
-                    (#""share_uk":\s*"([^"]+)""#, "share_uk"),
-                    (#""share_uk":\s*(\d+)"#, "share_uk"),
-                    (#""fs_id":\s*(\d+)"#, "fs_id"),
-                    (#""fs_id":\s*"([^"]+)""#, "fs_id"),
-                ]
-                for (pattern, key) in patterns {
-                    if let regex = try? NSRegularExpression(pattern: pattern),
-                       let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                       let range = Range(match.range(at: 1), in: html) {
-                        let value = String(html[range])
-                        print("[Baidu] HTML 正则提取 \(key)=\(value)")
-                        switch key {
-                        case "shareid": if shareid.isEmpty { shareid = value }
-                        case "share_uk": if shareUk.isEmpty { shareUk = value }
-                        case "fs_id": if fsId.isEmpty { fsId = value }
-                        default: break
-                        }
-                    }
-                }
-            }
-        }
-
-        // 最终检查
-        if fsId.isEmpty {
-            print("[Baidu] ❌ 无法从分享页提取到文件 ID(fs_id)")
-            throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效且文件未失效")
+            print("[Baidu] ❌ 无法提取 fs_id")
+            throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
         }
 
         print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), fsId=\(fsId)")
