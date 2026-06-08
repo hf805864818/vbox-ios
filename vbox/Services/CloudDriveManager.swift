@@ -589,10 +589,23 @@ class CloudDriveManager: ObservableObject {
         }
         print("[Baidu] surl=\(surl)")
 
+        // 从 URL 中提取 pwd（提取码，如果有的话）
+        let pwd: String?
+        if let pwdRange = shareURL.range(of: #"[?&]pwd=([^&]+)"#, options: .regularExpression),
+           let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+           let r = Range(match.range(at: 1), in: shareURL) {
+            pwd = String(shareURL[r])
+            print("[Baidu] 检测到提取码: \(pwd!)")
+        } else {
+            pwd = nil
+        }
+
         // Step 2: 用百度 API 获取分享元数据
         var apiURL = URL(string: "https://pan.baidu.com/share/info")!
         var components = URLComponents(url: apiURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "shorturl", value: surl)]
+        var queryItems = [URLQueryItem(name: "shorturl", value: surl)]
+        if let pwd = pwd { queryItems.append(URLQueryItem(name: "pwd", value: pwd)) }
+        components.queryItems = queryItems
         var req = URLRequest(url: components.url!)
         req.setValue(cookie, forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
@@ -640,11 +653,13 @@ class CloudDriveManager: ObservableObject {
 
         // Step 3: 获取文件列表
         var listComponents = URLComponents(string: "https://pan.baidu.com/share/list")!
-        listComponents.queryItems = [
+        var listQueryItems: [URLQueryItem] = [
             URLQueryItem(name: "shorturl", value: surl),
             URLQueryItem(name: "dir", value: "/"),
             URLQueryItem(name: "page", value: "1"),
         ]
+        if let pwd = pwd { listQueryItems.append(URLQueryItem(name: "pwd", value: pwd)) }
+        listComponents.queryItems = listQueryItems
         var listReq = URLRequest(url: listComponents.url!)
         listReq.setValue(cookie, forHTTPHeaderField: "Cookie")
         listReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
