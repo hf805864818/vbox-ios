@@ -1555,5 +1555,3 @@ nonisolated private static func makeVodItem(from dict: [String: Any], siteName: 
         )
     }
 }
-}
-}
