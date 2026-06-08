@@ -605,10 +605,22 @@ class CloudDriveManager: ObservableObject {
         return result
     }
 
-    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+        private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
-
-        // Step 1: 从 URL 提取 pwd（提取码）
+        
+        // Step 1: 从 URL 提取 surl 和 pwd
+        let surl: String
+        if let match = try? NSRegularExpression(pattern: #"/s/1([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+           let r = Range(match.range(at: 1), in: shareURL) {
+            surl = "1" + String(shareURL[r])
+        } else if let match = try? NSRegularExpression(pattern: #"/s/([^/?]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+                  let r = Range(match.range(at: 1), in: shareURL) {
+            surl = String(shareURL[r])
+        } else {
+            baiduLog("[Baidu] ❌ 无法提取 surl")
+            throw DriveError.invalidShareURL
+        }
+        
         let pwd: String?
         if let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let r = Range(match.range(at: 1), in: shareURL) {
@@ -617,114 +629,98 @@ class CloudDriveManager: ObservableObject {
         } else {
             pwd = nil
         }
-
-        // Step 2: 手动处理重定向，获取分享页最终 HTML
-        // 百度 /s/1xxx 会 302 到 /share/init?surl=xxx&pwd=xxx
-        guard let pageUrl = URL(string: shareURL) else { throw DriveError.invalidShareURL }
-        var req = URLRequest(url: pageUrl)
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        req.timeoutInterval = 15
-
-        var currentReq = req
-        var currentCookie = cookie
-        var html: String?
         
-        // 最多跟踪 3 次重定向
-        for _ in 0..<3 {
-            let (data, response) = try await session.data(for: currentReq)
-            
-            guard let httpResp = response as? HTTPURLResponse else {
-                throw DriveError.invalidResponse
-            }
-            
-            // 收集响应中的 Set-Cookie（可能是单个 String 或多个 String 的数组）
-            if let setCookieStr = httpResp.allHeaderFields["Set-Cookie"] as? String {
-                currentCookie += "; " + setCookieStr
-            } else if let setCookies = httpResp.allHeaderFields["Set-Cookie"] as? [String] {
-                currentCookie += "; " + setCookies.joined(separator: "; ")
-            }
-            
-            baiduLog("[Baidu] 响应状态码: \(httpResp.statusCode), URL: \(currentReq.url?.absoluteString ?? "nil")")
-            
-            if httpResp.statusCode >= 300 && httpResp.statusCode < 400 {
-                // 重定向
-                guard var location = httpResp.allHeaderFields["Location"] as? String else {
-                    baiduLog("[Baidu] ❌ 302但没有Location头")
-                    throw DriveError.invalidResponse
-                }
-                // 处理相对路径
-                if location.hasPrefix("/") {
-                    location = "https://pan.baidu.com" + location
-                }
-                baiduLog("[Baidu] 重定向到: \(location)")
-                
-                guard let redirectURL = URL(string: location) else {
-                    baiduLog("[Baidu] ❌ 重定向URL格式错误: \(location)")
-                    throw DriveError.invalidResponse
-                }
-                currentReq = URLRequest(url: redirectURL)
-                currentReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                currentReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-                currentReq.timeoutInterval = 15
-                continue
-            } else if httpResp.statusCode == 200 {
-                html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii)
-                baiduLog("[Baidu] ✅ 200 OK，HTML长度: \(html?.count ?? 0)")
-                break
-            } else {
-                baiduLog("[Baidu] ❌ 请求返回状态码: \(httpResp.statusCode)")
-                throw DriveError.noPlayURL("百度网盘：请求失败(\(httpResp.statusCode))")
-            }
+        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        
+        // Step 2: 请求 /share/init 获取基本 yunData
+        guard let initURL = URL(string: "https://pan.baidu.com/share/init?surl=\(surl)") else {
+            throw DriveError.invalidShareURL
+        }
+        var currentCookie = cookie
+        
+        func makeRequest(url: URL) -> URLRequest {
+            var r = URLRequest(url: url)
+            r.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+            r.setValue(ua, forHTTPHeaderField: "User-Agent")
+            r.timeoutInterval = 15
+            return r
         }
         
-        guard let pageHTML = html else {
-            baiduLog("[Baidu] ❌ 获取分享页失败(html为空)")
+        baiduLog("[Baidu] 请求 /share/init...")
+        var (data, response) = try await session.data(for: makeRequest(url: initURL))
+        guard let httpResp = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
+        if let sc = httpResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
+        } else if let scs = httpResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
+        
+        guard var html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
             throw DriveError.invalidResponse
         }
         
-        baiduLog("[Baidu] HTML长度: \(pageHTML.count)，前200字: \(pageHTML.prefix(200))")
-
-        // 从 HTML 中提取 yunData JSON
-        guard let yunDataRange = pageHTML.range(of: "window.yunData="),
-              let jsonStart = pageHTML[yunDataRange.upperBound...].range(of: "{"),
-              let jsonEnd = pageHTML[yunDataRange.upperBound...].range(of: "};") else {
-            baiduLog("[Baidu] ❌ 未找到 yunData")
-            if pageHTML.contains("errno") || pageHTML.contains("error") || pageHTML.contains("验证") || pageHTML.contains("检测到") {
-                baiduLog("[Baidu] 页面包含 验证/错误 关键字")
-                throw DriveError.noPlayURL("百度网盘：分享链接可能已失效或需要验证")
+        // Step 3: 如果有提取码且页面需要验证，调 verify
+        if let pwd = pwd, html.contains("请输入提取码") || html.contains("accessCode") {
+            baiduLog("[Baidu] 需要验证提取码，调 verify...")
+            guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=0") else {
+                throw DriveError.invalidResponse
             }
-            baiduLog("[Baidu] 页面内容前500字: \(pageHTML.prefix(500))")
+            var verifyReq = URLRequest(url: verifyURL)
+            verifyReq.httpMethod = "POST"
+            verifyReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            verifyReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+            verifyReq.setValue(ua, forHTTPHeaderField: "User-Agent")
+            verifyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            verifyReq.setValue("https://pan.baidu.com/share/init?surl=\(surl)", forHTTPHeaderField: "Referer")
+            verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
+            verifyReq.timeoutInterval = 10
+            
+            let (vData, vResp) = try await session.data(for: verifyReq)
+            if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
+               let errno = vJson["errno"] as? Int, errno == 0 {
+                baiduLog("[Baidu] ✅ 提取码验证成功")
+                (data, response) = try await session.data(for: makeRequest(url: initURL))
+                guard let httpResp2 = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
+                if let sc = httpResp2.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
+                } else if let scs = httpResp2.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
+                guard let newHtml = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+                    throw DriveError.invalidResponse
+                }
+                html = newHtml
+            } else {
+                let errno = (try? JSONSerialization.jsonObject(with: vData) as? [String: Any])?["errno"] as? Int ?? -1
+                baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
+                throw DriveError.noPlayURL("百度网盘：提取码验证失败")
+            }
+        }
+        
+        // Step 4: 从 HTML 提取 yunData
+        guard let yunDataRange = html.range(of: "window.yunData="),
+              let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+              let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") else {
+            baiduLog("[Baidu] ❌ 未找到 yunData")
             throw DriveError.noPlayURL("百度网盘：无法解析分享页，请确认链接有效")
         }
         
-        let jsonContentStart = pageHTML.distance(from: pageHTML.startIndex, to: jsonStart.lowerBound)
-        let jsonContentEnd = pageHTML.distance(from: pageHTML.startIndex, to: jsonEnd.lowerBound)
-        let jsonStartIndex = pageHTML.index(pageHTML.startIndex, offsetBy: jsonContentStart)
-        let jsonEndIndex = pageHTML.index(pageHTML.startIndex, offsetBy: jsonContentEnd + 1)
-        let jsonStr = String(pageHTML[jsonStartIndex..<jsonEndIndex])
+        let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+        let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+        let jStr = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)])
         
-        guard let jsonData = jsonStr.data(using: .utf8),
-              let yunData = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        guard let jData = jStr.data(using: .utf8),
+              let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] else {
             baiduLog("[Baidu] ❌ yunData JSON 解析失败")
             throw DriveError.invalidResponse
         }
-
+        
         baiduLog("[Baidu] ✅ 分享页解析成功")
-
-        // 提取 shareid
+        
         var shareid = ""
         if let sid = yunData["shareid"] as? String { shareid = sid
         } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
-
-        // 提取 share_uk
+        
         var shareUk = ""
         if let uk = yunData["share_uk"] as? String { shareUk = uk
         } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
         } else if let uk = yunData["uk"] as? String { shareUk = uk
         } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
-
-        // 提取文件列表中的 fsId
+        
         var files: [BaiduFileItem] = []
         if let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
             for item in fileList {
@@ -739,22 +735,36 @@ class CloudDriveManager: ObservableObject {
             }
             baiduLog("[Baidu] 文件列表: \(files.map { $0.name })")
         } else {
-            baiduLog("[Baidu] ❌ 文件列表为空")
+            baiduLog("[Baidu] ⚠️ 页面未返回文件列表，尝试从HTML正则提取...")
+            if let fidMatch = try? NSRegularExpression(pattern: #""fs_id":\s*(\d+)"#),
+               let nameMatch = try? NSRegularExpression(pattern: #""server_filename":\s*"([^"]+)"#) {
+                let fidResults = fidMatch.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                let nameResults = nameMatch.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                for i in 0..<min(fidResults.count, nameResults.count > 0 ? nameResults.count : fidResults.count) {
+                    if let fidR = Range(fidResults[i].range(at: 1), in: html) {
+                        let fsId = String(html[fidR])
+                        let fileName = (nameResults.count > i && Range(nameResults[i].range(at: 1), in: html) != nil) ? String(html[Range(nameResults[i].range(at: 1), in: html)!]) : "文件\(i+1)"
+                        files.append(BaiduFileItem(fsId: fsId, name: fileName))
+                    }
+                }
+                if !files.isEmpty {
+                    baiduLog("[Baidu] 正则提取到 \(files.count) 个文件")
+                }
+            }
         }
-
+        
         if shareid.isEmpty || shareUk.isEmpty {
             baiduLog("[Baidu] ❌ 无法提取 shareid 或 shareUk")
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
         if files.isEmpty {
-            baiduLog("[Baidu] ❌ 无法从分享页提取文件列表")
+            baiduLog("[Baidu] ❌ 文件列表为空")
             throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
         }
-
+        
         baiduLog("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), 共\(files.count)个文件")
         return (shareid, shareUk, files)
     }
-
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
         let url = URL(string: "https://pan.baidu.com/share/transfer")!
         var request = URLRequest(url: url)
