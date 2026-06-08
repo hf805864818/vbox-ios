@@ -674,28 +674,36 @@ class CloudDriveManager: ObservableObject {
             verifyReq.timeoutInterval = 10
             
             let (vData, vResp) = try await session.data(for: verifyReq)
-            if let vHTTPResp = vResp as? HTTPURLResponse {
-                if let sc = vHTTPResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
-                } else if let scs = vHTTPResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
-            }
             
-            if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
-               let errno = vJson["errno"] as? Int, errno == 0 {
-                baiduLog("[Baidu] ✅ 提取码验证成功")
-                var req2 = URLRequest(url: pageURL)
-                req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                req2.timeoutInterval = 15
-                let (data2, _) = try await session.data(for: req2)
-                guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
-                      let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
-                    throw DriveError.invalidResponse
+            // 从 JSON 响应中提取 randsk 并加入 Cookie
+            var randsk = ""
+            if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any] {
+                if let r = vJson["randsk"] as? String { randsk = r }
+                if let errno = vJson["errno"] as? Int, errno == 0 {
+                    baiduLog("[Baidu] ✅ 提取码验证成功")
+                    if !randsk.isEmpty {
+                        currentCookie += "; randsk=\(randsk)"
+                        baiduLog("[Baidu] randsk已合并到Cookie")
+                    }
+                    var req2 = URLRequest(url: pageURL)
+                    req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+                    req2.setValue(ua, forHTTPHeaderField: "User-Agent")
+                    req2.timeoutInterval = 15
+                    let (data2, _) = try await session.data(for: req2)
+                    guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
+                          let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
+                        throw DriveError.invalidResponse
+                    }
+                    html = newHtml
+                } else {
+                    let errno = vJson["errno"] as? Int ?? -1
+                    baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
+                    throw DriveError.noPlayURL("百度网盘：提取码验证失败")
                 }
-                html = newHtml
             } else {
-                let errno = (try? JSONSerialization.jsonObject(with: vData) as? [String: Any])?["errno"] as? Int ?? -1
-                baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
-                throw DriveError.noPlayURL("百度网盘：提取码验证失败")
+                // JSON解析失败
+                baiduLog("[Baidu] ❌ verify响应非JSON")
+                throw DriveError.invalidResponse
             }
         }
         
