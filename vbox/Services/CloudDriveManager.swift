@@ -776,11 +776,11 @@ class CloudDriveManager: ObservableObject {
                     } else if errno == 105 {
                         baiduLog("[Baidu] ❌ 触发风控 (errno=105)")
                         if !vidShareid.isEmpty, !vidUk.isEmpty {
+                            let shareid = vidShareid
+                            let shareUk = vidUk
                             do {
                                 let bypassed = try await baiduBypassVerify(shareid: vidShareid, uk: vidUk, surl: surl, cookie: currentCookie)
-                                shareid = vidShareid
-                                shareUk = vidUk
-                                files = [BaiduFileItem(fsId: bypassed.fsId, name: bypassed.name)]
+                                let files = [BaiduFileItem(fsId: bypassed.fsId, name: bypassed.name)]
                                 baiduLog("[Baidu] ✅ 绕过风控成功")
                                 return (shareid, shareUk, files)
                             } catch {
