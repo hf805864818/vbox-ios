@@ -262,13 +262,16 @@ class PlayerState: ObservableObject {
             case .invalidResponse: msg = "服务器响应异常"
             case .notImplemented: msg = "暂不支持"
             }
+            log("[PlayerV2] ❌ \(driveType.displayName) 播放失败: \(msg)")
             await MainActor.run {
                 loadError = msg
                 isLoading = false
             }
         } catch {
+            let msg = "解析异常: \(error.localizedDescription)"
+            log("[PlayerV2] ❌ \(driveType.displayName) \(msg)")
             await MainActor.run {
-                loadError = "解析异常: \(error.localizedDescription)"
+                loadError = msg
                 isLoading = false
             }
         }
