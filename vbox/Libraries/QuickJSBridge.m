@@ -10,7 +10,7 @@ void* QJSBridge_createRuntime(void) {
 
 void* QJSBridge_createContext(void* rt) {
     JSContext* ctx = JS_NewContext((JSRuntime*)rt);
-    js_std_add_helpers(ctx, 0, NULL);
+    // js_std_add_helpers(ctx, 0, NULL); // Removed - may not be available in static lib
     return ctx;
 }
 
