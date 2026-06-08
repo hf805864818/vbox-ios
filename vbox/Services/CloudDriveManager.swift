@@ -683,42 +683,9 @@ class CloudDriveManager: ObservableObject {
         
         if let pwd = pwd, (html.contains("请输入提取码") || html.contains("accessCode")) {
             baiduLog("[Baidu] 需要验证提取码...")
+            baiduLog("[Baidu] Cookie 片段: \(String(currentCookie.prefix(100)))...")
             
-            // 从分享页 HTML 提取 shareid、uk、bdstoken
-            var shareidForVerify = ""
-            var ukForVerify = ""
-            var bdstokenForVerify = ""
-            if let yunDataRange = html.range(of: "window.yunData="),
-               let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
-               let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
-                let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
-                let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
-                if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
-                   let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] {
-                    if let sid = yunData["shareid"] as? String { shareidForVerify = sid }
-                    else if let sid = yunData["shareid"] as? Int { shareidForVerify = String(sid) }
-                    if let uk = yunData["share_uk"] as? String { ukForVerify = uk }
-                    else if let uk = yunData["share_uk"] as? Int { ukForVerify = String(uk) }
-                    else if let uk = yunData["uk"] as? String { ukForVerify = uk }
-                    else if let uk = yunData["uk"] as? Int { ukForVerify = String(uk) }
-                    if let bdstoken = yunData["bdstoken"] as? String { bdstokenForVerify = bdstoken }
-                }
-            }
-            // 从 HTML 正则提取 logid、csrfToken 作为备选
-            if bdstokenForVerify.isEmpty {
-                if let logidRange = html.range(of: #""logid"\s*:\s*"([^"]+)""#, options: .regularExpression) {
-                    bdstokenForVerify = String(html[logidRange]).replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "logid:", with: "").trimmingCharacters(in: .whitespaces)
-                }
-                if bdstokenForVerify.isEmpty, let tokenRange = html.range(of: #""bdstoken"\s*:\s*"([^"]+)""#, options: .regularExpression) {
-                    let raw = String(html[tokenRange])
-                    if let valStart = raw.firstIndex(of: "\""), let valEnd = raw[raw.index(after: valStart)...].firstIndex(of: "\"") {
-                        bdstokenForVerify = String(raw[raw.index(after: valStart)..<valEnd])
-                    }
-                }
-            }
-            baiduLog("[Baidu] 提取页参数: shareid=\(shareidForVerify), uk=\(ukForVerify), bdstoken=\(bdstokenForVerify)")
-            
-            guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))") else {
+            guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0") else {
                 throw DriveError.invalidResponse
             }
             var verifyReq = URLRequest(url: verifyURL)
@@ -729,11 +696,7 @@ class CloudDriveManager: ObservableObject {
             verifyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
             verifyReq.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
             verifyReq.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
-            var verifyBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0"
-            if !shareidForVerify.isEmpty { verifyBody += "&shareid=\(shareidForVerify)" }
-            if !ukForVerify.isEmpty { verifyBody += "&uk=\(ukForVerify)" }
-            if !bdstokenForVerify.isEmpty { verifyBody += "&bdstoken=\(bdstokenForVerify)" }
-            verifyReq.httpBody = verifyBody.data(using: .utf8)
+            verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
             
             let (vData, _) = try await session.data(for: verifyReq)
