@@ -1,6 +1,7 @@
 #import "quickjs.h"
 #import "quickjs-libc.h"
 #import <Foundation/Foundation.h>
+#import <string.h>
 
 void* QJSBridge_createRuntime(void) {
     return JS_NewRuntime();
