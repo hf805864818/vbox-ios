@@ -716,27 +716,30 @@ class CloudDriveManager: ObservableObject {
                 // 但 shareid+uk+fsId 已齐，转存后就能播
             }
             
-            guard let verifyURL = URL(string: "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0") else {
-                throw DriveError.invalidResponse
-            }
-            var verifyReq = URLRequest(url: verifyURL)
-            verifyReq.httpMethod = "POST"
-            verifyReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            verifyReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-            verifyReq.setValue(ua, forHTTPHeaderField: "User-Agent")
-            verifyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-            verifyReq.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-            verifyReq.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
-            verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
-            verifyReq.timeoutInterval = 10
+            /* 直接用验证 URL 作为分享页 URL 的后备 — 实际使用 WebView 桥接发 verify */
+            let verifyURLString = "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0"
+            let verifyBodyString = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0"
             
-            // verify 带重试（最大2次，风控时延迟重试）
+            // verify 通过 WKWebView 发请求，绕开 URLSession 的 TLS 指纹
             var randsk = ""
             var verifyRetryCount = 0
             var verifyOK = false
             verifyLoop: while verifyRetryCount < 3 {
-                let (vData, _) = try await session.data(for: verifyReq)
-                baiduLog("[Baidu] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
+                let (vData, _) = try await BaiduWebViewBridge.shared.request(
+                    url: verifyURLString,
+                    method: "POST",
+                    headers: [
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Cookie": currentCookie,
+                        "User-Agent": ua,
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Origin": "https://pan.baidu.com",
+                        "Referer": "https://pan.baidu.com/s/1\(surl)",
+                    ],
+                    body: verifyBodyString,
+                    timeout: 15
+                )
+                baiduLog("[Baidu-WK] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
                 
                 guard let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
                       let errno = vJson["errno"] as? Int else {
@@ -766,18 +769,22 @@ class CloudDriveManager: ObservableObject {
                 }
             }
             
-            // 验证成功后处理 randsk + 重新请求页面
+            // 验证成功后处理 randsk + 重新请求页面（用 WebView bridge）
             if verifyOK {
                 baiduLog("[Baidu] ✅ 提取码验证成功")
                 if !randsk.isEmpty {
                     currentCookie += "; randsk=\(randsk)"
                     baiduLog("[Baidu] 已提取 randsk: \(randsk.prefix(20))...")
                 }
-                var req2 = URLRequest(url: pageURL)
-                req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                req2.timeoutInterval = 15
-                let (data2, _) = try await session.data(for: req2)
+                let (data2, _) = try await BaiduWebViewBridge.shared.request(
+                    url: pageURL.absoluteString,
+                    method: "GET",
+                    headers: [
+                        "Cookie": currentCookie,
+                        "User-Agent": ua,
+                    ],
+                    timeout: 15
+                )
                 guard let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
                     throw DriveError.invalidResponse
                 }
