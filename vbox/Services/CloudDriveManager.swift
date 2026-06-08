@@ -116,7 +116,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     // 转存完成后，异步清理转存的文件
-    private func scheduleCleanup(drive: DriveType, fileIds: [String], token: String, delay: TimeInterval = 180) {
+    private func scheduleCleanup(drive: DriveType, fileIds: [String], token: String, delay: TimeInterval = 30) {
         Task {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             await cleanupFiles(drive: drive, fileIds: fileIds, token: token)
@@ -351,7 +351,7 @@ class CloudDriveManager: ObservableObject {
         let playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
         print("[Quark] ✅ 播放地址: \(playURL.prefix(80))")
 
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 180)
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 4800)
 
         return PlayResult(
             url: playURL,
@@ -584,32 +584,20 @@ class CloudDriveManager: ObservableObject {
         let cookie = parsed.cookie
         let bdussOnly = parsed.bdussOnly
         let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
-        guard let first = files.first, !first.fsId.isEmpty else { throw DriveError.noPlayURL("百度：未从分享页提取到文件 ID") }
-        
-        // 双模式播放：优先尝试不转存直链模式，失败则转存
-        do {
-            baiduLog("[Baidu] 尝试模式 1：不转存直链模式...")
-            let result = try await baiduGetDirectLink(shareid: shareid, shareUk: shareUk, fsId: first.fsId, fileName: first.name, cookie: cookie)
-            baiduLog("[Baidu] ✅ 模式 1 成功，直接播放")
-            return result
-        } catch {
-            baiduLog("[Baidu] ⚠️ 模式 1 失败，回退到模式 2：转存模式...")
-            // 模式 1 失败，回退到转存模式
-            let _ = try await baiduEnsureFolder(bduss: bdussOnly)
-            let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: first.fsId, cookie: cookie)
-            let result = try await baiduGetPCSPlayURL(fileName: first.name, cookie: cookie)
-            baiduLog("[Baidu] ✅ 模式 2 成功，转存播放")
-            return result
-        }
+        guard let first = files.first, !first.fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID") }
+        let _ = try await baiduEnsureFolder(bduss: bdussOnly)
+        let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: first.fsId, cookie: cookie)
+        let result = try await baiduGetPCSPlayURL(fileName: first.name, cookie: cookie)
+        return result
     }
 
-    /// 播百度盘指定 fsId 的文件（兼容多文件选择）
+    /// 播百度盘指定fsId的文件（兼容多文件选择）
     func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String) async throws -> PlayResult {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
         let bdussOnly = parsed.bdussOnly
         let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
-        guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度：无法获取分享信息") }
+        guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度: 无法获取分享信息") }
         let fileName = files.first(where: { $0.fsId == fsId })?.name ?? "未知"
         let _ = try await baiduEnsureFolder(bduss: bdussOnly)
         let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
@@ -617,7 +605,7 @@ class CloudDriveManager: ObservableObject {
         return result
     }
 
-    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+            private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
         
         let surl: String
@@ -685,67 +673,38 @@ class CloudDriveManager: ObservableObject {
             verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
             
-            let (vData, _) = try await session.data(for: verifyReq)
+            let (vData, vResp) = try await session.data(for: verifyReq)
             
-            // 从验证响应中提取 randsk 并加入 Cookie
-            // 百度网盘验证接口返回示例：{"errno":0,"msg":"succ","randsk":"..."}
+            // 从 JSON 响应中提取 randsk 并加入 Cookie
             var randsk = ""
-            baiduLog("[Baidu] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
-            
             if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any] {
-                if let r = vJson["randsk"] as? String { 
-                    randsk = r 
-                    baiduLog("[Baidu] 提取到 randsk: \(r.prefix(20))...")
-                }
-                if let errno = vJson["errno"] as? Int {
-                    if errno == 0 {
-                        baiduLog("[Baidu] ✅ 提取码验证成功")
-                        // randsk 需要添加到 Cookie 中，用于后续访问
-                        if !randsk.isEmpty {
-                            currentCookie += "; randsk=\(randsk)"
-                            baiduLog("[Baidu] randsk 已合并到 Cookie")
-                        }
-                        // 验证成功后，重新用新 Cookie 请求原始页面
-                        var req2 = URLRequest(url: pageURL)
-                        req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                        req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                        req2.timeoutInterval = 15
-                        
-                        baiduLog("[Baidu] 重新请求分享页（带 randsk）...")
-                        let (data2, response2) = try await session.data(for: req2)
-                        
-                        guard let httpResp2 = response2 as? HTTPURLResponse, httpResp2.statusCode == 200 else {
-                            baiduLog("[Baidu] ❌ 重新请求失败：状态码=\((response2 as? HTTPURLResponse)?.statusCode ?? -1)")
-                            throw DriveError.invalidResponse
-                        }
-                        
-                        guard let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
-                            baiduLog("[Baidu] ❌ 重新请求数据无法解码")
-                            throw DriveError.invalidResponse
-                        }
-                        html = newHtml
-                        baiduLog("[Baidu] ✅ 重新请求成功，继续解析 yunData")
-                    } else if errno == -9 {
-                        baiduLog("[Baidu] ❌ 提取码错误 (errno=-9)")
-                        throw DriveError.noPlayURL("百度网盘：提取码错误")
-                    } else if errno == 4 {
-                        baiduLog("[Baidu] ❌ 需要验证码 (errno=4)")
-                        throw DriveError.noPlayURL("百度网盘：需要图形验证码，请在浏览器中访问获取完整 Cookie")
-                    } else {
-                        let errmsg = vJson["errmsg"] as? String ?? vJson["msg"] as? String ?? "错误码：\(errno)"
-                        baiduLog("[Baidu] ❌ 提取码验证失败 (errno=\(errno)): \(errmsg)")
-                        throw DriveError.noPlayURL("百度网盘：提取码验证失败 (\(errmsg))")
+                if let r = vJson["randsk"] as? String { randsk = r }
+                if let errno = vJson["errno"] as? Int, errno == 0 {
+                    baiduLog("[Baidu] ✅ 提取码验证成功")
+                    if !randsk.isEmpty {
+                        currentCookie += "; randsk=\(randsk)"
+                        baiduLog("[Baidu] randsk已合并到Cookie")
                     }
+                    var req2 = URLRequest(url: pageURL)
+                    req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+                    req2.setValue(ua, forHTTPHeaderField: "User-Agent")
+                    req2.timeoutInterval = 15
+                    let (data2, _) = try await session.data(for: req2)
+                    guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
+                          let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
+                        throw DriveError.invalidResponse
+                    }
+                    html = newHtml
                 } else {
-                    baiduLog("[Baidu] ❌ 验证响应没有 errno 字段")
-                    throw DriveError.invalidResponse
+                    let errno = vJson["errno"] as? Int ?? -1
+                    baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
+                    throw DriveError.noPlayURL("百度网盘：提取码验证失败")
                 }
             } else {
-                baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8).prefix(200))")
+                // JSON解析失败
+                baiduLog("[Baidu] ❌ verify响应非JSON")
                 throw DriveError.invalidResponse
             }
-        } else {
-            baiduLog("[Baidu] 不需要提取码验证，直接访问分享页")
         }
         
         var shareid = ""
@@ -850,11 +809,11 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 用 PCS 下载接口获取百度网盘文件直链（iBox 方案）
-    /// 转存到 /vbox 播放/ 后，通过文件路径获取带签名的播放地址
+    /// 转存到 /vbox播放/ 后，通过文件路径获取带签名的播放地址
     private func baiduGetPCSPlayURL(fileName: String, cookie: String) async throws -> PlayResult {
         // 对文件名进行 URL 编码
         let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? fileName
-        let filePath = "/vbox 播放/\(encodedName)"
+        let filePath = "/vbox播放/\(encodedName)"
         
         var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
         components.queryItems = [
@@ -872,123 +831,8 @@ class CloudDriveManager: ObservableObject {
 
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw DriveError.noPlayURL("百度：PCS 接口返回非 JSON")
+            throw DriveError.noPlayURL("百度: PCS接口返回非JSON")
         }
-        
-        // 检查错误
-        if let errno = json["errno"] as? Int, errno != 0 {
-            baiduLog("[Baidu] ❌ PCS 错误：errno=\(errno)")
-            throw DriveError.noPlayURL("百度：获取播放地址失败 (errno=\(errno))")
-        }
-        
-        // 提取直链
-        guard let urls = json["urls"] as? [[String: Any]],
-              let firstURL = urls.first,
-              let playURL = firstURL["url"] as? String else {
-            // 也可能是其他结构
-            if let url = json["url"] as? String {
-                return PlayResult(
-                    url: url,
-                    headers: [
-                        "Cookie": cookie,
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Referer": "https://pan.baidu.com/",
-                    ],
-                    driveType: .baidu
-                )
-            }
-            throw DriveError.noPlayURL("百度：PCS 未返回播放地址")
-        }
-
-        return PlayResult(
-            url: playURL,
-            headers: [
-                "Cookie": cookie,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://pan.baidu.com/",
-            ],
-            driveType: .baidu
-        )
-    }
-
-    /// 【新模式】不转存直链播放 - 通过 sharedownload API 获取直链
-    /// 无需转存，直接获取下载链接
-    private func baiduGetDirectLink(shareid: String, shareUk: String, fsId: String, fileName: String, cookie: String) async throws -> PlayResult {
-        baiduLog("[Baidu-Direct] 调用 sharedownload API 获取直链...")
-        
-        // 构造 sign 参数（需要 timestamp + sign）
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let signStr = "\(shareid)_\(shareUk)_\(fsId)_\(timestamp)"
-        let signData = signStr.data(using: .utf8) ?? Data()
-        let sign = signData.base64EncodedString()
-        
-        var components = URLComponents(string: "https://pan.baidu.com/api/sharedownload")!
-        components.queryItems = [
-            URLQueryItem(name: "app_id", value: "250528"),
-            URLQueryItem(name: "channel", value: "chunlei"),
-            URLQueryItem(name: "clienttype", value: "0"),
-            URLQueryItem(name: "web", value: "1"),
-            URLQueryItem(name: "sign", value: sign),
-            URLQueryItem(name: "timestamp", value: String(timestamp)),
-        ]
-        
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://pan.baidu.com/s/1\(shareid)", forHTTPHeaderField: "Referer")
-        
-        // POST body
-        let bodyParams = "encodings=1&fsidlist=[\(fsId)]&primaryid=\(shareid)&uk=\(shareUk)"
-        request.httpBody = bodyParams.data(using: .utf8)
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 else {
-            baiduLog("[Baidu-Direct] ❌ sharedownload 请求失败")
-            throw DriveError.invalidResponse
-        }
-        
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            baiduLog("[Baidu-Direct] ❌ 响应非 JSON")
-            throw DriveError.invalidResponse
-        }
-        
-        // 检查 errno
-        if let errno = json["errno"] as? Int {
-            if errno == -6 {
-                baiduLog("[Baidu-Direct] ❌ sign 验证失败，需要更精确的 sign 计算")
-                throw DriveError.noPlayURL("百度：签名验证失败")
-            } else if errno != 0 {
-                let errmsg = json["errmsg"] as? String ?? "错误码：\(errno)"
-                baiduLog("[Baidu-Direct] ❌ errno=\(errno), \(errmsg)")
-                throw DriveError.noPlayURL("百度：下载链接获取失败 (\(errmsg))")
-            }
-        }
-        
-        // 提取下载链接
-        guard let list = json["list"] as? [[String: Any]],
-              let firstFile = list.first,
-              let dlink = firstFile["dlink"] as? String else {
-            baiduLog("[Baidu-Direct] ❌ 未找到 dlink")
-            throw DriveError.noPlayURL("百度：sharedownload 未返回下载链接")
-        }
-        
-        baiduLog("[Baidu-Direct] ✅ 获取到 dlink: \(dlink.prefix(80))...")
-        
-        // 解码 dlink（百度返回的是转义过的 URL）
-        let decodedDlink = dlink.replacingOccurrences(of: "\\/", with: "/")
-        
-        return PlayResult(
-            url: decodedDlink,
-            headers: [
-                "Cookie": cookie,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://pan.baidu.com/",
-            ],
-            driveType: .baidu
-        )
-    }
         
         // 检查错误
         if let errno = json["errno"] as? Int, errno != 0 {
@@ -1190,7 +1034,7 @@ class CloudDriveManager: ObservableObject {
         let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
 
         // Step 5: 30秒后清理
-        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 180)
+        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 4800)
 
         return PlayResult(
             url: playURL,
@@ -1434,18 +1278,12 @@ enum DriveError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noPlayURL(let reason):
-            return "无法获取播放地址：\(reason)"
-        case .invalidResponse:
-            return "服务器响应无效"
-        case .invalidShareURL:
-            return "无效的分享链接"
-        case .saveFailed:
-            return "转存失败"
-        case .notImplemented:
-            return "该网盘暂不支持"
-        case .tokenNotConfigured(let name):
-            return "未配置\(name) Token，请在设置中添加"
+        case .noPlayURL(let reason): return "无法获取播放地址: \(reason)"
+        case .invalidResponse: return "服务器响应无效"
+        case .invalidShareURL: return "无效的分享链接"
+        case .saveFailed: return "转存失败"
+        case .notImplemented: return "该网盘暂不支持"
+        case .tokenNotConfigured(let name): return "未配置\(name) Token，请在设置中添加"
         }
     }
 }
