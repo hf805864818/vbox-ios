@@ -43,19 +43,45 @@ struct DanmakuOverlayViewV2: View {
 }
 
 struct EpisodePickerPanelV2: View {
-    let video: VodItem
+    @ObservedObject var playerState: PlayerState
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()),GridItem(.flexible()),GridItem(.flexible()),GridItem(.flexible())], spacing: 12) {
-                ForEach(1..<21, id: \.self) { ep in
-                    Button(action: {}) {
-                        Text("\(ep)").font(.system(size: 16)).foregroundColor(.white)
-                            .frame(minWidth: 56, minHeight: 56)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.1)))
+            if !playerState.baiduFileList.isEmpty {
+                // 百度网盘多文件列表
+                let columns = Array(repeating: GridItem(.flexible()), count: 4)
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
+                        Button(action: {
+                            playerState.switchBaiduFile(index: idx)
+                        }) {
+                            Text(episodeName(file.name, index: idx))
+                                .font(.system(size: 13))
+                                .foregroundColor(.white)
+                                .frame(minWidth: 56, minHeight: 56)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(idx == playerState.currentEpisodeIndex ? Color.blue : Color.white.opacity(0.1))
+                                )
+                        }
                     }
                 }
+                .padding()
+            } else {
+                // 普通多集占位
+                Text("暂无集数信息")
+                    .foregroundColor(.gray)
+                    .padding()
             }
         }
+    }
+    
+    private func episodeName(_ name: String, index: Int) -> String {
+        // 去掉扩展名，取短名
+        let cleaned = (name as NSString).deletingPathExtension
+        if cleaned.count > 8 {
+            return "\(index + 1)"
+        }
+        return cleaned
     }
 }
 

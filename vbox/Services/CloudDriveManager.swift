@@ -10,6 +10,12 @@ struct DriveToken: Codable {
 
 /// 网盘管理器 — 支持阿里云盘、夸克、百度、115、UC 的播放地址获取
 /// 每种网盘有不同的认证方式和 API 调用链路
+/// 百度网盘文件条目
+struct BaiduFileItem {
+    let fsId: String
+    let name: String
+}
+
 class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
@@ -557,12 +563,35 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 百度网盘：BDUSS → 分享链接 → transfer → dlink → 播放地址
+    /// 获取百度分享的文件列表（用于多文件选择）
+    func baiduGetFileList(shareURL: String, bduss: String) async throws -> [BaiduFileItem] {
+        let parsed = parseBaiduToken(bduss)
+        let cookie = parsed.cookie
+        let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+        return files
+    }
+
+    /// 播百度盘指定文件
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
         let bdussOnly = parsed.bdussOnly
-        let (shareid, shareUk, fsId) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie)
-        guard !fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID(fsId为空)") }
+        let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
+        guard let first = files.first, !first.fsId.isEmpty else { throw DriveError.noPlayURL("百度: 未从分享页提取到文件ID") }
+        let _ = try await baiduEnsureFolder(bduss: bdussOnly)
+        let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: first.fsId, cookie: cookie)
+        let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? first.fsId, cookie: cookie)
+        scheduleCleanup(drive: .baidu, fileIds: fsIds, token: bdussOnly, delay: 4800)
+        return result
+    }
+
+    /// 播百度盘指定fsId的文件
+    func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String) async throws -> PlayResult {
+        let parsed = parseBaiduToken(bduss)
+        let cookie = parsed.cookie
+        let bdussOnly = parsed.bdussOnly
+        let (shareid, shareUk, _) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
+        guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度: 无法获取分享信息") }
         let _ = try await baiduEnsureFolder(bduss: bdussOnly)
         let fsIds = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
         let result = try await baiduGetRealDownloadLink(fsId: fsIds.first ?? fsId, cookie: cookie)
@@ -570,7 +599,7 @@ class CloudDriveManager: ObservableObject {
         return result
     }
 
-    private func baiduExtractShareMeta(shareURL: String, cookie: String) async throws -> (shareid: String, shareUk: String, fsId: String) {
+    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         print("[Baidu] 提取分享信息：\(shareURL)")
 
         // Step 1: 构建分享页 URL（带 pwd）
@@ -636,14 +665,19 @@ class CloudDriveManager: ObservableObject {
         } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
 
         // 提取文件列表中的 fsId
-        var fsId = ""
+        var files: [BaiduFileItem] = []
         if let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
-            let first = fileList[0]
-            if let fid = first["fs_id"] as? String { fsId = fid
-            } else if let fid = first["fs_id"] as? Int64 { fsId = String(fid)
-            } else if let fid = first["fs_id"] as? Int { fsId = String(fid) }
-            let fileName = first["server_filename"] as? String ?? "未知"
-            print("[Baidu] 文件名=\(fileName), fs_id=\(fsId), 共\(fileList.count)个文件")
+            for item in fileList {
+                var fsId = ""
+                if let fid = item["fs_id"] as? String { fsId = fid
+                } else if let fid = item["fs_id"] as? Int64 { fsId = String(fid)
+                } else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
+                let fileName = item["server_filename"] as? String ?? "未知"
+                if !fsId.isEmpty {
+                    files.append(BaiduFileItem(fsId: fsId, name: fileName))
+                }
+            }
+            print("[Baidu] 文件列表: \(files.map { $0.name })")
         } else {
             print("[Baidu] ❌ 文件列表为空")
         }
@@ -652,13 +686,13 @@ class CloudDriveManager: ObservableObject {
             print("[Baidu] ❌ 无法提取 shareid 或 shareUk")
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
-        if fsId.isEmpty {
+        if files.isEmpty {
             print("[Baidu] ❌ 无法提取 fs_id")
             throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
         }
 
-        print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), fsId=\(fsId)")
-        return (shareid, shareUk, fsId)
+        print("[Baidu] ✅ 提取成功：shareid=\(shareid), shareUk=\(shareUk), 共\(files.count)个文件")
+        return (shareid, shareUk, files)
     }
 
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
