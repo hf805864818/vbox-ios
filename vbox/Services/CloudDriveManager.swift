@@ -649,11 +649,19 @@ class CloudDriveManager: ObservableObject {
         baiduLog("[Baidu] 请求 /share/init...")
         var (data, response) = try await session.data(for: makeRequest(url: initURL))
         guard let httpResp = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
+        guard httpResp.statusCode == 200 else {
+            baiduLog("[Baidu] ❌ /share/init 返回状态码: \(httpResp.statusCode)")
+            if httpResp.statusCode == 404 {
+                throw DriveError.noPlayURL("百度网盘：分享链接不存在或已失效")
+            }
+            throw DriveError.noPlayURL("百度网盘：请求失败(\(httpResp.statusCode))")
+        }
         if let sc = httpResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
         } else if let scs = httpResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
         
         guard var html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
-            throw DriveError.invalidResponse
+            baiduLog("[Baidu] ❌ 无法解码响应内容")
+            throw DriveError.noPlayURL("百度网盘：服务器返回异常数据")
         }
         
         // Step 3: 如果有提取码且页面需要验证，调 verify
@@ -673,9 +681,17 @@ class CloudDriveManager: ObservableObject {
             verifyReq.timeoutInterval = 10
             
             let (vData, vResp) = try await session.data(for: verifyReq)
+            
+            // 合并 verify 响应的 Cookie（含 randsk）
+            if let vHTTPResp = vResp as? HTTPURLResponse {
+                if let sc = vHTTPResp.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
+                } else if let scs = vHTTPResp.allHeaderFields["Set-Cookie"] as? [String] { currentCookie += "; " + scs.joined(separator: "; ") }
+            }
+            
             if let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
                let errno = vJson["errno"] as? Int, errno == 0 {
                 baiduLog("[Baidu] ✅ 提取码验证成功")
+                // 用合并了 randsk 的 Cookie 重新请求 share/init
                 (data, response) = try await session.data(for: makeRequest(url: initURL))
                 guard let httpResp2 = response as? HTTPURLResponse else { throw DriveError.invalidResponse }
                 if let sc = httpResp2.allHeaderFields["Set-Cookie"] as? String { currentCookie += "; " + sc
