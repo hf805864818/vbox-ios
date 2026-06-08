@@ -18,7 +18,7 @@ class SpiderManager: ObservableObject {
     @Published var allSites: [SiteConfig] = []
     @Published var engineError: String?
     @Published var customParsers: [ParseConfig] = []  // 用户自定义解析器
-    @Published var fallbackEnabled: Bool {   // 兜底源开关
+    @Published var fallbackEnabled: Bool = true {   // 兜底源开关
         didSet { UserDefaults.standard.set(fallbackEnabled, forKey: "fallback_enabled") }
     }
     @Published var customFallbackSites: [(name: String, api: String)] = []  // 自定义兜底源
@@ -1336,68 +1336,68 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] fetchDetail 请求: \(url.absoluteString)")
             let (data, response) = try await URLSession.shared.data(for: req)
 
-        if let httpResponse = response as? HTTPURLResponse {
-            print("[SpiderManager] fetchDetail 响应状态: \(httpResponse.statusCode)")
-            guard (200...299).contains(httpResponse.statusCode) else {
-                print("[SpiderManager] fetchDetail 非200状态码: \(httpResponse.statusCode)")
-                return nil
-            }
-        }
-
-        if let rawStr = String(data: data, encoding: .utf8) {
-            _ = String(rawStr.prefix(500))
-        }
-
-        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let list = json["list"] as? [[String: Any]],
-           let first = list.first {
-            // 打印完整字段名以便调试
-            print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
-
-            // 打印关键字段的内容，用于调试
-            print("[SpiderManager] === 关键字段内容 ===")
-            for key in ["vod_id", "id", "vod_name", "name", "vod_pic", "pic", "vod_play_url", "play_url", "url", "vod_play_from", "play_from", "from"] {
-                if first[key] != nil {
-                    let value = first[key] ?? "nil"
-                    if let stringValue = value as? String {
-                        print("[SpiderManager] \(key): '\(stringValue.prefix(50))...'")
-                    } else {
-                        print("[SpiderManager] \(key): \(value)")
-                    }
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[SpiderManager] fetchDetail 响应状态: \(httpResponse.statusCode)")
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    print("[SpiderManager] fetchDetail 非200状态码: \(httpResponse.statusCode)")
+                    return nil
                 }
             }
-            print("[SpiderManager] === 字段内容结束 ===")
 
-            let item = Self.makeVodItem(from: first, siteName: siteName)
-            print("[SpiderManager] nativeDetail(ids) \(siteName): 解析结果:")
-            print("[SpiderManager]   vodId: '\(item.vodId.prefix(20))...'")
-            print("[SpiderManager]   vodName: '\(item.vodName)'")
-            print("[SpiderManager]   vodPlayUrl: '\(item.vodPlayUrl?.prefix(50) ?? "nil")...'")
-            print("[SpiderManager]   vodPlayFrom: '\(item.vodPlayFrom?.prefix(30) ?? "nil")...'")
-
-            // 检查是否有播放地址
-            if let playUrl = item.vodPlayUrl, !playUrl.isEmpty {
-                print("[SpiderManager] ✅ nativeDetail 找到播放地址")
-            } else if let playFrom = item.vodPlayFrom, !playFrom.isEmpty,
-                      let playUrlRaw = item.vodPlayUrl {
-                print("[SpiderManager] ✅ nativeDetail 找到 playFrom+playUrl 组合")
-            } else {
-                print("[SpiderManager] ⚠️ nativeDetail 无播放地址")
-            }
-
-            return item
-        } else {
-            print("[SpiderManager] fetchDetail JSON解析失败或list为空")
-            // 尝试打印原始响应用于调试
             if let rawStr = String(data: data, encoding: .utf8) {
-                print("[SpiderManager] 原始响应(前200字符): \(rawStr.prefix(200))")
+                _ = String(rawStr.prefix(500))
             }
+
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let list = json["list"] as? [[String: Any]],
+               let first = list.first {
+                // 打印完整字段名以便调试
+                print("[SpiderManager] nativeDetail(ids) \(siteName) 第一条keys: \(first.keys.sorted())")
+
+                // 打印关键字段的内容，用于调试
+                print("[SpiderManager] === 关键字段内容 ===")
+                for key in ["vod_id", "id", "vod_name", "name", "vod_pic", "pic", "vod_play_url", "play_url", "url", "vod_play_from", "play_from", "from"] {
+                    if first[key] != nil {
+                        let value = first[key] ?? "nil"
+                        if let stringValue = value as? String {
+                            print("[SpiderManager] \(key): '\(stringValue.prefix(50))...'")
+                        } else {
+                            print("[SpiderManager] \(key): \(value)")
+                        }
+                    }
+                }
+                print("[SpiderManager] === 字段内容结束 ===")
+
+                let item = Self.makeVodItem(from: first, siteName: siteName)
+                print("[SpiderManager] nativeDetail(ids) \(siteName): 解析结果:")
+                print("[SpiderManager]   vodId: '\(item.vodId.prefix(20))...'")
+                print("[SpiderManager]   vodName: '\(item.vodName)'")
+                print("[SpiderManager]   vodPlayUrl: '\(item.vodPlayUrl?.prefix(50) ?? "nil")...'")
+                print("[SpiderManager]   vodPlayFrom: '\(item.vodPlayFrom?.prefix(30) ?? "nil")...'")
+
+                // 检查是否有播放地址
+                if let playUrl = item.vodPlayUrl, !playUrl.isEmpty {
+                    print("[SpiderManager] ✅ nativeDetail 找到播放地址")
+                } else if let playFrom = item.vodPlayFrom, !playFrom.isEmpty,
+                          let playUrlRaw = item.vodPlayUrl {
+                    print("[SpiderManager] ✅ nativeDetail 找到 playFrom+playUrl 组合")
+                } else {
+                    print("[SpiderManager] ⚠️ nativeDetail 无播放地址")
+                }
+
+                return item
+            } else {
+                print("[SpiderManager] fetchDetail JSON解析失败或list为空")
+                // 尝试打印原始响应用于调试
+                if let rawStr = String(data: data, encoding: .utf8) {
+                    print("[SpiderManager] 原始响应(前200字符): \(rawStr.prefix(200))")
+                }
+            }
+        } catch {
+            print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
         }
-    } catch {
-        print("[SpiderManager] fetchDetail(ids) \(siteName) 失败: \(error.localizedDescription)")
+        return nil
     }
-    return nil
-}
 
     nonisolated private func fetchDetailFromSearchList(url: URL, siteName: String, targetName: String) async -> VodItem? {
         do {
@@ -1554,6 +1554,4 @@ nonisolated private static func makeVodItem(from dict: [String: Any], siteName: 
             vodPlayUrl: vodPlayUrl
         )
     }
-}
-}
 }

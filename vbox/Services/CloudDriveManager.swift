@@ -628,21 +628,7 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
-    /// 播百度盘指定fsId的文件（兼容多文件选择）
-    func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String) async throws -> PlayResult {
-        let parsed = parseBaiduToken(bduss)
-        let cookie = parsed.cookie
-        let bdussOnly = parsed.bdussOnly
-        let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
-        guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度: 无法获取分享信息") }
-        let fileName = files.first(where: { $0.fsId == fsId })?.name ?? "未知"
-        let _ = try await baiduEnsureFolder(bduss: bdussOnly)
-        let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
-        let result = try await baiduGetPCSPlayURL(fileName: fileName, cookie: cookie)
-        return result
-    }
-
-            private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
         
         let surl: String
@@ -1031,41 +1017,6 @@ class CloudDriveManager: ObservableObject {
             driveType: .baidu
         )
     }
-        
-        // 检查错误
-        if let errno = json["errno"] as? Int, errno != 0 {
-            baiduLog("[Baidu] ❌ PCS错误: errno=\(errno)")
-            throw DriveError.noPlayURL("百度: 获取播放地址失败(errno=\(errno))")
-        }
-        
-        // 提取直链
-        guard let urls = json["urls"] as? [[String: Any]],
-              let firstURL = urls.first,
-              let playURL = firstURL["url"] as? String else {
-            // 也可能是其他结构
-            if let url = json["url"] as? String {
-                return PlayResult(
-                    url: url,
-                    headers: [
-                        "Cookie": cookie,
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Referer": "https://pan.baidu.com/",
-                    ],
-                    driveType: .baidu
-                )
-            }
-            throw DriveError.noPlayURL("百度: PCS未返回播放地址")
-        }
-
-        return PlayResult(
-            url: playURL,
-            headers: [
-                "Cookie": cookie,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://pan.baidu.com/",
-            ],
-            driveType: .baidu
-        )
 
     private func baiduEnsureFolder(bduss: String) async throws -> String {
         let listURL = URL(string: "https://pan.baidu.com/api/list?dir=/&order=time&desc=1&num=100&page=1&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
