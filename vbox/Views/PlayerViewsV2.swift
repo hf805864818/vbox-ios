@@ -122,6 +122,33 @@ class PlayerState: ObservableObject {
     @Published var danmakuItems: [DanmakuRenderItem] = []
     @Published var currentEpisodeIndex = 0
     @Published var debugLogs: [String] = []  // 可视化调试日志
+    @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
+    @Published var baiduShareURL: String = ""    // 百度分享链接
+    var baiduBduss: String = ""                  // 百度Token
+
+    /// 切换百度多文件中的指定文件播放
+    func switchBaiduFile(index: Int) {
+        guard index >= 0, index < baiduFileList.count else { return }
+        let file = baiduFileList[index]
+        let url = baiduShareURL
+        guard !url.isEmpty else { return }
+        
+        currentEpisodeIndex = index
+        isLoading = true
+        loadError = nil
+        currentTask?.cancel()
+        currentTask = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: url, bduss: baiduBduss, fsId: file.fsId)
+                await playDriveVideo(url: result.url, headers: result.headers)
+            } catch {
+                let msg = "\(file.name) 播放失败: \(error.localizedDescription)"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+            }
+        }
+    }
 
     /// 添加调试日志（同时打印到控制台和UI）
     private func log(_ msg: String) {
@@ -247,6 +274,47 @@ class PlayerState: ObservableObject {
                 isLoading = false
             }
             return
+        }
+        
+        // 百度网盘：先获取文件列表，多文件则展示选择列表
+        if driveType == .baidu {
+            do {
+                let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: tokens[0].value)
+                await MainActor.run {
+                    baiduFileList = files
+                    baiduShareURL = urlString
+                    baiduBduss = tokens[0].value
+                }
+                if files.count == 1 {
+                    // 单文件直接播
+                    do {
+                        let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
+                        await playDriveVideo(url: result.url, headers: result.headers)
+                    } catch {
+                        let msg = "百度播放失败: \(error.localizedDescription)"
+                        log("[PlayerV2] ❌ \(msg)")
+                        await MainActor.run { loadError = msg; isLoading = false }
+                    }
+                } else {
+                    // 多文件：播第一个，同时让用户可选集
+                    log("[PlayerV2] 百度多文件(\(files.count)个)，显示选集列表")
+                    currentEpisodeIndex = 0
+                    do {
+                        let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
+                        await playDriveVideo(url: result.url, headers: result.headers)
+                    } catch {
+                        let msg = "百度播放失败: \(error.localizedDescription)"
+                        log("[PlayerV2] ❌ \(msg)")
+                        await MainActor.run { loadError = msg; isLoading = false }
+                    }
+                }
+                return
+            } catch {
+                let msg = "百度解析失败: \(error.localizedDescription)"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+                return
+            }
         }
         
         do {
@@ -1136,7 +1204,7 @@ struct PlayerControlsView: View {
         // 侧边栏弹窗 - 选集
         .overlay(
             SidePanelView(isPresented: $playerState.showEpisodePicker, title: "选集") {
-                EpisodePickerPanelV2(video: video)
+                EpisodePickerPanelV2(playerState: playerState)
             }
         )
         // 侧边栏弹窗 - 清晰度
