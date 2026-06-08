@@ -774,7 +774,19 @@ class CloudDriveManager: ObservableObject {
                         baiduLog("[Baidu] ❌ 提取码错误 (errno=-9)")
                         throw DriveError.noPlayURL("百度网盘：提取码错误")
                     } else if errno == 105 {
-                        baiduLog("[Baidu] ❌ 触发风控 (errno=105)，可能需要更换网络或稍后重试")
+                        baiduLog("[Baidu] ❌ 触发风控 (errno=105)")
+                        if !vidShareid.isEmpty, !vidUk.isEmpty {
+                            do {
+                                let bypassed = try await baiduBypassVerify(shareid: vidShareid, uk: vidUk, surl: surl, cookie: currentCookie)
+                                shareid = vidShareid
+                                shareUk = vidUk
+                                files = [BaiduFileItem(fsId: bypassed.fsId, name: bypassed.name)]
+                                baiduLog("[Baidu] ✅ 绕过风控成功")
+                                return (shareid, shareUk, files)
+                            } catch {
+                                baiduLog("[Baidu] ⚠️ 绕过失败: \(error.localizedDescription)")
+                            }
+                        }
                         throw DriveError.noPlayURL("百度网盘：触发安全验证，请更换网络环境后重试")
                     } else if errno == 4 {
                         baiduLog("[Baidu] ❌ 需要验证码 (errno=4)")
@@ -894,6 +906,52 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.saveFailed
         }
         return [fsId]
+    }
+
+    /// 绕过提取码验证，直接用 shareid+uk 获取文件信息
+    /// 百度某些风控场景下验证失败，但可用 HTML 中提取的参数直接调 sharedownload
+    private func baiduBypassVerify(shareid: String, uk: String, surl: String, cookie: String) async throws -> (fsId: String, name: String) {
+        baiduLog("[Baidu-Bypass] 尝试绕过验证获取文件信息...")
+        var components = URLComponents(string: "https://pan.baidu.com/api/sharedownload")!
+        components.queryItems = [
+            URLQueryItem(name: "shareid", value: shareid),
+            URLQueryItem(name: "from", value: surl),
+            URLQueryItem(name: "uk", value: uk),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "clienttype", value: "0"),
+            URLQueryItem(name: "web", value: "1"),
+        ]
+        var req = URLRequest(url: components.url!)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
+        req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        req.httpBody = "encodings=1&primaryid=\(shareid)&uk=\(uk)".data(using: .utf8)
+        req.timeoutInterval = 15
+        
+        let (data, _) = try await session.data(for: req)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let errno = json["errno"] as? Int, errno == 0,
+           let list = json["list"] as? [[String: Any]], let first = list.first {
+            var fsId = ""
+            if let fid = first["fs_id"] as? String { fsId = fid }
+            else if let fid = first["fs_id"] as? Int64 { fsId = String(fid) }
+            else if let fid = first["fs_id"] as? Int { fsId = String(fid) }
+            let name = first["server_filename"] as? String ?? first["filename"] as? String ?? "未知"
+            if !fsId.isEmpty {
+                baiduLog("[Baidu-Bypass] ✅ 绕过成功: fsId=\(fsId), name=\(name)")
+                return (fsId, name)
+            }
+        }
+        if let errno = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["errno"] as? Int {
+            baiduLog("[Baidu-Bypass] ❌ 绕过失败: errno=\(errno)")
+        } else {
+            baiduLog("[Baidu-Bypass] ❌ 绕过失败: 响应解析失败")
+        }
+        throw DriveError.noPlayURL("百度网盘：验证失败且无法绕过")
     }
 
     /// 用 PCS 下载接口获取百度网盘文件直链（iBox 方案）
