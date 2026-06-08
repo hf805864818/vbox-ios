@@ -692,6 +692,7 @@ class CloudDriveManager: ObservableObject {
             verifyReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
             verifyReq.setValue(ua, forHTTPHeaderField: "User-Agent")
             verifyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            verifyReq.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
             verifyReq.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
             verifyReq.httpBody = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0".data(using: .utf8)
             verifyReq.timeoutInterval = 10
@@ -739,6 +740,9 @@ class CloudDriveManager: ObservableObject {
                     } else if errno == -9 {
                         baiduLog("[Baidu] ❌ 提取码错误 (errno=-9)")
                         throw DriveError.noPlayURL("百度网盘：提取码错误")
+                    } else if errno == 105 {
+                        baiduLog("[Baidu] ❌ 触发风控 (errno=105)，可能需要更换网络或稍后重试")
+                        throw DriveError.noPlayURL("百度网盘：触发安全验证，请更换网络环境后重试")
                     } else if errno == 4 {
                         baiduLog("[Baidu] ❌ 需要验证码 (errno=4)")
                         throw DriveError.noPlayURL("百度网盘：需要图形验证码，请在浏览器中访问获取完整 Cookie")
