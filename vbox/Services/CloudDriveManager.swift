@@ -611,38 +611,13 @@ class CloudDriveManager: ObservableObject {
         let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
         guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度：无法获取分享信息") }
         let fileName = files.first(where: { $0.fsId == fsId })?.name ?? "未知"
-        
-        // 双模式播放：优先尝试不转存直链模式
-        do {
-            baiduLog("[Baidu] 尝试模式 1：不转存直链模式...")
-            let result = try await baiduGetDirectLink(shareid: shareid, shareUk: shareUk, fsId: fsId, fileName: fileName, cookie: cookie)
-            baiduLog("[Baidu] ✅ 模式 1 成功，直接播放")
-            return result
-        } catch {
-            baiduLog("[Baidu] ⚠️ 模式 1 失败，回退到模式 2：转存模式...")
-            let _ = try await baiduEnsureFolder(bduss: bdussOnly)
-            let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
-            let result = try await baiduGetPCSPlayURL(fileName: fileName, cookie: cookie)
-            baiduLog("[Baidu] ✅ 模式 2 成功，转存播放")
-            return result
-        }
-    }
-
-    /// 播百度盘指定fsId的文件（兼容多文件选择）
-    func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String) async throws -> PlayResult {
-        let parsed = parseBaiduToken(bduss)
-        let cookie = parsed.cookie
-        let bdussOnly = parsed.bdussOnly
-        let (shareid, shareUk, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: false)
-        guard !shareid.isEmpty else { throw DriveError.noPlayURL("百度: 无法获取分享信息") }
-        let fileName = files.first(where: { $0.fsId == fsId })?.name ?? "未知"
         let _ = try await baiduEnsureFolder(bduss: bdussOnly)
         let _ = try await baiduTransferFile(shareid: shareid, surl: shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? "", shareUk: shareUk, fsId: fsId, cookie: cookie)
         let result = try await baiduGetPCSPlayURL(fileName: fileName, cookie: cookie)
         return result
     }
 
-            private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
         
         let surl: String
@@ -769,26 +744,8 @@ class CloudDriveManager: ObservableObject {
                 baiduLog("[Baidu] ❌ 验证响应解析失败：\(String(data: vData, encoding: .utf8).prefix(200))")
                 throw DriveError.invalidResponse
             }
-                    var req2 = URLRequest(url: pageURL)
-                    req2.setValue(currentCookie, forHTTPHeaderField: "Cookie")
-                    req2.setValue(ua, forHTTPHeaderField: "User-Agent")
-                    req2.timeoutInterval = 15
-                    let (data2, _) = try await session.data(for: req2)
-                    guard let httpResp2 = response as? HTTPURLResponse, httpResp2.statusCode == 200,
-                          let newHtml = String(data: data2, encoding: .utf8) ?? String(data: data2, encoding: .ascii) else {
-                        throw DriveError.invalidResponse
-                    }
-                    html = newHtml
-                } else {
-                    let errno = vJson["errno"] as? Int ?? -1
-                    baiduLog("[Baidu] ❌ 提取码验证失败(errno=\(errno))")
-                    throw DriveError.noPlayURL("百度网盘：提取码验证失败")
-                }
-            } else {
-                // JSON解析失败
-                baiduLog("[Baidu] ❌ verify响应非JSON")
-                throw DriveError.invalidResponse
-            }
+        } else {
+            baiduLog("[Baidu] 不需要提取码验证，直接访问分享页")
         }
         
         var shareid = ""
