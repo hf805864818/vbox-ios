@@ -133,6 +133,7 @@ class PlayerState: ObservableObject {
         let url = baiduShareURL
         guard !url.isEmpty else { return }
         
+        log("[Baidu] 选集\(index+1): \(file.name)，转存→获取播放地址...")
         currentEpisodeIndex = index
         isLoading = true
         loadError = nil
@@ -141,11 +142,21 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             do {
                 let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: url, bduss: baiduBduss, fsId: file.fsId)
+                log("[Baidu] ✅ 选集\(index+1)播放地址获取成功")
                 await playDriveVideo(url: result.url, headers: result.headers)
+            } catch let error as DriveError {
+                let specificMsg: String
+                switch error {
+                case .noPlayURL(let reason): specificMsg = reason
+                case .saveFailed: specificMsg = "转存失败"
+                case .invalidResponse: specificMsg = "服务器响应异常"
+                default: specificMsg = error.localizedDescription
+                }
+                log("[Baidu] ❌ 选集\(index+1): \(specificMsg)")
+                await MainActor.run { loadError = specificMsg; isLoading = false }
             } catch {
-                let msg = "\(file.name) 播放失败: \(error.localizedDescription)"
-                log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                log("[Baidu] ❌ 选集\(index+1): \(error.localizedDescription)")
+                await MainActor.run { loadError = "播放失败: \(error.localizedDescription)"; isLoading = false }
             }
         }
     }
@@ -278,41 +289,72 @@ class PlayerState: ObservableObject {
         
         // 百度网盘：先获取文件列表，多文件则展示选择列表
         if driveType == .baidu {
+            log("[Baidu] ①请求分享页...")
             do {
                 let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: tokens[0].value)
+                log("[Baidu] ✅ 成功，共\(files.count)个文件: \(files.map { $0.name }.joined(separator: ", "))")
                 await MainActor.run {
                     baiduFileList = files
                     baiduShareURL = urlString
                     baiduBduss = tokens[0].value
                 }
                 if files.count == 1 {
-                    // 单文件直接播
+                    log("[Baidu] ②单文件，转存→获取播放地址...")
                     do {
                         let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
+                        log("[Baidu] ✅ 播放地址获取成功")
                         await playDriveVideo(url: result.url, headers: result.headers)
+                    } catch let error as DriveError {
+                        let specificMsg: String
+                        switch error {
+                        case .noPlayURL(let reason): specificMsg = reason
+                        case .saveFailed: specificMsg = "转存失败"
+                        case .invalidResponse: specificMsg = "服务器响应异常"
+                        default: specificMsg = error.localizedDescription
+                        }
+                        log("[Baidu] ❌ \(specificMsg)")
+                        await MainActor.run { loadError = specificMsg; isLoading = false }
                     } catch {
-                        let msg = "百度播放失败: \(error.localizedDescription)"
-                        log("[PlayerV2] ❌ \(msg)")
-                        await MainActor.run { loadError = msg; isLoading = false }
+                        log("[Baidu] ❌ \(error.localizedDescription)")
+                        await MainActor.run { loadError = "百度播放失败: \(error.localizedDescription)"; isLoading = false }
                     }
                 } else {
-                    // 多文件：播第一个，同时让用户可选集
-                    log("[PlayerV2] 百度多文件(\(files.count)个)，显示选集列表")
+                    log("[Baidu] ②多文件(\(files.count)个)，播第1集，可选集")
                     currentEpisodeIndex = 0
                     do {
                         let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
+                        log("[Baidu] ✅ 播放地址获取成功")
                         await playDriveVideo(url: result.url, headers: result.headers)
+                    } catch let error as DriveError {
+                        let specificMsg: String
+                        switch error {
+                        case .noPlayURL(let reason): specificMsg = reason
+                        case .saveFailed: specificMsg = "转存失败"
+                        case .invalidResponse: specificMsg = "服务器响应异常"
+                        default: specificMsg = error.localizedDescription
+                        }
+                        log("[Baidu] ❌ \(specificMsg)")
+                        await MainActor.run { loadError = specificMsg; isLoading = false }
                     } catch {
-                        let msg = "百度播放失败: \(error.localizedDescription)"
-                        log("[PlayerV2] ❌ \(msg)")
-                        await MainActor.run { loadError = msg; isLoading = false }
+                        log("[Baidu] ❌ \(error.localizedDescription)")
+                        await MainActor.run { loadError = "百度播放失败: \(error.localizedDescription)"; isLoading = false }
                     }
                 }
                 return
+            } catch let error as DriveError {
+                let specificMsg: String
+                switch error {
+                case .noPlayURL(let reason): specificMsg = reason
+                case .invalidShareURL: specificMsg = "无效的分享链接"
+                case .invalidResponse: specificMsg = "服务器响应异常"
+                default: specificMsg = error.localizedDescription
+                }
+                log("[Baidu] ❌ ①出错: \(specificMsg)")
+                await MainActor.run { loadError = specificMsg; isLoading = false }
+                return
             } catch {
-                let msg = "百度解析失败: \(error.localizedDescription)"
-                log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                log("[Baidu] ❌ ①出错: \(error.localizedDescription)")
+                await MainActor.run { loadError = "百度解析失败: \(error.localizedDescription)"; isLoading = false }
                 return
             }
         }
