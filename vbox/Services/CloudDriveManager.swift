@@ -602,47 +602,87 @@ class CloudDriveManager: ObservableObject {
     private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
         print("[Baidu] 提取分享信息：\(shareURL)")
 
-        // Step 1: 构建分享页 URL（带 pwd）
-        var sharePageURL = shareURL
-        if let pwdRange = shareURL.range(of: #"[?&]pwd=([^&]+)"#, options: .regularExpression),
-           let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+        // Step 1: 从 URL 提取 pwd（提取码）
+        let pwd: String?
+        if let match = try? NSRegularExpression(pattern: #"[?&]pwd=([^&]+)"#).firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let r = Range(match.range(at: 1), in: shareURL) {
-            let pwd = String(shareURL[r])
-            print("[Baidu] 检测到提取码: \(pwd)")
+            pwd = String(shareURL[r])
+            print("[Baidu] 检测到提取码: \(pwd!)")
+        } else {
+            pwd = nil
         }
 
-        // Step 2: 请求分享页 HTML 并提取 yunData
+        // Step 2: 手动处理重定向，获取分享页最终 HTML
+        // 百度 /s/1xxx 会 302 到 /share/init?surl=xxx&pwd=xxx
         guard let pageUrl = URL(string: shareURL) else { throw DriveError.invalidShareURL }
         var req = URLRequest(url: pageUrl)
         req.setValue(cookie, forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 15
 
-        let (data, _) = try await session.data(for: req)
-        guard let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
-            print("[Baidu] ❌ 分享页内容非文本")
+        var currentReq = req
+        var currentCookie = cookie
+        var html: String?
+        
+        // 最多跟踪 3 次重定向
+        for _ in 0..<3 {
+            let (data, response) = try await session.data(for: currentReq)
+            
+            guard let httpResp = response as? HTTPURLResponse else {
+                throw DriveError.invalidResponse
+            }
+            
+            // 收集响应中的 Set-Cookie
+            if let setCookie = httpResp.allHeaderFields["Set-Cookie"] as? String {
+                currentCookie += "; " + setCookie
+            }
+            
+            if httpResp.statusCode >= 300 && httpResp.statusCode < 400 {
+                // 重定向
+                guard let location = httpResp.allHeaderFields["Location"] as? String,
+                      let redirectURL = URL(string: location, relativeTo: pageUrl)?.absoluteString
+                        .replacingOccurrences(of: "//", with: "/")
+                        .replacingOccurrences(of: ":/", with: "://") else {
+                    throw DriveError.invalidResponse
+                }
+                let finalURL = redirectURL.hasPrefix("http") ? redirectURL : "https://pan.baidu.com" + redirectURL
+                print("[Baidu] 重定向到: \(finalURL)")
+                
+                currentReq = URLRequest(url: URL(string: finalURL)!)
+                currentReq.setValue(currentCookie, forHTTPHeaderField: "Cookie")
+                currentReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+                currentReq.timeoutInterval = 15
+                continue
+            } else if httpResp.statusCode == 200 {
+                html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii)
+                break
+            } else {
+                print("[Baidu] ❌ 请求返回状态码: \(httpResp.statusCode)")
+                throw DriveError.noPlayURL("百度网盘：请求失败(\(httpResp.statusCode))")
+            }
+        }
+        
+        guard let pageHTML = html else {
+            print("[Baidu] ❌ 获取分享页失败")
             throw DriveError.invalidResponse
         }
 
         // 从 HTML 中提取 yunData JSON
-        // 格式: window.yunData={...}
-        guard let yunDataRange = html.range(of: "window.yunData="),
-              let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
-              let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") else {
+        guard let yunDataRange = pageHTML.range(of: "window.yunData="),
+              let jsonStart = pageHTML[yunDataRange.upperBound...].range(of: "{"),
+              let jsonEnd = pageHTML[yunDataRange.upperBound...].range(of: "};") else {
             print("[Baidu] ❌ 未找到 yunData")
-            // 尝试检查页面是否包含错误信息
-            if html.contains("errno") || html.contains("error") {
-                throw DriveError.noPlayURL("百度网盘：分享链接可能已失效")
+            if pageHTML.contains("errno") || pageHTML.contains("error") || pageHTML.contains("验证") {
+                throw DriveError.noPlayURL("百度网盘：分享链接可能已失效或需要验证")
             }
             throw DriveError.noPlayURL("百度网盘：无法解析分享页，请确认链接有效")
         }
-
-        let jsonRawStart = yunDataRange.upperBound
-        let jsonContentStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
-        let jsonContentEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
-        let jsonStartIndex = html.index(html.startIndex, offsetBy: jsonContentStart)
-        let jsonEndIndex = html.index(html.startIndex, offsetBy: jsonContentEnd + 1)
-        let jsonStr = String(html[jsonStartIndex..<jsonEndIndex])
+        
+        let jsonContentStart = pageHTML.distance(from: pageHTML.startIndex, to: jsonStart.lowerBound)
+        let jsonContentEnd = pageHTML.distance(from: pageHTML.startIndex, to: jsonEnd.lowerBound)
+        let jsonStartIndex = pageHTML.index(pageHTML.startIndex, offsetBy: jsonContentStart)
+        let jsonEndIndex = pageHTML.index(pageHTML.startIndex, offsetBy: jsonContentEnd + 1)
+        let jsonStr = String(pageHTML[jsonStartIndex..<jsonEndIndex])
         
         guard let jsonData = jsonStr.data(using: .utf8),
               let yunData = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
@@ -687,7 +727,7 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
         }
         if files.isEmpty {
-            print("[Baidu] ❌ 无法提取 fs_id")
+            print("[Baidu] ❌ 无法从分享页提取文件列表")
             throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID，请确认分享链接有效")
         }
 
