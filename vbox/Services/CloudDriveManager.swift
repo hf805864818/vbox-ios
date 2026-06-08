@@ -1492,8 +1492,6 @@ enum DriveError: LocalizedError {
         }
     }
 }
-    }
-}
 
 // MARK: - 阿里云盘 API 响应模型
 
