@@ -1477,13 +1477,21 @@ enum DriveError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noPlayURL(let reason): return "无法获取播放地址: \(reason)"
-        case .invalidResponse: return "服务器响应无效"
-        case .invalidShareURL: return "无效的分享链接"
-        case .saveFailed: return "转存失败"
-        case .notImplemented: return "该网盘暂不支持"
-        case .tokenNotConfigured(let name): return "未配置\(name) Token，请在设置中添加"
+        case .noPlayURL(let reason):
+            return "无法获取播放地址：\(reason)"
+        case .invalidResponse:
+            return "服务器响应无效"
+        case .invalidShareURL:
+            return "无效的分享链接"
+        case .saveFailed:
+            return "转存失败"
+        case .notImplemented:
+            return "该网盘暂不支持"
+        case .tokenNotConfigured(let name):
+            return "未配置\(name) Token，请在设置中添加"
         }
+    }
+}
     }
 }
 
