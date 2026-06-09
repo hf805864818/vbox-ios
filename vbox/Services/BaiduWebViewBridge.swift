@@ -177,7 +177,7 @@ extension BaiduWebViewBridge: WKNavigationDelegate {
 }
 
 // MARK: - WKScriptMessageHandler
-extension BaiduWebViewBridge: WKScriptMessageHandler {
+extension BaiduWebViewBridge: WKScriptMessageHandlerWithReply {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, completionHandler: @escaping () -> Void) {
         guard let dict = message.body as? [String: Any],
               let id = dict["id"] as? String else { completionHandler(); return }
