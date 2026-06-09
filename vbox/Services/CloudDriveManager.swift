@@ -768,13 +768,6 @@ class CloudDriveManager: ObservableObject {
                     baiduLog("[Baidu] ❌ 验证失败：\(em)")
                     throw DriveError.noPlayURL("百度网盘：验证失败 (\(em))")
                 }
-                    baiduLog("[Baidu] ❌ 2次风控重试均失败")
-                    throw DriveError.noPlayURL("百度网盘：触发安全验证，请稍后重试")
-                } else {
-                    let em = vJson["errmsg"] as? String ?? "errno=\(errno)"
-                    baiduLog("[Baidu] ❌ 验证失败: \(em)")
-                    throw DriveError.noPlayURL("百度网盘：验证失败 (\(em))")
-                }
             }
             
             // 验证成功后处理 randsk + 重新请求页面（用 WebView bridge）
@@ -892,51 +885,9 @@ class CloudDriveManager: ObservableObject {
                 }
             }
         }
-        }
-        
-        var files: [BaiduFileItem] = []
-        if let yunDataRange = html.range(of: "window.yunData="),
-           let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
-           let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
-            let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
-            let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
-            if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
-               let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any],
-               let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
-                for item in fileList {
-                    var fsId = ""
-                    if let fid = item["fs_id"] as? String { fsId = fid
-                    } else if let fid = item["fs_id"] as? Int64 { fsId = String(fid)
-                    } else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
-                    let fileName = item["server_filename"] as? String ?? "未知"
-                    if !fsId.isEmpty { files.append(BaiduFileItem(fsId: fsId, name: fileName)) }
-                }
-                baiduLog("[Baidu] yunData文件列表: \(files.map { $0.name })")
-            }
-        }
-        
-        if files.isEmpty {
-            if let fidRegex = try? NSRegularExpression(pattern: #""fs_id":\s*(\d+)"#),
-               let nameRegex = try? NSRegularExpression(pattern: #""server_filename":\s*"([^"]+)"#) {
-                let fidMatches = fidRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                let nameMatches = nameRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                for i in 0..<fidMatches.count {
-                    if let fidR = Range(fidMatches[i].range(at: 1), in: html) {
-                        let fsId = String(html[fidR])
-                        var fileName = "文件\(i+1)"
-                        if i < nameMatches.count, let nameR = Range(nameMatches[i].range(at: 1), in: html) {
-                            fileName = String(html[nameR])
-                        }
-                        files.append(BaiduFileItem(fsId: fsId, name: fileName))
-                    }
-                }
-                if !files.isEmpty {
-                    baiduLog("[Baidu] 正则提取到 \(files.count) 个文件")
-                }
-            }
-        }
         
         if shareid.isEmpty || shareUk.isEmpty {
+
             baiduLog("[Baidu] ❌ 无法提取 shareid 或 shareUk")
             // 检查是否需要提取码但未成功
             if pwd != nil {
