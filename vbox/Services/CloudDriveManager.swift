@@ -681,6 +681,11 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("百度网盘：服务器返回异常数据")
         }
         
+        // 声明解析结果变量
+        var shareid = ""
+        var shareUk = ""
+        var files: [BaiduFileItem] = []
+        
         if let pwd = pwd, (html.contains("请输入提取码") || html.contains("accessCode")) {
             baiduLog("[Baidu] 需要验证提取码...")
             baiduLog("[Baidu] Cookie 片段: \(String(currentCookie.prefix(100)))...")
