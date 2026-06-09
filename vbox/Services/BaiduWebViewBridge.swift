@@ -178,12 +178,12 @@ extension BaiduWebViewBridge: WKNavigationDelegate {
 
 // MARK: - WKScriptMessageHandler
 extension BaiduWebViewBridge: WKScriptMessageHandler {
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, completionHandler: @escaping () -> Void) {
         guard let dict = message.body as? [String: Any],
-              let id = dict["id"] as? String else { return }
+              let id = dict["id"] as? String else { completionHandler(); return }
         
         queue.async { [weak self] in
-            guard let cb = self?.pendingRequests.removeValue(forKey: id) else { return }
+            guard let cb = self?.pendingRequests.removeValue(forKey: id) else { completionHandler(); return }
             
             if let success = dict["success"] as? Bool, success,
                let body = dict["body"] as? String {
@@ -199,6 +199,7 @@ extension BaiduWebViewBridge: WKScriptMessageHandler {
             } else {
                 cb(.failure(BridgeError.invalidResponse))
             }
+            completionHandler()
         }
     }
 }
