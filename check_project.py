@@ -1,9 +1,72 @@
+
 #!/usr/bin/env python3
-"""Comprehensive vbox-ios project check."""
+"""Comprehensive vbox-ios project check (fixed for Swift raw strings)."""
 import re, os, sys
 
 errors = []
 BASE = sys.argv[1] if len(sys.argv) > 1 else '.'
+
+def clean_swift_code(content):
+    """Clean Swift code by removing strings and comments."""
+    result = []
+    i = 0
+    n = len(content)
+    
+    while i < n:
+        # Check for // comment
+        if i+1 < n and content[i] == '/' and content[i+1] == '/':
+            while i < n and content[i] != '\n':
+                i += 1
+            continue
+        
+        # Check for /* comment
+        if i+1 < n and content[i] == '/' and content[i+1] == '*':
+            i += 2
+            while i+1 < n and not (content[i] == '*' and content[i+1] == '/'):
+                i += 1
+            i += 2
+            continue
+        
+        # Check for Swift raw string: #"..."# or ##"..."## etc.
+        if content[i] == '#':
+            hash_start = i
+            while i < n and content[i] == '#':
+                i += 1
+            if i < n and content[i] == '"':
+                i += 1
+                hash_count = i - hash_start - 1
+                while i < n:
+                    if content[i] == '"':
+                        ok = True
+                        for j in range(hash_count):
+                            if i+1+j >= n or content[i+1+j] != '#':
+                                ok = False
+                                break
+                        if ok:
+                            i += 1 + hash_count
+                            break
+                    i += 1
+                continue
+            else:
+                i = hash_start
+        
+        # Check for regular string "..."
+        if content[i] == '"':
+            i += 1
+            while i < n:
+                if content[i] == '\\':
+                    i += 2
+                elif content[i] == '"':
+                    i += 1
+                    break
+                else:
+                    i += 1
+            continue
+        
+        result.append(content[i])
+        i += 1
+    
+    return ''.join(result)
 
 def all_swift_files():
     for root, dirs, files in os.walk(BASE + '/vbox'):
@@ -20,10 +83,7 @@ for fpath in all_swift_files():
     if not fpath.endswith('.swift'): continue
     with open(fpath) as fh:
         content = fh.read()
-    clean = content
-    clean = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', clean)
-    clean = re.sub(r'//[^\n]*', '', clean)
-    clean = re.sub(r'/\*.*?\*/', '', clean, flags=re.DOTALL)
+    clean = clean_swift_code(content)
     diff = clean.count('{') - clean.count('}')
     if diff != 0:
         errors.append(f"{fpath}: brace imbalance ({diff:+d})")
@@ -58,7 +118,6 @@ for fpath in all_swift_files():
 
 for name, files in all_types.items():
     if len(files) > 1:
-        # Check if genuinely duplicate (not nested inside other types)
         errors.append(f"Duplicate type '{name}' in: {', '.join(files)}")
 
 if errors:
