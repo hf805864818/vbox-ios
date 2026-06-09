@@ -756,10 +756,18 @@ class CloudDriveManager: ObservableObject {
                     verifyRetryCount += 1
                     if verifyRetryCount < 3 {
                         let delay = verifyRetryCount * 3
-                        baiduLog("[Baidu] ❌ 风控 (errno=105)，\(delay)秒后重试 (\(verifyRetryCount)/2)")
+                        baiduLog("[Baidu] ❌ 风控 (errno=105)，\(delay) 秒后重试 (\(verifyRetryCount)/2)")
                         try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
                         continue verifyLoop
                     }
+                    baiduLog("[Baidu] ❌ 2 次风控重试均失败，回退到转存模式")
+                    // 不抛异常，使用 HTML 中已提取的 shareid/uk/fsId走转存模式
+                    break verifyLoop
+                } else {
+                    let em = vJson["errmsg"] as? String ?? "errno=\(errno)"
+                    baiduLog("[Baidu] ❌ 验证失败：\(em)")
+                    throw DriveError.noPlayURL("百度网盘：验证失败 (\(em))")
+                }
                     baiduLog("[Baidu] ❌ 2次风控重试均失败")
                     throw DriveError.noPlayURL("百度网盘：触发安全验证，请稍后重试")
                 } else {
@@ -790,25 +798,100 @@ class CloudDriveManager: ObservableObject {
                 }
                 html = newHtml
                 baiduLog("[Baidu] ✅ 重新请求分享页成功，继续解析 yunData")
+            } else {
+                // verify 失败（如风控），尝试获取文件信息
+                baiduLog("[Baidu] ⚠️ verify 失败，尝试获取文件信息...")
+                
+                // 第 1 步：先检查 HTML 中是否已提取到完整信息
+                if !vidShareid.isEmpty && !vidUk.isEmpty && !vidFsId.isEmpty {
+                    baiduLog("[Baidu] 使用 HTML 初始提取的参数")
+                    shareid = vidShareid
+                    shareUk = vidUk
+                    files = [BaiduFileItem(fsId: vidFsId, name: vidFileName)]
+                    baiduLog("[Baidu] ✅ 使用 HTML 提取参数：shareid=\(shareid), uk=\(shareUk), fsId=\(vidFsId)")
+                }
+                // 第 2 步：HTML 中没有 fsId，调用 WAP 绕过
+                else if !vidShareid.isEmpty && !vidUk.isEmpty {
+                    baiduLog("[Baidu] 尝试 WAP 绕过验证...")
+                    do {
+                        let (fsId, name) = try await baiduBypassVerify(shareid: vidShareid, uk: vidUk, surl: surl, cookie: currentCookie)
+                        files = [BaiduFileItem(fsId: fsId, name: name)]
+                        shareid = vidShareid
+                        shareUk = vidUk
+                        baiduLog("[Baidu] ✅ WAP 绕过成功：fsId=\(fsId), name=\(name)")
+                    } catch {
+                        baiduLog("[Baidu] ❌ WAP 绕过失败：\(error.localizedDescription)")
+                        throw DriveError.noPlayURL("百度网盘：验证失败且无法绕过，请尝试在浏览器中手动访问获取完整 Cookie")
+                    }
+                }
+                // 第 3 步：连 shareid/uk 都没有，彻底失败
+                else {
+                    baiduLog("[Baidu] ❌ 无法提取 shareid/uk，验证失败")
+                    throw DriveError.noPlayURL("百度网盘：验证失败且无法获取分享信息")
+                }
             }
         }
         
-        var shareid = ""
-        var shareUk = ""
-        if let yunDataRange = html.range(of: "window.yunData="),
-           let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
-           let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
-            let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
-            let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
-            if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
-               let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] {
-                if let sid = yunData["shareid"] as? String { shareid = sid
-                } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
-                if let uk = yunData["share_uk"] as? String { shareUk = uk
-                } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
-                } else if let uk = yunData["uk"] as? String { shareUk = uk
-                } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
+        // 如果 verify 失败但已通过 WAP 绕过获取到文件信息，跳过 yunData 解析
+        if files.isEmpty {
+            // verify 成功后从 yunData 解析
+            if let yunDataRange = html.range(of: "window.yunData="),
+               let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+               let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
+                let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+                let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+                if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
+                   let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any] {
+                    if let sid = yunData["shareid"] as? String { shareid = sid
+                    } else if let sid = yunData["shareid"] as? Int { shareid = String(sid) }
+                    if let uk = yunData["share_uk"] as? String { shareUk = uk
+                    } else if let uk = yunData["share_uk"] as? Int { shareUk = String(uk)
+                    } else if let uk = yunData["uk"] as? String { shareUk = uk
+                    } else if let uk = yunData["uk"] as? Int { shareUk = String(uk) }
+                }
             }
+            
+            if let yunDataRange = html.range(of: "window.yunData="),
+               let jsonStart = html[yunDataRange.upperBound...].range(of: "{"),
+               let jsonEnd = html[yunDataRange.upperBound...].range(of: "};") {
+                let jStart = html.distance(from: html.startIndex, to: jsonStart.lowerBound)
+                let jEnd = html.distance(from: html.startIndex, to: jsonEnd.lowerBound)
+                if let jData = String(html[html.index(html.startIndex, offsetBy: jStart)..<html.index(html.startIndex, offsetBy: jEnd + 1)]).data(using: .utf8),
+                   let yunData = try? JSONSerialization.jsonObject(with: jData) as? [String: Any],
+                   let fileList = yunData["file_list"] as? [[String: Any]], !fileList.isEmpty {
+                    for item in fileList {
+                        var fsId = ""
+                        if let fid = item["fs_id"] as? String { fsId = fid
+                        } else if let fid = item["fs_id"] as? Int64 { fsId = String(fid)
+                        } else if let fid = item["fs_id"] as? Int { fsId = String(fid) }
+                        let fileName = item["server_filename"] as? String ?? "未知"
+                        if !fsId.isEmpty { files.append(BaiduFileItem(fsId: fsId, name: fileName)) }
+                    }
+                    baiduLog("[Baidu] yunData 文件列表：\(files.map { $0.name })")
+                }
+            }
+            
+            if files.isEmpty {
+                if let fidRegex = try? NSRegularExpression(pattern: #""fs_id":\s*(\d+)"#),
+                   let nameRegex = try? NSRegularExpression(pattern: #""server_filename":\s*"([^"]+)"#) {
+                    let fidMatches = fidRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                    let nameMatches = nameRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                    for i in 0..<fidMatches.count {
+                        if let fidR = Range(fidMatches[i].range(at: 1), in: html) {
+                            let fsId = String(html[fidR])
+                            var fileName = "文件\(i+1)"
+                            if i < nameMatches.count, let nameR = Range(nameMatches[i].range(at: 1), in: html) {
+                                fileName = String(html[nameR])
+                            }
+                            files.append(BaiduFileItem(fsId: fsId, name: fileName))
+                        }
+                    }
+                    if !files.isEmpty {
+                        baiduLog("[Baidu] 正则提取到 \(files.count) 个文件")
+                    }
+                }
+            }
+        }
         }
         
         var files: [BaiduFileItem] = []
@@ -855,7 +938,12 @@ class CloudDriveManager: ObservableObject {
         
         if shareid.isEmpty || shareUk.isEmpty {
             baiduLog("[Baidu] ❌ 无法提取 shareid 或 shareUk")
-            throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
+            // 检查是否需要提取码但未成功
+            if pwd != nil {
+                throw DriveError.noPlayURL("百度网盘：需要提取码且无法绕过，请尝试在浏览器中手动访问获取完整 Cookie")
+            } else {
+                throw DriveError.noPlayURL("百度网盘：无法获取分享信息，请检查 Cookie 是否有效")
+            }
         }
         if files.isEmpty {
             baiduLog("[Baidu] ❌ 无法提取文件列表")
