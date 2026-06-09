@@ -1,0 +1,68 @@
+name: Build IPA (巨魔安装版)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  MARKETING_VERSION: "3.44"
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: 🏗️ Build
+        run: |
+          BUILD_NUM=$(git rev-list --count HEAD)
+          echo "Build: $BUILD_NUM  Version: ${{ env.MARKETING_VERSION }}"
+          xcodebuild -project vbox.xcodeproj \
+            -scheme vbox \
+            -sdk iphoneos \
+            -configuration Release \
+            -arch arm64 \
+            -derivedDataPath ./Build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_STYLE=Manual \
+            PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
+            MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
+            CURRENT_PROJECT_VERSION=$BUILD_NUM \
+            build 2>&1
+
+      - name: 📦 Package IPA
+        run: |
+          APP=$(find ./Build -name "vbox.app" -type d | head -1)
+          [ -z "$APP" ] && echo "No .app!" && exit 1
+          rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
+          [ ! -f "$APP/vbox" ] && echo "No vbox!" && exit 1
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -r vbox.ipa Payload/
+          echo "IPA: $(ls -lh vbox.ipa)"
+
+      - name: 📤 Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: vbox-ipa
+          path: vbox.ipa
+          compression-level: 0
+
+      - name: 🚀 Release
+        run: |
+          gh release delete "v${{ env.MARKETING_VERSION }}" --yes 2>/dev/null || true
+          gh release create "v${{ env.MARKETING_VERSION }}" \
+            --title "v${{ env.MARKETING_VERSION }}" \
+            --notes "版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})" \
+            vbox.ipa
+        env:
+          GH_TOKEN: ${{ github.token }}
+

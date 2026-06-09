@@ -1,0 +1,62 @@
+name: Build IPA (Debug)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 🔧 Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: 🏗️ Build with Verbose Output
+        run: |
+          xcodebuild \
+            -project vbox.xcodeproj \
+            -scheme vbox \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
+            ENABLE_BITCODE=NO \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            ONLY_ACTIVE_ARCH=NO \
+            VALIDATE_PRODUCT=false \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            GCC_PREPROCESSOR_DEFINITIONS='$(inherited)' \
+            OTHER_SWIFT_FLAGS='-v' \
+            clean archive \
+            2>&1 | tee build.log
+
+      - name: 📋 Show Build Log
+        if: failure()
+        run: |
+          echo "=== 完整的编译日志 ==="
+          cat build.log
+          
+          echo -e "\n=== 搜索错误信息 ==="
+          grep -i "error:" build.log | head -50
+          grep -i "fatal error" build.log | head -20
+
+      - name: 📦 Export IPA
+        if: success()
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
+            -exportPath ${{ github.workspace }}/build/ \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: 📤 Upload IPA
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: vbox-ipa
+          path: build/*.ipa

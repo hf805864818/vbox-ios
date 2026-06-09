@@ -1,0 +1,400 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10001 /* VBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* VBoxApp.swift */; };
+		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
+		A10003 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* AppSettings.swift */; };
+		A10004 /* SpiderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* SpiderModels.swift */; };
+		A10005 /* JSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* JSSpiderEngine.swift */; };
+		A10006 /* JSHTTPBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* JSHTTPBridge.swift */; };
+		A10007 /* SpiderRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* SpiderRepository.swift */; };
+		A10008 /* MainViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* MainViews.swift */; };
+		A10009 /* PlayerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* PlayerViews.swift */; };
+		A10010 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* SettingsViews.swift */; };
+		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
+		A10022 /* PlayerSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* PlayerSubViews.swift */; };
+		A10023 /* PlayerViewsV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* PlayerViewsV2.swift */; };
+		A10024 /* LogVarDanmakuService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* LogVarDanmakuService.swift */; };
+		A10025 /* PlayerViewsV2_Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* PlayerViewsV2_Extensions.swift */; };
+		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
+		A10026 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
+		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
+		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		A10020 /* js in Resources */ = {isa = PBXBuildFile; fileRef = B10030 /* js */; };
+		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
+		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
+		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
+		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
+		A10027 /* DoubanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* DoubanService.swift */; };
+		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
+		A10030 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* CategoryDetailView.swift */; };
+		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
+		A10033 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* BaiduWebViewBridge.swift */; };
+
+/* Begin PBXFileReference section */
+		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
+		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B10003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		B10004 /* SpiderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderModels.swift; sourceTree = "<group>"; };
+		B10005 /* JSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSSpiderEngine.swift; sourceTree = "<group>"; };
+		B10006 /* JSHTTPBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSHTTPBridge.swift; sourceTree = "<group>"; };
+		B10007 /* SpiderRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderRepository.swift; sourceTree = "<group>"; };
+		B10008 /* MainViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViews.swift; sourceTree = "<group>"; };
+		B10009 /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
+		B10010 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
+		B10023 /* PlayerViewsV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2.swift; sourceTree = "<group>"; };
+		B10024 /* LogVarDanmakuService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogVarDanmakuService.swift; sourceTree = "<group>"; };
+		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
+		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
+		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
+		B10022 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
+		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
+		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		B10026 /* DoubanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanService.swift; sourceTree = "<group>"; };
+		B10027 /* DoubanHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanHomeView.swift; sourceTree = "<group>"; };
+		B10032 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
+		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
+		B10033 /* BaiduWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWebViewBridge.swift; sourceTree = "<group>"; };
+		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
+		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
+		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
+		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
+		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
+		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		G10001 /* vbox */ = {
+			isa = PBXGroup;
+			children = (
+				G10002 /* App */,
+				G10003 /* Models */,
+				G10004 /* Services */,
+				G10010 /* Views */,
+				G10011 /* Resources */,
+				G10020 /* Libraries */,
+				B10014 /* Info.plist */,
+			);
+			path = vbox;
+			sourceTree = "<group>";
+		};
+		G10002 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B10001 /* VBoxApp.swift */,
+				B10002 /* ContentView.swift */,
+				B10003 /* AppSettings.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		G10003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10004 /* SpiderModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		G10004 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B10005 /* JSSpiderEngine.swift */,
+				B10006 /* JSHTTPBridge.swift */,
+				B10007 /* SpiderRepository.swift */,
+				B10020 /* UpdateManager.swift */,
+				B10011 /* QJSSpiderEngine.swift */,
+				B10019 /* SpiderManager.swift */,
+				B10015 /* SubscriptionManager.swift */,
+				B10016 /* CloudDriveManager.swift */,
+				B10024 /* LogVarDanmakuService.swift */,
+				B10026 /* DoubanService.swift */,
+				B10033 /* BaiduWebViewBridge.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		G10020 /* Libraries */ = {
+			isa = PBXGroup;
+			children = (
+				B10012 /* QuickJSBridge.m */,
+				B10017 /* libquickjs.a */,
+				B10018 /* QuickJSBridge.h */,
+			);
+			path = Libraries;
+			sourceTree = "<group>";
+		};
+		G10010 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+
+				B10008 /* MainViews.swift */,
+				B10009 /* PlayerViews.swift */,
+				B10010 /* SettingsViews.swift */,
+				B10022 /* PlayerSubViews.swift */,
+				B10023 /* PlayerViewsV2.swift */,
+				B10025 /* PlayerViewsV2_Extensions.swift */,
+				B10021 /* UpdateSheet.swift */,
+				B10027 /* DoubanHomeView.swift */,
+				B10032 /* CategoryDetailView.swift */,
+				B10031 /* TokenWebView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+
+
+		G10011 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B10013 /* Assets.xcassets */,
+				B10030 /* js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		G10999 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B10999 /* vbox.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXProject section */
+		P10001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+			};
+			buildConfigurationList = C10001 /* Build configuration list for PBXProject "vbox" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (en, "zh-Hans", Base);
+			mainGroup = G10001 /* vbox */;
+			productRefGroup = G10999 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (T10001 /* vbox */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXNativeTarget section */
+		T10001 /* vbox */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10002 /* Build configuration list for PBXNativeTarget "vbox" */;
+			buildPhases = (
+				P20001 /* Sources */,
+				P20003 /* Frameworks */,
+				P20002 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = vbox;
+			productName = vbox;
+			productReference = B10999 /* vbox.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXSourcesBuildPhase section */
+		P20001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001 /* VBoxApp.swift in Sources */,
+				A10002 /* ContentView.swift in Sources */,
+				A10003 /* AppSettings.swift in Sources */,
+				A10004 /* SpiderModels.swift in Sources */,
+				A10005 /* JSSpiderEngine.swift in Sources */,
+				A10006 /* JSHTTPBridge.swift in Sources */,
+				A10007 /* SpiderRepository.swift in Sources */,
+				A10008 /* MainViews.swift in Sources */,
+				A10009 /* PlayerViews.swift in Sources */,
+				A10010 /* SettingsViews.swift in Sources */,
+				A10011 /* QJSSpiderEngine.swift in Sources */,
+				A10012 /* QuickJSBridge.m in Sources */,
+				A10026 /* SubscriptionManager.swift in Sources */,
+				A10014 /* CloudDriveManager.swift in Sources */,
+				A10017 /* SpiderManager.swift in Sources */,
+				A10019 /* UpdateSheet.swift in Sources */,
+				A10018 /* UpdateManager.swift in Sources */,
+				A10022 /* PlayerSubViews.swift in Sources */,
+				A10023 /* PlayerViewsV2.swift in Sources */,
+				A10024 /* LogVarDanmakuService.swift in Sources */,
+				A10025 /* PlayerViewsV2_Extensions.swift in Sources */,
+				A10027 /* DoubanService.swift in Sources */,
+				A10028 /* DoubanHomeView.swift in Sources */,
+				A10030 /* CategoryDetailView.swift in Sources */,
+				A10029 /* TokenWebView.swift in Sources */,
+				A10033 /* BaiduWebViewBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		P20003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10016 /* libquickjs.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		P20002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10013 /* Assets.xcassets in Resources */,
+				A10020 /* js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		D10001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)");
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D10002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+			D10003 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_IDENTITY = "Apple Development";
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 339;
+					GENERATE_INFOPLIST_FILE = YES;
+					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
+					INFOPLIST_FILE = vbox/Info.plist;
+					INFOPLIST_KEY_CFBundleDisplayName = vbox;
+					INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
+					MARKETING_VERSION = 3.40;
+					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
+					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_OBJC_BRIDGING_HEADER = "vbox/vbox-Bridging-Header.h";
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = "1,2";
+				};
+				name = Debug;
+			};
+			D10004 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = "";
+					CODE_SIGN_IDENTITY = "";
+					CODE_SIGN_STYLE = Manual;
+					CURRENT_PROJECT_VERSION = 339;
+					GENERATE_INFOPLIST_FILE = YES;
+					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
+					INFOPLIST_FILE = vbox/Info.plist;
+					INFOPLIST_KEY_CFBundleDisplayName = vbox;
+					INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
+					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
+					MARKETING_VERSION = 3.40;
+					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
+					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
+					PRODUCT_NAME = "$(TARGET_NAME)";
+					SWIFT_EMIT_LOC_STRINGS = YES;
+					SWIFT_OBJC_BRIDGING_HEADER = "vbox/vbox-Bridging-Header.h";
+					SWIFT_VERSION = 5.0;
+					TARGETED_DEVICE_FAMILY = "1,2";
+				};
+				name = Release;
+			};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C10001 /* Build configuration list for PBXProject "vbox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (D10001 /* Debug */, D10002 /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10002 /* Build configuration list for PBXNativeTarget "vbox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (D10003 /* Debug */, D10004 /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = P10001 /* Project object */;
+}
