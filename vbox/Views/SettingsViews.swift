@@ -855,7 +855,7 @@ struct BaiduTestView: View {
             .navigationTitle("百度网盘测试")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { dismiss() }) {
                         Image(systemName: "xmark")
                             .foregroundColor(Color(hex: "E11D48"))
