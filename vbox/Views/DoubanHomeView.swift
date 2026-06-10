@@ -287,29 +287,38 @@ struct CategoryTilesView: View {
         ("movie", "🎬", "电影"), ("tv", "📺", "剧集"), ("variety", "🎭", "综艺"),
         ("top250", "🏆", "榜单"), ("animation", "🎨", "动漫"), ("hot", "🔥", "热门")
     ]
+    @State private var selectedCategory: (type: String, name: String)?
+    @State private var showCategorySheet = false
     
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(categories, id: \.0) { item in
-                    CategoryTile(icon: item.1, title: item.2, categoryType: item.0, settings: settings)
+                    CategoryTile(icon: item.1, title: item.2) {
+                        selectedCategory = (type: item.0, name: item.2)
+                        showCategorySheet = true
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
         .background(Color.white)
+        .sheet(isPresented: $showCategorySheet) {
+            if let category = selectedCategory {
+                CategoryDetailView(categoryType: category.type, categoryName: category.name)
+            }
+        }
     }
 }
 
 struct CategoryTile: View {
     let icon: String
     let title: String
-    let categoryType: String
-    let settings: AppSettings
+    let onTap: () -> Void
     
     var body: some View {
-        NavigationLink(destination: CategoryDetailView(categoryType: categoryType, categoryName: title)) {
+        Button(action: onTap) {
             VStack(spacing: 6) {
                 Text(icon).font(.system(size: 28))
                 Text(title)
@@ -320,6 +329,7 @@ struct CategoryTile: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.15), lineWidth: 1))
         }
+        .buttonStyle(.plain)
     }
 }
 
