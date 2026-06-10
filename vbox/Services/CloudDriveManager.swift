@@ -908,6 +908,25 @@ class CloudDriveManager: ObservableObject {
     private func baiduBypassVerify(shareid: String, uk: String, surl: String, cookie: String) async throws -> (fsId: String, name: String) {
         baiduLog("[Baidu-Bypass] 尝试绕过验证...")
 
+        let shareURL = "https://pan.baidu.com/s/\(surl)"
+        
+        do {
+            let response = try await BaiduProxyClient.shared.parseShareLink(
+                url: shareURL,
+                pwd: ""
+            )
+            if let success = response["success"] as? Bool, success,
+               let data = response["data"] as? [String: Any],
+               let files = data["files"] as? [[String: Any]], !files.isEmpty,
+               let fsId = files[0]["fs_id"] as? String, !fsId.isEmpty,
+               let fileName = files[0]["server_filename"] as? String {
+                baiduLog("[Baidu-Bypass] ✅ Cloudflare Worker 代理成功")
+                return (fsId, fileName)
+            }
+        } catch {
+            baiduLog("[Baidu-Bypass] ⚠️ Cloudflare Worker 代理失败: \(error.localizedDescription)")
+        }
+
         let userAgents = [
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
             "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
