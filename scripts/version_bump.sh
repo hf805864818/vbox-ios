@@ -11,6 +11,12 @@ fi
 
 COMMIT_COUNT=$(git rev-list --count HEAD)
 BUILD_NUMBER=$((COMMIT_COUNT + BASE_BUILD))
+EXISTING_BUILD=$(grep -m 1 "CURRENT_PROJECT_VERSION =" vbox.xcodeproj/project.pbxproj | sed -E 's/.*CURRENT_PROJECT_VERSION = ([0-9]+);.*/\1/')
+
+if [ -n "${EXISTING_BUILD}" ] && [ "${BUILD_NUMBER}" -le "${EXISTING_BUILD}" ]; then
+    BUILD_NUMBER=$((EXISTING_BUILD + 1))
+fi
+
 MARKETING_VERSION="${MAJOR_VERSION}.${BUILD_NUMBER}"
 
 echo "=== Auto Version Bump ==="
