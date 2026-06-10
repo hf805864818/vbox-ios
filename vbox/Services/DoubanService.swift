@@ -183,10 +183,11 @@ class DoubanService: ObservableObject {
     }
     
     func toVodItem(subject: DoubanSubject) -> VodItem {
+        let coverUrl = subject.coverImageURL ?? ""
         return VodItem(
             vodId: subject.id,
             vodName: subject.title,
-            vodPic: subject.cover_url ?? "",
+            vodPic: coverUrl,
             vodRemarks: subject.card_subtitle ?? subject.genreText,
             vodYear: subject.year
         )

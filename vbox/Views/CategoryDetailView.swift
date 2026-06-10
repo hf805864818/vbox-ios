@@ -251,7 +251,7 @@ struct CoverImageView: View {
     
     var body: some View {
         Group {
-            if let coverUrl = subject.cover_url, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+            if let coverUrl = subject.coverImageURL, let url = URL(string: coverUrl), !coverUrl.isEmpty {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
