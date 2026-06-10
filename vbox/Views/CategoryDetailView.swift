@@ -251,7 +251,7 @@ struct CoverImageView: View {
     
     var body: some View {
         Group {
-            if let coverUrl = subject.coverImageURL, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+            if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:

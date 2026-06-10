@@ -183,7 +183,7 @@ class DoubanService: ObservableObject {
     }
     
     func toVodItem(subject: DoubanSubject) -> VodItem {
-        let coverUrl = subject.coverImageURL ?? ""
+        let coverUrl = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL)?.absoluteString ?? ""
         return VodItem(
             vodId: subject.id,
             vodName: subject.title,
