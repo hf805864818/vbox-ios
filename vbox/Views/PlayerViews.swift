@@ -64,7 +64,7 @@ struct VideoDetailView: View {
                 VStack(spacing: 0) {
                     // 封面
                     ZStack(alignment: .bottomLeading) {
-                        AsyncImage(url: URL(string: video.vodPic)) { phase in
+                        AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
                             switch phase {
                             case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
                             default: Rectangle().fill(Color.gray.opacity(0.3))

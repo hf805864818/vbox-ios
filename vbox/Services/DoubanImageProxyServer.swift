@@ -4,6 +4,7 @@ import Network
 final class DoubanImageProxyServer {
     static let shared = DoubanImageProxyServer()
 
+    private let proxyPrefix = "proxy://"
     private let queue = DispatchQueue(label: "com.vbox.douban-image-proxy")
     private let cache = NSCache<NSString, NSData>()
     private var listener: NWListener?
@@ -54,19 +55,52 @@ final class DoubanImageProxyServer {
         }
     }
 
-    func proxiedURL(for rawURL: String?) -> URL? {
-        guard let rawURL, !rawURL.isEmpty else { return nil }
-        guard isAllowedDoubanImageURL(rawURL) else { return URL(string: rawURL) }
+    func markedURLString(for rawURL: String?) -> String? {
+        guard let targetURLString = targetURLString(from: rawURL), isAllowedDoubanImageURL(targetURLString) else {
+            return rawURL
+        }
 
+        return proxyPrefix + targetURLString
+    }
+
+    func resolvedURL(for urlString: String?) -> URL? {
+        guard let urlString, !urlString.isEmpty else { return nil }
+
+        if urlString.hasPrefix(proxyPrefix) {
+            return localProxyURL(for: String(urlString.dropFirst(proxyPrefix.count)))
+        }
+
+        return URL(string: urlString)
+    }
+
+    func proxiedURL(for rawURL: String?) -> URL? {
+        guard let targetURLString = targetURLString(from: rawURL), isAllowedDoubanImageURL(targetURLString) else {
+            return rawURL.flatMap(URL.init(string:))
+        }
+
+        return localProxyURL(for: targetURLString)
+    }
+
+    private func localProxyURL(for targetURLString: String) -> URL? {
         var components = URLComponents()
         components.scheme = "http"
         components.host = "127.0.0.1"
         components.port = Int(port)
         components.path = "/douban-cover"
         components.queryItems = [
-            URLQueryItem(name: "url", value: rawURL)
+            URLQueryItem(name: "url", value: targetURLString)
         ]
         return components.url
+    }
+
+    private func targetURLString(from rawURL: String?) -> String? {
+        guard let rawURL, !rawURL.isEmpty else { return nil }
+
+        if rawURL.hasPrefix(proxyPrefix) {
+            return String(rawURL.dropFirst(proxyPrefix.count))
+        }
+
+        return rawURL
     }
 
     private func handle(_ connection: NWConnection) {
