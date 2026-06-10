@@ -73,11 +73,10 @@ struct ContentView: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color(uiColor: .systemBackground))
-                        .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 2)
+                    Color(uiColor: .systemBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 )
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 8)
                 .padding(.bottom, 8)
             }
         }

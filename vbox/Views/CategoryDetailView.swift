@@ -109,6 +109,14 @@ struct CategoryDetailView: View {
             return try await doubanService.fetchHotAnimation(start: start, count: count)
         case "hot":
             return try await doubanService.fetchRecommendFeed(start: start, count: count)
+        case "documentary":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "live":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "music":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "sports":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
         default:
             return []
         }
