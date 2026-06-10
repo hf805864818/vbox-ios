@@ -524,6 +524,40 @@ class CloudDriveManager: ObservableObject {
     }
 
     func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
+        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: nil)
+    }
+
+    func resolveBaiduPlayURL(shareURL: String, bduss: String, pwd: String?) async throws -> PlayResult {
+        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: pwd)
+    }
+
+    /// 【新增】通过 Cloudflare Worker 代理获取播放地址
+    private func baiduResolveViaWorker(shareURL: String, pwd: String?) async throws -> PlayResult {
+        baiduLog("[Baidu-Worker] 调用 Cloudflare Worker 代理...")
+
+        let response = try await BaiduProxyClient.shared.getPlayURL(
+            shareURL: shareURL,
+            pwd: pwd ?? ""
+        )
+
+        guard let success = response["success"] as? Bool, success else {
+            let err = response["error"] as? String ?? "未知错误"
+            baiduLog("[Baidu-Worker] ❌ 失败：\(err)")
+            throw DriveError.noPlayURL("Worker 代理：\(err)")
+        }
+
+        guard let data = response["data"] as? [String: Any],
+              let playURL = data["url"] as? String, !playURL.isEmpty else {
+            baiduLog("[Baidu-Worker] ❌ 未返回播放地址")
+            throw DriveError.noPlayURL("Worker 代理：未返回播放地址")
+        }
+
+        let headers = (data["headers"] as? [String: String]) ?? [:]
+        baiduLog("[Baidu-Worker] ✅ 成功获取播放地址：\(playURL.prefix(80))...")
+        return PlayResult(url: playURL, headers: headers, driveType: .baidu)
+    }
+
+    private func resolveBaiduPlayURLInternal(shareURL: String, bduss: String, pwd: String?) async throws -> PlayResult {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
         let bdussOnly = parsed.bdussOnly
@@ -531,6 +565,7 @@ class CloudDriveManager: ObservableObject {
         guard let first = files.first, !first.fsId.isEmpty else { throw DriveError.noPlayURL("百度：未从分享页提取到文件 ID") }
 
         let strategies: [(String, () async throws -> PlayResult)] = [
+            ("Cloudflare Worker 代理", { try await self.baiduResolveViaWorker(shareURL: shareURL, pwd: pwd) }),
             ("get_video_info API", { try await self.baiduGetVideoInfoPlayURL(shareid: shareid, shareUk: shareUk, fsId: first.fsId, cookie: cookie) }),
             ("sharedownload API", { try await self.baiduGetDirectLink(shareid: shareid, shareUk: shareUk, fsId: first.fsId, fileName: first.name, cookie: cookie) }),
             ("PCS locatedownload", { try await self.baiduGetPCSPlayURL(fileName: first.name, cookie: cookie) }),
