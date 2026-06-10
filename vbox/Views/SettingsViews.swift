@@ -20,6 +20,7 @@ struct SettingsView: View {
     @State private var showFallbackSheet = false
     @State private var showParserSheet = false
     @State private var showBaiduTestView = false
+    @State private var showUniversalPlayTestView = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -171,6 +172,30 @@ struct SettingsView: View {
     private var cloudDriveSection: some View {
         SettingsSection(title: "网盘播放") {
             VStack(alignment: .leading, spacing: 12) {
+                // 通用播放测试入口
+                Button(action: { showUniversalPlayTestView = true }) {
+                    HStack {
+                        Image(systemName: "play.rectangle.on.rectangle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("通用播放测试工具")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.black)
+                            Text("支持网盘链接、mp4/m3u8、切片资源链接")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.gray.opacity(0.04))
+                }
+
                 // 百度网盘测试入口
                 Button(action: { showBaiduTestView = true }) {
                     HStack {
@@ -201,6 +226,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showBaiduTestView) {
             BaiduTestView()
+        }
+        .sheet(isPresented: $showUniversalPlayTestView) {
+            UniversalPlayTestView()
         }
     }
 
@@ -1036,6 +1064,186 @@ struct BaiduTestView: View {
     }
 }
 
+struct UniversalPlayTestView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var resourceURL = ""
+    @State private var displayName = "通用播放测试"
+    @State private var showPlayer = false
+    @State private var testVideo: VodItem?
+    @State private var warningText: String?
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        introSection
+                        inputSection
+
+                        if let warningText {
+                            warningSection(warningText)
+                        }
+                    }
+                    .padding(16)
+                }
+
+                Button(action: startPlayTest) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                        Text("打开播放器测试")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(canStart ? Color(hex: "E11D48") : Color.gray)
+                    .cornerRadius(12)
+                }
+                .disabled(!canStart)
+                .padding(16)
+                .background(Color.white)
+            }
+            .background(Color(hex: "F8FAFC"))
+            .navigationTitle("通用播放测试")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .foregroundColor(Color(hex: "E11D48"))
+                    }
+                }
+            }
+            .fullScreenCover(item: $testVideo) { video in
+                VideoPlayerViewV2(video: video)
+            }
+        }
+    }
+
+    private var canStart: Bool {
+        let trimmed = resourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+    }
+
+    private var introSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("用途")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.gray)
+
+            VStack(alignment: .leading, spacing: 8) {
+                InfoRow(icon: "externaldrive.connected.to.line.below", text: "网盘分享链接：百度、夸克、阿里、UC、115 等会走现有网盘解析")
+                InfoRow(icon: "film", text: "直链资源：mp4、m3u8、mov 等会直接交给播放器")
+                InfoRow(icon: "square.stack.3d.up", text: "切片资源：粘贴 m3u8 或站点解析出的播放链接即可测试")
+                InfoRow(icon: "exclamationmark.triangle", text: "mkv 当前仍受原生播放器限制，后续接 mpv 后再重点测试")
+            }
+            .padding(12)
+            .background(Color.white)
+            .cornerRadius(12)
+        }
+    }
+
+    private var inputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("资源链接")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.gray)
+
+            TextField("显示名称（可选）", text: $displayName)
+                .font(.system(size: 13))
+                .padding(12)
+                .background(Color.white)
+                .cornerRadius(10)
+
+            TextEditor(text: $resourceURL)
+                .font(.system(size: 13))
+                .frame(minHeight: 110)
+                .padding(8)
+                .background(Color.white)
+                .cornerRadius(10)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+                .onChange(of: resourceURL) { _ in
+                    updateWarning()
+                }
+
+            HStack(spacing: 8) {
+                Button("清空") {
+                    resourceURL = ""
+                    warningText = nil
+                }
+                .font(.system(size: 13))
+                .foregroundColor(.gray)
+
+                Spacer()
+
+                Text(detectedTypeText)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "E11D48"))
+            }
+        }
+    }
+
+    private var detectedTypeText: String {
+        let url = resourceURL.lowercased()
+        if CloudDriveManager.detectDrive(from: resourceURL) != nil { return "已识别：网盘链接" }
+        if url.contains(".m3u8") { return "已识别：m3u8 切片" }
+        if url.contains(".mp4") { return "已识别：mp4 直链" }
+        if url.contains(".mkv") { return "已识别：mkv（原生播放器可能不支持）" }
+        if canStart { return "已识别：普通 URL" }
+        return "请输入 http/https 链接"
+    }
+
+    private func warningSection(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.08))
+        .cornerRadius(12)
+    }
+
+    private func updateWarning() {
+        let lower = resourceURL.lowercased()
+        if lower.contains(".mkv") {
+            warningText = "当前 iOS 原生播放器对 MKV 支持较差。这个入口可以测试取链是否成功，但最终播放可能仍需后续接入 mpv。"
+        } else if CloudDriveManager.detectDrive(from: resourceURL) != nil {
+            warningText = "检测到网盘链接，会使用已保存的对应网盘 Token 解析播放；如果未配置 Token，播放器会提示。"
+        } else {
+            warningText = nil
+        }
+    }
+
+    private func startPlayTest() {
+        let trimmed = resourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "通用播放测试"
+            : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        testVideo = VodItem(
+            vodId: trimmed,
+            vodName: name,
+            vodPic: "",
+            vodRemarks: detectedTypeText,
+            vodYear: nil,
+            vodArea: nil,
+            vodDirector: nil,
+            vodActor: nil,
+            vodContent: nil,
+            vodPlayFrom: "通用测试",
+            vodPlayUrl: trimmed
+        )
+    }
+}
+
 struct InfoRow: View {
     let icon: String
     let text: String
@@ -1053,4 +1261,3 @@ struct InfoRow: View {
         }
     }
 }
-
