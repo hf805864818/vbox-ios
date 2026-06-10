@@ -8,7 +8,15 @@ final class DoubanImageProxyServer {
     private let queue = DispatchQueue(label: "com.vbox.douban-image-proxy")
     private let cache = NSCache<NSString, NSData>()
     private var listener: NWListener?
+    private var streamItems: [String: StreamItem] = [:]
     private(set) var port: UInt16 = 18080
+
+    private struct StreamItem {
+        let url: URL
+        let headers: [String: String]
+        let provider: String
+        let createdAt: Date
+    }
 
     private let allowedHosts: Set<String> = [
         "img1.doubanio.com",
@@ -38,7 +46,7 @@ final class DoubanImageProxyServer {
                 listener.stateUpdateHandler = { state in
                     switch state {
                     case .ready:
-                        print("✅ 豆瓣封面本地代理已启动: http://127.0.0.1:\(self.port)")
+                        print("✅ 本地代理已启动: http://127.0.0.1:\(self.port)")
                     case .failed(let error):
                         print("❌ 豆瓣封面本地代理启动失败: \(error)")
                         self.listener?.cancel()
@@ -79,6 +87,34 @@ final class DoubanImageProxyServer {
         }
 
         return localProxyURL(for: targetURLString)
+    }
+
+    func proxiedStreamURL(for sourceURL: String, headers: [String: String], provider: String = "baidu") -> URL? {
+        guard let targetURL = URL(string: sourceURL),
+              isAllowedStreamURL(sourceURL)
+        else {
+            return URL(string: sourceURL)
+        }
+
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        queue.sync {
+            self.cleanupExpiredStreams()
+            self.streamItems[id] = StreamItem(
+                url: targetURL,
+                headers: headers,
+                provider: provider,
+                createdAt: Date()
+            )
+            print("✅ 注册本地视频代理[\(provider)]: \(id), host=\(targetURL.host ?? "")")
+        }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/\(provider)-stream"
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        return components.url
     }
 
     private func localProxyURL(for targetURLString: String) -> URL? {
@@ -139,6 +175,11 @@ final class DoubanImageProxyServer {
         }
 
         let pathAndQuery = String(parts[1])
+        if pathAndQuery.hasPrefix("/baidu-stream") {
+            routeStream(pathAndQuery, requestText: requestText, on: connection)
+            return
+        }
+
         guard pathAndQuery.hasPrefix("/douban-cover"),
               let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
               let rawURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
@@ -156,6 +197,102 @@ final class DoubanImageProxyServer {
         }
 
         fetchImage(from: targetURL, cacheKey: cacheKey, on: connection)
+    }
+
+    private func routeStream(_ pathAndQuery: String, requestText: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let item = streamItems[id]
+        else {
+            send(statusCode: 404, body: Data("Stream Not Found".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let requestHeaders = parseRequestHeaders(requestText)
+        let incomingRange = requestHeaders["range"]
+        fetchStream(item: item, incomingRange: incomingRange, on: connection)
+    }
+
+    private func fetchStream(item: StreamItem, incomingRange: String?, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 30
+
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        if request.value(forHTTPHeaderField: "User-Agent") == nil {
+            request.setValue("netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;", forHTTPHeaderField: "User-Agent")
+        }
+        if request.value(forHTTPHeaderField: "Referer") == nil {
+            request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        if let range = normalizedRange(incomingRange) {
+            request.setValue(range, forHTTPHeaderField: "Range")
+        }
+
+        print("📡 本地视频代理请求[\(item.provider)]: range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? "")")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+
+            if let error {
+                print("❌ 本地视频代理拉流失败: \(error.localizedDescription)")
+                self.send(statusCode: 502, body: Data("Bad Gateway".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            guard let data else {
+                self.send(statusCode: 502, body: Data("Empty Stream".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            let http = response as? HTTPURLResponse
+            let statusCode = http?.statusCode ?? 200
+            let headers = http?.allHeaderFields ?? [:]
+            print("📥 本地视频代理响应: status=\(statusCode), bytes=\(data.count), range=\(http?.value(forHTTPHeaderField: "Content-Range") ?? "无")")
+            self.sendStream(statusCode: statusCode, headers: headers, body: data, on: connection)
+        }.resume()
+    }
+
+    private func normalizedRange(_ raw: String?) -> String? {
+        guard let raw, raw.lowercased().hasPrefix("bytes=") else {
+            return "bytes=0-2097151"
+        }
+
+        let text = raw.replacingOccurrences(of: "bytes=", with: "")
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard let startText = parts.first,
+              let start = Int(startText)
+        else {
+            return raw
+        }
+
+        if parts.count > 1, let end = Int(parts[1]) {
+            return "bytes=\(start)-\(end)"
+        }
+
+        let end = start + 2 * 1024 * 1024 - 1
+        return "bytes=\(start)-\(end)"
+    }
+
+    private func parseRequestHeaders(_ requestText: String) -> [String: String] {
+        var result: [String: String] = [:]
+        let lines = requestText.components(separatedBy: "\r\n")
+        for line in lines.dropFirst() {
+            guard let idx = line.firstIndex(of: ":") else { continue }
+            let key = line[..<idx].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = line[line.index(after: idx)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            result[key] = value
+        }
+        return result
     }
 
     private func fetchImage(from url: URL, cacheKey: NSString, on connection: NWConnection) {
@@ -219,6 +356,40 @@ final class DoubanImageProxyServer {
         })
     }
 
+    private func sendStream(statusCode: Int, headers: [AnyHashable: Any], body: Data, on connection: NWConnection) {
+        let reason = reasonPhrase(for: statusCode)
+        let contentType = (headers["Content-Type"] as? String)
+            ?? (headers["content-type"] as? String)
+            ?? "application/octet-stream"
+        let contentRange = (headers["Content-Range"] as? String)
+            ?? (headers["content-range"] as? String)
+        let acceptRanges = (headers["Accept-Ranges"] as? String)
+            ?? (headers["accept-ranges"] as? String)
+            ?? "bytes"
+
+        var header = """
+        HTTP/1.1 \(statusCode) \(reason)\r
+        Content-Type: \(contentType)\r
+        Content-Length: \(body.count)\r
+        Accept-Ranges: \(acceptRanges)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        """
+
+        if let contentRange {
+            header += "Content-Range: \(contentRange)\r\n"
+        }
+
+        header += "\r\n"
+
+        var response = Data(header.utf8)
+        response.append(body)
+
+        connection.send(content: response, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
     private func isAllowedDoubanImageURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL),
               let scheme = url.scheme?.lowercased(),
@@ -229,6 +400,23 @@ final class DoubanImageProxyServer {
         }
 
         return allowedHosts.contains(host)
+    }
+
+    private func isAllowedStreamURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(),
+              ["http", "https"].contains(scheme)
+        else {
+            return false
+        }
+
+        return host.contains("baidupcs.com") || host == "d.pcs.baidu.com"
+    }
+
+    private func cleanupExpiredStreams() {
+        let deadline = Date().addingTimeInterval(-30 * 60)
+        streamItems = streamItems.filter { $0.value.createdAt > deadline }
     }
 
     private func contentType(for url: URL) -> String {

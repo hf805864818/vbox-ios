@@ -413,7 +413,20 @@ class PlayerState: ObservableObject {
     }
     
     private func playDriveVideo(url: String, headers: [String: String]) async {
-        guard let urlObj = createURL(from: url) else {
+        let finalURLString: String
+        if url.contains("baidupcs.com") || url.contains("d.pcs.baidu.com") {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "baidu") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 百度PCS走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 百度本地代理创建失败，回退直连")
+            }
+        } else {
+            finalURLString = url
+        }
+
+        guard let urlObj = createURL(from: finalURLString) else {
             await MainActor.run {
                 loadError = "播放地址格式错误"
                 isLoading = false
@@ -421,7 +434,8 @@ class PlayerState: ObservableObject {
             return
         }
         
-        let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
+        let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": assetHeaders])
         let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
         p.automaticallyWaitsToMinimizeStalling = true
         
