@@ -128,11 +128,11 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotVariety(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_variety_show_hot", start: start, count: count)
+        return try await fetchCollection("tv_variety_show", start: start, count: count)
     }
     
     func fetchHotAnimation(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_animation_hot", start: start, count: count)
+        return try await fetchCollection("tv_animation", start: start, count: count)
     }
     
     func fetchRecommendFeed(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
@@ -144,26 +144,26 @@ class DoubanService: ObservableObject {
     
     /// 豆瓣电影周榜
     func fetchMovieWeekly(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_wish_weekly", start: start, count: count)
+        return try await fetchCollection("movie_weekly_best", start: start, count: count)
     }
     
     /// 豆瓣剧集周榜
     func fetchTvWeekly(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_wish_weekly", start: start, count: count)
+        return try await fetchCollection("tv_real_time_hotest", start: start, count: count)
     }
     
     // MARK: - 华语口碑剧集
     
     /// 华语口碑剧集
     func fetchPopularChiTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_popular_chi", start: start, count: count)
+        return try await fetchCollection("tv_chinese_best_weekly", start: start, count: count)
     }
     
     // MARK: - 一周口碑电影榜
     
     /// 一周口碑电影榜
     func fetchMovieTopWeekly(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_wish_weekly", start: start, count: count)
+        return try await fetchCollection("movie_hot_gaia", start: start, count: count)
     }
     
     // MARK: - 国内即将上映

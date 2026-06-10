@@ -54,35 +54,38 @@ struct ContentView: View {
                         } label: {
                             VStack(spacing: 2) {
                                 Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
-                                    .font(.system(size: 16))
-                                    .foregroundColor(selectedTab == tab ? .accentColor : Color(uiColor: .systemGray2))
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
                                 
                                 Text(tab.rawValue)
-                                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
-                                    .foregroundColor(selectedTab == tab ? .accentColor : Color(uiColor: .systemGray2))
+                                    .font(.system(size: 12, weight: selectedTab == tab ? .semibold : .regular))
+                                    .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(selectedTab == tab ? Color.accentColor.opacity(0.15) : .clear)
-                            )
+                            .padding(.vertical, 8)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .frame(maxWidth: min(UIScreen.main.bounds.width - 90, 320))
                 .background(
-                    Color(uiColor: .systemBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(0.9)))
+                        .overlay(
+                            Capsule()
+                                .stroke(Color(uiColor: .systemGray4), lineWidth: 1)
+                        )
                 )
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .clipShape(Capsule())
+                .padding(.bottom, 10)
             }
         }
         .environmentObject(settings)
-        .onChange(of: settings.searchQuery) { newVal in
-            if !newVal.isEmpty { selectedTab = .search }
+        .onChange(of: settings.searchRequestId) { _ in
+            if !settings.searchQuery.isEmpty { selectedTab = .search }
         }
         .onAppear {
             Task {
