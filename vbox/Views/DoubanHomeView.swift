@@ -191,8 +191,8 @@ struct BannerCard3D: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // 封面图
-            if let coverUrl = subject.coverImageURL, !coverUrl.isEmpty {
-                AsyncImage(url: URL(string: coverUrl)) { phase in
+            if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
+                AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
                         image
@@ -350,7 +350,7 @@ struct SubjectCard: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 // 封面图
-                if let coverUrl = subject.coverImageURL, let url = URL(string: coverUrl), !coverUrl.isEmpty {
+                if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):

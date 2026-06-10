@@ -1088,7 +1088,7 @@ struct DoubanCardItem: View {
         )) {
             HStack(spacing: 12) {
                 // 封面图
-                AsyncImage(url: URL(string: subject.coverImageURL ?? "")) { image in
+                AsyncImage(url: DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL)) { image in
                     image.resizable()
                         .aspectRatio(contentMode: .fill)
                 } placeholder: {
