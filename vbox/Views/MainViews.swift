@@ -372,7 +372,7 @@ struct FeaturedCard: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             // 封面图片
-            AsyncImage(url: URL(string: video.vodPic)) { phase in
+            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -481,7 +481,7 @@ struct VideoCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 // 封面
                 ZStack(alignment: .topTrailing) {
-                    AsyncImage(url: URL(string: video.vodPic)) { phase in
+                    AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -1065,7 +1065,7 @@ struct SearchResultRow: View {
     let video: VodItem
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
+            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.black).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { TagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { TagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { TagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
             Spacer()
             Image(systemName: "play.circle.fill").font(.system(size: 30)).foregroundColor(Color(hex: "E11D48"))
@@ -1088,7 +1088,7 @@ struct DoubanCardItem: View {
         )) {
             HStack(spacing: 12) {
                 // 封面图
-                AsyncImage(url: DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL)) { image in
+                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: subject.coverImageURL)) { image in
                     image.resizable()
                         .aspectRatio(contentMode: .fill)
                 } placeholder: {

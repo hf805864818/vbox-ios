@@ -35,12 +35,16 @@ struct DoubanSubject: Codable, Identifiable {
         guard let rawUrl = images?.large else { return nil }
         
         // 处理相对 URL
+        let normalizedUrl: String
         if rawUrl.hasPrefix("//") {
-            return "https:" + rawUrl
+            normalizedUrl = "https:" + rawUrl
         } else if !rawUrl.hasPrefix("http") {
-            return "https://" + rawUrl
+            normalizedUrl = "https://" + rawUrl
+        } else {
+            normalizedUrl = rawUrl
         }
-        return rawUrl
+
+        return DoubanImageProxyServer.shared.markedURLString(for: normalizedUrl)
     }
     
     var ratingValue: Double {
@@ -183,7 +187,7 @@ class DoubanService: ObservableObject {
     }
     
     func toVodItem(subject: DoubanSubject) -> VodItem {
-        let coverUrl = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL)?.absoluteString ?? ""
+        let coverUrl = subject.coverImageURL ?? ""
         return VodItem(
             vodId: subject.id,
             vodName: subject.title,
