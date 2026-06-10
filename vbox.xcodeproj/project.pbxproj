@@ -330,7 +330,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 357;
+					CURRENT_PROJECT_VERSION = 57;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
@@ -359,7 +359,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 357;
+					CURRENT_PROJECT_VERSION = 57;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
