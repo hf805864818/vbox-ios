@@ -114,10 +114,10 @@ class BaiduProxyClient {
     ///   - pwd: 提取码（可选）
     ///   - fsId: 文件 ID（可选，不填则取第一个）
     /// - Returns: 包含播放地址的 JSON
-    func getPlayURL(shareURL: String, pwd: String = "", fsId: String = "", cookie: String = "") async throws -> [String: Any] {
+    func getPlayURL(shareURL: String, pwd: String = "", fsId: String = "", cookie: String = "", pcsCookie: String = "") async throws -> [String: Any] {
         return try await sendRequest(
             path: "/api/baidu/play",
-            params: ["url": shareURL, "pwd": pwd, "fs_id": fsId, "cookie": cookie]
+            params: ["url": shareURL, "pwd": pwd, "fs_id": fsId, "cookie": cookie, "pcs_cookie": pcsCookie]
         )
     }
 }

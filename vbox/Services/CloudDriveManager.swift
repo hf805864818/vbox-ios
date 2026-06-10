@@ -125,6 +125,24 @@ class CloudDriveManager: ObservableObject {
         savedTokens.filter { $0.type == type.rawValue }
     }
 
+    private func isBaiduPCSToken(_ token: DriveToken) -> Bool {
+        let name = token.name.lowercased()
+        let value = token.value.lowercased()
+        if name.contains("pcs") || name.contains("下载") || name.contains("直链") || name.contains("locatedownload") {
+            return true
+        }
+        return value.contains("panpsc=") || value.contains("ptoken_bfess=") || value.contains("ndut_fmt=") || value.contains("nd_ftid=")
+    }
+
+    func baiduTokenPair() -> (web: DriveToken, pcs: DriveToken?)? {
+        let list = tokens(for: .baidu)
+        guard !list.isEmpty else { return nil }
+
+        let pcs = list.first(where: { isBaiduPCSToken($0) })
+        let web = list.first(where: { !isBaiduPCSToken($0) }) ?? list[0]
+        return (web, pcs)
+    }
+
     static func detectDrive(from url: String) -> DriveType? {
         if url.contains("aliyundrive.com") || url.contains("alipan.com") { return .ali }
         if url.contains("pan.quark.cn") { return .quark }
@@ -535,12 +553,12 @@ class CloudDriveManager: ObservableObject {
         return files
     }
 
-    func resolveBaiduPlayURL(shareURL: String, bduss: String) async throws -> PlayResult {
-        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: nil)
+    func resolveBaiduPlayURL(shareURL: String, bduss: String, pcsCookie: String = "") async throws -> PlayResult {
+        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: nil, pcsCookie: pcsCookie)
     }
 
-    func resolveBaiduPlayURL(shareURL: String, bduss: String, pwd: String?) async throws -> PlayResult {
-        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: pwd)
+    func resolveBaiduPlayURL(shareURL: String, bduss: String, pwd: String?, pcsCookie: String = "") async throws -> PlayResult {
+        try await resolveBaiduPlayURLInternal(shareURL: shareURL, bduss: bduss, pwd: pwd, pcsCookie: pcsCookie)
     }
 
     private func extractBaiduPwd(from shareURL: String) -> String? {
@@ -600,14 +618,15 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 【新增】通过 Cloudflare Worker 代理获取播放地址
-    private func baiduResolveViaWorker(shareURL: String, pwd: String?, fsId: String? = nil, cookie: String = "") async throws -> PlayResult {
-        baiduLog("[Baidu-Worker] 调用 Cloudflare Worker 代理... fsId=\((fsId ?? "").isEmpty ? "自动" : fsId!), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递"), Cookie=\(cookie.isEmpty ? "无" : "已传递")")
+    private func baiduResolveViaWorker(shareURL: String, pwd: String?, fsId: String? = nil, cookie: String = "", pcsCookie: String = "") async throws -> PlayResult {
+        baiduLog("[Baidu-Worker] 调用 Cloudflare Worker 代理... fsId=\((fsId ?? "").isEmpty ? "自动" : fsId!), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递"), WebCookie=\(cookie.isEmpty ? "无" : "已传递"), PCSCookie=\(pcsCookie.isEmpty ? "无" : "已传递")")
 
         let response = try await BaiduProxyClient.shared.getPlayURL(
             shareURL: shareURL,
             pwd: pwd ?? "",
             fsId: fsId ?? "",
-            cookie: cookie
+            cookie: cookie,
+            pcsCookie: pcsCookie
         )
         baiduLog("[Baidu-Worker] 收到播放响应，字段：\(response.keys.sorted().joined(separator: ","))")
 
@@ -659,30 +678,34 @@ class CloudDriveManager: ObservableObject {
         return PlayResult(url: playURL, headers: headers, driveType: .baidu)
     }
 
-    private func resolveBaiduPlayURLInternal(shareURL: String, bduss: String, pwd: String?) async throws -> PlayResult {
+    private func resolveBaiduPlayURLInternal(shareURL: String, bduss: String, pwd: String?, pcsCookie: String = "") async throws -> PlayResult {
         let pwdForWorker = pwd ?? extractBaiduPwd(from: shareURL)
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
+        let parsedPcs = parseBaiduToken(pcsCookie)
+        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
         do {
-            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie)
+            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie, pcsCookie: pcs)
         } catch {
             baiduLog("[Baidu-Worker] ⚠️ 自动文件播放失败，改用 Worker 文件列表选择第一个视频：\(error.localizedDescription)")
             let files = try await baiduGetFileListViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie)
             guard let first = files.first, !first.fsId.isEmpty else {
                 throw DriveError.noPlayURL("Worker 代理未返回可播放文件")
             }
-            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: first.fsId, cookie: cookie)
+            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: first.fsId, cookie: cookie, pcsCookie: pcs)
         }
     }
 
-    func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String) async throws -> PlayResult {
+    func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String, pcsCookie: String = "") async throws -> PlayResult {
         let pwdForWorker = extractBaiduPwd(from: shareURL)
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
+        let parsedPcs = parseBaiduToken(pcsCookie)
+        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
         do {
-            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie)
+            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
         } catch {
             baiduLog("[Baidu-Worker] ❌ 指定文件播放代理失败：\(error.localizedDescription)")
             throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
@@ -1730,6 +1753,15 @@ class CloudDriveManager: ObservableObject {
         }
 
         var lastError: Error?
+        if driveType == .baidu, let pair = baiduTokenPair() {
+            print("[CloudDrive] 🔄 尝试百度网盘 WebToken: \(pair.web.name)，PCSToken: \(pair.pcs?.name ?? "未配置")")
+            return try await resolveBaiduPlayURL(
+                shareURL: shareURL,
+                bduss: pair.web.value,
+                pcsCookie: pair.pcs?.value ?? ""
+            )
+        }
+
         for (index, token) in tokens.enumerated() {
             let label = tokens.count > 1 ? " [\(index + 1)/\(tokens.count)]" : ""
             print("[CloudDrive] 🔄 尝试 \(driveType.displayName) Token\(label): \(token.name)")

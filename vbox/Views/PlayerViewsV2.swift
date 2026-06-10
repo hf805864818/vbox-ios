@@ -125,6 +125,7 @@ class PlayerState: ObservableObject {
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
+    var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
@@ -139,6 +140,7 @@ class PlayerState: ObservableObject {
             await self.startBaiduPlayback(
                 shareURL: url,
                 bduss: self.baiduBduss,
+                pcsCookie: self.baiduPcsCookie,
                 file: file,
                 index: index,
                 reason: "选集"
@@ -153,6 +155,7 @@ class PlayerState: ObservableObject {
     private func startBaiduPlayback(
         shareURL: String,
         bduss: String,
+        pcsCookie: String = "",
         file: BaiduFileItem,
         index: Int,
         reason: String
@@ -169,7 +172,8 @@ class PlayerState: ObservableObject {
             let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
                 shareURL: shareURL,
                 bduss: bduss,
-                fsId: file.fsId
+                fsId: file.fsId,
+                pcsCookie: pcsCookie
             )
             log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功")
             await playDriveVideo(url: result.url, headers: result.headers)
@@ -323,18 +327,26 @@ class PlayerState: ObservableObject {
         
         // 百度网盘：先获取文件列表，多文件则展示选择列表
         if driveType == .baidu {
+            guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
+                await MainActor.run {
+                    loadError = "未配置百度网盘 Token"
+                    isLoading = false
+                }
+                return
+            }
             // 注册百度日志回调到悬浮日志
             CloudDriveManager.onLog = { [weak self] msg in
                 self?.log("[PlayerV2] \(msg)")
             }
-            log("[Baidu] ①请求分享页...")
+            log("[Baidu] ①请求分享页... WebToken=\(pair.web.name), PCSToken=\(pair.pcs?.name ?? "未配置")")
             do {
-                let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: tokens[0].value)
+                let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: pair.web.value)
                 log("[Baidu] ✅ 成功，共\(files.count)个文件: \(files.map { $0.name }.joined(separator: ", "))")
                 await MainActor.run {
                     baiduFileList = files
                     baiduShareURL = urlString
-                    baiduBduss = tokens[0].value
+                    baiduBduss = pair.web.value
+                    baiduPcsCookie = pair.pcs?.value ?? ""
                 }
                 guard let firstFile = files.first else {
                     await MainActor.run {
@@ -347,7 +359,8 @@ class PlayerState: ObservableObject {
                 let reason = files.count == 1 ? "自动播放单文件" : "自动播放"
                 await startBaiduPlayback(
                     shareURL: urlString,
-                    bduss: tokens[0].value,
+                    bduss: pair.web.value,
+                    pcsCookie: pair.pcs?.value ?? "",
                     file: firstFile,
                     index: 0,
                     reason: reason

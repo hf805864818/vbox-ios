@@ -901,7 +901,8 @@ struct BaiduTestView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 InfoRow(icon: "link", text: "粘贴百度网盘分享链接（必须带提取码）")
-                InfoRow(icon: "key", text: "支持完整 Cookie；也兼容 BDUSS=xxx;STOKEN=yyy 或 BDUSS|STOKEN")
+                InfoRow(icon: "key", text: "建议保存两条：Web Cookie 负责转存，名称含 PCS/下载 的 Cookie 负责取直链")
+                InfoRow(icon: "tag", text: "PCS Cookie 的 Token 名称请包含“PCS”或“下载”，App 会自动识别")
                 InfoRow(icon: "play.circle", text: "点击测试后会直接跳转到播放页面")
             }
             .padding(12)
