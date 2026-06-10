@@ -5,9 +5,6 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-env:
-  MARKETING_VERSION: "3.59"
-
 jobs:
   build:
     runs-on: macos-15
@@ -19,10 +16,17 @@ jobs:
       - name: 🔧 Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
+      - name: 📖 获取版本号
+        id: get_version
+        run: |
+          MARKETING_VERSION=$(plutil -extract CFBundleShortVersionString raw vbox/Info.plist)
+          BUILD_NUM=$(git rev-list --count HEAD)
+          echo "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_OUTPUT
+          echo "Version: $MARKETING_VERSION Build: $BUILD_NUM"
+
       - name: 🏗️ Build
         run: |
-          BUILD_NUM=$(git rev-list --count HEAD)
-          echo "Build: $BUILD_NUM  Version: ${{ env.MARKETING_VERSION }}"
           xcodebuild -project vbox.xcodeproj \
             -scheme vbox \
             -sdk iphoneos \
@@ -34,8 +38,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_STYLE=Manual \
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
-            MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
-            CURRENT_PROJECT_VERSION=$BUILD_NUM \
+            MARKETING_VERSION=${{ steps.get_version.outputs.MARKETING_VERSION }} \
+            CURRENT_PROJECT_VERSION=${{ steps.get_version.outputs.BUILD_NUM }} \
             build 2>&1
 
       - name: 📦 Package IPA
@@ -58,10 +62,10 @@ jobs:
 
       - name: 🚀 Release
         run: |
-          gh release delete "v${{ env.MARKETING_VERSION }}" --yes 2>/dev/null || true
-          gh release create "v${{ env.MARKETING_VERSION }}" \
-            --title "v${{ env.MARKETING_VERSION }}" \
-            --notes "版本 ${{ env.MARKETING_VERSION }} (build ${{ github.run_number }})" \
+          gh release delete "v${{ steps.get_version.outputs.MARKETING_VERSION }}" --yes 2>/dev/null || true
+          gh release create "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
+            --title "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
+            --notes "版本 ${{ steps.get_version.outputs.MARKETING_VERSION }} (build ${{ steps.get_version.outputs.BUILD_NUM }})" \
             vbox.ipa
         env:
           GH_TOKEN: ${{ github.token }}
