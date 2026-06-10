@@ -612,16 +612,22 @@ class CloudDriveManager: ObservableObject {
         }
 
         let data = (response["data"] as? [String: Any]) ?? response
-        let rawPlayURL = data["url"] as? String
-            ?? data["dlink"] as? String
-            ?? data["play_url"] as? String
-            ?? data["playURL"] as? String
-            ?? data["download_url"] as? String
-            ?? data["downloadURL"] as? String
-            ?? response["url"] as? String
-            ?? response["dlink"] as? String
-            ?? response["play_url"] as? String
-            ?? response["playURL"] as? String
+        let playURLKeys = ["url", "dlink", "play_url", "playURL", "download_url", "downloadURL"]
+        var rawPlayURL: String?
+        for key in playURLKeys {
+            if let value = data[key] as? String, !value.isEmpty {
+                rawPlayURL = value
+                break
+            }
+        }
+        if rawPlayURL == nil {
+            for key in playURLKeys {
+                if let value = response[key] as? String, !value.isEmpty {
+                    rawPlayURL = value
+                    break
+                }
+            }
+        }
 
         guard var playURL = rawPlayURL, !playURL.isEmpty else {
             let returnedFields = data.keys.sorted().joined(separator: ",")
