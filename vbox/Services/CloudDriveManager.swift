@@ -881,11 +881,11 @@ class CloudDriveManager: ObservableObject {
         ]
 
         let strategies: [(String, () async throws -> (String, String))] = [
+            ("webview bridge", { try await self.bypassStrategyWebView(shareid: shareid, uk: uk, surl: surl, cookie: cookie) }),
             ("WAP wxlist", { try await self.bypassStrategyWapWxlist(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
-            ("share/list", { try await self.bypassStrategyShareList(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
             ("WAP shareinfo", { try await self.bypassStrategyWapShareInfo(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
             ("web page parse", { try await self.bypassStrategyWebPage(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
-            ("webview bridge", { try await self.bypassStrategyWebView(shareid: shareid, uk: uk, surl: surl, cookie: cookie) }),
+            ("share/list", { try await self.bypassStrategyShareList(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
         ]
 
         for (name, strategy) in strategies {
