@@ -101,10 +101,10 @@ class BaiduProxyClient {
     ///   - url: 百度网盘分享链接
     ///   - pwd: 提取码（可选）
     /// - Returns: 解析结果 JSON
-    func parseShareLink(url: String, pwd: String = "") async throws -> [String: Any] {
+    func parseShareLink(url: String, pwd: String = "", cookie: String = "") async throws -> [String: Any] {
         return try await sendRequest(
             path: "/api/baidu/parse",
-            params: ["url": url, "pwd": pwd]
+            params: ["url": url, "pwd": pwd, "cookie": cookie]
         )
     }
 
@@ -114,10 +114,10 @@ class BaiduProxyClient {
     ///   - pwd: 提取码（可选）
     ///   - fsId: 文件 ID（可选，不填则取第一个）
     /// - Returns: 包含播放地址的 JSON
-    func getPlayURL(shareURL: String, pwd: String = "", fsId: String = "") async throws -> [String: Any] {
+    func getPlayURL(shareURL: String, pwd: String = "", fsId: String = "", cookie: String = "") async throws -> [String: Any] {
         return try await sendRequest(
             path: "/api/baidu/play",
-            params: ["url": shareURL, "pwd": pwd, "fs_id": fsId]
+            params: ["url": shareURL, "pwd": pwd, "fs_id": fsId, "cookie": cookie]
         )
     }
 }
