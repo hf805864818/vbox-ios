@@ -52,33 +52,33 @@ struct ContentView: View {
                                 selectedTab = tab
                             }
                         } label: {
-                            VStack(spacing: 4) {
+                            VStack(spacing: 2) {
                                 Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
-                                    .font(.system(size: 20))
+                                    .font(.system(size: 16))
                                     .foregroundColor(selectedTab == tab ? .accentColor : Color(uiColor: .systemGray2))
                                 
                                 Text(tab.rawValue)
-                                    .font(.system(size: 12, weight: selectedTab == tab ? .semibold : .regular))
+                                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
                                     .foregroundColor(selectedTab == tab ? .accentColor : Color(uiColor: .systemGray2))
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 5)
                             .background(
-                                RoundedRectangle(cornerRadius: 16)
+                                RoundedRectangle(cornerRadius: 10)
                                     .fill(selectedTab == tab ? Color.accentColor.opacity(0.15) : .clear)
                             )
                         }
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 26)
+                    RoundedRectangle(cornerRadius: 18)
                         .fill(Color(uiColor: .systemBackground))
-                        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
+                        .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 2)
                 )
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
         }
         .environmentObject(settings)
