@@ -1084,10 +1084,7 @@ struct DoubanCardItem: View {
     
     var body: some View {
         NavigationLink(destination: VideoDetailView(
-            video: DoubanService.shared.toVodItem(subject: subject),
-            tabType: "",
-            category: "",
-            videoIndex: 0
+            video: DoubanService.shared.toVodItem(subject: subject)
         )) {
             HStack(spacing: 12) {
                 // 封面图
