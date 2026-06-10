@@ -52,24 +52,24 @@ struct ContentView: View {
                                 selectedTab = tab
                             }
                         } label: {
-                            VStack(spacing: 2) {
+                            VStack(spacing: 1) {
                                 Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
-                                    .font(.system(size: 22, weight: .semibold))
+                                    .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
                                 
                                 Text(tab.rawValue)
-                                    .font(.system(size: 12, weight: selectedTab == tab ? .semibold : .regular))
+                                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
                                     .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 3)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .frame(maxWidth: min(UIScreen.main.bounds.width - 90, 320))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
                 .background(
                     Capsule()
                         .fill(.ultraThinMaterial)
@@ -80,7 +80,7 @@ struct ContentView: View {
                         )
                 )
                 .clipShape(Capsule())
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
             }
         }
         .environmentObject(settings)

@@ -81,14 +81,14 @@ struct GlassBottomTabBar: View {
                         selectedTab = index
                     }
                 }) {
-                    VStack(spacing: 4) {
+                    VStack(spacing: 1) {
                         Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
-                            .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(selectedTab == index ? Color.blue : Color.gray)
-                            .frame(height: 30)
+                            .frame(height: 22)
 
                         Text(tabs[index].title)
-                            .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
+                            .font(.system(size: 10, weight: selectedTab == index ? .semibold : .regular))
                             .foregroundColor(
                                 selectedTab == index
                                     ? Color.blue
@@ -100,9 +100,9 @@ struct GlassBottomTabBar: View {
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .frame(maxWidth: min(UIScreen.main.bounds.width - 72, 360))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
@@ -114,7 +114,7 @@ struct GlassBottomTabBar: View {
         )
         .clipShape(Capsule())
         .padding(.horizontal, 36)
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
     }
 }
 
@@ -592,15 +592,6 @@ struct SearchView: View {
         VStack(spacing: 0) {
             // 顶部搜索栏
             HStack(spacing: 8) {
-                // 返回箭头
-                Button(action: {
-                    // 如果有搜索历史，可以返回上一页
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
-                
                 // 输入框
                 HStack {
                     Image(systemName: "magnifyingglass")
@@ -608,6 +599,11 @@ struct SearchView: View {
                     TextField("搜索影片、剧集", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15))
+                        .onChange(of: searchText) { value in
+                            if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                resetSearchState()
+                            }
+                        }
                 }
                 .padding(10)
                 .background(Color.gray.opacity(0.1))
@@ -808,7 +804,10 @@ struct SearchView: View {
     
     private func performSearch() {
         searchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !searchText.isEmpty else { return }
+        guard !searchText.isEmpty else {
+            resetSearchState()
+            return
+        }
         isSearching = true
         isSearchLoading = true
         searchResults = []
@@ -879,6 +878,13 @@ struct SearchView: View {
         guard !query.isEmpty else { return }
         searchText = query
         performSearch()
+    }
+
+    private func resetSearchState() {
+        settings.searchQuery = ""
+        isSearching = false
+        isSearchLoading = false
+        searchResults = []
     }
     
     private func loadSearchHistory() {

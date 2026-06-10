@@ -58,6 +58,21 @@ struct DoubanSubject: Codable, Identifiable {
     var genreText: String {
         return genres?.joined(separator: " / ") ?? ""
     }
+
+    func withCoverURL(_ url: String?) -> DoubanSubject {
+        return DoubanSubject(
+            id: id,
+            title: title,
+            cover_url: url ?? cover_url,
+            rating: rating,
+            year: year,
+            genres: genres,
+            card_subtitle: card_subtitle,
+            intro: intro,
+            photos_gadget: photos_gadget,
+            cover: cover
+        )
+    }
 }
 
 /// 豆瓣封面图结构
@@ -89,6 +104,20 @@ struct DoubanCollectionResponse: Codable {
     let subject_collection_items: [DoubanSubject]?
 }
 
+struct DoubanSubjectDetailResponse: Codable {
+    let cover_url: String?
+    let pic: DoubanPic?
+
+    var bestCoverURL: String? {
+        return cover_url ?? pic?.large ?? pic?.normal
+    }
+}
+
+struct DoubanPic: Codable {
+    let large: String?
+    let normal: String?
+}
+
 // MARK: - Douban Service
 class DoubanService: ObservableObject {
     static let shared = DoubanService()
@@ -114,6 +143,27 @@ class DoubanService: ObservableObject {
         let result = try JSONDecoder().decode(DoubanCollectionResponse.self, from: data)
         return result.subject_collection_items ?? []
     }
+
+    private func fetchCollectionWithTVCovers(_ collectionId: String, start: Int, count: Int) async throws -> [DoubanSubject] {
+        var subjects = try await fetchCollection(collectionId, start: start, count: count)
+        for index in subjects.indices {
+            guard subjects[index].coverImageURL == nil,
+                  let coverURL = try? await fetchTVDetailCoverURL(id: subjects[index].id)
+            else {
+                continue
+            }
+
+            subjects[index] = subjects[index].withCoverURL(coverURL)
+        }
+        return subjects
+    }
+
+    private func fetchTVDetailCoverURL(id: String) async throws -> String? {
+        let url = URL(string: "\(baseURL)/tv/\(id)")!
+        let (data, _) = try await session.data(from: url)
+        let detail = try JSONDecoder().decode(DoubanSubjectDetailResponse.self, from: data)
+        return detail.bestCoverURL
+    }
     
     func fetchTop250(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
         return try await fetchCollection("movie_top250", start: start, count: count)
@@ -128,7 +178,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotVariety(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_variety_show", start: start, count: count)
+        return try await fetchCollectionWithTVCovers("tv_variety_show", start: start, count: count)
     }
     
     func fetchHotAnimation(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
