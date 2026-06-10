@@ -23,8 +23,8 @@ struct DoubanSubject: Codable, Identifiable {
         if let url = cover_url {
             return DoubanImages(small: url, medium: url, large: url)
         }
-        // 最后使用 cover.medium
-        if let coverUrl = cover?.medium {
+        // 最后使用 cover.url / cover.large / cover.medium / cover.small
+        if let coverUrl = cover?.bestURL {
             return DoubanImages(small: coverUrl, medium: coverUrl, large: coverUrl)
         }
         return nil
@@ -62,9 +62,14 @@ struct DoubanSubject: Codable, Identifiable {
 
 /// 豆瓣封面图结构
 struct DoubanCover: Codable {
+    let url: String?
     let small: String?
     let medium: String?
     let large: String?
+
+    var bestURL: String? {
+        return url ?? large ?? medium ?? small
+    }
 }
 
 struct DoubanRating: Codable {
@@ -119,7 +124,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_hot", start: start, count: count)
+        return try await fetchCollection("tv_real_time_hotest", start: start, count: count)
     }
     
     func fetchHotVariety(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
