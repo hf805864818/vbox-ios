@@ -596,6 +596,7 @@ class CloudDriveManager: ObservableObject {
         let fileName = files.first(where: { $0.fsId == fsId })?.name ?? "未知"
 
         let strategies: [(String, () async throws -> PlayResult)] = [
+            ("Cloudflare Worker 代理", { try await self.baiduResolveViaWorker(shareURL: shareURL, pwd: nil) }),
             ("get_video_info API", { try await self.baiduGetVideoInfoPlayURL(shareid: shareid, shareUk: shareUk, fsId: fsId, cookie: cookie) }),
             ("sharedownload API", { try await self.baiduGetDirectLink(shareid: shareid, shareUk: shareUk, fsId: fsId, fileName: fileName, cookie: cookie) }),
             ("PCS locatedownload", {

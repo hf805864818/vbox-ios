@@ -36,6 +36,7 @@
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
 		A10030 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* CategoryDetailView.swift */; };
 		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
+		A10035 /* BaiduProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11000 /* BaiduProxyClient.swift */; };
 		A10033 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* BaiduWebViewBridge.swift */; };
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 
@@ -67,6 +68,7 @@
 		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
 		B10033 /* BaiduWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWebViewBridge.swift; sourceTree = "<group>"; };
 		B10034 /* DoubanImageProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanImageProxyServer.swift; sourceTree = "<group>"; };
+		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				B10026 /* DoubanService.swift */,
 				B10033 /* BaiduWebViewBridge.swift */,
 				B10034 /* DoubanImageProxyServer.swift */,
+				B11000 /* BaiduProxyClient.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -247,6 +250,7 @@
 				A10029 /* TokenWebView.swift in Sources */,
 				A10033 /* BaiduWebViewBridge.swift in Sources */,
 				A10034 /* DoubanImageProxyServer.swift in Sources */,
+				A10035 /* BaiduProxyClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
