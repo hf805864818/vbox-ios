@@ -7,11 +7,13 @@ class AppSettings: ObservableObject {
     @Published var subscribedSites: [SiteConfig] = []
     @Published var selectedSiteKey: String?
     @Published var searchQuery: String = ""     // 首页搜索 → 切换到搜索Tab
+    @Published var searchRequestId: Int = 0
 
     init() {}
 
     func triggerSearch(_ query: String) {
         searchQuery = query
+        searchRequestId += 1
     }
 }
 

@@ -97,25 +97,25 @@ struct CategoryDetailView: View {
     
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
         switch categoryType {
-        case "movie":
+        case "movie", "电影":
             return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "tv":
+        case "tv", "电视剧", "剧集":
             return try await doubanService.fetchHotTV(start: start, count: count)
-        case "variety":
+        case "variety", "综艺":
             return try await doubanService.fetchHotVariety(start: start, count: count)
-        case "top250":
+        case "top250", "榜单":
             return try await doubanService.fetchTop250(start: start, count: count)
-        case "animation":
+        case "animation", "动漫":
             return try await doubanService.fetchHotAnimation(start: start, count: count)
-        case "hot":
+        case "hot", "热门":
             return try await doubanService.fetchRecommendFeed(start: start, count: count)
-        case "documentary":
+        case "documentary", "纪录片":
             return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "live":
+        case "live", "直播":
             return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "music":
+        case "music", "音乐":
             return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "sports":
+        case "sports", "体育":
             return try await doubanService.fetchHotMovies(start: start, count: count)
         default:
             return []

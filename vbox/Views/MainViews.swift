@@ -5,6 +5,7 @@ import SwiftUI
 // 主标签视图
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -53,6 +54,10 @@ struct MainTabView: View {
             GlassBottomTabBar(selectedTab: $selectedTab)
         }
         .ignoresSafeArea(.keyboard)
+        .onChange(of: settings.searchRequestId) { _ in
+            guard !settings.searchQuery.isEmpty else { return }
+            selectedTab = 2
+        }
     }
 }
 
@@ -69,7 +74,7 @@ struct GlassBottomTabBar: View {
     ]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach(0..<tabs.count, id: \.self) { index in
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -77,26 +82,17 @@ struct GlassBottomTabBar: View {
                     }
                 }) {
                     VStack(spacing: 4) {
-                        ZStack {
-                            if selectedTab == index {
-                                // 液态背景效果
-                                LiquidBackground()
-                                    .frame(width: 44, height: 44)
-                                    .blur(radius: 8)
-                            }
-
-                            Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(selectedTab == index ? Color(hex: "E11D48") : .secondary)
-                        }
-                        .frame(height: 44)
+                        Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(selectedTab == index ? Color.blue : Color.gray)
+                            .frame(height: 30)
 
                         Text(tabs[index].title)
-                            .font(.system(size: 10, weight: selectedTab == index ? .semibold : .regular))
+                            .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
                             .foregroundColor(
                                 selectedTab == index
-                                    ? Color(hex: "E11D48")
-                                    : Color.secondary
+                                    ? Color.blue
+                                    : Color.gray
                             )
                     }
                     .frame(maxWidth: .infinity)
@@ -104,45 +100,21 @@ struct GlassBottomTabBar: View {
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 72, 360))
         .background(
-            // 毛玻璃效果
-            ZStack {
-                Color.black.opacity(0.8)
-
-                // 液态渐变背景
-                LinearGradient(
-                    colors: [
-                        Color(hex: "0F0F23").opacity(0.9),
-                        Color(hex: "1E1B4B").opacity(0.9)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .background(Capsule().fill(Color.white.opacity(0.86)))
+                .overlay(
+                    Capsule()
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                 )
-            }
-            .overlay(
-                // 顶部高光线
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.1),
-                                Color.white.opacity(0.0),
-                                Color.white.opacity(0.0),
-                                Color.white.opacity(0.05)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(height: 1),
-                alignment: .top
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         )
-        .padding(.horizontal, 20)
-        .padding(.bottom, 8)
+        .clipShape(Capsule())
+        .padding(.horizontal, 36)
+        .padding(.bottom, 10)
     }
 }
 
@@ -695,16 +667,15 @@ struct SearchView: View {
             .animation(.easeInOut(duration: 0.2), value: isSearching)
         }
         .background(Color.white)
-        .onChange(of: settings.searchQuery) { query in
-            guard !query.isEmpty else { return }
-            searchText = query
-            performSearch()
+        .onChange(of: settings.searchRequestId) { _ in
+            runTriggeredSearch()
         }
         .onAppear {
             Task {
                 await loadSearchHistory()
                 await loadDoubanData()
             }
+            runTriggeredSearch()
         }
     }
     
@@ -836,6 +807,7 @@ struct SearchView: View {
     }
     
     private func performSearch() {
+        searchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !searchText.isEmpty else { return }
         isSearching = true
         isSearchLoading = true
@@ -900,6 +872,13 @@ struct SearchView: View {
             print("[SearchView] 搜索结束，共 \(seen.count) 条")
             await MainActor.run { self.isSearchLoading = false }
         }
+    }
+
+    private func runTriggeredSearch() {
+        let query = settings.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        searchText = query
+        performSearch()
     }
     
     private func loadSearchHistory() {
@@ -1187,17 +1166,17 @@ struct DoubanSkeletonCardItem: View {
 // MARK: - 分类视图
 struct CategoryView: View {
     private let categories = [
-        ("电影", "film.fill"),
-        ("电视剧", "tv.fill"),
-        ("综艺", "mic.fill"),
-        ("动漫", "sparkles"),
-        ("纪录片", "book.fill"),
-        ("直播", "dot.radiowaves.left.and.right"),
-        ("音乐", "music.note"),
-        ("体育", "sportscourt.fill")
+        (name: "电影", icon: "film.fill", type: "movie"),
+        (name: "电视剧", icon: "tv.fill", type: "tv"),
+        (name: "综艺", icon: "mic.fill", type: "variety"),
+        (name: "动漫", icon: "sparkles", type: "animation"),
+        (name: "纪录片", icon: "book.fill", type: "documentary"),
+        (name: "直播", icon: "dot.radiowaves.left.and.right", type: "live"),
+        (name: "音乐", icon: "music.note", type: "music"),
+        (name: "体育", icon: "sportscourt.fill", type: "sports")
     ]
     
-    @State private var selectedCategory: String?
+    @State private var selectedCategory: (name: String, type: String)?
     @State private var showCategorySheet = false
 
     var body: some View {
@@ -1211,9 +1190,9 @@ struct CategoryView: View {
                 ],
                 spacing: 16
             ) {
-                ForEach(categories, id: \.0) { category in
-                    CategoryCard(name: category.0, icon: category.1, onTap: {
-                        selectedCategory = category.0
+                ForEach(categories, id: \.name) { category in
+                    CategoryCard(name: category.name, icon: category.icon, onTap: {
+                        selectedCategory = (name: category.name, type: category.type)
                         showCategorySheet = true
                     })
                 }
@@ -1224,7 +1203,7 @@ struct CategoryView: View {
         .background(Color.white)
         .sheet(isPresented: $showCategorySheet) {
             if let category = selectedCategory {
-                CategoryDetailView(categoryType: category.lowercased(), categoryName: category)
+                CategoryDetailView(categoryType: category.type, categoryName: category.name)
             }
         }
     }
