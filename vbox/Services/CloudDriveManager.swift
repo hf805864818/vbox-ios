@@ -37,7 +37,7 @@ class CloudDriveManager: ObservableObject {
             switch self {
             case .ali: return "Refresh Token"
             case .quark: return "Cookie"
-            case .baidu: return "BDUSS|STOKEN"
+            case .baidu: return "完整 Cookie / BDUSS|STOKEN"
             case .one15: return "CID"
             case .uc: return "Cookie"
             }
@@ -480,28 +480,34 @@ class CloudDriveManager: ObservableObject {
     // MARK: - 百度网盘
 
     private func parseBaiduToken(_ raw: String) -> (cookie: String, bdussOnly: String) {
-        if raw.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression) != nil {
+        var input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if input.lowercased().hasPrefix("cookie:") {
+            input = String(input.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if input.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression) != nil {
+            let normalizedCookie = input
+                .replacingOccurrences(of: "\n", with: "; ")
+                .replacingOccurrences(of: "\r", with: "; ")
+                .replacingOccurrences(of: #"\s*;\s*"#, with: "; ", options: .regularExpression)
+                .replacingOccurrences(of: #";+\s*$"#, with: "", options: .regularExpression)
+
             var bduss = ""
-            var stoken = ""
-            if let r1 = raw.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression),
-               let eq = raw[r1].firstIndex(of: "=") {
-                let val = String(raw[raw.index(after: eq)..<r1.upperBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                bduss = val
+            if let r1 = normalizedCookie.range(of: #"BDUSS=([^;|]+)"#, options: .regularExpression),
+               let eq = normalizedCookie[r1].firstIndex(of: "=") {
+                bduss = String(normalizedCookie[normalizedCookie.index(after: eq)..<r1.upperBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if let r2 = raw.range(of: #"STOKEN=([^;|]+)"#, options: .regularExpression),
-               let eq = raw[r2].firstIndex(of: "=") {
-                let val = String(raw[raw.index(after: eq)..<r2.upperBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                stoken = val
-            }
+
             if !bduss.isEmpty {
-                var cookie = "BDUSS=\(bduss)"
-                if !stoken.isEmpty { cookie += "; STOKEN=\(stoken)" }
-                return (cookie, bduss)
+                // 完整 Cookie 模式：如果用户粘贴了 BDUSS/STOKEN/BAIDUID/PANPSC 等多字段，
+                // 不再只截取 BDUSS/STOKEN，直接原样交给 Worker 使用。
+                return (normalizedCookie, bduss)
             }
         }
 
-        if raw.contains("|") {
-            let cleaned = raw.replacingOccurrences(of: #"^BDUSS="#, with: "", options: .regularExpression)
+        if input.contains("|") {
+            let cleaned = input.replacingOccurrences(of: #"^BDUSS="#, with: "", options: .regularExpression)
             let parts = cleaned.components(separatedBy: "|")
             let bduss = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
             var cookie = "BDUSS=\(bduss)"
@@ -512,7 +518,7 @@ class CloudDriveManager: ObservableObject {
             return (cookie, bduss)
         }
 
-        let bduss = raw.replacingOccurrences(of: "BDUSS=", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let bduss = input.replacingOccurrences(of: "BDUSS=", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return ("BDUSS=\(bduss)", bduss)
     }
 

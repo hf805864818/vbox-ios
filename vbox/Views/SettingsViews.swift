@@ -901,7 +901,7 @@ struct BaiduTestView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 InfoRow(icon: "link", text: "粘贴百度网盘分享链接（必须带提取码）")
-                InfoRow(icon: "key", text: "填写 BDUSS Cookie（格式：BDUSS=xxx 或 BDUSS=xxx|STOKEN=yyy）")
+                InfoRow(icon: "key", text: "支持完整 Cookie；也兼容 BDUSS=xxx;STOKEN=yyy 或 BDUSS|STOKEN")
                 InfoRow(icon: "play.circle", text: "点击测试后会直接跳转到播放页面")
             }
             .padding(12)
@@ -916,7 +916,7 @@ struct BaiduTestView: View {
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
             
-            TextField("BDUSS Cookie", text: $bduss)
+            TextField("完整 Cookie / BDUSS|STOKEN", text: $bduss)
                 .font(.system(size: 13))
                 .padding(12)
                 .background(Color.white)
