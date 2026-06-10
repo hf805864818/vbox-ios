@@ -872,22 +872,128 @@ class CloudDriveManager: ObservableObject {
     private func baiduBypassVerify(shareid: String, uk: String, surl: String, cookie: String) async throws -> (fsId: String, name: String) {
         baiduLog("[Baidu-Bypass] 尝试绕过验证...")
 
-        let wapURL = URL(string: "https://pan.baidu.com/wap/share/wxlist?shareid=\(shareid)&uk=\(uk)&surl=\(surl)&dir=%2F")!
-        var req = URLRequest(url: wapURL)
+        let userAgents = [
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0",
+        ]
+
+        let strategies: [(String, () async throws -> (String, String))] = [
+            ("WAP wxlist", { try await self.bypassStrategyWapWxlist(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
+            ("share/list", { try await self.bypassStrategyShareList(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
+            ("WAP shareinfo", { try await self.bypassStrategyWapShareInfo(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
+            ("web page parse", { try await self.bypassStrategyWebPage(shareid: shareid, uk: uk, surl: surl, cookie: cookie, ua: userAgents.randomElement()!) }),
+            ("webview bridge", { try await self.bypassStrategyWebView(shareid: shareid, uk: uk, surl: surl, cookie: cookie) }),
+        ]
+
+        for (name, strategy) in strategies {
+            do {
+                baiduLog("[Baidu-Bypass] 尝试策略: \(name)")
+                let (fsId, fileName) = try await strategy()
+                if !fsId.isEmpty {
+                    baiduLog("[Baidu-Bypass] ✅ \(name) 成功")
+                    return (fsId, fileName)
+                }
+            } catch {
+                baiduLog("[Baidu-Bypass] ❌ \(name) 失败: \(error.localizedDescription)")
+                try await Task.sleep(nanoseconds: UInt64(Int.random(in: 1000...3000)) * 1_000_000)
+            }
+        }
+
+        throw DriveError.noPlayURL("百度网盘：所有绕过策略均失败")
+    }
+
+    private func bypassStrategyWapWxlist(shareid: String, uk: String, surl: String, cookie: String, ua: String) async throws -> (String, String) {
+        let url = URL(string: "https://pan.baidu.com/wap/share/wxlist?shareid=\(shareid)&uk=\(uk)&surl=\(surl)&dir=%2F")!
+        var req = URLRequest(url: url)
         req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Referer")
+        req.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+        req.timeoutInterval = 15
+
+        let (data, _) = try await session.data(for: req)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let errno = json["errno"] as? Int, errno == 0,
+           let list = json["list"] as? [[String: Any]], let first = list.first {
+            return Self.extractFileInfo(first)
+        }
+        throw DriveError.noPlayURL("WAP wxlist 失败")
+    }
+
+    private func bypassStrategyShareList(shareid: String, uk: String, surl: String, cookie: String, ua: String) async throws -> (String, String) {
+        var components = URLComponents(string: "https://pan.baidu.com/share/list")!
+        components.queryItems = [
+            URLQueryItem(name: "shareid", value: shareid),
+            URLQueryItem(name: "uk", value: uk),
+            URLQueryItem(name: "surl", value: surl),
+            URLQueryItem(name: "dir", value: "/"),
+            URLQueryItem(name: "order", value: "time"),
+            URLQueryItem(name: "desc", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "clienttype", value: "0"),
+            URLQueryItem(name: "web", value: "1"),
+        ]
+        var req = URLRequest(url: components.url!)
+        req.httpMethod = "GET"
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
+        req.timeoutInterval = 15
+
+        let (data, _) = try await session.data(for: req)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let errno = json["errno"] as? Int, errno == 0,
+           let list = json["list"] as? [[String: Any]], let first = list.first {
+            return Self.extractFileInfo(first)
+        }
+        throw DriveError.noPlayURL("share/list 失败")
+    }
+
+    private func bypassStrategyWapShareInfo(shareid: String, uk: String, surl: String, cookie: String, ua: String) async throws -> (String, String) {
+        let url = URL(string: "https://pan.baidu.com/wap/share/info?shareid=\(shareid)&uk=\(uk)&surl=\(surl)")!
+        var req = URLRequest(url: url)
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
         req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Referer")
         req.timeoutInterval = 15
 
         let (data, _) = try await session.data(for: req)
         let html = String(data: data, encoding: .utf8) ?? ""
 
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            baiduLog("[Baidu-Bypass] WAP wxlist 响应")
-            if let errno = json["errno"] as? Int, errno == 0,
-               let list = json["list"] as? [[String: Any]], let first = list.first {
-                let (fsId, name) = Self.extractFileInfo(first)
-                if !fsId.isEmpty { return (fsId, name) }
+        for pattern in ["\"fs_id\"\\s*:\\s*\"?(\\d+)\"?", "fs_id=(\\d+)", "\"fs_id\"\\s*:\\s*(\\d+)"] {
+            if let r = try? NSRegularExpression(pattern: pattern).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let rr = Range(r.range(at: 1), in: html) {
+                let fsId = String(html[rr])
+                var name = "未知"
+                if let rn = try? NSRegularExpression(pattern: "\"server_filename\"\\s*:\\s*\"([^\"]+)\"").firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let rrN = Range(rn.range(at: 1), in: html) { name = String(html[rrN]) }
+                return (fsId, name)
+            }
+        }
+        throw DriveError.noPlayURL("WAP shareinfo 失败")
+    }
+
+    private func bypassStrategyWebPage(shareid: String, uk: String, surl: String, cookie: String, ua: String) async throws -> (String, String) {
+        let url = URL(string: "https://pan.baidu.com/s/1\(surl)")!
+        var req = URLRequest(url: url)
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com", forHTTPHeaderField: "Referer")
+        req.timeoutInterval = 20
+
+        let (data, _) = try await session.data(for: req)
+        let html = String(data: data, encoding: .utf8) ?? ""
+
+        if let match = html.range(of: #"window\.yunData\s*=\s*\{[\s\S]*?\};"#, options: .caseInsensitive),
+           let jsonStr = html[match].split(separator: "=").last?.trimmingCharacters(in: .whitespacesAndNewlines).dropLast() {
+            if let jsonData = String(jsonStr).data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let list = json["file_list"] as? [[String: Any]], let first = list.first {
+                return Self.extractFileInfo(first)
             }
         }
 
@@ -901,39 +1007,46 @@ class CloudDriveManager: ObservableObject {
                 return (fsId, name)
             }
         }
+        throw DriveError.noPlayURL("web page parse 失败")
+    }
 
-        baiduLog("[Baidu-Bypass] WAP 失败，尝试 share/list...")
-        var components2 = URLComponents(string: "https://pan.baidu.com/share/list")!
-        components2.queryItems = [
-            URLQueryItem(name: "shareid", value: shareid),
-            URLQueryItem(name: "uk", value: uk),
-            URLQueryItem(name: "surl", value: surl),
-            URLQueryItem(name: "dir", value: "/"),
-            URLQueryItem(name: "order", value: "time"),
-            URLQueryItem(name: "desc", value: "1"),
-            URLQueryItem(name: "app_id", value: "250528"),
-            URLQueryItem(name: "channel", value: "chunlei"),
-            URLQueryItem(name: "clienttype", value: "0"),
-            URLQueryItem(name: "web", value: "1"),
-        ]
-        var req2 = URLRequest(url: components2.url!)
-        req2.httpMethod = "GET"
-        req2.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req2.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        req2.setValue("https://pan.baidu.com/s/1\(surl)", forHTTPHeaderField: "Referer")
-        req2.timeoutInterval = 15
+    private func bypassStrategyWebView(shareid: String, uk: String, surl: String, cookie: String) async throws -> (String, String) {
+        baiduLog("[Baidu-Bypass] 尝试 WebView Bridge...")
+        let shareURL = "https://pan.baidu.com/s/1\(surl)"
 
-        let (data2, _) = try await session.data(for: req2)
-        if let json = try? JSONSerialization.jsonObject(with: data2) as? [String: Any] {
-            baiduLog("[Baidu-Bypass] share/list 响应")
-            if let errno = json["errno"] as? Int, errno == 0,
-               let list = json["list"] as? [[String: Any]], let first = list.first {
-                let (fsId, name) = Self.extractFileInfo(first)
-                if !fsId.isEmpty { return (fsId, name) }
+        let (data, _) = try await BaiduWebViewBridge.shared.request(
+            url: shareURL,
+            method: "GET",
+            headers: [
+                "Cookie": cookie,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://pan.baidu.com/",
+            ],
+            timeout: 25
+        )
+
+        let html = String(data: data, encoding: .utf8) ?? ""
+
+        if let match = html.range(of: #"window\.yunData\s*=\s*\{[\s\S]*?\};"#, options: .caseInsensitive),
+           let jsonStr = html[match].split(separator: "=").last?.trimmingCharacters(in: .whitespacesAndNewlines).dropLast() {
+            if let jsonData = String(jsonStr).data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let list = json["file_list"] as? [[String: Any]], let first = list.first {
+                return Self.extractFileInfo(first)
             }
         }
 
-        throw DriveError.noPlayURL("百度网盘：验证失败且无法绕过")
+        for pattern in ["\"fs_id\"\\s*:\\s*\"?(\\d+)\"?", "fs_id=(\\d+)", "\"fs_id\"\\s*:\\s*(\\d+)"] {
+            if let r = try? NSRegularExpression(pattern: pattern).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let rr = Range(r.range(at: 1), in: html) {
+                let fsId = String(html[rr])
+                var name = "未知"
+                if let rn = try? NSRegularExpression(pattern: "\"server_filename\"\\s*:\\s*\"([^\"]+)\"").firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let rrN = Range(rn.range(at: 1), in: html) { name = String(html[rrN]) }
+                return (fsId, name)
+            }
+        }
+        throw DriveError.noPlayURL("webview bridge 失败")
     }
 
     private static func extractFileInfo(_ item: [String: Any]) -> (String, String) {
