@@ -133,30 +133,64 @@ class PlayerState: ObservableObject {
         let url = baiduShareURL
         guard !url.isEmpty else { return }
         
-        log("[Baidu] 选集\(index+1): \(file.name)，转存→获取播放地址...")
-        currentEpisodeIndex = index
-        isLoading = true
-        loadError = nil
         currentTask?.cancel()
         currentTask = Task { [weak self] in
             guard let self = self else { return }
-            do {
-                let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: url, bduss: baiduBduss, fsId: file.fsId)
-                log("[Baidu] ✅ 选集\(index+1)播放地址获取成功")
-                await playDriveVideo(url: result.url, headers: result.headers)
-            } catch let error as DriveError {
-                let specificMsg: String
-                switch error {
-                case .noPlayURL(let reason): specificMsg = reason
-                case .saveFailed: specificMsg = "转存失败"
-                case .invalidResponse: specificMsg = "服务器响应异常"
-                default: specificMsg = error.localizedDescription
-                }
-                log("[Baidu] ❌ 选集\(index+1): \(specificMsg)")
-                await MainActor.run { loadError = specificMsg; isLoading = false }
-            } catch {
-                log("[Baidu] ❌ 选集\(index+1): \(error.localizedDescription)")
-                await MainActor.run { loadError = "播放失败: \(error.localizedDescription)"; isLoading = false }
+            await self.startBaiduPlayback(
+                shareURL: url,
+                bduss: self.baiduBduss,
+                file: file,
+                index: index,
+                reason: "选集"
+            )
+        }
+    }
+
+    /// 百度网盘统一播放入口：
+    /// - 进入播放器：解析出文件列表后立即调用，默认播放第一集
+    /// - 手动选集：带指定 fs_id 调用
+    /// 这样不会只停在“文件列表成功”而不继续触发 Worker /play。
+    private func startBaiduPlayback(
+        shareURL: String,
+        bduss: String,
+        file: BaiduFileItem,
+        index: Int,
+        reason: String
+    ) async {
+        let episodeNo = index + 1
+        log("[Baidu] ②\(reason)第\(episodeNo)集：\(file.name)，转存→获取播放地址...")
+        await MainActor.run {
+            currentEpisodeIndex = index
+            isLoading = true
+            loadError = nil
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
+                shareURL: shareURL,
+                bduss: bduss,
+                fsId: file.fsId
+            )
+            log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功")
+            await playDriveVideo(url: result.url, headers: result.headers)
+        } catch let error as DriveError {
+            let specificMsg: String
+            switch error {
+            case .noPlayURL(let reason): specificMsg = reason
+            case .saveFailed: specificMsg = "转存失败"
+            case .invalidResponse: specificMsg = "服务器响应异常"
+            default: specificMsg = error.localizedDescription
+            }
+            log("[Baidu] ❌ 第\(episodeNo)集：\(specificMsg)")
+            await MainActor.run {
+                loadError = specificMsg
+                isLoading = false
+            }
+        } catch {
+            log("[Baidu] ❌ 第\(episodeNo)集：\(error.localizedDescription)")
+            await MainActor.run {
+                loadError = "百度播放失败: \(error.localizedDescription)"
+                isLoading = false
             }
         }
     }
@@ -302,48 +336,22 @@ class PlayerState: ObservableObject {
                     baiduShareURL = urlString
                     baiduBduss = tokens[0].value
                 }
-                if files.count == 1 {
-                    log("[Baidu] ②单文件，转存→获取播放地址...")
-                    do {
-                        let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
-                        log("[Baidu] ✅ 播放地址获取成功")
-                        await playDriveVideo(url: result.url, headers: result.headers)
-                    } catch let error as DriveError {
-                        let specificMsg: String
-                        switch error {
-                        case .noPlayURL(let reason): specificMsg = reason
-                        case .saveFailed: specificMsg = "转存失败"
-                        case .invalidResponse: specificMsg = "服务器响应异常"
-                        default: specificMsg = error.localizedDescription
-                        }
-                        log("[Baidu] ❌ \(specificMsg)")
-                        await MainActor.run { loadError = specificMsg; isLoading = false }
-                    } catch {
-                        log("[Baidu] ❌ \(error.localizedDescription)")
-                        await MainActor.run { loadError = "百度播放失败: \(error.localizedDescription)"; isLoading = false }
+                guard let firstFile = files.first else {
+                    await MainActor.run {
+                        loadError = "百度文件列表为空"
+                        isLoading = false
                     }
-                } else {
-                    log("[Baidu] ②多文件(\(files.count)个)，播第1集，可选集")
-                    currentEpisodeIndex = 0
-                    do {
-                        let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(shareURL: urlString, bduss: tokens[0].value, fsId: files[0].fsId)
-                        log("[Baidu] ✅ 播放地址获取成功")
-                        await playDriveVideo(url: result.url, headers: result.headers)
-                    } catch let error as DriveError {
-                        let specificMsg: String
-                        switch error {
-                        case .noPlayURL(let reason): specificMsg = reason
-                        case .saveFailed: specificMsg = "转存失败"
-                        case .invalidResponse: specificMsg = "服务器响应异常"
-                        default: specificMsg = error.localizedDescription
-                        }
-                        log("[Baidu] ❌ \(specificMsg)")
-                        await MainActor.run { loadError = specificMsg; isLoading = false }
-                    } catch {
-                        log("[Baidu] ❌ \(error.localizedDescription)")
-                        await MainActor.run { loadError = "百度播放失败: \(error.localizedDescription)"; isLoading = false }
-                    }
+                    return
                 }
+
+                let reason = files.count == 1 ? "自动播放单文件" : "自动播放"
+                await startBaiduPlayback(
+                    shareURL: urlString,
+                    bduss: tokens[0].value,
+                    file: firstFile,
+                    index: 0,
+                    reason: reason
+                )
                 return
             } catch let error as DriveError {
                 let specificMsg: String
