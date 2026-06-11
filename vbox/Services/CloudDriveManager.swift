@@ -910,20 +910,31 @@ class CloudDriveManager: ObservableObject {
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
+        // 抓包里的实际播放主链路是：先调 v2/play 刷新 Video-Auth，再用 file/download 的 download_url 走 Range 播放。
+        // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
+        var transcodeURL = ""
+        do {
+            let playInfo = try await quarkRefreshVideoAuth(fileId: fileId, cookie: authCookie)
+            authCookie = playInfo.cookie
+            transcodeURL = playInfo.playURL
+            print("[Quark] v2/play 完成 hasVideoAuth=\(authCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
+        } catch {
+            print("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url: \(error.localizedDescription)")
+        }
+
+        let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
         let playURL: String
         let source: String
-        if let transcodeURL = try? await quarkGetPlayURL(fileId: fileId, cookie: authCookie), !transcodeURL.isEmpty {
-            playURL = transcodeURL
-            source = "v2-play"
-        } else {
-            let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
-            guard !download.url.isEmpty else {
-                throw DriveError.noPlayURL("夸克: 转码和下载直链均为空")
-            }
+        if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
+        } else if !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play-fallback"
+        } else {
+            throw DriveError.noPlayURL("夸克: download_url 和转码地址均为空")
         }
-        print("[Quark] ✅ 播放地址 source=\(source), url=\(playURL.prefix(80))")
+        print("[Quark] ✅ 播放地址 source=\(source), hasPUUS=\(authCookie.contains("__puus=")), hasVideoAuth=\(authCookie.contains("Video-Auth=")), host=\(URL(string: playURL)?.host ?? "unknown")")
 
         scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 20 * 60)
 
@@ -992,7 +1003,7 @@ class CloudDriveManager: ObservableObject {
             "Cookie": cookie,
             "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
             "Referer": "https://pan.quark.cn/",
-            "Origin": "https://pan.quark.cn",
+            "X-Device-Id": "2f49b7e148714010b615bfba561ae679",
             "Accept": "*/*"
         ]
     }
@@ -1240,6 +1251,11 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkGetPlayURL(fileId: String, cookie: String) async throws -> String {
+        let info = try await quarkRefreshVideoAuth(fileId: fileId, cookie: cookie)
+        return info.playURL
+    }
+
+    private func quarkRefreshVideoAuth(fileId: String, cookie: String) async throws -> (playURL: String, cookie: String) {
         let url = quarkAPIURL("/1/clouddrive/file/v2/play")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1251,9 +1267,14 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("夸克 v2/play 失败：\(message)")
         }
         if let dataObj = json["data"] as? [String: Any],
            let videos = dataObj["video_list"] as? [[String: Any]] {
@@ -1262,13 +1283,13 @@ class CloudDriveManager: ObservableObject {
                       let info = item["video_info"] as? [String: Any],
                       let url = info["url"] as? String,
                       !url.isEmpty else { continue }
-                return url
+                return (url, mergedCookie)
             }
         }
         if let playURL = json["play_url"] as? String, !playURL.isEmpty {
-            return playURL
+            return (playURL, mergedCookie)
         }
-        throw DriveError.noPlayURL("夸克: 未返回可播放地址")
+        return ("", mergedCookie)
     }
 
     // MARK: - 夸克原生扫码登录（测试版）
