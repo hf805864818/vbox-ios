@@ -1,4 +1,4 @@
-name: Build MPVKit.xcframework
+name: Build MPVKit binary bundle
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
         default: "main"
         type: string
       product:
-        description: "要打包的 Swift Package 产品"
+        description: "MPVKit 版本"
         required: true
         default: "MPVKit"
         type: choice
@@ -48,71 +48,55 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
-          mkdir -p mpvkit-build/archives mpvkit-artifacts
+          mkdir -p mpvkit-build mpvkit-artifacts
 
       - name: 📥 Clone MPVKit
         run: |
           git clone --depth 1 --branch "$MPVKIT_REF" "$MPVKIT_REPO" mpvkit-build/MPVKit
           git -C mpvkit-build/MPVKit rev-parse --short HEAD
           cd mpvkit-build/MPVKit
-          xcodebuild -list
+          make help
 
-      - name: 🏗️ Archive MPVKit for iOS device
+      - name: 🏗️ Build MPVKit official binary dependencies
         working-directory: mpvkit-build/MPVKit
-        run: |
-          xcodebuild archive \
-            -scheme "$MPVKIT_PRODUCT" \
-            -destination "generic/platform=iOS" \
-            -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/ios.xcarchive" \
-            -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iOS" \
-            SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            ENABLE_BITCODE=NO
-
-      - name: 🏗️ Archive MPVKit for iOS simulator
-        working-directory: mpvkit-build/MPVKit
-        run: |
-          xcodebuild archive \
-            -scheme "$MPVKIT_PRODUCT" \
-            -destination "generic/platform=iOS Simulator" \
-            -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/isimulator.xcarchive" \
-            -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iSimulator" \
-            SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            ENABLE_BITCODE=NO
-
-      - name: 📦 Create MPVKit.xcframework
         run: |
           set -euo pipefail
-          DEVICE_FRAMEWORK="$(find mpvkit-build/archives/ios.xcarchive -name "${MPVKIT_PRODUCT}.framework" -type d | head -1)"
-          SIMULATOR_FRAMEWORK="$(find mpvkit-build/archives/isimulator.xcarchive -name "${MPVKIT_PRODUCT}.framework" -type d | head -1)"
+          if [ "$MPVKIT_PRODUCT" = "MPVKit-GPL" ]; then
+            make gpl platform=ios,isimulator
+          else
+            make build platform=ios,isimulator
+          fi
 
-          if [ -z "$DEVICE_FRAMEWORK" ] || [ -z "$SIMULATOR_FRAMEWORK" ]; then
-            echo "未找到 archive 产物，输出 archive 内容："
-            find mpvkit-build/archives -maxdepth 6 -type d | sed -n '1,200p'
+      - name: 📦 Package MPVKit binary bundle
+        run: |
+          set -euo pipefail
+          RELEASE_DIR="mpvkit-build/MPVKit/dist/release"
+          if [ ! -d "$RELEASE_DIR" ]; then
+            echo "未找到官方 release 目录，输出 dist 内容："
+            find mpvkit-build/MPVKit -maxdepth 4 -type d -name "release" -o -name "dist" | sed -n '1,200p'
             exit 1
           fi
 
-          echo "Device framework: $DEVICE_FRAMEWORK"
-          echo "Simulator framework: $SIMULATOR_FRAMEWORK"
+          echo "release 内容："
+          find "$RELEASE_DIR" -maxdepth 2 -type f | sort | sed -n '1,240p'
 
-          xcodebuild -create-xcframework \
-            -framework "$DEVICE_FRAMEWORK" \
-            -framework "$SIMULATOR_FRAMEWORK" \
-            -output "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework"
+          ZIP_NAME="${MPVKIT_PRODUCT}-binary-bundle.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$RELEASE_DIR" "mpvkit-artifacts/$ZIP_NAME"
+          shasum -a 256 "mpvkit-artifacts/$ZIP_NAME" | tee "mpvkit-artifacts/$ZIP_NAME.sha256"
 
-          ditto -c -k --sequesterRsrc --keepParent \
-            "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework" \
-            "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip"
-
-          shasum -a 256 "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip" | tee "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip.sha256"
+          # 如果官方构建将来产出 MPVKit.xcframework，也一并单独打包。
+          FOUND_MPVKIT="$(find "$RELEASE_DIR" -name "MPVKit.xcframework" -type d | head -1 || true)"
+          if [ -n "$FOUND_MPVKIT" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$FOUND_MPVKIT" "mpvkit-artifacts/MPVKit.xcframework.zip"
+            shasum -a 256 "mpvkit-artifacts/MPVKit.xcframework.zip" | tee "mpvkit-artifacts/MPVKit.xcframework.zip.sha256"
+          fi
 
       - name: 📤 Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.MPVKIT_PRODUCT }}-xcframework
           path: |
-            mpvkit-artifacts/*.xcframework.zip
+            mpvkit-artifacts/*.zip
             mpvkit-artifacts/*.sha256
           if-no-files-found: error
           compression-level: 0
@@ -120,18 +104,18 @@ jobs:
       - name: 🧾 Dump build logs on failure
         if: failure()
         run: |
-          echo "===== xcodebuild logs ====="
-          find mpvkit-build -name "*.xcactivitylog" -type f -print | sed -n '1,50p'
-          echo "===== archives ====="
-          find mpvkit-build/archives -maxdepth 6 -print 2>/dev/null | sed -n '1,200p'
+          echo "===== MPVKit build logs ====="
+          find mpvkit-build/MPVKit -name "*.log" -type f -print -exec tail -200 {} \; 2>/dev/null | sed -n '1,260p'
+          echo "===== dist tree ====="
+          find mpvkit-build/MPVKit/dist -maxdepth 6 -print 2>/dev/null | sed -n '1,260p'
 
       - name: 🚀 Publish Release
         if: ${{ env.PUBLISH_RELEASE == 'true' }}
         run: |
-          TAG="mpvkit-${MPVKIT_PRODUCT}-${{ github.run_number }}"
+          TAG="mpvkit-${MPVKIT_PRODUCT}-bundle-${{ github.run_number }}"
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "自动构建 ${MPVKIT_PRODUCT}.xcframework，来源 ${MPVKIT_REPO}@${MPVKIT_REF}" \
-            mpvkit-artifacts/*.xcframework.zip mpvkit-artifacts/*.sha256
+            --notes "自动构建 ${MPVKIT_PRODUCT} 二进制依赖包，来源 ${MPVKIT_REPO}@${MPVKIT_REF}" \
+            mpvkit-artifacts/*.zip mpvkit-artifacts/*.sha256
         env:
           GH_TOKEN: ${{ github.token }}
