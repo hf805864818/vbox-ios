@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - package-prebuilt
+          - source-build-kingslay-libmpv
           - source-build-libmpv
       framework_kind:
         description: "framework 类型"
@@ -40,7 +41,7 @@ jobs:
   build-mpv-framework:
     runs-on: macos-15
     env:
-      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'source-build-libmpv' }}
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'source-build-kingslay-libmpv' }}
       FRAMEWORK_KIND: ${{ github.event_name == 'workflow_dispatch' && inputs.framework_kind || 'libmpv' }}
       SOURCE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || '' }}
       PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release || false }}
@@ -66,6 +67,14 @@ jobs:
             mpv-source-build/src
           key: mpv-src-${{ runner.os }}-mpv-v0.39.0-ffmpeg-n6.1.1
 
+      - name: ♻️ Cache FFmpegKit source/build
+        if: ${{ env.MODE == 'source-build-kingslay-libmpv' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ffmpegkit-source-build/FFmpegKit
+          key: ffmpegkit-src-${{ runner.os }}-main-libmpv-ios-isimulator
+
       - name: 📦 Package prebuilt xcframework
         if: ${{ env.MODE == 'package-prebuilt' }}
         run: |
@@ -84,6 +93,15 @@ jobs:
             exit 2
           fi
           scripts/mpv/build-libmpv-ios.sh mpv-artifacts
+
+      - name: 🏗️ Build libmpv via kingslay FFmpegKit
+        if: ${{ env.MODE == 'source-build-kingslay-libmpv' }}
+        run: |
+          if [ "$FRAMEWORK_KIND" != "libmpv" ]; then
+            echo "kingslay 构建模式当前只输出 libmpv"
+            exit 2
+          fi
+          scripts/mpv/build-kingslay-libmpv-ios.sh mpv-artifacts
 
       - name: 📤 Upload artifact
         uses: actions/upload-artifact@v4

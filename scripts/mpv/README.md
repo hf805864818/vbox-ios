@@ -54,9 +54,28 @@ workflow 文件：
 package-prebuilt
   从 URL 下载 zip/tar/xcframework，验证后重新打包上传 artifact。
 
+source-build-kingslay-libmpv
+  使用 https://github.com/kingslay/FFmpegKit.git 的 SwiftPM 构建工具尝试输出 libmpv.xcframework。
+
 source-build-libmpv
   源码编译 libmpv.xcframework，输出 zip 和 sha256。
 ```
+
+## kingslay/FFmpegKit 路线
+
+`kingslay/FFmpegKit` 的 `Libmpv.podspec` 使用 `Sources/libmpv.xcframework`，因此这个分支新增：
+
+```text
+scripts/mpv/build-kingslay-libmpv-ios.sh
+```
+
+默认执行：
+
+```text
+swift package --disable-sandbox BuildFFmpeg platforms=ios,isimulator enable-libfreetype enable-libfribidi enable-libharfbuzz enable-libass enable-FFmpeg enable-libmpv
+```
+
+如果 Actions 日志显示该仓库的参数格式不同，可以通过后续提交调整 `KINGS_LAY_PLATFORMS` 或构建参数。
 
 ## 为什么先做 package-prebuilt
 

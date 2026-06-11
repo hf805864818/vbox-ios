@@ -5,3 +5,4 @@ Build/
 *.zip
 mpv-source-build/
 mpv-artifacts/
+ffmpegkit-source-build/
