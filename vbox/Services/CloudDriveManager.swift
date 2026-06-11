@@ -621,17 +621,13 @@ class CloudDriveManager: ObservableObject {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
 
-        if let context = try? await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true) {
-            baiduLog("[Baidu-Local] ✅ 本机解析文件列表：\(context.files.count) 个")
-            return context.files
-        }
-
-        baiduLog("[Baidu-Local] ⚠️ 本机解析文件列表失败，回退 Worker")
         if let files = try? await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie) {
             return files
         }
 
-        throw DriveError.noPlayURL("百度文件列表解析失败")
+        baiduLog("[Baidu-Worker] ⚠️ 文件列表代理失败，回退直连解析")
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+        return context.files
     }
 
     func resolveBaiduPlayURL(shareURL: String, bduss: String, pcsCookie: String = "") async throws -> PlayResult {
@@ -1173,12 +1169,6 @@ class CloudDriveManager: ObservableObject {
         let parsedPcs = parseBaiduToken(pcsCookie)
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
-        if let files = try? await baiduGetFileList(shareURL: shareURL, bduss: bduss),
-           let first = files.first, !first.fsId.isEmpty {
-            return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: bduss, fsId: first.fsId, pcsCookie: pcsCookie)
-        }
-
-        baiduLog("[Baidu-Local] ⚠️ 自动播放本机文件列表失败，回退 Worker")
         do {
             return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie, pcsCookie: pcs)
         } catch {
@@ -1203,14 +1193,6 @@ class CloudDriveManager: ObservableObject {
         let cookie = parsed.cookie
         let parsedPcs = parseBaiduToken(pcsCookie)
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
-
-        do {
-            let result = try await baiduResolveOnDevice(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, webCookie: cookie, pcsCookie: pcs)
-            baiduStorePlayResult(result, for: cacheKey)
-            return result
-        } catch {
-            baiduLog("[Baidu-Local] ⚠️ 本机播放链路失败，回退 Worker：\(error.localizedDescription)")
-        }
 
         do {
             let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
