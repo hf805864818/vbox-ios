@@ -424,7 +424,7 @@ class PlayerState: ObservableObject {
     }
 
     /// 添加调试日志（同时打印到控制台和UI）
-    private func log(_ msg: String) {
+    func log(_ msg: String) {
         print(msg)
         let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
         Task { @MainActor in
