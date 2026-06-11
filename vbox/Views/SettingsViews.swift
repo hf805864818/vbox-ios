@@ -1834,7 +1834,7 @@ struct QuarkNativeQRLoginTestView: View {
     @State private var qrToken: CloudDriveManager.QuarkQrLoginToken?
     @State private var qrImage: UIImage?
     @State private var statusText = "点击下方按钮生成夸克登录二维码"
-    @State private var detailText = "二维码内容使用抓包确认的 token 原文，扫码后会轮询 service_ticket。"
+    @State private var detailText = "二维码内容使用抓包确认的 su.quark.cn 登录跳转链接，扫码后会轮询 service_ticket。"
     @State private var isGenerating = false
     @State private var isPolling = false
     @State private var pollCount = 0
@@ -2040,11 +2040,11 @@ struct QuarkNativeQRLoginTestView: View {
         do {
             let token = try await cloudDriveManager.quarkCreateQrToken()
             qrToken = token
-            qrImage = makeQRCode(from: token.token)
+            qrImage = makeQRCode(from: token.qrPayload)
             isGenerating = false
             isPolling = true
             statusText = "等待扫码确认"
-            detailText = "二维码内容：token 原文；每 2 秒轮询一次。"
+            detailText = "二维码内容：su.quark.cn 登录跳转链接；每 2 秒轮询一次。"
             await pollLoop(token)
         } catch {
             isGenerating = false
