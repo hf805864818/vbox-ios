@@ -265,13 +265,6 @@ struct SettingsView: View {
                     .background(Color.gray.opacity(0.04))
                 }
                 
-                if !cloudDriveManager.savedTokens.isEmpty {
-                    ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
-                        driveTokenRow(index: index, token: token)
-                    }
-                }
-                fetchTokenButton
-                driveFormFields
             }.padding(16)
         }
         .sheet(isPresented: $showBaiduTestView) {
@@ -445,6 +438,9 @@ struct CloudAuthCenterView: View {
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var showTokenFetcher = false
     @State private var showQuarkNativeQR = false
+    @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
+    @State private var driveTokenName = ""
+    @State private var driveTokenValue = ""
 
     var body: some View {
         NavigationView {
@@ -455,19 +451,7 @@ struct CloudAuthCenterView: View {
                     providerAccountCard(type: .ali, note: "扫码登录待接入，当前保留 Refresh Token 手动兜底")
                     providerAccountCard(type: .uc, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
                     providerAccountCard(type: .one15, note: "扫码登录待接入，当前保留账号参数手动兜底")
-
-                    Button(action: { showTokenFetcher = true }) {
-                        HStack {
-                            Image(systemName: "globe")
-                            Text("网页登录获取 Token（兜底）")
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(hex: "E11D48"))
-                        .cornerRadius(12)
-                    }
+                    manualTokenFallbackCard
 
                     Text("后续接入真实扫码登录后，这里会按网盘显示二维码、轮询扫码状态，并自动保存对应 Token。手动粘贴入口会继续保留为高级兜底。")
                         .font(.system(size: 12))
@@ -486,7 +470,12 @@ struct CloudAuthCenterView: View {
                 }
             }
             .sheet(isPresented: $showTokenFetcher) {
-                TokenFetcherView(cloudDriveManager: cloudDriveManager)
+                TokenFetcherView(cloudDriveManager: cloudDriveManager, onTokenDetected: { type, value in
+                    selectedDriveType = CloudDriveManager.DriveType(rawValue: type) ?? .ali
+                    driveTokenName = CloudDriveManager.DriveType(rawValue: type)?.displayName ?? type
+                    driveTokenValue = value
+                    showTokenFetcher = false
+                })
             }
             .sheet(isPresented: $showQuarkNativeQR) {
                 QuarkNativeQRLoginTestView(cloudDriveManager: cloudDriveManager)
@@ -518,21 +507,128 @@ struct CloudAuthCenterView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
 
-            HStack(spacing: 10) {
-                disabledActionButton("扫码登录待接入")
-                Button(action: { showTokenFetcher = true }) {
-                    Text("网页登录兜底")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color(hex: "E11D48"))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color(hex: "E11D48").opacity(0.08))
-                        .cornerRadius(10)
-                }
-            }
+            disabledActionButton("扫码登录待接入")
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+    }
+
+    private var manualTokenFallbackCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(Color(hex: "E11D48"))
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("复制粘贴 Token 兜底")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text("用于查看、网页登录获取、手动粘贴各网盘 Token")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+            }
+
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 8) {
+                    if cloudDriveManager.savedTokens.isEmpty {
+                        Text("暂无已保存 Token")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(Color.white.opacity(0.85))
+                            .cornerRadius(10)
+                    } else {
+                        ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
+                            fallbackTokenRow(index: index, token: token)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 170)
+
+            Button(action: { showTokenFetcher = true }) {
+                HStack {
+                    Image(systemName: "globe")
+                    Text("网页登录获取 Token（兜底）")
+                        .font(.system(size: 14, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color(hex: "E11D48"))
+                .cornerRadius(12)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("网盘类型", selection: $selectedDriveType) {
+                    ForEach(CloudDriveManager.DriveType.allCases, id: \.self) { type in
+                        Text(type.displayName).tag(type)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                TextField("备注名称", text: $driveTokenName)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 13))
+
+                TextField(selectedDriveType.tokenLabel, text: $driveTokenValue)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+
+                Button(action: addDriveTokenFromFallback) {
+                    Text("保存 Token")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background((driveTokenName.isEmpty || driveTokenValue.isEmpty) ? Color.gray : Color(hex: "E11D48"))
+                        .cornerRadius(10)
+                }
+                .disabled(driveTokenName.isEmpty || driveTokenValue.isEmpty)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
+    }
+
+    private func fallbackTokenRow(index: Int, token: DriveToken) -> some View {
+        HStack {
+            Image(systemName: iconForDriveType(token.type))
+                .foregroundColor(Color(hex: "E11D48"))
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black)
+                Text(token.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button(action: { cloudDriveManager.removeToken(at: index) }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 13))
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Color.white.opacity(0.85))
+        .cornerRadius(10)
+    }
+
+    private func addDriveTokenFromFallback() {
+        guard !driveTokenName.isEmpty, !driveTokenValue.isEmpty else { return }
+        cloudDriveManager.addToken(type: selectedDriveType, name: driveTokenName, value: driveTokenValue)
+        driveTokenName = ""
+        driveTokenValue = ""
     }
 
     private var quarkAccountCard: some View {
