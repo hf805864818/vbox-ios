@@ -524,7 +524,7 @@ struct CloudPlaybackCacheView: View {
 
     private func placeholderCard(type: CloudDriveManager.DriveType, note: String) -> some View {
         let summary = cloudDriveManager.cloudPlayItemSummary(for: type)
-        HStack(spacing: 12) {
+        return HStack(spacing: 12) {
             Image(systemName: iconForDriveType(type))
                 .foregroundColor(.gray)
                 .font(.system(size: 20))
