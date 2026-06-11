@@ -1217,6 +1217,182 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("夸克: 未返回可播放地址")
     }
 
+    // MARK: - 夸克原生扫码登录（测试版）
+    // 抓包显示 PC 客户端走 uop.quark.cn/cas/ajax 三步：
+    //  1. getTokenForQrcodeLogin → 拿 token
+    //  2. getServiceTicketByQrcodeToken（轮询，未扫返回 50004001）
+    //  3. 拿到 service_ticket 后，请求 pan.quark.cn/account/info?st=... 让服务端 set-cookie
+
+    struct QuarkQrLoginToken {
+        let token: String
+        let clientId: String   // 生成 token 时使用 386；轮询时 PC 抓包用 532，这里都保留
+        let pollClientId: String
+    }
+
+    enum QuarkQrPollResult {
+        case pending
+        case scanned       // 兼容字段，目前接口不区分
+        case success(serviceTicket: String)
+        case expired
+        case failed(message: String)
+    }
+
+    struct QuarkQrLoginResult {
+        let cookie: String                    // 拼好的 Cookie 字符串：__pus=...; __puus=...; ...
+        let cookies: [String: String]         // 单独字段，便于调试展示
+        let nickName: String?
+        let avatarURL: String?
+    }
+
+    /// 第一步：生成扫码登录 token，返回的 token 直接作为二维码内容（PC 客户端实测）
+    func quarkCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> QuarkQrLoginToken {
+        var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin")!
+        components.queryItems = [
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw DriveError.noPlayURL("夸克: 获取扫码 token HTTP 失败")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        let status = (json["status"] as? Int) ?? -1
+        guard status == 2000000,
+              let dataObj = json["data"] as? [String: Any],
+              let members = dataObj["members"] as? [String: Any],
+              let token = members["token"] as? String, !token.isEmpty else {
+            let message = (json["message"] as? String) ?? "夸克扫码 token 接口异常"
+            throw DriveError.noPlayURL("夸克: \(message)")
+        }
+        return QuarkQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId)
+    }
+
+    /// 第二步：轮询扫码状态。pending 表示用户还没扫码或还没确认；success 时返回 service_ticket。
+    func quarkPollQrStatus(token: QuarkQrLoginToken) async throws -> QuarkQrPollResult {
+        var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken")!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: token.pollClientId),
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased()),
+            URLQueryItem(name: "token", value: token.token)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        let status = (json["status"] as? Int) ?? -1
+        let message = (json["message"] as? String) ?? ""
+        switch status {
+        case 2000000:
+            if let dataObj = json["data"] as? [String: Any],
+               let members = dataObj["members"] as? [String: Any],
+               let ticket = members["service_ticket"] as? String, !ticket.isEmpty {
+                return .success(serviceTicket: ticket)
+            }
+            return .failed(message: "未返回 service_ticket")
+        case 50004001:
+            return .pending
+        case 50004002, 50004003, 50004004:
+            return .expired
+        default:
+            return .failed(message: "状态码 \(status) \(message)")
+        }
+    }
+
+    /// 第三步：用 service_ticket 换取浏览器侧 Cookie。响应里的 set-cookie 就是登录态。
+    func quarkExchangeServiceTicket(serviceTicket: String) async throws -> QuarkQrLoginResult {
+        var components = URLComponents(string: "https://pan.quark.cn/account/info")!
+        components.queryItems = [
+            URLQueryItem(name: "st", value: serviceTicket),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "platform", value: "pc")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        // 使用一次性配置以拿到 set-cookie
+        let oneShotConfig = URLSessionConfiguration.ephemeral
+        oneShotConfig.httpCookieAcceptPolicy = .always
+        oneShotConfig.httpShouldSetCookies = true
+        let oneShotSession = URLSession(configuration: oneShotConfig)
+        defer { oneShotSession.finishTasksAndInvalidate() }
+
+        let (data, response) = try await oneShotSession.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw DriveError.noPlayURL("夸克: account/info HTTP 失败")
+        }
+
+        // 解析 set-cookie 头（合并多行的几种 case）
+        var cookieDict: [String: String] = [:]
+        var stringHeaders: [String: String] = [:]
+        for (key, value) in http.allHeaderFields {
+            stringHeaders["\(key)"] = "\(value)"
+        }
+        let responseCookies = HTTPCookie.cookies(withResponseHeaderFields: stringHeaders, for: URL(string: "https://pan.quark.cn")!)
+        for c in responseCookies { cookieDict[c.name] = c.value }
+
+        if let storage = oneShotSession.configuration.httpCookieStorage,
+           let cookies = storage.cookies(for: URL(string: "https://pan.quark.cn")!) {
+            for c in cookies { cookieDict[c.name] = c.value }
+        }
+        // 兜底再从响应头里抓一遍
+        let headers = http.allHeaderFields
+        if let raw = headers["Set-Cookie"] as? String {
+            for piece in raw.components(separatedBy: ", ") {
+                if let kv = piece.components(separatedBy: ";").first,
+                   let eq = kv.firstIndex(of: "=") {
+                    let key = String(kv[..<eq]).trimmingCharacters(in: .whitespaces)
+                    let value = String(kv[kv.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+                    if !key.isEmpty && cookieDict[key] == nil { cookieDict[key] = value }
+                }
+            }
+        }
+
+        // 必备字段校验
+        let mustHave = ["__kps", "__pus", "__uid"]
+        for key in mustHave where (cookieDict[key] ?? "").isEmpty {
+            throw DriveError.noPlayURL("夸克: 未拿到 \(key) Cookie，可能扫码授权失败")
+        }
+
+        // 解析昵称/头像（如果接口返回）
+        var nick: String? = nil
+        var avatar: String? = nil
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let dataObj = json["data"] as? [String: Any] {
+                nick = (dataObj["nickname"] as? String) ?? (dataObj["nick_name"] as? String)
+                avatar = (dataObj["avatarUri"] as? String) ?? (dataObj["avatar_uri"] as? String)
+            }
+            if nick == nil { nick = json["nickname"] as? String }
+        }
+
+        let cookieString = cookieDict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+        return QuarkQrLoginResult(cookie: cookieString, cookies: cookieDict, nickName: nick, avatarURL: avatar)
+    }
+
     // MARK: - 百度网盘
 
     private func parseBaiduToken(_ raw: String) -> (cookie: String, bdussOnly: String) {

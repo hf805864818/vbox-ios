@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import CoreImage
 
 struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
@@ -442,13 +444,14 @@ struct CloudAuthCenterView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var showTokenFetcher = false
+    @State private var showQuarkNativeQR = false
 
     var body: some View {
         NavigationView {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     baiduAccountCard
-                    providerAccountCard(type: .quark, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
+                    quarkAccountCard
                     providerAccountCard(type: .ali, note: "扫码登录待接入，当前保留 Refresh Token 手动兜底")
                     providerAccountCard(type: .uc, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
                     providerAccountCard(type: .one15, note: "扫码登录待接入，当前保留账号参数手动兜底")
@@ -484,6 +487,9 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $showTokenFetcher) {
                 TokenFetcherView(cloudDriveManager: cloudDriveManager)
+            }
+            .sheet(isPresented: $showQuarkNativeQR) {
+                QuarkNativeQRLoginTestView(cloudDriveManager: cloudDriveManager)
             }
         }
     }
@@ -527,6 +533,41 @@ struct CloudAuthCenterView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+    }
+
+    private var quarkAccountCard: some View {
+        let tokens = cloudDriveManager.tokens(for: .quark)
+        return VStack(alignment: .leading, spacing: 10) {
+            accountHeader(
+                title: CloudDriveManager.DriveType.quark.displayName,
+                subtitle: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token",
+                icon: iconForDriveType(.quark),
+                isReady: !tokens.isEmpty
+            )
+            Text("支持原生扫码登录，扫码后自动保存 Cookie；也可使用网页登录兜底。")
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+            HStack(spacing: 10) {
+                Button(action: { showQuarkNativeQR = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "qrcode")
+                        Text("原生扫码登录")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color(hex: "E11D48"))
+                    .cornerRadius(10)
+                }
+                Text(tokens.first?.name ?? "暂无 Token")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
     }
 
     private func providerAccountCard(type: CloudDriveManager.DriveType, note: String) -> some View {
@@ -1783,5 +1824,311 @@ struct InfoRow: View {
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+struct QuarkNativeQRLoginTestView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var cloudDriveManager: CloudDriveManager
+
+    @State private var qrToken: CloudDriveManager.QuarkQrLoginToken?
+    @State private var qrImage: UIImage?
+    @State private var statusText = "点击下方按钮生成夸克登录二维码"
+    @State private var detailText = "二维码内容使用抓包确认的 token 原文，扫码后会轮询 service_ticket。"
+    @State private var isGenerating = false
+    @State private var isPolling = false
+    @State private var pollCount = 0
+    @State private var serviceTicket = ""
+    @State private var savedCookie = ""
+    @State private var cookieFields: [String: String] = [:]
+    @State private var errorText = ""
+
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 18) {
+                    statusCard
+                    qrCard
+                    actionArea
+                    resultCard
+                    tipCard
+                }
+                .padding(16)
+            }
+            .background(Color.white)
+            .navigationTitle("夸克原生扫码测试")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .onDisappear {
+                isPolling = false
+            }
+        }
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: isPolling ? "arrow.triangle.2.circlepath" : "qrcode")
+                    .foregroundColor(Color(hex: "E11D48"))
+                Text(statusText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.black)
+                Spacer()
+                if isGenerating || isPolling {
+                    ProgressView().scaleEffect(0.85)
+                }
+            }
+            Text(detailText)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.system(size: 12))
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.05)))
+    }
+
+    private var qrCard: some View {
+        VStack(spacing: 12) {
+            if let qrImage {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 230, height: 230)
+                    .padding(14)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.gray.opacity(0.08))
+                    .frame(width: 230, height: 230)
+                    .overlay(
+                        VStack(spacing: 10) {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 44))
+                                .foregroundColor(.gray)
+                            Text("未生成二维码")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        }
+                    )
+            }
+
+            if let qrToken {
+                Text("Token：\(shortToken(qrToken.token))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    private var actionArea: some View {
+        VStack(spacing: 10) {
+            Button(action: { Task { await startLoginFlow() } }) {
+                HStack {
+                    Image(systemName: "qrcode")
+                    Text(qrToken == nil ? "生成二维码并开始轮询" : "重新生成二维码")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color(hex: "E11D48"))
+                .cornerRadius(12)
+            }
+            .disabled(isGenerating)
+
+            if isPolling {
+                Button(action: {
+                    isPolling = false
+                    statusText = "已停止轮询"
+                    detailText = "可重新生成二维码继续测试。"
+                }) {
+                    Text("停止轮询")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(hex: "E11D48"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(hex: "E11D48").opacity(0.08))
+                        .cornerRadius(10)
+                }
+            }
+        }
+    }
+
+    private var resultCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("结果")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.black)
+
+            resultRow("轮询次数", "\(pollCount)")
+            if !serviceTicket.isEmpty {
+                resultRow("Service Ticket", shortToken(serviceTicket))
+            }
+            if !savedCookie.isEmpty {
+                resultRow("保存状态", "已写入夸克 Token")
+            }
+            if !cookieFields.isEmpty {
+                Text(cookieFields.keys.sorted().joined(separator: "、"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("扫码确认成功后，这里会显示写入的 Cookie 字段。")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.05)))
+    }
+
+    private var tipCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("测试说明")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.black)
+            Text("请用手机夸克 App 扫描二维码并确认登录。该接口属于抓包得到的私有接口，后续仍保留网页登录和手动 Cookie 作为兜底。")
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.08)))
+    }
+
+    private func resultRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+            Spacer()
+            Text(value)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.black)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    @MainActor
+    private func startLoginFlow() async {
+        isGenerating = true
+        isPolling = false
+        pollCount = 0
+        serviceTicket = ""
+        savedCookie = ""
+        cookieFields = [:]
+        errorText = ""
+        statusText = "正在生成二维码..."
+        detailText = "请求 getTokenForQrcodeLogin"
+
+        do {
+            let token = try await cloudDriveManager.quarkCreateQrToken()
+            qrToken = token
+            qrImage = makeQRCode(from: token.token)
+            isGenerating = false
+            isPolling = true
+            statusText = "等待扫码确认"
+            detailText = "二维码内容：token 原文；每 2 秒轮询一次。"
+            await pollLoop(token)
+        } catch {
+            isGenerating = false
+            isPolling = false
+            statusText = "生成二维码失败"
+            detailText = "请稍后重试，或继续使用网页登录兜底。"
+            errorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func pollLoop(_ token: CloudDriveManager.QuarkQrLoginToken) async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await cloudDriveManager.quarkPollQrStatus(token: token)
+                switch result {
+                case .pending:
+                    statusText = "等待扫码确认"
+                    detailText = "第 \(pollCount) 次轮询：尚未确认。"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
+                    detailText = "请在手机夸克 App 内确认登录。"
+                case .success(let ticket):
+                    serviceTicket = ticket
+                    statusText = "已确认，正在换取 Cookie"
+                    detailText = "请求 account/info?st=service_ticket"
+                    try await exchangeAndSave(ticket)
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                isPolling = false
+                statusText = "轮询异常"
+                detailText = "请重新生成二维码，或使用网页登录兜底。"
+                errorText = error.localizedDescription
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+
+        if isPolling {
+            isPolling = false
+            statusText = "轮询超时"
+            detailText = "二维码可能已失效，请重新生成。"
+        }
+    }
+
+    @MainActor
+    private func exchangeAndSave(_ ticket: String) async throws {
+        let loginResult = try await cloudDriveManager.quarkExchangeServiceTicket(serviceTicket: ticket)
+        savedCookie = loginResult.cookie
+        cookieFields = loginResult.cookies
+        let tokenName = loginResult.nickName?.isEmpty == false ? "夸克扫码-\(loginResult.nickName!)" : "夸克扫码登录"
+        cloudDriveManager.addToken(type: .quark, name: tokenName, value: loginResult.cookie)
+        isPolling = false
+        statusText = "夸克扫码登录成功"
+        detailText = "Cookie 已保存到夸克 Token，可回到播放链路测试。"
+    }
+
+    private func makeQRCode(from text: String) -> UIImage? {
+        let data = Data(text.utf8)
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func shortToken(_ text: String) -> String {
+        guard text.count > 16 else { return text }
+        return "\(text.prefix(8))...\(text.suffix(6))"
     }
 }
