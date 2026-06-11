@@ -27,11 +27,12 @@ MPVKit.xcframework 下载地址
 
 ```text
 1. 克隆 mpvkit/MPVKit
-2. 使用 Swift Package 产品 MPVKit
-3. archive iOS 真机 framework
-4. archive iOS Simulator framework
-5. xcodebuild -create-xcframework
-6. 上传 MPVKit.xcframework.zip artifact
+2. 生成本地 MPVKit wrapper Swift Package
+3. wrapper 内部 @_exported import _MPVKit
+4. archive iOS 真机 MPVKit.framework
+5. archive iOS Simulator MPVKit.framework
+6. xcodebuild -create-xcframework 合成 MPVKit.xcframework
+7. 上传 MPVKit.xcframework.zip artifact
 ```
 
 如果需要手动运行，可以在 Actions 里选择：
