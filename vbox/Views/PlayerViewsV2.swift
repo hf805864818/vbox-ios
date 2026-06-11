@@ -3,6 +3,9 @@ import AVKit
 import AVFoundation
 import Combine
 import UIKit
+#if canImport(MobileVLCKit)
+import MobileVLCKit
+#endif
 
 // 屏幕方向辅助类
 class OrientationHelper {
@@ -135,6 +138,9 @@ class PlayerState: ObservableObject {
     @Published var debugLogs: [String] = []  // 可视化调试日志
     @Published var playbackEngineMode: PlaybackEngineMode = .system
     @Published var compatibilityHint: String?
+    @Published var compatibilityURL: URL?
+    @Published var compatibilityHeaders: [String: String] = [:]
+    @Published var compatibilityEngineName: String = "VLC"
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
@@ -143,6 +149,18 @@ class PlayerState: ObservableObject {
     private var baiduPrefetchTask: Task<Void, Never>?
     private var baiduPrefetchingIds = Set<String>()
     private var baiduNearEndPrefetchedIndexes = Set<Int>()
+
+    private var isVLCBuildAvailable: Bool {
+        #if canImport(MobileVLCKit)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldUseCompatibilityEngine: Bool {
+        playbackEngineMode == .compatibility && isVLCBuildAvailable
+    }
 
     private func compatibilityReason(for fileName: String) -> String? {
         let lower = fileName.lowercased()
@@ -454,6 +472,8 @@ class PlayerState: ObservableObject {
             timeObserver = nil
         }
         player = nil
+        compatibilityURL = nil
+        compatibilityHeaders = [:]
     }
     
     // MARK: - 网盘视频处理
@@ -660,6 +680,22 @@ class PlayerState: ObservableObject {
             return
         }
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
+
+        if shouldUseCompatibilityEngine {
+            log("[PlayerV2] 使用 VLC 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
+            await MainActor.run {
+                player?.pause()
+                player = nil
+                compatibilityEngineName = "VLC"
+                compatibilityURL = urlObj
+                compatibilityHeaders = headers
+                isPlaying = true
+                isLoading = false
+            }
+            return
+        } else if playbackEngineMode == .compatibility {
+            log("[PlayerV2] 资源需要兼容内核，但当前构建未包含 VLC，暂用系统内核尝试")
+        }
         
         let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
         let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": assetHeaders])
@@ -1347,7 +1383,24 @@ struct PlayerContainerView: View {
     var body: some View {
         ZStack {
             // 视频层（如果有播放器）
-            if let player = player {
+            if let url = playerState.compatibilityURL {
+                #if canImport(MobileVLCKit)
+                VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders)
+                    .ignoresSafeArea()
+                #else
+                VStack(spacing: 10) {
+                    Image(systemName: "play.slash")
+                        .font(.system(size: 42))
+                        .foregroundColor(.white.opacity(0.85))
+                    Text("当前资源需要兼容内核")
+                        .foregroundColor(.white)
+                        .font(.headline)
+                    Text("当前构建未包含 VLC，请等待兼容内核构建包")
+                        .foregroundColor(.white.opacity(0.7))
+                        .font(.subheadline)
+                }
+                #endif
+            } else if let player = player {
                 AVPlayerControllerRepresentableV2(player: player)
                     .ignoresSafeArea()
             }
@@ -1744,6 +1797,64 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
         }
     }
 }
+
+#if canImport(MobileVLCKit)
+// MARK: - VLC 兼容播放内核封装 V2
+struct VLCPlayerRepresentableV2: UIViewRepresentable {
+    let url: URL
+    let headers: [String: String]
+
+    func makeCoordinator() -> VLCPlayerCoordinatorV2 {
+        VLCPlayerCoordinatorV2()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        context.coordinator.attach(to: view, url: url, headers: headers)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if context.coordinator.currentURL != url {
+            context.coordinator.attach(to: uiView, url: url, headers: headers)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: VLCPlayerCoordinatorV2) {
+        coordinator.stop()
+    }
+
+    final class VLCPlayerCoordinatorV2 {
+        private let mediaPlayer = VLCMediaPlayer()
+        var currentURL: URL?
+
+        func attach(to view: UIView, url: URL, headers: [String: String]) {
+            currentURL = url
+            mediaPlayer.drawable = view
+            let media = VLCMedia(url: url)
+            var options: [AnyHashable: Any] = [:]
+            if let ua = headers.first(where: { $0.key.lowercased() == "user-agent" })?.value {
+                options["http-user-agent"] = ua
+            }
+            if let referer = headers.first(where: { $0.key.lowercased() == "referer" })?.value {
+                options["http-referrer"] = referer
+            }
+            if !options.isEmpty {
+                media.addOptions(options)
+            }
+            mediaPlayer.media = media
+            mediaPlayer.play()
+        }
+
+        func stop() {
+            mediaPlayer.stop()
+            mediaPlayer.drawable = nil
+            currentURL = nil
+        }
+    }
+}
+#endif
 
 // MARK: - 弹幕设置视图
 struct DanmakuSettingsViewV2: View {

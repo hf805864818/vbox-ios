@@ -16,10 +16,15 @@ jobs:
       - name: 🔧 Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
+      - name: 📦 Install CocoaPods dependencies
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install --repo-update
+
       - name: 🏗️ Build with Verbose Output
         run: |
           xcodebuild \
-            -project vbox.xcodeproj \
+            -workspace vbox.xcworkspace \
             -scheme vbox \
             -configuration Release \
             -sdk iphoneos \

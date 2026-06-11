@@ -25,9 +25,14 @@ jobs:
           echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_OUTPUT
           echo "Version: $MARKETING_VERSION Build: $BUILD_NUM"
 
+      - name: 📦 Install CocoaPods dependencies
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install --repo-update
+
       - name: 🏗️ Build
         run: |
-          xcodebuild -project vbox.xcodeproj \
+          xcodebuild -workspace vbox.xcworkspace \
             -scheme vbox \
             -sdk iphoneos \
             -configuration Release \
