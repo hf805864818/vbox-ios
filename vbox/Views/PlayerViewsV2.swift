@@ -800,6 +800,14 @@ class PlayerState: ObservableObject {
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
 
+        if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "夸克网盘直链"
+            }
+            log("[Quark] 自动模式下夸克直链优先使用 VLC 兼容内核，减少 AVPlayer 首帧慢和 12847 兼容问题")
+        }
+
         if shouldUseCompatibilityEngine {
             log("[PlayerV2] 使用 VLC 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
             await MainActor.run {
@@ -902,7 +910,7 @@ class PlayerState: ObservableObject {
             }
 
         let p = AVPlayer(playerItem: playerItem)
-        p.automaticallyWaitsToMinimizeStalling = !isBaiduLocalProxy
+        p.automaticallyWaitsToMinimizeStalling = !(isBaiduLocalProxy || isQuarkLocalProxy)
         
         await MainActor.run {
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
@@ -1292,21 +1300,8 @@ class PlayerState: ObservableObject {
                 let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
                 log("[PlayerV2] ✅ 网盘解析成功! 播放地址: \(result.url.prefix(80))...")
                 log("[PlayerV2] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
-                if let url = URL(string: result.url) {
-                    let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": result.headers])
-                    let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                    p.automaticallyWaitsToMinimizeStalling = true
-                    await MainActor.run {
-                        if let oldObserver = self.timeObserver { self.player?.removeTimeObserver(oldObserver) }
-                        cleanupObservers(); self.player?.pause()
-                        self.player = p; self.isPlaying = true; self.isLoading = false
-                    }
-                    let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-                    timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
-                        self?.currentTime = time.seconds
-                        if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.play() }
+                if URL(string: result.url) != nil {
+                    await playDriveVideo(url: result.url, headers: result.headers)
                     return
                 } else {
                     let msg = "\(driveType.displayName) 返回的播放地址无效: \(result.url.prefix(50))"

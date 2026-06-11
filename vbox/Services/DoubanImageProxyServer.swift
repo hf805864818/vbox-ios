@@ -292,7 +292,7 @@ final class DoubanImageProxyServer {
     }
 
     private func preheatStream(item: StreamItem, id: String) {
-        guard item.provider == "baidu" || item.provider == "quark" else { return }
+        guard item.provider == "baidu" else { return }
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 12
         for (key, value) in item.headers {
