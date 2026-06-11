@@ -436,12 +436,49 @@ class PlayerState: ObservableObject {
         
         let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
         let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": assetHeaders])
-        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        let playerItem = AVPlayerItem(asset: asset)
+        playerItem.preferredForwardBufferDuration = urlObj.host == "127.0.0.1" ? 2.0 : 10.0
+
+        var localStatusObserver: AnyCancellable?
+        localStatusObserver = playerItem.publisher(for: \.status)
+            .sink { [weak self] status in
+                guard let self else { return }
+                switch status {
+                case .readyToPlay:
+                    self.log("[PlayerV2] 网盘 PlayerItem 准备就绪")
+                case .failed:
+                    let nsError = playerItem.error as? NSError
+                    let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
+                    self.log("[PlayerV2] ❌ 网盘 PlayerItem 失败: code=\(nsError?.code ?? -1) domain=\(nsError?.domain ?? "") desc=\(errorDesc)")
+                    if let underlying = nsError?.userInfo[NSUnderlyingErrorKey] as? Error {
+                        self.log("[PlayerV2] ❌ 网盘底层错误: \(underlying.localizedDescription)")
+                    }
+                    Task { @MainActor in
+                        self.loadError = "网盘播放失败: \(errorDesc)"
+                        self.isLoading = false
+                    }
+                case .unknown:
+                    self.log("[PlayerV2] 网盘 PlayerItem 状态未知")
+                @unknown default:
+                    break
+                }
+            }
+
+        let localFailureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+            .sink { [weak self] notification in
+                if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
+                    self?.log("[PlayerV2] ❌ 网盘播放中断: \(error.localizedDescription)")
+                }
+            }
+
+        let p = AVPlayer(playerItem: playerItem)
         p.automaticallyWaitsToMinimizeStalling = true
         
         await MainActor.run {
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
             cleanupObservers()
+            statusObserver = localStatusObserver
+            failureObserver = localFailureObserver
             player?.pause()
             player = p
             isPlaying = true
