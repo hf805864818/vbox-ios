@@ -1,25 +1,136 @@
-name: Build MPVKit
+name: Build MPVKit.xcframework
+
 on:
   push:
-    branches: [ main ]
+    branches:
+      - rebuild-8db3547
+    paths:
+      - ".github/workflows/mpv-build.yml"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      mpvkit_ref:
+        description: "mpvkit/MPVKit 分支或 tag"
+        required: true
+        default: "main"
+        type: string
+      product:
+        description: "要打包的 Swift Package 产品"
+        required: true
+        default: "MPVKit"
+        type: choice
+        options:
+          - MPVKit
+          - MPVKit-GPL
+      publish_release:
+        description: "是否发布到本仓库 Release"
+        required: true
+        default: false
+        type: boolean
+
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
+    env:
+      MPVKIT_REPO: "https://github.com/mpvkit/MPVKit.git"
+      MPVKIT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.mpvkit_ref || 'main' }}
+      MPVKIT_PRODUCT: ${{ github.event_name == 'workflow_dispatch' && inputs.product || 'MPVKit' }}
+      PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release || false }}
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install deps
+      - name: 📥 Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: 🧰 Prepare tools
         run: |
-          brew install yasm pkg-config
-      - name: Clone mpv-ios-scripts
-        run: git clone https://github.com/mpv-ios/mpv-ios-scripts.git build-scripts
-      - name: Update sources
-        working-directory: build-scripts
-        run: ./update.sh
-      - name: Build MPVKit.xcframework
-        working-directory: build-scripts
-        run: ./build.sh -p iOS -k
-      - name: Upload artifact
+          xcodebuild -version
+          swift --version
+          mkdir -p mpvkit-build/archives mpvkit-artifacts
+
+      - name: 📥 Clone MPVKit
+        run: |
+          git clone --depth 1 --branch "$MPVKIT_REF" "$MPVKIT_REPO" mpvkit-build/MPVKit
+          git -C mpvkit-build/MPVKit rev-parse --short HEAD
+          xcodebuild -list -packagePath mpvkit-build/MPVKit
+
+      - name: 🏗️ Archive MPVKit for iOS device
+        run: |
+          xcodebuild archive \
+            -packagePath mpvkit-build/MPVKit \
+            -scheme "$MPVKIT_PRODUCT" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/mpvkit-build/archives/ios.xcarchive" \
+            -derivedDataPath "$PWD/mpvkit-build/DerivedData-iOS" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            ENABLE_BITCODE=NO
+
+      - name: 🏗️ Archive MPVKit for iOS simulator
+        run: |
+          xcodebuild archive \
+            -packagePath mpvkit-build/MPVKit \
+            -scheme "$MPVKIT_PRODUCT" \
+            -destination "generic/platform=iOS Simulator" \
+            -archivePath "$PWD/mpvkit-build/archives/isimulator.xcarchive" \
+            -derivedDataPath "$PWD/mpvkit-build/DerivedData-iSimulator" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            ENABLE_BITCODE=NO
+
+      - name: 📦 Create MPVKit.xcframework
+        run: |
+          set -euo pipefail
+          DEVICE_FRAMEWORK="$(find mpvkit-build/archives/ios.xcarchive -name "${MPVKIT_PRODUCT}.framework" -type d | head -1)"
+          SIMULATOR_FRAMEWORK="$(find mpvkit-build/archives/isimulator.xcarchive -name "${MPVKIT_PRODUCT}.framework" -type d | head -1)"
+
+          if [ -z "$DEVICE_FRAMEWORK" ] || [ -z "$SIMULATOR_FRAMEWORK" ]; then
+            echo "未找到 archive 产物，输出 archive 内容："
+            find mpvkit-build/archives -maxdepth 6 -type d | sed -n '1,200p'
+            exit 1
+          fi
+
+          echo "Device framework: $DEVICE_FRAMEWORK"
+          echo "Simulator framework: $SIMULATOR_FRAMEWORK"
+
+          xcodebuild -create-xcframework \
+            -framework "$DEVICE_FRAMEWORK" \
+            -framework "$SIMULATOR_FRAMEWORK" \
+            -output "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework"
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework" \
+            "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip"
+
+          shasum -a 256 "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip" | tee "mpvkit-artifacts/${MPVKIT_PRODUCT}.xcframework.zip.sha256"
+
+      - name: 📤 Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MPVKit.xcframework
-          path: build-scripts/build/ios/MPVKit.xcframework
+          name: ${{ env.MPVKIT_PRODUCT }}-xcframework
+          path: |
+            mpvkit-artifacts/*.xcframework.zip
+            mpvkit-artifacts/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: 🧾 Dump build logs on failure
+        if: failure()
+        run: |
+          echo "===== xcodebuild logs ====="
+          find mpvkit-build -name "*.xcactivitylog" -type f -print | sed -n '1,50p'
+          echo "===== archives ====="
+          find mpvkit-build/archives -maxdepth 6 -print 2>/dev/null | sed -n '1,200p'
+
+      - name: 🚀 Publish Release
+        if: ${{ env.PUBLISH_RELEASE == 'true' }}
+        run: |
+          TAG="mpvkit-${MPVKIT_PRODUCT}-${{ github.run_number }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "自动构建 ${MPVKIT_PRODUCT}.xcframework，来源 ${MPVKIT_REPO}@${MPVKIT_REF}" \
+            mpvkit-artifacts/*.xcframework.zip mpvkit-artifacts/*.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
