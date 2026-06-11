@@ -1,26 +1,7 @@
-# vbox - iOS 聚合视频播放器
+# MPVKit.xcframeworkMPV 播放内核包
 
-基于 Myapp3.1 (TVBox 架构) 逆向分析的 iOS 移植版本。
 
 ## 架构
-
-```
-┌──────────────────────────────────────┐
-│  SwiftUI Views                       │
-│  首页 / 搜索 / 详情 / 播放器 / 设置   │
-├──────────────────────────────────────┤
-│  SpiderRepository (多站点聚合搜索)    │
-├──────────────────────────────────────┤
-│  JSSpiderEngine (JavaScriptCore)     │
-│  ├─ cheerio.min.js (HTML解析)        │
-│  ├─ crypto-js.js (加密)              │
-│  ├─ 模板.js (TVBox站点模板)          │
-│  └─ 蜘蛛脚本 (用户配置)              │
-├──────────────────────────────────────┤
-│  JSHTTPBridge (原生HTTP桥接)         │
-│  AVPlayer (视频播放)                 │
-└──────────────────────────────────────┘
-```
 
 ## GitHub Actions 自动编译
 
