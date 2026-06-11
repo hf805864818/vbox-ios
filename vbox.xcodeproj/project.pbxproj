@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
+		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
+		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
+		A12004 /* PlayerEngineEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12004 /* PlayerEngineEvent.swift */; };
+		A12005 /* PlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12005 /* PlayerEngine.swift */; };
+		A12006 /* MPVPlayerEngineStub.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12006 /* MPVPlayerEngineStub.swift */; };
 		A10001 /* VBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* VBoxApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
 		A10003 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* AppSettings.swift */; };
@@ -41,6 +47,12 @@
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 
 /* Begin PBXFileReference section */
+		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
+		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
+		B12003 /* PlayerEngineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineState.swift; sourceTree = "<group>"; };
+		B12004 /* PlayerEngineEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineEvent.swift; sourceTree = "<group>"; };
+		B12005 /* PlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngine.swift; sourceTree = "<group>"; };
+		B12006 /* MPVPlayerEngineStub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerEngineStub.swift; sourceTree = "<group>"; };
 		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -84,6 +96,7 @@
 				G10002 /* App */,
 				G10003 /* Models */,
 				G10004 /* Services */,
+				G12000 /* PlayerCore */,
 				G10010 /* Views */,
 				G10011 /* Resources */,
 				G10020 /* Libraries */,
@@ -159,6 +172,19 @@
 			sourceTree = "<group>";
 		};
 
+		G12000 /* PlayerCore */ = {
+			isa = PBXGroup;
+			children = (
+				B12001 /* PlayerEngineType.swift */,
+				B12002 /* PlaybackRoute.swift */,
+				B12003 /* PlayerEngineState.swift */,
+				B12004 /* PlayerEngineEvent.swift */,
+				B12005 /* PlayerEngine.swift */,
+				B12006 /* MPVPlayerEngineStub.swift */,
+			);
+			path = PlayerCore;
+			sourceTree = "<group>";
+		};
 
 		G10011 /* Resources */ = {
 			isa = PBXGroup;
@@ -223,6 +249,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A12001 /* PlayerEngineType.swift in Sources */,
+				A12002 /* PlaybackRoute.swift in Sources */,
+				A12003 /* PlayerEngineState.swift in Sources */,
+				A12004 /* PlayerEngineEvent.swift in Sources */,
+				A12005 /* PlayerEngine.swift in Sources */,
+				A12006 /* MPVPlayerEngineStub.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
@@ -334,7 +366,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 136;
+					CURRENT_PROJECT_VERSION = 137;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
@@ -346,7 +378,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.136;
+					MARKETING_VERSION = 3.137;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -363,7 +395,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 136;
+					CURRENT_PROJECT_VERSION = 137;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
@@ -375,7 +407,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.136;
+					MARKETING_VERSION = 3.137;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
