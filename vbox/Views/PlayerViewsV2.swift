@@ -7,6 +7,11 @@ import UIKit
 import MobileVLCKit
 #endif
 
+extension Notification.Name {
+    static let vboxVLCPlay = Notification.Name("vbox.vlc.play")
+    static let vboxVLCPause = Notification.Name("vbox.vlc.pause")
+}
+
 // 屏幕方向辅助类
 class OrientationHelper {
     static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
@@ -111,6 +116,28 @@ class PlayerState: ObservableObject {
         case compatibility = "兼容内核"
     }
 
+    enum PlaybackEnginePreference: String, CaseIterable, Identifiable {
+        case auto = "自动"
+        case system = "系统"
+        case vlc = "VLC"
+        case mpv = "MPV"
+
+        var id: String { rawValue }
+
+        var subtitle: String {
+            switch self {
+            case .auto:
+                return "普通资源走系统内核，特殊格式自动走兼容内核"
+            case .system:
+                return "强制使用 AVPlayer，适合普通 MP4"
+            case .vlc:
+                return "优先使用 VLC，适合 MKV / HEVC / 多音轨"
+            case .mpv:
+                return "预留选项，等待后续接入 libmpv framework"
+            }
+        }
+    }
+
     @Published var player: AVPlayer?
     @Published var isPlaying = true
     @Published var showControls = true
@@ -124,6 +151,7 @@ class PlayerState: ObservableObject {
     @Published var showEpisodePicker = false
     @Published var showQualityPicker = false
     @Published var showDanmakuSettings = false
+    @Published var showEnginePicker = false
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
@@ -141,6 +169,7 @@ class PlayerState: ObservableObject {
     @Published var compatibilityURL: URL?
     @Published var compatibilityHeaders: [String: String] = [:]
     @Published var compatibilityEngineName: String = "VLC"
+    @Published var enginePreference: PlaybackEnginePreference = .auto
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
@@ -159,7 +188,29 @@ class PlayerState: ObservableObject {
     }
 
     private var shouldUseCompatibilityEngine: Bool {
-        playbackEngineMode == .compatibility && isVLCBuildAvailable
+        switch enginePreference {
+        case .auto:
+            return playbackEngineMode == .compatibility && isVLCBuildAvailable
+        case .system:
+            return false
+        case .vlc:
+            return isVLCBuildAvailable
+        case .mpv:
+            return false
+        }
+    }
+
+    var currentEngineButtonTitle: String {
+        switch enginePreference {
+        case .auto:
+            return playbackEngineMode == .compatibility ? "自动/VLC" : "自动"
+        case .system:
+            return "系统"
+        case .vlc:
+            return "VLC"
+        case .mpv:
+            return "MPV"
+        }
     }
 
     private func compatibilityReason(for fileName: String) -> String? {
@@ -175,6 +226,25 @@ class PlayerState: ObservableObject {
             ("高码率", "高码率视频")
         ]
         return rules.first(where: { lower.contains($0.0) })?.1
+    }
+
+    func selectPlaybackEngine(_ preference: PlaybackEnginePreference) {
+        enginePreference = preference
+        showEnginePicker = false
+        switch preference {
+        case .auto:
+            log("[PlayerV2] 已切换内核策略：自动")
+        case .system:
+            log("[PlayerV2] 已切换内核策略：系统内核")
+        case .vlc:
+            log("[PlayerV2] 已切换内核策略：VLC\(isVLCBuildAvailable ? "" : "（当前构建未包含 VLC）")")
+        case .mpv:
+            log("[PlayerV2] 已切换内核策略：MPV（预留，待接入）")
+        }
+
+        if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
+            switchBaiduFile(index: currentEpisodeIndex)
+        }
     }
 
     /// 切换百度多文件中的指定文件播放
@@ -231,6 +301,21 @@ class PlayerState: ObservableObject {
             return
         }
         switchBaiduFile(index: next)
+    }
+
+    func togglePlayback(player: AVPlayer?) {
+        if let player {
+            isPlaying ? player.pause() : player.play()
+            isPlaying.toggle()
+            return
+        }
+        guard compatibilityURL != nil else { return }
+        if isPlaying {
+            NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
+        } else {
+            NotificationCenter.default.post(name: .vboxVLCPlay, object: nil)
+        }
+        isPlaying.toggle()
     }
 
     func changeQuality(index: Int) {
@@ -694,7 +779,11 @@ class PlayerState: ObservableObject {
             }
             return
         } else if playbackEngineMode == .compatibility {
-            log("[PlayerV2] 资源需要兼容内核，但当前构建未包含 VLC，暂用系统内核尝试")
+            if enginePreference == .mpv {
+                log("[PlayerV2] 已选择 MPV，但当前版本尚未接入 libmpv，暂用系统内核尝试")
+            } else {
+                log("[PlayerV2] 资源需要兼容内核，但当前构建未包含 VLC 或已强制系统内核，暂用系统内核尝试")
+            }
         }
         
         let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
@@ -1640,19 +1729,16 @@ struct PlayerControlsView: View {
                 
                 // 按钮控制栏
                 HStack(spacing: 20) {
-                    // 播放/暂停 - 只有在有播放器时才可用
-                    Button(action: { 
-                        if let p = player {
-                            playerState.isPlaying ? p.pause() : p.play()
-                            playerState.isPlaying.toggle()
-                        }
+                    // 播放/暂停：系统内核和 VLC 兼容内核都可用
+                    Button(action: {
+                        playerState.togglePlayback(player: player)
                     }) {
                         Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 22))
-                            .foregroundColor(player == nil ? .gray : .white)
+                            .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
                             .frame(width: 44, height: 44)
                     }
-                    .disabled(player == nil)
+                    .disabled(player == nil && playerState.compatibilityURL == nil)
                     
                     // 下一个（如果是多集）
                     Button(action: { playerState.playNextBaiduFile() }) {
@@ -1693,6 +1779,20 @@ struct PlayerControlsView: View {
                     AirPlayViewV2()
                         .frame(width: 44, height: 44)
                     
+                    // 播放内核
+                    Button(action: { playerState.showEnginePicker = true }) {
+                        VStack(spacing: 2) {
+                            Image(systemName: "cpu")
+                                .font(.system(size: 18))
+                            Text(playerState.currentEngineButtonTitle)
+                                .font(.system(size: 9))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                        .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
+                        .frame(width: 56, height: 44)
+                    }
+
                     // 弹幕
                     Button(action: { playerState.showDanmakuSettings = true }) {
                         VStack(spacing: 2) {
@@ -1764,6 +1864,12 @@ struct PlayerControlsView: View {
                 )
             }
         )
+        // 侧边栏弹窗 - 播放内核
+        .overlay(
+            SidePanelView(isPresented: $playerState.showEnginePicker, title: "播放内核") {
+                EnginePickerPanelV2(playerState: playerState)
+            }
+        )
     }
     
     private func formatTime(_ time: Double) -> String {
@@ -1827,7 +1933,25 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
 
     final class VLCPlayerCoordinatorV2 {
         private let mediaPlayer = VLCMediaPlayer()
+        private var observers: [NSObjectProtocol] = []
         var currentURL: URL?
+
+        init() {
+            observers.append(
+                NotificationCenter.default.addObserver(forName: .vboxVLCPlay, object: nil, queue: .main) { [weak self] _ in
+                    self?.mediaPlayer.play()
+                }
+            )
+            observers.append(
+                NotificationCenter.default.addObserver(forName: .vboxVLCPause, object: nil, queue: .main) { [weak self] _ in
+                    self?.mediaPlayer.pause()
+                }
+            )
+        }
+
+        deinit {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
             currentURL = url
@@ -2123,6 +2247,57 @@ struct QualityPickerPanelV2: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(selectedQuality == index ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
+                        )
+                    }
+                }
+            }
+            .padding(16)
+        }
+    }
+}
+
+// MARK: - 播放内核面板 (侧边栏版本)
+struct EnginePickerPanelV2: View {
+    @ObservedObject var playerState: PlayerState
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Text("内核选择只影响后续起播/重载当前集。后面重做控制栏排序和弹窗样式时，可以直接替换这个面板，不影响底层播放逻辑。")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.65))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+
+                ForEach(PlayerState.PlaybackEnginePreference.allCases) { engine in
+                    Button(action: {
+                        playerState.selectPlaybackEngine(engine)
+                    }) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(engine.rawValue)
+                                    .font(.system(size: 16, weight: playerState.enginePreference == engine ? .semibold : .regular))
+                                    .foregroundColor(playerState.enginePreference == engine ? Color(hex: "00BEFF") : .white)
+                                Text(engine.subtitle)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.55))
+                                    .multilineTextAlignment(.leading)
+                            }
+
+                            Spacer()
+
+                            if playerState.enginePreference == engine {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(Color(hex: "00BEFF"))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(playerState.enginePreference == engine ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
                         )
                     }
                 }
