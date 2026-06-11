@@ -1,6 +1,12 @@
 name: Build MPV Framework
 
 on:
+  push:
+    branches:
+      - feature/mpv-framework-actions
+    paths:
+      - ".github/workflows/build-mpv-framework.yml"
+      - "scripts/mpv/**"
   workflow_dispatch:
     inputs:
       mode:
@@ -33,6 +39,11 @@ on:
 jobs:
   build-mpv-framework:
     runs-on: macos-15
+    env:
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'source-build-libmpv' }}
+      FRAMEWORK_KIND: ${{ github.event_name == 'workflow_dispatch' && inputs.framework_kind || 'libmpv' }}
+      SOURCE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.source_url || '' }}
+      PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release || false }}
 
     steps:
       - name: 📥 Checkout code
@@ -48,7 +59,7 @@ jobs:
           chmod +x scripts/mpv/*.sh
 
       - name: ♻️ Cache MPV sources/build
-        if: ${{ inputs.mode == 'source-build-libmpv' }}
+        if: ${{ env.MODE == 'source-build-libmpv' }}
         uses: actions/cache@v4
         with:
           path: |
@@ -56,19 +67,19 @@ jobs:
           key: mpv-src-${{ runner.os }}-mpv-v0.39.0-ffmpeg-n6.1.1
 
       - name: 📦 Package prebuilt xcframework
-        if: ${{ inputs.mode == 'package-prebuilt' }}
+        if: ${{ env.MODE == 'package-prebuilt' }}
         run: |
-          if [ -z "${{ inputs.source_url }}" ]; then
+          if [ -z "$SOURCE_URL" ]; then
             echo "package-prebuilt 模式需要填写 source_url"
             exit 2
           fi
-          FRAMEWORK_PATH="$(scripts/mpv/prepare-prebuilt-framework.sh "${{ inputs.source_url }}" "${{ inputs.framework_kind }}" mpv-work | tail -1)"
-          scripts/mpv/package-xcframework.sh "$FRAMEWORK_PATH" mpv-artifacts "${{ inputs.framework_kind }}"
+          FRAMEWORK_PATH="$(scripts/mpv/prepare-prebuilt-framework.sh "$SOURCE_URL" "$FRAMEWORK_KIND" mpv-work | tail -1)"
+          scripts/mpv/package-xcframework.sh "$FRAMEWORK_PATH" mpv-artifacts "$FRAMEWORK_KIND"
 
       - name: 🏗️ Build libmpv from source
-        if: ${{ inputs.mode == 'source-build-libmpv' }}
+        if: ${{ env.MODE == 'source-build-libmpv' }}
         run: |
-          if [ "${{ inputs.framework_kind }}" != "libmpv" ]; then
+          if [ "$FRAMEWORK_KIND" != "libmpv" ]; then
             echo "源码构建模式当前只预留 libmpv"
             exit 2
           fi
@@ -77,7 +88,7 @@ jobs:
       - name: 📤 Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.framework_kind }}-xcframework
+          name: ${{ env.FRAMEWORK_KIND }}-xcframework
           path: |
             mpv-artifacts/*.zip
             mpv-artifacts/*.sha256
@@ -85,12 +96,12 @@ jobs:
           compression-level: 0
 
       - name: 🚀 Publish Release
-        if: ${{ inputs.publish_release }}
+        if: ${{ env.PUBLISH_RELEASE == 'true' }}
         run: |
-          TAG="mpv-${{ inputs.framework_kind }}-${{ github.run_number }}"
+          TAG="mpv-${FRAMEWORK_KIND}-${{ github.run_number }}"
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "自动打包 ${{ inputs.framework_kind }}.xcframework。mode=${{ inputs.mode }}" \
+            --notes "自动打包 ${FRAMEWORK_KIND}.xcframework。mode=${MODE}" \
             mpv-artifacts/*.zip mpv-artifacts/*.sha256
         env:
           GH_TOKEN: ${{ github.token }}
