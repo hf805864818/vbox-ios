@@ -101,15 +101,17 @@ final class DoubanImageProxyServer {
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         queue.sync {
             self.cleanupExpiredStreams()
-            self.streamItems[id] = StreamItem(
+            let item = StreamItem(
                 url: targetURL,
                 headers: headers,
                 provider: provider,
                 createdAt: Date()
             )
+            self.streamItems[id] = item
             let cookie = Self.headerValue(headers, "Cookie") ?? Self.headerValue(headers, "X-Baidu-Pcs-Cookie") ?? ""
             let lowerCookie = cookie.lowercased()
             print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasBDUSS=\(lowerCookie.contains("bduss=")), hasSTOKEN=\(lowerCookie.contains("stoken=")), hasPANPSC=\(lowerCookie.contains("panpsc=")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
+            self.preheatStream(item: item, id: id)
         }
 
         var components = URLComponents()
@@ -256,6 +258,40 @@ final class DoubanImageProxyServer {
             id: id,
             connection: connection
         ).start(request: request)
+    }
+
+    private func preheatStream(item: StreamItem, id: String) {
+        guard item.provider == "baidu" else { return }
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 12
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        if request.value(forHTTPHeaderField: "User-Agent") == nil {
+            request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+        }
+        if request.value(forHTTPHeaderField: "Referer") == nil {
+            request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        }
+        if request.value(forHTTPHeaderField: "Origin") == nil {
+            request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("bytes=0-65535", forHTTPHeaderField: "Range")
+
+        let startedAt = Date()
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error {
+                print("♨️ 本地视频代理预热失败[baidu]: id=\(id), err=\(error.localizedDescription)")
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let bytes = data?.count ?? 0
+            print("♨️ 本地视频代理预热完成[baidu]: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(bytes)")
+        }.resume()
     }
 
     private func normalizedRange(_ raw: String?) -> String? {
