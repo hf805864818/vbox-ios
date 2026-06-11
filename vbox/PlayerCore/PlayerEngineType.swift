@@ -4,7 +4,8 @@ import Foundation
 enum PlayerEngineType: String, CaseIterable, Identifiable {
     case system
     case vlc
-    case mpv
+    case mpvKit
+    case libmpv
 
     var id: String { rawValue }
 
@@ -14,8 +15,10 @@ enum PlayerEngineType: String, CaseIterable, Identifiable {
             return "系统"
         case .vlc:
             return "VLC"
-        case .mpv:
+        case .mpvKit:
             return "MPV"
+        case .libmpv:
+            return "自由度"
         }
     }
 }

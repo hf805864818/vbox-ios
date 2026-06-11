@@ -3,7 +3,7 @@ import UIKit
 /// MPV 占位内核。
 /// 当前构建还没有接入 libmpv/MPVKit 时，保留类型和接口，避免后续 UI/控制层重构时反复改结构。
 final class MPVPlayerEngineStub: PlayerEngine {
-    let type: PlayerEngineType = .mpv
+    let type: PlayerEngineType = .mpvKit
     let name = "MPV"
     private(set) var state = PlayerEngineState()
     var onEvent: ((PlayerEngineEvent) -> Void)?
