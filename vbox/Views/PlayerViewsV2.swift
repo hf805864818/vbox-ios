@@ -180,7 +180,8 @@ class PlayerState: ObservableObject {
             if !reason.contains("刷新") && !reason.contains("重试") {
                 baiduStreamRetryCount = 0
             }
-            await playDriveVideo(url: result.url, headers: result.headers)
+            let streamHeaders = mergedBaiduStreamHeaders(result.headers)
+            await playDriveVideo(url: result.url, headers: streamHeaders)
         } catch let error as DriveError {
             let specificMsg: String
             switch error {
@@ -211,6 +212,95 @@ class PlayerState: ObservableObject {
             debugLogs.append(short)
             if debugLogs.count > 30 { debugLogs.removeFirst() }
         }
+    }
+
+    private func mergedBaiduStreamHeaders(_ headers: [String: String]) -> [String: String] {
+        var merged = headers
+        let workerCookie = headerValue(headers, named: "Cookie")
+            ?? headerValue(headers, named: "X-Baidu-Pcs-Cookie")
+            ?? ""
+        let webCookie = normalizeBaiduCookie(baiduBduss)
+        let pcsCookie = normalizeBaiduCookie(baiduPcsCookie)
+        let finalCookie = mergeCookieStrings([workerCookie, webCookie, pcsCookie])
+
+        if !finalCookie.isEmpty {
+            merged["Cookie"] = finalCookie
+            merged["X-Baidu-Pcs-Cookie"] = finalCookie
+        }
+
+        if headerValue(merged, named: "User-Agent") == nil {
+            merged["User-Agent"] = "netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
+        }
+        if headerValue(merged, named: "Referer") == nil {
+            merged["Referer"] = "https://pan.baidu.com/"
+        }
+
+        let lowerCookie = finalCookie.lowercased()
+        log("[Baidu] 本地代理合并Cookie：hasBDUSS=\(lowerCookie.contains("bduss=")), hasSTOKEN=\(lowerCookie.contains("stoken=")), hasPANPSC=\(lowerCookie.contains("panpsc=")), hasPTOKEN=\(lowerCookie.contains("ptoken"))")
+        return merged
+    }
+
+    private func headerValue(_ headers: [String: String], named name: String) -> String? {
+        let lower = name.lowercased()
+        return headers.first { $0.key.lowercased() == lower }?.value
+    }
+
+    private func normalizeBaiduCookie(_ raw: String) -> String {
+        var input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if input.isEmpty { return "" }
+        if input.lowercased().hasPrefix("cookie:") {
+            input = String(input.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if input.range(of: #"BDUSS=|PANPSC=|PTOKEN|STOKEN=|BAIDUID="#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return input
+                .replacingOccurrences(of: "\n", with: "; ")
+                .replacingOccurrences(of: "\r", with: "; ")
+                .replacingOccurrences(of: #"\s*;\s*"#, with: "; ", options: .regularExpression)
+                .replacingOccurrences(of: #";+\s*$"#, with: "", options: .regularExpression)
+        }
+
+        if input.contains("|") {
+            let cleaned = input.replacingOccurrences(of: #"^BDUSS="#, with: "", options: [.regularExpression, .caseInsensitive])
+            let parts = cleaned.components(separatedBy: "|")
+            var cookie = "BDUSS=\(parts[0].trimmingCharacters(in: .whitespacesAndNewlines))"
+            if parts.count >= 2 {
+                let stoken = parts[1]
+                    .replacingOccurrences(of: #"^STOKEN="#, with: "", options: [.regularExpression, .caseInsensitive])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !stoken.isEmpty {
+                    cookie += "; STOKEN=\(stoken)"
+                }
+            }
+            return cookie
+        }
+
+        return "BDUSS=\(input.replacingOccurrences(of: "BDUSS=", with: "").trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+
+    private func mergeCookieStrings(_ cookies: [String]) -> String {
+        var orderedKeys: [String] = []
+        var values: [String: (name: String, value: String)] = [:]
+
+        for cookie in cookies where !cookie.isEmpty {
+            for part in cookie.split(separator: ";") {
+                let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let eq = item.firstIndex(of: "=") else { continue }
+                let name = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, !value.isEmpty else { continue }
+                let key = name.lowercased()
+                if values[key] == nil {
+                    orderedKeys.append(key)
+                }
+                values[key] = (name, value)
+            }
+        }
+
+        return orderedKeys.compactMap { key in
+            guard let item = values[key] else { return nil }
+            return "\(item.name)=\(item.value)"
+        }.joined(separator: "; ")
     }
 
     private var timeObserver: Any?

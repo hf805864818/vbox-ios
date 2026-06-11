@@ -107,7 +107,9 @@ final class DoubanImageProxyServer {
                 provider: provider,
                 createdAt: Date()
             )
-            print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(Self.hasHeader(headers, named: "Cookie") || Self.hasHeader(headers, named: "X-Baidu-Pcs-Cookie")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
+            let cookie = Self.headerValue(headers, "Cookie") ?? Self.headerValue(headers, "X-Baidu-Pcs-Cookie") ?? ""
+            let lowerCookie = cookie.lowercased()
+            print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasBDUSS=\(lowerCookie.contains("bduss=")), hasSTOKEN=\(lowerCookie.contains("stoken=")), hasPANPSC=\(lowerCookie.contains("panpsc=")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
         }
 
         var components = URLComponents()
