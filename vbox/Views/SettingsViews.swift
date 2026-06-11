@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var showParserSheet = false
     @State private var showBaiduTestView = false
     @State private var showUniversalPlayTestView = false
+    @State private var showCloudCacheSheet = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -214,6 +215,29 @@ struct SettingsView: View {
                     .padding(.vertical, 14)
                     .background(Color.gray.opacity(0.04))
                 }
+
+                Button(action: { showCloudCacheSheet = true }) {
+                    HStack {
+                        Image(systemName: "externaldrive.badge.icloud")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("网盘播放缓存管理")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.black)
+                            Text("百度已接入，夸克/阿里/UC/115 预留")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.gray.opacity(0.04))
+                }
                 
                 if !cloudDriveManager.savedTokens.isEmpty {
                     ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
@@ -229,6 +253,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showUniversalPlayTestView) {
             UniversalPlayTestView()
+        }
+        .sheet(isPresented: $showCloudCacheSheet) {
+            CloudPlaybackCacheView()
         }
     }
 
@@ -381,6 +408,186 @@ struct SettingsNavigationRow: View {
             .background(Color.gray.opacity(0.04))
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct CloudPlaybackCacheView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var cloudDriveManager = CloudDriveManager.shared
+    @State private var baiduSummary = CloudDriveManager.shared.baiduPlaybackCacheSummary()
+    @State private var showClearAllAlert = false
+
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    baiduCacheCard
+                    placeholderCard(type: .quark, note: "预留夸克 PlayItem/转码缓存清理入口")
+                    placeholderCard(type: .ali, note: "预留阿里云盘播放缓存清理入口")
+                    placeholderCard(type: .uc, note: "预留 UC 网盘播放缓存清理入口")
+                    placeholderCard(type: .one15, note: "预留 115 网盘播放缓存清理入口")
+                }
+                .padding(16)
+            }
+            .background(Color.white)
+            .navigationTitle("网盘播放缓存")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .onAppear { refreshSummary() }
+            .alert("清空百度播放缓存", isPresented: $showClearAllAlert) {
+                Button("取消", role: .cancel) {}
+                Button("清空", role: .destructive) {
+                    baiduSummary = cloudDriveManager.clearAllBaiduPlaybackCaches()
+                }
+            } message: {
+                Text("会清空百度文件列表、播放地址、PlayItem 和 iBox PlayItem 缓存。不会删除 Token，也不会删除网盘文件。")
+            }
+        }
+    }
+
+    private var baiduCacheCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "b.circle.fill")
+                    .foregroundColor(Color(hex: "E11D48"))
+                    .font(.system(size: 22))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("百度网盘")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text("已接入 PlayItem / iBox / 文件列表缓存")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Text("\(baiduSummary.totalCount) 项")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(hex: "E11D48"))
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                cacheMetric(title: "播放地址", value: "\(baiduSummary.playResultCount)", detail: "过期 \(baiduSummary.expiredPlayResultCount)")
+                cacheMetric(title: "PlayItem", value: "\(baiduSummary.playItemCount)", detail: "path 缓存")
+                cacheMetric(title: "iBox", value: "\(baiduSummary.iBoxPlayItemCount)", detail: "有效 dlink \(baiduSummary.validIBoxDlinkCount)")
+                cacheMetric(title: "文件列表", value: "\(baiduSummary.fileListCount)", detail: "过期 \(baiduSummary.expiredFileListCount)")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("占用：\(formatBytes(baiduSummary.storageBytes))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                Text("最近更新：\(formatDate(baiduSummary.lastUpdatedAt))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                if baiduSummary.expiredIBoxDlinkCount > 0 {
+                    Text("有 \(baiduSummary.expiredIBoxDlinkCount) 个 iBox dlink 已过期，清理过期缓存会保留 path 以便下次刷新。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.orange)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    baiduSummary = cloudDriveManager.clearExpiredBaiduPlaybackCaches()
+                }) {
+                    Text("清理过期")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(hex: "E11D48"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(hex: "E11D48").opacity(0.08))
+                        .cornerRadius(10)
+                }
+
+                Button(action: { showClearAllAlert = true }) {
+                    Text("清空百度缓存")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+    }
+
+    private func placeholderCard(type: CloudDriveManager.DriveType, note: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconForDriveType(type))
+                .foregroundColor(.gray)
+                .font(.system(size: 20))
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(type.displayName)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.black)
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            Text("待接入")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.gray)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.12))
+                .cornerRadius(8)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
+    }
+
+    private func cacheMetric(title: String, value: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+            Text(value)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.black)
+            Text(detail)
+                .font(.system(size: 11))
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.white.opacity(0.85))
+        .cornerRadius(10)
+    }
+
+    private func refreshSummary() {
+        baiduSummary = cloudDriveManager.baiduPlaybackCacheSummary()
+    }
+
+    private func formatBytes(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024.0) }
+        return String(format: "%.1f MB", Double(bytes) / 1024.0 / 1024.0)
+    }
+
+    private func formatDate(_ date: Date?) -> String {
+        guard let date else { return "暂无" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func iconForDriveType(_ type: CloudDriveManager.DriveType) -> String {
+        switch type {
+        case .ali: return "a.circle.fill"
+        case .quark: return "q.circle.fill"
+        case .baidu: return "b.circle.fill"
+        case .one15: return "1.circle.fill"
+        case .uc: return "u.circle.fill"
+        }
     }
 }
 
