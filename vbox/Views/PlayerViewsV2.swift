@@ -868,7 +868,12 @@ class PlayerState: ObservableObject {
         let localFailureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
             .sink { [weak self] notification in
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
-                    self?.log("[PlayerV2] ❌ 网盘播放中断: \(error.localizedDescription)")
+                    guard let self else { return }
+                    self.log("[PlayerV2] ❌ 网盘播放中断: \(error.localizedDescription)")
+                    if isBaiduLocalProxy && self.isHTTPForbidden(errorDesc: error.localizedDescription, underlyingDesc: "") {
+                        self.log("[Baidu] ⚠️ 百度PCS播放中断疑似403，清理旧直链后重试一次")
+                        self.retryCurrentBaiduPlaybackAfterForbidden()
+                    }
                 }
             }
 
@@ -965,6 +970,14 @@ class PlayerState: ObservableObject {
         baiduStreamRetryCount += 1
         let file = baiduFileList[currentEpisodeIndex]
         let index = currentEpisodeIndex
+        CloudDriveManager.shared.invalidateBaiduPlaybackCache(
+            shareURL: baiduShareURL,
+            fsId: file.fsId,
+            bduss: baiduBduss,
+            pcsCookie: baiduPcsCookie,
+            reason: "PCS403刷新直链重试"
+        )
+        log("[Baidu] ♻️ 已清理当前集旧 dlink/播放缓存，将优先用 path 刷新")
         currentTask?.cancel()
         currentTask = Task { [weak self] in
             guard let self else { return }

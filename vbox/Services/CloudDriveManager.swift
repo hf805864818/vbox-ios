@@ -196,6 +196,43 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
+    func invalidateBaiduPlaybackCache(shareURL: String, fsId: String, bduss: String, pcsCookie: String = "", reason: String = "手动刷新") {
+        let cacheKey = baiduPlayCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
+        baiduPlayCacheLock.lock()
+        baiduPlayCache.removeValue(forKey: cacheKey)
+        baiduPlayCacheLock.unlock()
+
+        var playCache = baiduLoadPersistedPlayCache()
+        playCache.removeValue(forKey: cacheKey)
+        if let data = try? JSONEncoder().encode(playCache) {
+            defaults.set(data, forKey: baiduPersistedPlayCacheKey)
+        }
+
+        var iboxCache = baiduLoadPersistedIBoxPlayItemCache()
+        if let item = iboxCache[cacheKey] {
+            iboxCache[cacheKey] = BaiduIBoxPlayItem(
+                shareURL: item.shareURL,
+                fsId: item.fsId,
+                fileName: item.fileName,
+                path: item.path,
+                dlinkURL: nil,
+                headers: item.headers,
+                dlinkExpiresAt: nil,
+                compatibilityHint: item.compatibilityHint,
+                preferredEngine: item.preferredEngine,
+                preparedAt: item.preparedAt,
+                updatedAt: Date(),
+                lastUsedAt: item.lastUsedAt,
+                source: "\(item.source)-invalidated"
+            )
+            if let data = try? JSONEncoder().encode(iboxCache) {
+                defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
+            }
+        }
+
+        baiduLog("[Baidu-Cache] 已清理播放缓存并保留 path：fsId=\(fsId), reason=\(reason)")
+    }
+
     private func baiduCachedPlayItem(for key: String) -> BaiduPlayItem? {
         baiduLoadPersistedPlayItemCache()[key]
     }
@@ -1498,7 +1535,13 @@ class CloudDriveManager: ObservableObject {
                     cookie,
                     pcs
                 ])
-                let result = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
+                let result: PlayResult
+                do {
+                    result = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
+                } catch {
+                    baiduLog("[Baidu-PlayItem] ⚠️ path mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)")
+                    result = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
+                }
                 baiduStoreIBoxPlayItem(
                     BaiduIBoxPlayItem(
                         shareURL: shareURL,
@@ -1513,15 +1556,15 @@ class CloudDriveManager: ObservableObject {
                         preparedAt: item.updatedAt,
                         updatedAt: Date(),
                         lastUsedAt: Date(),
-                        source: "legacy-playitem-upgrade"
+                        source: "legacy-playitem-path-refresh"
                     ),
                     for: cacheKey
                 )
-                baiduLog("[Baidu-iBox] ✅ 旧 PlayItem 已升级为 iBox PlayItem")
+                baiduLog("[Baidu-iBox] ✅ 旧 PlayItem 已通过 path 刷新并升级为 iBox PlayItem")
                 baiduStorePlayResult(result, for: cacheKey)
                 return result
             } catch {
-                baiduLog("[Baidu-PlayItem] ⚠️ path 缓存刷新 dlink 失败，回退 Worker：\(error.localizedDescription)")
+                baiduLog("[Baidu-PlayItem] ⚠️ path 缓存刷新失败，回退 Worker：\(error.localizedDescription)")
             }
         }
 
