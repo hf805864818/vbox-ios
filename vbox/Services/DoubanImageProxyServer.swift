@@ -41,7 +41,13 @@ final class DoubanImageProxyServer {
             guard let self, self.listener == nil else { return }
 
             do {
-                let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: self.port)!)
+                // 明确绑定到本地回环 IPv4，避免双栈下 AVPlayer 走 IPv6 解析失败导致连接被丢。
+                let parameters = NWParameters.tcp
+                parameters.requiredInterfaceType = .loopback
+                if let ipOptions = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+                    ipOptions.version = .v4
+                }
+                let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: self.port)!)
                 listener.newConnectionHandler = { [weak self] connection in
                     self?.handle(connection)
                 }
@@ -175,14 +181,22 @@ final class DoubanImageProxyServer {
         }
 
         let parts = requestLine.split(separator: " ")
-        guard parts.count >= 2, parts[0] == "GET" else {
+        guard parts.count >= 2 else {
+            send(statusCode: 405, body: Data("Method Not Allowed".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let method = String(parts[0]).uppercased()
+        // 仅放行 GET / HEAD：AVPlayer 在加载视频时常先发 HEAD 探测大小与可寻址性，
+        // 之前直接 405 会触发 NSURLErrorNetworkConnectionLost / 加载失败。
+        guard method == "GET" || method == "HEAD" else {
             send(statusCode: 405, body: Data("Method Not Allowed".utf8), contentType: "text/plain", on: connection)
             return
         }
 
         let pathAndQuery = String(parts[1])
         if pathAndQuery.hasPrefix("/baidu-stream") || pathAndQuery.hasPrefix("/quark-stream") {
-            routeStream(pathAndQuery, requestText: requestText, on: connection)
+            routeStream(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }
 
@@ -205,7 +219,7 @@ final class DoubanImageProxyServer {
         fetchImage(from: targetURL, cacheKey: cacheKey, on: connection)
     }
 
-    private func routeStream(_ pathAndQuery: String, requestText: String, on connection: NWConnection) {
+    private func routeStream(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
         guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
               let id = components.queryItems?.first(where: { $0.name == "id" })?.value
         else {
@@ -222,13 +236,14 @@ final class DoubanImageProxyServer {
 
         let requestHeaders = parseRequestHeaders(requestText)
         let incomingRange = requestHeaders["range"]
-        print("📥 本地视频代理收到请求[\(item.provider)]: id=\(id), range=\(incomingRange ?? "无"), path=\(pathAndQuery)")
-        fetchStream(item: item, id: id, incomingRange: incomingRange, on: connection)
+        print("📥 本地视频代理收到请求[\(item.provider)]: method=\(method), id=\(id), range=\(incomingRange ?? "无"), path=\(pathAndQuery)")
+        fetchStream(item: item, id: id, method: method, incomingRange: incomingRange, on: connection)
     }
 
-    private func fetchStream(item: StreamItem, id: String, incomingRange: String?, on connection: NWConnection) {
+    private func fetchStream(item: StreamItem, id: String, method: String, incomingRange: String?, on connection: NWConnection) {
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 30
+        request.httpMethod = method
 
         for (key, value) in item.headers {
             let lower = key.lowercased()
@@ -237,15 +252,19 @@ final class DoubanImageProxyServer {
         }
 
         if item.provider == "quark" {
+            // 与 quarkPlaybackHeaders 保持一致：使用 PC quark-cloud-drive UA。
+            // download_url 签名链对 UA 敏感，UA 不一致会触发 403/连接被风控中断。
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
-                request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
             }
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
             }
-            if request.value(forHTTPHeaderField: "X-Device-Id") == nil {
-                request.setValue("2f49b7e148714010b615bfba561ae679", forHTTPHeaderField: "X-Device-Id")
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
             }
+            // identity 避免上游返回 gzip 后被中间层错误处理；分片直链本身就是字节流，不需要再压缩。
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
                 request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
@@ -263,7 +282,7 @@ final class DoubanImageProxyServer {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
 
-        print("📡 本地视频代理上游请求[\(item.provider)]: id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasVideoAuth=\((request.value(forHTTPHeaderField: "Cookie") ?? "").contains("Video-Auth=")), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), hasDeviceId=\(request.value(forHTTPHeaderField: "X-Device-Id") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
+        print("📡 本地视频代理上游请求[\(item.provider)]: method=\(method), id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasVideoAuth=\((request.value(forHTTPHeaderField: "Cookie") ?? "").contains("Video-Auth=")), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
 
         StreamForwarder(
             provider: item.provider,
@@ -283,14 +302,15 @@ final class DoubanImageProxyServer {
         }
         if item.provider == "quark" {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
-                request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
             }
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
             }
-            if request.value(forHTTPHeaderField: "X-Device-Id") == nil {
-                request.setValue("2f49b7e148714010b615bfba561ae679", forHTTPHeaderField: "X-Device-Id")
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
             }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
                 request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
@@ -513,7 +533,29 @@ final class DoubanImageProxyServer {
 
         return host.contains("baidupcs.com")
             || host == "d.pcs.baidu.com"
-            || host.hasSuffix(".drive.quark.cn")
+            || isQuarkPlaybackHost(host)
+    }
+
+    /// 夸克 download_url 实际跳转后域名波动较大，已经观察到的有 *.drive.quark.cn、*.dl.quark.cn、
+    /// *.cdn.quark.cn、pcs-*.quark.cn、video-*.quark.cn 等。这里只要落在 *.quark.cn 都允许走代理，
+    /// 避免回退直连导致 AVPlayer 拿不到 Cookie/UA 时 403。
+    private func isQuarkPlaybackHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower == "quark.cn" || lower.hasSuffix(".quark.cn") {
+            // 排除 API/页面域名，避免误把网页域转代理
+            let excluded: Set<String> = [
+                "pan.quark.cn",
+                "drive-pc.quark.cn",
+                "drive-h.quark.cn",
+                "drive-m.quark.cn",
+                "uop.quark.cn",
+                "su.quark.cn",
+                "www.quark.cn"
+            ]
+            if excluded.contains(lower) { return false }
+            return true
+        }
+        return false
     }
 
     private func cleanupExpiredStreams() {
