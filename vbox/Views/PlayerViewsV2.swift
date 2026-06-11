@@ -180,6 +180,11 @@ class PlayerState: ObservableObject {
     private var baiduPrefetchTask: Task<Void, Never>?
     private var baiduPrefetchingIds = Set<String>()
     private var baiduNearEndPrefetchedIndexes = Set<Int>()
+    private var quarkFallbackURL: String?
+    private var quarkFallbackHeaders: [String: String]?
+    private var quarkFallbackSource: String?
+    private var quarkFallbackAttempted = false
+    private var quarkFallbackTimeoutTask: Task<Void, Never>?
 
     private var isVLCBuildAvailable: Bool {
         #if canImport(MobileVLCKit)
@@ -444,6 +449,65 @@ class PlayerState: ObservableObject {
         }
     }
 
+    private func playResolvedDriveVideo(_ result: PlayResult) async {
+        if result.driveType == .quark {
+            quarkFallbackTimeoutTask?.cancel()
+            quarkFallbackAttempted = false
+            quarkFallbackURL = result.fallbackURL
+            quarkFallbackHeaders = result.fallbackHeaders
+            quarkFallbackSource = result.fallbackSource
+            logDrivePlayResult(result)
+            await playDriveVideo(url: result.url, headers: result.headers)
+        } else {
+            quarkFallbackTimeoutTask?.cancel()
+            quarkFallbackAttempted = false
+            quarkFallbackURL = nil
+            quarkFallbackHeaders = nil
+            quarkFallbackSource = nil
+            await playDriveVideo(url: result.url, headers: result.headers)
+        }
+    }
+
+    @discardableResult
+    private func switchToQuarkFallback(reason: String) -> Bool {
+        guard !quarkFallbackAttempted,
+              let url = quarkFallbackURL,
+              !url.isEmpty else {
+            log("[Quark] 兜底线路不可用，无法切换：\(reason)")
+            return false
+        }
+
+        quarkFallbackAttempted = true
+        quarkFallbackTimeoutTask?.cancel()
+        let headers = quarkFallbackHeaders ?? [:]
+        let source = quarkFallbackSource ?? "v2-play-m3u8"
+        log("[Quark] 原画线路失败，切换兜底线路：\(source)，原因：\(reason)")
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.playDriveVideo(url: url, headers: headers)
+        }
+        return true
+    }
+
+    private func scheduleQuarkPrimaryFallbackTimeout(playerItem: AVPlayerItem, startedAt: Date) {
+        guard quarkFallbackURL != nil, !quarkFallbackAttempted else { return }
+        quarkFallbackTimeoutTask?.cancel()
+        quarkFallbackTimeoutTask = Task { [weak self, weak playerItem] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self, let playerItem, !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.player?.currentItem === playerItem,
+                      self.isLoading,
+                      playerItem.status != .readyToPlay,
+                      !self.quarkFallbackAttempted else { return }
+                let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+                self.log("[Quark] 原画线路首帧超时 \(elapsed)ms，准备切换 m3u8 兜底")
+                self.switchToQuarkFallback(reason: "首帧超时")
+            }
+        }
+    }
+
     private func prefetchNextBaiduFile(after index: Int) {
         let nextIndex = index + 1
         guard nextIndex < baiduFileList.count else { return }
@@ -582,6 +646,12 @@ class PlayerState: ObservableObject {
     func cleanup() {
         currentTask?.cancel()
         currentTask = nil
+        quarkFallbackTimeoutTask?.cancel()
+        quarkFallbackTimeoutTask = nil
+        quarkFallbackURL = nil
+        quarkFallbackHeaders = nil
+        quarkFallbackSource = nil
+        quarkFallbackAttempted = false
         baiduPrefetchTask?.cancel()
         baiduPrefetchTask = nil
         baiduPrefetchingIds.removeAll()
@@ -618,8 +688,7 @@ class PlayerState: ObservableObject {
                                 log("[PlayerV2] 尝试播放 \(driveType.displayName)")
                                 do {
                                     let result = try await CloudDriveManager.shared.resolvePlayURL(from: url)
-                                    logDrivePlayResult(result)
-                                    await playDriveVideo(url: result.url, headers: result.headers)
+                                    await playResolvedDriveVideo(result)
                                     return
                                 } catch {
                                     log("[PlayerV2] \(driveType.displayName) 播放失败: \(error.localizedDescription)")
@@ -660,8 +729,7 @@ class PlayerState: ObservableObject {
                         if !tokens.isEmpty {
                             do {
                                 let playResult = try await CloudDriveManager.shared.resolvePlayURL(from: link.url)
-                                logDrivePlayResult(playResult)
-                                await playDriveVideo(url: playResult.url, headers: playResult.headers)
+                                await playResolvedDriveVideo(playResult)
                                 return
                             } catch {
                                 log("[PlayerV2] \(link.name) 失败: \(error.localizedDescription)")
@@ -750,8 +818,7 @@ class PlayerState: ObservableObject {
         
         do {
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
-            logDrivePlayResult(result)
-            await playDriveVideo(url: result.url, headers: result.headers)
+            await playResolvedDriveVideo(result)
         } catch let error as DriveError {
             let msg: String
             switch error {
@@ -823,12 +890,18 @@ class PlayerState: ObservableObject {
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
         let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
 
-        if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
+        if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
             log("[Quark] 自动模式下夸克直链优先使用 VLC 兼容内核，减少 AVPlayer 首帧慢和 12847 兼容问题")
+        } else if isQuarkLocalProxy && enginePreference == .auto && quarkFallbackURL != nil {
+            await MainActor.run {
+                playbackEngineMode = .system
+                compatibilityHint = nil
+            }
+            log("[Quark] 已启用 m3u8 兜底，原画主线路先用系统内核观察失败/超时")
         }
 
         if shouldUseCompatibilityEngine {
@@ -862,6 +935,9 @@ class PlayerState: ObservableObject {
                 guard let self else { return }
                 switch status {
                 case .readyToPlay:
+                    if isQuarkLocalProxy || isQuarkM3U8LocalProxy {
+                        self.quarkFallbackTimeoutTask?.cancel()
+                    }
                     let size = playerItem.presentationSize
                     let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
                     self.log("[PlayerV2] 网盘 PlayerItem 准备就绪，耗时=\(elapsed)ms，画面=\(Int(size.width))x\(Int(size.height))")
@@ -888,24 +964,25 @@ class PlayerState: ObservableObject {
                     }
                     if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[Quark] ⚠️ 夸克本地代理返回403，后续需要重新刷新 download_url")
+                        if self.switchToQuarkFallback(reason: "原画线路 403") { return }
                     }
                     // 夸克常见失败：NSURLErrorDomain code=-1 / "The network connection was lost"。
                     // 一般是上游签名失效或 UA/Cookie 不匹配被风控，提示用户重新进入触发刷新。
                     if isQuarkLocalProxy && self.isQuarkConnectionLost(error: nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[Quark] ⚠️ 夸克播放连接被中断 (network connection lost)，疑似签名/风控，建议返回重新播放刷新直链")
-                        Task { @MainActor in
-                            self.loadError = "夸克直链已失效或被风控，请返回后再次进入播放"
-                            self.isLoading = false
-                        }
-                        return
+                        if self.switchToQuarkFallback(reason: "原画线路连接中断") { return }
                     }
                     if self.isUnsupportedMediaError(nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[PlayerV2] ⚠️ 当前资源疑似 AVPlayer 不支持，建议后续使用兼容内核")
-                        Task { @MainActor in
-                            self.loadError = "当前资源格式/编码不受系统播放器支持，建议使用兼容内核"
-                            self.isLoading = false
+                        if isQuarkLocalProxy {
+                            if self.switchToQuarkFallback(reason: "系统内核不支持原画格式") { return }
+                        } else {
+                            Task { @MainActor in
+                                self.loadError = "当前资源格式/编码不受系统播放器支持，建议使用兼容内核"
+                                self.isLoading = false
+                            }
+                            return
                         }
-                        return
                     }
                     Task { @MainActor in
                         self.loadError = "网盘播放失败: \(errorDesc)"
@@ -927,13 +1004,22 @@ class PlayerState: ObservableObject {
                         self.log("[Baidu] ⚠️ 百度PCS播放中断疑似403，清理旧直链后重试一次")
                         self.retryCurrentBaiduPlaybackAfterForbidden()
                     } else if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: error.localizedDescription, underlyingDesc: "") {
-                        self.log("[Quark] ⚠️ 夸克播放中断疑似403，当前版本将提示重新打开刷新直链")
+                        self.log("[Quark] ⚠️ 夸克播放中断疑似403，准备切换 m3u8 兜底")
+                        self.switchToQuarkFallback(reason: "原画播放中断 403")
+                    } else if isQuarkLocalProxy && self.isQuarkConnectionLost(error: error as NSError, errorDesc: error.localizedDescription, underlyingDesc: "") {
+                        self.log("[Quark] ⚠️ 夸克播放中断疑似连接丢失，准备切换 m3u8 兜底")
+                        self.switchToQuarkFallback(reason: "原画播放中断")
                     }
                 }
             }
 
         let p = AVPlayer(playerItem: playerItem)
         p.automaticallyWaitsToMinimizeStalling = !(isBaiduLocalProxy || isQuarkLocalProxy || isQuarkM3U8LocalProxy)
+        if isQuarkLocalProxy {
+            scheduleQuarkPrimaryFallbackTimeout(playerItem: playerItem, startedAt: playStartTime)
+        } else if isQuarkM3U8LocalProxy {
+            quarkFallbackTimeoutTask?.cancel()
+        }
         
         await MainActor.run {
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
@@ -1335,11 +1421,10 @@ class PlayerState: ObservableObject {
             do {
                 log("[PlayerV2] ⏳ 正在调用 \(driveType.displayName) API 解析...")
                 let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
-                logDrivePlayResult(result)
                 log("[PlayerV2] ✅ 网盘解析成功! 播放地址: \(result.url.prefix(80))...")
                 log("[PlayerV2] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
                 if URL(string: result.url) != nil {
-                    await playDriveVideo(url: result.url, headers: result.headers)
+                    await playResolvedDriveVideo(result)
                     return
                 } else {
                     let msg = "\(driveType.displayName) 返回的播放地址无效: \(result.url.prefix(50))"
