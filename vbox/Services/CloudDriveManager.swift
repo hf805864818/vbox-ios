@@ -936,7 +936,7 @@ class CloudDriveManager: ObservableObject {
         }
         print("[Quark] ✅ 播放地址 source=\(source), hasPUUS=\(authCookie.contains("__puus=")), hasVideoAuth=\(authCookie.contains("Video-Auth=")), host=\(URL(string: playURL)?.host ?? "unknown")")
 
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 20 * 60)
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
         return PlayResult(
             url: playURL,
