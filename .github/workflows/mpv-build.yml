@@ -116,7 +116,7 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
       - name: 🏗️ Archive MPVKit wrapper for iOS simulator
@@ -131,7 +131,7 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
       - name: 📦 Create MPVKit.xcframework
