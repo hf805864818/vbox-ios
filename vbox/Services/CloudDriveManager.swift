@@ -48,6 +48,12 @@ class CloudDriveManager: ObservableObject {
     private let session: URLSession
     private let defaults = UserDefaults.standard
     private let tokenKey = "saved_drive_tokens"
+    private struct BaiduPlayCacheItem {
+        let result: PlayResult
+        let expiresAt: Date
+    }
+    private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
+    private let baiduPlayCacheLock = NSLock()
 
     @Published private(set) var savedTokens: [DriveToken] = []
 
@@ -65,6 +71,31 @@ class CloudDriveManager: ObservableObject {
         if let handler = CloudDriveManager.onLog {
             handler(msg)
         }
+    }
+
+    private func baiduPlayCacheKey(shareURL: String, fsId: String, bduss: String, pcsCookie: String) -> String {
+        "\(shareURL)|\(fsId)|\(bduss.hashValue)|\(pcsCookie.hashValue)"
+    }
+
+    private func baiduCachedPlayResult(for key: String) -> PlayResult? {
+        baiduPlayCacheLock.lock()
+        defer { baiduPlayCacheLock.unlock() }
+        guard let item = baiduPlayCache[key] else { return nil }
+        if item.expiresAt > Date() {
+            return item.result
+        }
+        baiduPlayCache.removeValue(forKey: key)
+        return nil
+    }
+
+    private func baiduStorePlayResult(_ result: PlayResult, for key: String, ttl: TimeInterval = 6 * 60 * 60) {
+        baiduPlayCacheLock.lock()
+        baiduPlayCache[key] = BaiduPlayCacheItem(result: result, expiresAt: Date().addingTimeInterval(ttl))
+        if baiduPlayCache.count > 80 {
+            let now = Date()
+            baiduPlayCache = baiduPlayCache.filter { $0.value.expiresAt > now }
+        }
+        baiduPlayCacheLock.unlock()
     }
 
     private func loadTokens() {
@@ -930,6 +961,12 @@ class CloudDriveManager: ObservableObject {
     }
 
     func resolveBaiduPlayURL(shareURL: String, bduss: String, fsId: String, pcsCookie: String = "") async throws -> PlayResult {
+        let cacheKey = baiduPlayCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
+        if let cached = baiduCachedPlayResult(for: cacheKey) {
+            baiduLog("[Baidu-Cache] ✅ 命中播放地址缓存 fsId=\(fsId)")
+            return cached
+        }
+
         let pwdForWorker = extractBaiduPwd(from: shareURL)
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
@@ -937,7 +974,9 @@ class CloudDriveManager: ObservableObject {
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
         do {
-            return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
+            let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
+            baiduStorePlayResult(result, for: cacheKey)
+            return result
         } catch {
             baiduLog("[Baidu-Worker] ❌ 指定文件播放代理失败：\(error.localizedDescription)")
             throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
