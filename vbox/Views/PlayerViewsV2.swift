@@ -792,6 +792,14 @@ class PlayerState: ObservableObject {
                 finalURLString = url
                 log("[PlayerV2] ⚠️ 百度本地代理创建失败，回退直连")
             }
+        } else if isQuarkM3U8PlaybackURL(url) {
+            if let localURL = DoubanImageProxyServer.shared.proxiedQuarkM3U8URL(for: url, headers: headers) {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 夸克 m3u8 走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 夸克 m3u8 本地代理创建失败，回退直连")
+            }
         } else if isQuarkDirectPlaybackURL(url) {
             if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "quark") {
                 finalURLString = localURL.absoluteString
@@ -813,6 +821,7 @@ class PlayerState: ObservableObject {
         }
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
+        let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
 
         if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
             await MainActor.run {
@@ -924,7 +933,7 @@ class PlayerState: ObservableObject {
             }
 
         let p = AVPlayer(playerItem: playerItem)
-        p.automaticallyWaitsToMinimizeStalling = !(isBaiduLocalProxy || isQuarkLocalProxy)
+        p.automaticallyWaitsToMinimizeStalling = !(isBaiduLocalProxy || isQuarkLocalProxy || isQuarkM3U8LocalProxy)
         
         await MainActor.run {
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
@@ -998,6 +1007,20 @@ class PlayerState: ObservableObject {
             "drive-pc.quark.cn",
             "drive-h.quark.cn",
             "drive-m.quark.cn",
+            "uop.quark.cn",
+            "su.quark.cn",
+            "www.quark.cn"
+        ]
+        return !excluded.contains(host)
+    }
+
+    private func isQuarkM3U8PlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        guard rawURL.lowercased().contains(".m3u8") else { return false }
+        guard host == "quark.cn" || host.hasSuffix(".quark.cn") else { return false }
+        let excluded: Set<String> = [
+            "pan.quark.cn",
             "uop.quark.cn",
             "su.quark.cn",
             "www.quark.cn"

@@ -129,6 +129,36 @@ final class DoubanImageProxyServer {
         return components.url
     }
 
+    func proxiedQuarkM3U8URL(for sourceURL: String, headers: [String: String]) -> URL? {
+        guard let targetURL = URL(string: sourceURL),
+              isAllowedQuarkM3U8URL(sourceURL)
+        else {
+            return URL(string: sourceURL)
+        }
+
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        queue.sync {
+            self.cleanupExpiredStreams()
+            let item = StreamItem(
+                url: targetURL,
+                headers: headers,
+                provider: "quark-m3u8",
+                createdAt: Date()
+            )
+            self.streamItems[id] = item
+            let cookie = Self.headerValue(headers, "Cookie") ?? ""
+            print("✅ 注册夸克 m3u8 代理: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasVideoAuth=\(cookie.contains("Video-Auth="))")
+        }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/quark-m3u8"
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        return components.url
+    }
+
     private func localProxyURL(for targetURLString: String) -> URL? {
         var components = URLComponents()
         components.scheme = "http"
@@ -199,6 +229,14 @@ final class DoubanImageProxyServer {
             routeStream(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }
+        if pathAndQuery.hasPrefix("/quark-m3u8") {
+            routeQuarkM3U8(pathAndQuery, method: method, on: connection)
+            return
+        }
+        if pathAndQuery.hasPrefix("/quark-segment") {
+            routeQuarkSegment(pathAndQuery, requestText: requestText, method: method, on: connection)
+            return
+        }
 
         guard pathAndQuery.hasPrefix("/douban-cover"),
               let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
@@ -217,6 +255,49 @@ final class DoubanImageProxyServer {
         }
 
         fetchImage(from: targetURL, cacheKey: cacheKey, on: connection)
+    }
+
+    private func routeQuarkM3U8(_ pathAndQuery: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let item = streamItems[id]
+        else {
+            print("❌ 夸克 m3u8 代理未找到注册项: \(pathAndQuery)")
+            send(statusCode: 404, body: Data("M3U8 Not Found".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        guard method == "GET" else {
+            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            return
+        }
+
+        fetchQuarkM3U8(item: item, id: id, on: connection)
+    }
+
+    private func routeQuarkSegment(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let rawURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+              let parentItem = streamItems[id],
+              isAllowedQuarkM3U8URL(rawURL),
+              let targetURL = URL(string: rawURL)
+        else {
+            print("❌ 夸克分片代理参数无效: \(pathAndQuery)")
+            send(statusCode: 403, body: Data("Forbidden Segment".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let requestHeaders = parseRequestHeaders(requestText)
+        let incomingRange = requestHeaders["range"]
+        let item = StreamItem(
+            url: targetURL,
+            headers: parentItem.headers,
+            provider: "quark-segment",
+            createdAt: Date()
+        )
+        print("📥 夸克分片代理收到请求: id=\(id), range=\(incomingRange ?? "无"), host=\(targetURL.host ?? "")")
+        fetchStream(item: item, id: id, method: method, incomingRange: incomingRange, on: connection)
     }
 
     private func routeStream(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
@@ -247,11 +328,11 @@ final class DoubanImageProxyServer {
 
         for (key, value) in item.headers {
             let lower = key.lowercased()
-            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            if lower == "host" || lower == "content-length" || lower == "connection" || lower.hasPrefix("x-vbox-") { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        if item.provider == "quark" {
+        if item.provider.hasPrefix("quark") {
             // 与 quarkPlaybackHeaders 保持一致：使用 PC quark-cloud-drive UA。
             // download_url 签名链对 UA 敏感，UA 不一致会触发 403/连接被风控中断。
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
@@ -371,6 +452,109 @@ final class DoubanImageProxyServer {
         return result
     }
 
+    private func fetchQuarkM3U8(item: StreamItem, id: String, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 20
+        request.httpMethod = "GET"
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" || lower.hasPrefix("x-vbox-") { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        if request.value(forHTTPHeaderField: "User-Agent") == nil {
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+        }
+        if request.value(forHTTPHeaderField: "Referer") == nil {
+            request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        }
+        if request.value(forHTTPHeaderField: "Origin") == nil {
+            request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+
+        let startedAt = Date()
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+            if let error {
+                print("❌ 夸克 m3u8 拉取失败: id=\(id), err=\(error.localizedDescription)")
+                self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            guard let data, let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+                print("❌ 夸克 m3u8 内容为空: id=\(id), status=\(status)")
+                self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            let rewritten = self.rewriteQuarkM3U8(text, baseURL: item.url, id: id)
+            let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
+            print("✅ 夸克 m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(data.count)")
+            self.sendNoStore(statusCode: status, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
+        }.resume()
+    }
+
+    private func rewriteQuarkM3U8(_ text: String, baseURL: URL, id: String) -> String {
+        text.components(separatedBy: .newlines).map { line in
+            rewriteQuarkM3U8Line(line, baseURL: baseURL, id: id)
+        }.joined(separator: "\n")
+    }
+
+    private func rewriteQuarkM3U8Line(_ line: String, baseURL: URL, id: String) -> String {
+        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return line }
+
+        if line.hasPrefix("#") {
+            return rewriteQuarkM3U8URIAttributes(in: line, baseURL: baseURL, id: id)
+        }
+
+        guard let absolute = absoluteQuarkURL(from: line, baseURL: baseURL) else { return line }
+        return localQuarkSegmentURL(for: absolute, id: id) ?? line
+    }
+
+    private func rewriteQuarkM3U8URIAttributes(in line: String, baseURL: URL, id: String) -> String {
+        var result = line
+        let pattern = #"URI="([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return line }
+        let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+        let matches = regex.matches(in: result, range: nsRange).reversed()
+        for match in matches {
+            guard match.numberOfRanges >= 2,
+                  let uriRange = Range(match.range(at: 1), in: result),
+                  let fullRange = Range(match.range(at: 0), in: result) else { continue }
+            let uri = String(result[uriRange])
+            guard let absolute = absoluteQuarkURL(from: uri, baseURL: baseURL),
+                  let local = localQuarkSegmentURL(for: absolute, id: id) else { continue }
+            result.replaceSubrange(fullRange, with: "URI=\"\(local)\"")
+        }
+        return result
+    }
+
+    private func absoluteQuarkURL(from raw: String, baseURL: URL) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed, relativeTo: baseURL)?.absoluteURL,
+              isAllowedQuarkM3U8URL(url.absoluteString) else { return nil }
+        return url
+    }
+
+    private func localQuarkSegmentURL(for url: URL, id: String) -> String? {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/quark-segment"
+        components.queryItems = [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "url", value: url.absoluteString)
+        ]
+        return components.url?.absoluteString
+    }
+
     private func fetchImage(from url: URL, cacheKey: NSString, on connection: NWConnection) {
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
@@ -419,6 +603,26 @@ final class DoubanImageProxyServer {
         Content-Type: \(contentType)\r
         Content-Length: \(body.count)\r
         Cache-Control: public, max-age=86400\r
+        Connection: close\r
+        \r
+
+        """
+
+        var response = Data(header.utf8)
+        response.append(body)
+
+        connection.send(content: response, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
+    private func sendNoStore(statusCode: Int, body: Data, contentType: String, on connection: NWConnection) {
+        let reason = Self.reasonPhrase(for: statusCode)
+        let header = """
+        HTTP/1.1 \(statusCode) \(reason)\r
+        Content-Type: \(contentType)\r
+        Content-Length: \(body.count)\r
+        Cache-Control: no-store\r
         Connection: close\r
         \r
 
@@ -534,6 +738,25 @@ final class DoubanImageProxyServer {
         return host.contains("baidupcs.com")
             || host == "d.pcs.baidu.com"
             || isQuarkPlaybackHost(host)
+    }
+
+    private func isAllowedQuarkM3U8URL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(),
+              ["http", "https"].contains(scheme)
+        else {
+            return false
+        }
+
+        guard host == "quark.cn" || host.hasSuffix(".quark.cn") else { return false }
+        let excluded: Set<String> = [
+            "pan.quark.cn",
+            "uop.quark.cn",
+            "su.quark.cn",
+            "www.quark.cn"
+        ]
+        return !excluded.contains(host)
     }
 
     /// 夸克 download_url 实际跳转后域名波动较大，已经观察到的有 *.drive.quark.cn、*.dl.quark.cn、
