@@ -509,6 +509,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     private var receivedBytes = 0
     private var preview = Data()
     private var shouldPreviewBody = false
+    private var upstreamHeaders: [String: String] = [:]
 
     init(provider: String, id: String, connection: NWConnection) {
         self.provider = provider
@@ -519,6 +520,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     }
 
     func start(request: URLRequest) {
+        upstreamHeaders = request.allHTTPHeaderFields ?? [:]
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
@@ -526,6 +528,24 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: callbackQueue)
         self.session = session
         session.dataTask(with: request).resume()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        var redirected = request
+        for (key, value) in upstreamHeaders {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            redirected.setValue(value, forHTTPHeaderField: key)
+        }
+        let location = response.value(forHTTPHeaderField: "Location") ?? redirected.url?.absoluteString ?? "无"
+        print("↪️ 本地视频代理上游重定向[\(provider)]: id=\(id), status=\(response.statusCode), location=\(location), keepCookie=\(upstreamHeaders.keys.contains { $0.lowercased() == "cookie" })")
+        completionHandler(redirected)
     }
 
     func urlSession(
