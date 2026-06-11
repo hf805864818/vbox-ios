@@ -116,7 +116,6 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
-            EXECUTABLE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
@@ -132,7 +131,6 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
-            EXECUTABLE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
