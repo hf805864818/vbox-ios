@@ -111,6 +111,7 @@ class PlayerState: ObservableObject {
     @Published var showEpisodePicker = false
     @Published var showQualityPicker = false
     @Published var showDanmakuSettings = false
+    @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
     @Published var showDanmaku = true
@@ -127,6 +128,8 @@ class PlayerState: ObservableObject {
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
     private var baiduStreamRetryCount = 0        // 百度PCS流403后自动刷新直链次数
+    private var baiduPrefetchTask: Task<Void, Never>?
+    private var baiduPrefetchingIds = Set<String>()
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
@@ -166,22 +169,25 @@ class PlayerState: ObservableObject {
         await MainActor.run {
             currentEpisodeIndex = index
             isLoading = true
+            loadingMessage = "正在获取百度视频地址..."
             loadError = nil
         }
 
         do {
+            let resolveStart = Date()
             let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
                 shareURL: shareURL,
                 bduss: bduss,
                 fsId: file.fsId,
                 pcsCookie: pcsCookie
             )
-            log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功")
+            log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功，耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
             if !reason.contains("刷新") && !reason.contains("重试") {
                 baiduStreamRetryCount = 0
             }
             let streamHeaders = mergedBaiduStreamHeaders(result.headers)
             await playDriveVideo(url: result.url, headers: streamHeaders)
+            prefetchNextBaiduFile(after: index)
         } catch let error as DriveError {
             let specificMsg: String
             switch error {
@@ -211,6 +217,38 @@ class PlayerState: ObservableObject {
         Task { @MainActor in
             debugLogs.append(short)
             if debugLogs.count > 30 { debugLogs.removeFirst() }
+        }
+    }
+
+    private func prefetchNextBaiduFile(after index: Int) {
+        let nextIndex = index + 1
+        guard nextIndex < baiduFileList.count else { return }
+        guard !baiduShareURL.isEmpty else { return }
+        let nextFile = baiduFileList[nextIndex]
+        guard !nextFile.fsId.isEmpty, !baiduPrefetchingIds.contains(nextFile.fsId) else { return }
+        baiduPrefetchingIds.insert(nextFile.fsId)
+        let shareURL = baiduShareURL
+        let bduss = baiduBduss
+        let pcsCookie = baiduPcsCookie
+
+        baiduPrefetchTask?.cancel()
+        baiduPrefetchTask = Task { [weak self] in
+            guard let self else { return }
+            self.log("[Baidu-Preload] 开始预取第\(nextIndex + 1)集：\(nextFile.name)")
+            do {
+                _ = try await CloudDriveManager.shared.resolveBaiduPlayURL(
+                    shareURL: shareURL,
+                    bduss: bduss,
+                    fsId: nextFile.fsId,
+                    pcsCookie: pcsCookie
+                )
+                self.log("[Baidu-Preload] ✅ 第\(nextIndex + 1)集已缓存")
+            } catch {
+                self.log("[Baidu-Preload] ⚠️ 第\(nextIndex + 1)集预取失败：\(error.localizedDescription)")
+            }
+            await MainActor.run {
+                self.baiduPrefetchingIds.remove(nextFile.fsId)
+            }
         }
     }
 
@@ -320,6 +358,9 @@ class PlayerState: ObservableObject {
     func cleanup() {
         currentTask?.cancel()
         currentTask = nil
+        baiduPrefetchTask?.cancel()
+        baiduPrefetchTask = nil
+        baiduPrefetchingIds.removeAll()
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -508,6 +549,10 @@ class PlayerState: ObservableObject {
     
     private func playDriveVideo(url: String, headers: [String: String]) async {
         let playStartTime = Date()
+        await MainActor.run {
+            isLoading = true
+            loadingMessage = "正在缓冲首帧..."
+        }
         let finalURLString: String
         if url.contains("baidupcs.com") || url.contains("d.pcs.baidu.com") {
             if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "baidu") {
@@ -533,7 +578,7 @@ class PlayerState: ObservableObject {
         let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
         let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": assetHeaders])
         let playerItem = AVPlayerItem(asset: asset)
-        playerItem.preferredForwardBufferDuration = urlObj.host == "127.0.0.1" ? 2.0 : 10.0
+        playerItem.preferredForwardBufferDuration = urlObj.host == "127.0.0.1" ? 0.5 : 10.0
 
         var localStatusObserver: AnyCancellable?
         localStatusObserver = playerItem.publisher(for: \.status)
@@ -544,6 +589,9 @@ class PlayerState: ObservableObject {
                     let size = playerItem.presentationSize
                     let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
                     self.log("[PlayerV2] 网盘 PlayerItem 准备就绪，耗时=\(elapsed)ms，画面=\(Int(size.width))x\(Int(size.height))")
+                    Task { @MainActor in
+                        self.isLoading = false
+                    }
                     self.scheduleVideoTrackCheck(for: playerItem, startedAt: playStartTime, isBaiduLocalProxy: isBaiduLocalProxy)
                 case .failed:
                     let nsError = playerItem.error as? NSError
@@ -589,7 +637,7 @@ class PlayerState: ObservableObject {
             }
 
         let p = AVPlayer(playerItem: playerItem)
-        p.automaticallyWaitsToMinimizeStalling = true
+        p.automaticallyWaitsToMinimizeStalling = !isBaiduLocalProxy
         
         await MainActor.run {
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
@@ -599,7 +647,8 @@ class PlayerState: ObservableObject {
             player?.pause()
             player = p
             isPlaying = true
-            isLoading = false
+            isLoading = true
+            loadingMessage = "正在缓冲首帧..."
         }
         
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
@@ -608,7 +657,7 @@ class PlayerState: ObservableObject {
             if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.play() }
+        p.play()
     }
 
     private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
@@ -1197,16 +1246,20 @@ struct PlayerContainerView: View {
                     .ignoresSafeArea()
             }
             
-            // 加载层（如果没有播放器且正在加载）
-            if player == nil && playerState.isLoading {
+            // 加载层：播放器初始化后到首帧出现前也持续显示，避免黑屏无反馈
+            if playerState.isLoading {
                 VStack(spacing: 16) {
                     ProgressView()
                         .scaleEffect(1.5)
                         .tint(.white)
-                    Text("正在解析播放地址...")
+                    Text(playerState.loadingMessage)
                         .foregroundColor(.white.opacity(0.8))
                         .font(.subheadline)
                 }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.45))
+                .cornerRadius(14)
             }
             
             // 弹幕层
