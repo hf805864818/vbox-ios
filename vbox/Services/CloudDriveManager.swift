@@ -88,6 +88,23 @@ class CloudDriveManager: ObservableObject {
         let files: [BaiduFileItem]
         let expiresAt: Date
     }
+    struct BaiduPlaybackCacheSummary {
+        let playResultCount: Int
+        let expiredPlayResultCount: Int
+        let playItemCount: Int
+        let iBoxPlayItemCount: Int
+        let validIBoxDlinkCount: Int
+        let expiredIBoxDlinkCount: Int
+        let fileListCount: Int
+        let expiredFileListCount: Int
+        let storageBytes: Int
+        let lastUpdatedAt: Date?
+
+        var totalCount: Int {
+            playResultCount + playItemCount + iBoxPlayItemCount + fileListCount
+        }
+    }
+
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
     private let baiduPlayCacheLock = NSLock()
 
@@ -285,6 +302,107 @@ class CloudDriveManager: ObservableObject {
             return [:]
         }
         return cache
+    }
+
+    func baiduPlaybackCacheSummary() -> BaiduPlaybackCacheSummary {
+        let now = Date()
+        let playCache = baiduLoadPersistedPlayCache()
+        let playItems = baiduLoadPersistedPlayItemCache()
+        let iBoxItems = baiduLoadPersistedIBoxPlayItemCache()
+        let fileLists = baiduLoadPersistedFileListCache()
+
+        let expiredPlay = playCache.values.filter { $0.expiresAt <= now }.count
+        let expiredFileLists = fileLists.values.filter { $0.expiresAt <= now }.count
+        let validIBoxDlinks = iBoxItems.values.filter { ($0.dlinkExpiresAt ?? .distantPast) > now && ($0.dlinkURL?.isEmpty == false) }.count
+        let expiredIBoxDlinks = iBoxItems.values.filter { item in
+            guard let expiresAt = item.dlinkExpiresAt, item.dlinkURL?.isEmpty == false else { return false }
+            return expiresAt <= now
+        }.count
+        let dates = playCache.values.map(\.expiresAt)
+            + playItems.values.map(\.updatedAt)
+            + iBoxItems.values.map(\.updatedAt)
+            + fileLists.values.map(\.expiresAt)
+        let storageBytes = [
+            baiduPersistedPlayCacheKey,
+            baiduPersistedPlayItemCacheKey,
+            baiduIBoxPlayItemCacheKey,
+            baiduFileListCacheKey
+        ].reduce(0) { total, key in
+            total + (defaults.data(forKey: key)?.count ?? 0)
+        }
+
+        return BaiduPlaybackCacheSummary(
+            playResultCount: playCache.count,
+            expiredPlayResultCount: expiredPlay,
+            playItemCount: playItems.count,
+            iBoxPlayItemCount: iBoxItems.count,
+            validIBoxDlinkCount: validIBoxDlinks,
+            expiredIBoxDlinkCount: expiredIBoxDlinks,
+            fileListCount: fileLists.count,
+            expiredFileListCount: expiredFileLists,
+            storageBytes: storageBytes,
+            lastUpdatedAt: dates.max()
+        )
+    }
+
+    @discardableResult
+    func clearExpiredBaiduPlaybackCaches() -> BaiduPlaybackCacheSummary {
+        let now = Date()
+
+        baiduPlayCacheLock.lock()
+        baiduPlayCache = baiduPlayCache.filter { $0.value.expiresAt > now }
+        baiduPlayCacheLock.unlock()
+
+        var playCache = baiduLoadPersistedPlayCache().filter { $0.value.expiresAt > now }
+        if let data = try? JSONEncoder().encode(playCache) {
+            defaults.set(data, forKey: baiduPersistedPlayCacheKey)
+        }
+
+        var fileLists = baiduLoadPersistedFileListCache().filter { $0.value.expiresAt > now }
+        baiduSavePersistedFileListCache(fileLists)
+
+        var iBoxItems = baiduLoadPersistedIBoxPlayItemCache()
+        for (key, item) in iBoxItems {
+            guard let expiresAt = item.dlinkExpiresAt, expiresAt <= now else { continue }
+            iBoxItems[key] = BaiduIBoxPlayItem(
+                shareURL: item.shareURL,
+                fsId: item.fsId,
+                fileName: item.fileName,
+                path: item.path,
+                dlinkURL: nil,
+                headers: item.headers,
+                dlinkExpiresAt: nil,
+                compatibilityHint: item.compatibilityHint,
+                preferredEngine: item.preferredEngine,
+                preparedAt: item.preparedAt,
+                updatedAt: now,
+                lastUsedAt: item.lastUsedAt,
+                source: "\(item.source)-expired-cleaned"
+            )
+        }
+        if let data = try? JSONEncoder().encode(iBoxItems) {
+            defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
+        }
+
+        playCache.removeAll(keepingCapacity: false)
+        fileLists.removeAll(keepingCapacity: false)
+        baiduLog("[Baidu-Cache] 已清理过期播放缓存，保留可复用 PlayItem/path")
+        return baiduPlaybackCacheSummary()
+    }
+
+    @discardableResult
+    func clearAllBaiduPlaybackCaches() -> BaiduPlaybackCacheSummary {
+        baiduPlayCacheLock.lock()
+        baiduPlayCache.removeAll()
+        baiduPlayCacheLock.unlock()
+
+        defaults.removeObject(forKey: baiduPersistedPlayCacheKey)
+        defaults.removeObject(forKey: baiduPersistedPlayItemCacheKey)
+        defaults.removeObject(forKey: baiduIBoxPlayItemCacheKey)
+        defaults.removeObject(forKey: baiduFileListCacheKey)
+
+        baiduLog("[Baidu-Cache] 已清空全部百度播放缓存")
+        return baiduPlaybackCacheSummary()
     }
 
     private func baiduCompatibilityHint(fileName: String) -> String {
