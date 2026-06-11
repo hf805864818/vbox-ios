@@ -283,7 +283,7 @@ struct SettingsView: View {
 
     private func driveTokenRow(index: Int, token: DriveToken) -> some View {
         HStack {
-            Image(systemName: iconForDriveTokenType(token.type))
+            Image(systemName: iconForDriveType(CloudDriveManager.DriveType(rawValue: token.type) ?? .ali))
                 .foregroundColor(Color(hex: "E11D48")).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
