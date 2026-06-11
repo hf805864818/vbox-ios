@@ -447,17 +447,17 @@ class PlayerState: ObservableObject {
         baiduPrefetchTask?.cancel()
         baiduPrefetchTask = Task { [weak self] in
             guard let self else { return }
-            self.log("[Baidu-Preload] 开始预取第\(nextIndex + 1)集：\(nextFile.name)")
+            self.log("[Baidu-iBox] 开始准备下一集 PlayItem：第\(nextIndex + 1)集 \(nextFile.name)")
             do {
-                _ = try await CloudDriveManager.shared.resolveBaiduPlayURL(
+                _ = try await CloudDriveManager.shared.prepareBaiduIBoxPlayItem(
                     shareURL: shareURL,
                     bduss: bduss,
                     fsId: nextFile.fsId,
                     pcsCookie: pcsCookie
                 )
-                self.log("[Baidu-Preload] ✅ 第\(nextIndex + 1)集已缓存")
+                self.log("[Baidu-iBox] ✅ 第\(nextIndex + 1)集 PlayItem 已准备")
             } catch {
-                self.log("[Baidu-Preload] ⚠️ 第\(nextIndex + 1)集预取失败：\(error.localizedDescription)")
+                self.log("[Baidu-iBox] ⚠️ 第\(nextIndex + 1)集 PlayItem 准备失败：\(error.localizedDescription)")
             }
             await MainActor.run {
                 self.baiduPrefetchingIds.remove(nextFile.fsId)
