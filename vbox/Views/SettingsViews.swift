@@ -22,6 +22,7 @@ struct SettingsView: View {
     @State private var showBaiduTestView = false
     @State private var showUniversalPlayTestView = false
     @State private var showCloudCacheSheet = false
+    @State private var showAuthCenter = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -173,6 +174,29 @@ struct SettingsView: View {
     private var cloudDriveSection: some View {
         SettingsSection(title: "网盘播放") {
             VStack(alignment: .leading, spacing: 12) {
+                Button(action: { showAuthCenter = true }) {
+                    HStack {
+                        Image(systemName: "person.badge.key.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("网盘账号授权中心")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.black)
+                            Text("百度双 Token 状态，扫码登录框架预留")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.gray.opacity(0.04))
+                }
+
                 // 通用播放测试入口
                 Button(action: { showUniversalPlayTestView = true }) {
                     HStack {
@@ -257,6 +281,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showCloudCacheSheet) {
             CloudPlaybackCacheView()
         }
+        .sheet(isPresented: $showAuthCenter) {
+            CloudAuthCenterView()
+        }
     }
 
     private func driveTokenRow(index: Int, token: DriveToken) -> some View {
@@ -281,7 +308,7 @@ struct SettingsView: View {
         Button(action: { showTokenFetcher = true }) {
             HStack {
                 Image(systemName: "key.fill").font(.system(size: 16))
-                Text("获取Token").font(.system(size: 14, weight: .medium))
+                Text("网页登录获取Token").font(.system(size: 14, weight: .medium))
                 Text("→").font(.system(size: 12))
             }
             .foregroundColor(.white).frame(maxWidth: .infinity)
@@ -408,6 +435,201 @@ struct SettingsNavigationRow: View {
             .background(Color.gray.opacity(0.04))
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct CloudAuthCenterView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var cloudDriveManager = CloudDriveManager.shared
+    @State private var showTokenFetcher = false
+
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    baiduAccountCard
+                    providerAccountCard(type: .quark, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
+                    providerAccountCard(type: .ali, note: "扫码登录待接入，当前保留 Refresh Token 手动兜底")
+                    providerAccountCard(type: .uc, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
+                    providerAccountCard(type: .one15, note: "扫码登录待接入，当前保留账号参数手动兜底")
+
+                    Button(action: { showTokenFetcher = true }) {
+                        HStack {
+                            Image(systemName: "globe")
+                            Text("网页登录获取 Token（兜底）")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(hex: "E11D48"))
+                        .cornerRadius(12)
+                    }
+
+                    Text("后续接入真实扫码登录后，这里会按网盘显示二维码、轮询扫码状态，并自动保存对应 Token。手动粘贴入口会继续保留为高级兜底。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(16)
+            }
+            .background(Color.white)
+            .navigationTitle("网盘账号授权")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showTokenFetcher) {
+                TokenFetcherView(cloudDriveManager: cloudDriveManager)
+            }
+        }
+    }
+
+    private var baiduAccountCard: some View {
+        let pair = cloudDriveManager.baiduTokenPair()
+        let webCookie = pair?.web.value ?? ""
+        let pcsCookie = pair?.pcs?.value ?? ""
+        let webStatus = baiduWebStatus(webCookie)
+        let pcsStatus = baiduPCSStatus(pcsCookie)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            accountHeader(
+                title: "百度网盘",
+                subtitle: pair == nil ? "未登录" : "已保存百度账号信息",
+                icon: "b.circle.fill",
+                isReady: pair != nil
+            )
+
+            VStack(spacing: 8) {
+                authStatusRow(title: "基础登录 Web Cookie", status: webStatus.text, isReady: webStatus.ready)
+                authStatusRow(title: "高速播放 PCS Cookie", status: pcsStatus.text, isReady: pcsStatus.ready)
+            }
+
+            Text("内部仍分开保存 Web Cookie 和 PCS Cookie；用户侧只显示为一个百度账号。Web Cookie 负责分享/转存/mediainfo，PCS Cookie 负责高速直链和拉流。")
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+
+            HStack(spacing: 10) {
+                disabledActionButton("扫码登录待接入")
+                Button(action: { showTokenFetcher = true }) {
+                    Text("网页登录兜底")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(hex: "E11D48"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(hex: "E11D48").opacity(0.08))
+                        .cornerRadius(10)
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+    }
+
+    private func providerAccountCard(type: CloudDriveManager.DriveType, note: String) -> some View {
+        let tokens = cloudDriveManager.tokens(for: type)
+        return VStack(alignment: .leading, spacing: 10) {
+            accountHeader(
+                title: type.displayName,
+                subtitle: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token",
+                icon: iconForDriveType(type),
+                isReady: !tokens.isEmpty
+            )
+            Text(note)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+            HStack(spacing: 10) {
+                disabledActionButton("扫码登录待接入")
+                Text(tokens.first?.name ?? "暂无 Token")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
+    }
+
+    private func accountHeader(title: String, subtitle: String, icon: String, isReady: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundColor(isReady ? Color(hex: "E11D48") : .gray)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.black)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            Text(isReady ? "已获取" : "未获取")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isReady ? .green : .gray)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((isReady ? Color.green : Color.gray).opacity(0.12))
+                .cornerRadius(8)
+        }
+    }
+
+    private func authStatusRow(title: String, status: String, isReady: Bool) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.black)
+            Spacer()
+            Image(systemName: isReady ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .font(.system(size: 13))
+                .foregroundColor(isReady ? .green : .orange)
+            Text(status)
+                .font(.system(size: 12))
+                .foregroundColor(isReady ? .green : .orange)
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.85))
+        .cornerRadius(10)
+    }
+
+    private func disabledActionButton(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.gray)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.gray.opacity(0.12))
+            .cornerRadius(10)
+    }
+
+    private func baiduWebStatus(_ cookie: String) -> (text: String, ready: Bool) {
+        let lower = cookie.lowercased()
+        let ready = lower.contains("bduss=") || !cookie.isEmpty
+        let hasSToken = lower.contains("stoken=")
+        if ready && hasSToken { return ("BDUSS/STOKEN 已获取", true) }
+        if ready { return ("BDUSS 已获取", true) }
+        return ("缺少 Web Cookie", false)
+    }
+
+    private func baiduPCSStatus(_ cookie: String) -> (text: String, ready: Bool) {
+        let lower = cookie.lowercased()
+        let ready = lower.contains("panpsc=") || lower.contains("ptoken") || lower.contains("ndut_fmt=") || lower.contains("nd_ftid=")
+        if ready { return ("PCS Cookie 已获取", true) }
+        return ("缺少高速播放 Cookie", false)
+    }
+
+    private func iconForDriveType(_ type: CloudDriveManager.DriveType) -> String {
+        switch type {
+        case .ali: return "a.circle.fill"
+        case .quark: return "q.circle.fill"
+        case .baidu: return "b.circle.fill"
+        case .one15: return "1.circle.fill"
+        case .uc: return "u.circle.fill"
+        }
     }
 }
 
