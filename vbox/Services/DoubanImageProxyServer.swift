@@ -260,7 +260,7 @@ final class DoubanImageProxyServer {
 
     private func normalizedRange(_ raw: String?) -> String? {
         guard let raw, raw.lowercased().hasPrefix("bytes=") else {
-            return "bytes=0-1048575"
+            return "bytes=0-8388607"
         }
 
         let text = raw.replacingOccurrences(of: "bytes=", with: "")
@@ -275,7 +275,7 @@ final class DoubanImageProxyServer {
             return "bytes=\(start)-\(end)"
         }
 
-        let end = start + 1024 * 1024 - 1
+        let end = start + 8 * 1024 * 1024 - 1
         return "bytes=\(start)-\(end)"
     }
 
@@ -512,6 +512,8 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     private var preview = Data()
     private var shouldPreviewBody = false
     private var upstreamHeaders: [String: String] = [:]
+    private var startTime = Date()
+    private var firstByteLogged = false
 
     init(provider: String, id: String, connection: NWConnection) {
         self.provider = provider
@@ -522,6 +524,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     }
 
     func start(request: URLRequest) {
+        startTime = Date()
         upstreamHeaders = request.allHTTPHeaderFields ?? [:]
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -571,7 +574,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         let location = DoubanImageProxyServer.headerValue(headers, "Location") ?? "无"
         shouldPreviewBody = statusCode >= 400 || contentType.lowercased().contains("text/html") || contentType.lowercased().contains("json")
 
-        print("📥 本地视频代理上游响应[\(provider)]: id=\(id), status=\(statusCode), contentType=\(contentType), contentLength=\(contentLength), contentRange=\(contentRange), location=\(location)")
+        print("📥 本地视频代理上游响应[\(provider)]: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, contentType=\(contentType), contentLength=\(contentLength), contentRange=\(contentRange), location=\(location)")
 
         let responseHeader = DoubanImageProxyServer.streamResponseHeader(statusCode: statusCode, headers: headers)
         responseStarted = true
@@ -587,6 +590,11 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         receivedBytes += data.count
+        if !firstByteLogged {
+            firstByteLogged = true
+            let prefix = data.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+            print("🚀 本地视频代理首包[\(provider)]: id=\(id), cost=\(elapsedMS())ms, bytes=\(data.count), head=\(prefix)")
+        }
         if shouldPreviewBody && preview.count < 512 {
             preview.append(data.prefix(max(0, 512 - preview.count)))
         }
@@ -616,10 +624,14 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
             print("⚠️ 本地视频代理上游错误体预览[\(provider)]: id=\(id), preview=\(text.prefix(240))")
         }
 
-        print("✅ 本地视频代理转发完成[\(provider)]: id=\(id), status=\(statusCode), bytes=\(receivedBytes)")
+        print("✅ 本地视频代理转发完成[\(provider)]: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, bytes=\(receivedBytes)")
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
             self.connection.cancel()
         })
+    }
+
+    private func elapsedMS() -> Int {
+        Int(Date().timeIntervalSince(startTime) * 1000)
     }
 
     private func sendErrorAndClose(statusCode: Int, message: String) {

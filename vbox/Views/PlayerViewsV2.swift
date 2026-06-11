@@ -507,6 +507,7 @@ class PlayerState: ObservableObject {
     }
     
     private func playDriveVideo(url: String, headers: [String: String]) async {
+        let playStartTime = Date()
         let finalURLString: String
         if url.contains("baidupcs.com") || url.contains("d.pcs.baidu.com") {
             if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "baidu") {
@@ -540,7 +541,10 @@ class PlayerState: ObservableObject {
                 guard let self else { return }
                 switch status {
                 case .readyToPlay:
-                    self.log("[PlayerV2] 网盘 PlayerItem 准备就绪")
+                    let size = playerItem.presentationSize
+                    let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
+                    self.log("[PlayerV2] 网盘 PlayerItem 准备就绪，耗时=\(elapsed)ms，画面=\(Int(size.width))x\(Int(size.height))")
+                    self.scheduleVideoTrackCheck(for: playerItem, startedAt: playStartTime, isBaiduLocalProxy: isBaiduLocalProxy)
                 case .failed:
                     let nsError = playerItem.error as? NSError
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
@@ -556,6 +560,14 @@ class PlayerState: ObservableObject {
                     if isBaiduLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[Baidu] ⚠️ 百度PCS流返回403，准备刷新直链后重试一次")
                         self.retryCurrentBaiduPlaybackAfterForbidden()
+                        return
+                    }
+                    if self.isUnsupportedMediaError(nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
+                        self.log("[PlayerV2] ⚠️ 当前资源疑似 AVPlayer 不支持，建议后续使用兼容内核")
+                        Task { @MainActor in
+                            self.loadError = "当前资源格式/编码不受系统播放器支持，建议使用兼容内核"
+                            self.isLoading = false
+                        }
                         return
                     }
                     Task { @MainActor in
@@ -602,6 +614,29 @@ class PlayerState: ObservableObject {
     private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
         let text = "\(errorDesc) \(underlyingDesc)".lowercased()
         return text.contains("403") || text.contains("forbidden")
+    }
+
+    private func isUnsupportedMediaError(_ error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {
+        let text = "\(errorDesc) \(underlyingDesc) \(error?.domain ?? "")".lowercased()
+        if error?.domain == AVFoundationErrorDomain && [-11828, -11833].contains(error?.code ?? 0) {
+            return true
+        }
+        return text.contains("-11828") || text.contains("-12847") || text.contains("无法打开") || text.contains("not open")
+    }
+
+    private func scheduleVideoTrackCheck(for item: AVPlayerItem, startedAt: Date, isBaiduLocalProxy: Bool) {
+        guard isBaiduLocalProxy else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard self.player?.currentItem === item, self.loadError == nil else { return }
+            let size = item.presentationSize
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            let seconds = self.player?.currentTime().seconds ?? 0
+            self.log("[PlayerV2] 首帧检测：耗时=\(elapsed)ms，进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))")
+            if seconds > 2, size.width <= 1 || size.height <= 1 {
+                self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
+            }
+        }
     }
 
     private func retryCurrentBaiduPlaybackAfterForbidden() {
