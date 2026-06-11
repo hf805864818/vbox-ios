@@ -53,35 +53,47 @@ struct VideoPlayerViewV2: View {
             }
 
             // 调试日志浮层（开关控制，加载中+播放中都显示）
+            // 放在顶部返回按钮右侧的小窗，避免覆盖底部进度条 / 锁定按钮
             if UserDefaults.standard.bool(forKey: "show_debug_overlay") && !playerState.debugLogs.isEmpty {
                 VStack {
-                    Spacer()
-                    ScrollViewReader { proxy in
-                        ScrollView(showsIndicators: true) {
-                            LazyVStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array(playerState.debugLogs.enumerated()), id: \.offset) { idx, log in
-                                    Text(log)
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundColor(.green.opacity(0.9))
-                                        .id(idx)
+                    HStack(alignment: .top, spacing: 0) {
+                        // 左侧返回按钮预留区，确保不覆盖
+                        Spacer().frame(width: 96)
+
+                        ScrollViewReader { proxy in
+                            ScrollView(showsIndicators: true) {
+                                LazyVStack(alignment: .leading, spacing: 2) {
+                                    ForEach(Array(playerState.debugLogs.enumerated()), id: \.offset) { idx, log in
+                                        Text(log)
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.green.opacity(0.9))
+                                            .id(idx)
+                                    }
                                 }
-                            }
-                            .padding(6)
-                            .onChange(of: playerState.debugLogs.count) { _ in
-                                if let last = playerState.debugLogs.indices.last {
-                                    withAnimation {
-                                        proxy.scrollTo(last, anchor: .bottom)
+                                .padding(6)
+                                .onChange(of: playerState.debugLogs.count) { _ in
+                                    if let last = playerState.debugLogs.indices.last {
+                                        withAnimation {
+                                            proxy.scrollTo(last, anchor: .bottom)
+                                        }
                                     }
                                 }
                             }
                         }
+                        .frame(maxWidth: 460)
+                        .frame(height: 110)
+                        .background(Color.black.opacity(0.75))
+                        .cornerRadius(6)
+                        .allowsHitTesting(true)
+
+                        // 右侧锁定按钮预留区，避免遮挡
+                        Spacer().frame(width: 96)
                     }
-                    .frame(height: 120)
-                    .background(Color.black.opacity(0.75))
-                    .cornerRadius(6)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 60)
+                    .padding(.top, 12)
+
+                    Spacer()
                 }
+                .allowsHitTesting(false) // 调试日志整体不拦截手势，进度条/控制层可正常交互
             }
         }
         .onAppear {
