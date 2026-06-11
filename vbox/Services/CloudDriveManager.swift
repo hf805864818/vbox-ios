@@ -1265,7 +1265,91 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
+        let recursiveIds = quarkExtractSavedFileIds(from: json, excluding: file.fid)
+        if !recursiveIds.isEmpty {
+            print("[Quark] ✅ 转存成功，递归提取 fid: \(recursiveIds)")
+            return recursiveIds
+        }
+
+        if let existingId = await quarkFindSavedFileId(fileName: file.fileName, folderId: folderId, cookie: cookie) {
+            print("[Quark] ✅ 转存目录已存在同名文件，使用 fid=\(existingId)")
+            return [existingId]
+        }
+
         throw DriveError.noPlayURL("夸克转存成功但未返回已转存 fid")
+    }
+
+    private func quarkExtractSavedFileIds(from value: Any, excluding sourceFid: String) -> [String] {
+        var result: [String] = []
+
+        func append(_ raw: Any, key: String) {
+            let lowerKey = key.lowercased()
+            guard lowerKey.contains("fid") || lowerKey.contains("file_id") else { return }
+            guard !lowerKey.contains("token") else { return }
+            if let text = raw as? String, !text.isEmpty, text != sourceFid {
+                result.append(text)
+            } else if let number = raw as? Int {
+                let text = String(number)
+                if text != sourceFid { result.append(text) }
+            } else if let texts = raw as? [String] {
+                result.append(contentsOf: texts.filter { !$0.isEmpty && $0 != sourceFid })
+            } else if let numbers = raw as? [Int] {
+                result.append(contentsOf: numbers.map(String.init).filter { $0 != sourceFid })
+            }
+        }
+
+        func walk(_ node: Any) {
+            if let dict = node as? [String: Any] {
+                for (key, item) in dict {
+                    append(item, key: key)
+                    walk(item)
+                }
+            } else if let array = node as? [Any] {
+                for item in array { walk(item) }
+            }
+        }
+
+        walk(value)
+        var seen = Set<String>()
+        return result.filter { seen.insert($0).inserted }
+    }
+
+    private func quarkFindSavedFileId(fileName: String, folderId: String, cookie: String) async -> String? {
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+
+            let url = quarkAPIURL("/1/clouddrive/file/sort")
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            quarkSetCommonHeaders(&request, cookie: cookie)
+            let body: [String: Any] = [
+                "pdir_fid": folderId,
+                "sort_by": "file_name",
+                "sort_order": "asc",
+                "page": 1,
+                "size": 100
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            guard let (data, _) = try? await session.data(for: request),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else {
+                continue
+            }
+
+            for item in list {
+                let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+                guard name == fileName else { continue }
+                if let fid = item["fid"] as? String, !fid.isEmpty { return fid }
+                if let fileId = item["file_id"] as? String, !fileId.isEmpty { return fileId }
+                if let fid = item["fid"] as? Int { return String(fid) }
+                if let fileId = item["file_id"] as? Int { return String(fileId) }
+            }
+        }
+        return nil
     }
 
     private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String) {
