@@ -116,6 +116,7 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
+            EXECUTABLE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
@@ -131,6 +132,7 @@ jobs:
             SKIP_INSTALL=NO \
             PRODUCT_NAME=MPVKit \
             PRODUCT_MODULE_NAME=MPVKit \
+            EXECUTABLE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             ENABLE_BITCODE=NO
 
@@ -154,6 +156,25 @@ jobs:
 
           echo "Device framework: $DEVICE_FRAMEWORK"
           echo "Simulator framework: $SIMULATOR_FRAMEWORK"
+
+          normalize_framework() {
+            local framework="$1"
+            if [ -f "$framework/MPVKitWrapper" ] && [ ! -f "$framework/MPVKit" ]; then
+              mv "$framework/MPVKitWrapper" "$framework/MPVKit"
+            fi
+            if [ -f "$framework/Info.plist" ]; then
+              /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable MPVKit" "$framework/Info.plist" || true
+              /usr/libexec/PlistBuddy -c "Set :CFBundleName MPVKit" "$framework/Info.plist" || true
+            fi
+            if [ ! -f "$framework/MPVKit" ]; then
+              echo "framework 内缺少 MPVKit 可执行文件: $framework"
+              find "$framework" -maxdepth 3 -print
+              exit 1
+            fi
+          }
+
+          normalize_framework "$DEVICE_FRAMEWORK"
+          normalize_framework "$SIMULATOR_FRAMEWORK"
 
           xcodebuild -create-xcframework \
             -framework "$DEVICE_FRAMEWORK" \
