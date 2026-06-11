@@ -48,8 +48,14 @@ class CloudDriveManager: ObservableObject {
     private let session: URLSession
     private let defaults = UserDefaults.standard
     private let tokenKey = "saved_drive_tokens"
+    private let baiduPersistedPlayCacheKey = "baidu_play_result_cache_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
+        let expiresAt: Date
+    }
+    private struct BaiduPersistedPlayCacheItem: Codable {
+        let url: String
+        let headers: [String: String]
         let expiresAt: Date
     }
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
@@ -74,28 +80,67 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduPlayCacheKey(shareURL: String, fsId: String, bduss: String, pcsCookie: String) -> String {
-        "\(shareURL)|\(fsId)|\(bduss.hashValue)|\(pcsCookie.hashValue)"
+        "\(shareURL)|\(fsId)|\(baiduStableHash(bduss))|\(baiduStableHash(pcsCookie))"
     }
 
     private func baiduCachedPlayResult(for key: String) -> PlayResult? {
         baiduPlayCacheLock.lock()
-        defer { baiduPlayCacheLock.unlock() }
-        guard let item = baiduPlayCache[key] else { return nil }
-        if item.expiresAt > Date() {
-            return item.result
+        if let item = baiduPlayCache[key] {
+            if item.expiresAt > Date() {
+                baiduPlayCacheLock.unlock()
+                return item.result
+            }
+            baiduPlayCache.removeValue(forKey: key)
         }
-        baiduPlayCache.removeValue(forKey: key)
+
+        if let persisted = baiduLoadPersistedPlayCache()[key], persisted.expiresAt > Date() {
+            let result = PlayResult(url: persisted.url, headers: persisted.headers, driveType: .baidu)
+            baiduPlayCache[key] = BaiduPlayCacheItem(result: result, expiresAt: persisted.expiresAt)
+            baiduPlayCacheLock.unlock()
+            return result
+        }
+
+        baiduPlayCacheLock.unlock()
         return nil
     }
 
     private func baiduStorePlayResult(_ result: PlayResult, for key: String, ttl: TimeInterval = 6 * 60 * 60) {
+        let expiresAt = Date().addingTimeInterval(ttl)
         baiduPlayCacheLock.lock()
-        baiduPlayCache[key] = BaiduPlayCacheItem(result: result, expiresAt: Date().addingTimeInterval(ttl))
+        baiduPlayCache[key] = BaiduPlayCacheItem(result: result, expiresAt: expiresAt)
         if baiduPlayCache.count > 80 {
             let now = Date()
             baiduPlayCache = baiduPlayCache.filter { $0.value.expiresAt > now }
         }
         baiduPlayCacheLock.unlock()
+
+        var persisted = baiduLoadPersistedPlayCache()
+        persisted[key] = BaiduPersistedPlayCacheItem(url: result.url, headers: result.headers, expiresAt: expiresAt)
+        let now = Date()
+        persisted = persisted.filter { $0.value.expiresAt > now }
+        if persisted.count > 80 {
+            persisted = Dictionary(uniqueKeysWithValues: persisted.sorted { $0.value.expiresAt > $1.value.expiresAt }.prefix(80).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(persisted) {
+            defaults.set(data, forKey: baiduPersistedPlayCacheKey)
+        }
+    }
+
+    private func baiduLoadPersistedPlayCache() -> [String: BaiduPersistedPlayCacheItem] {
+        guard let data = defaults.data(forKey: baiduPersistedPlayCacheKey),
+              let cache = try? JSONDecoder().decode([String: BaiduPersistedPlayCacheItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func baiduStableHash(_ input: String) -> String {
+        var hash: UInt64 = 1469598103934665603
+        for byte in input.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return String(hash, radix: 16)
     }
 
     private func loadTokens() {
@@ -576,13 +621,17 @@ class CloudDriveManager: ObservableObject {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
 
+        if let context = try? await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true) {
+            baiduLog("[Baidu-Local] ✅ 本机解析文件列表：\(context.files.count) 个")
+            return context.files
+        }
+
+        baiduLog("[Baidu-Local] ⚠️ 本机解析文件列表失败，回退 Worker")
         if let files = try? await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie) {
             return files
         }
 
-        baiduLog("[Baidu-Worker] ⚠️ 文件列表代理失败，回退直连解析")
-        let (_, _, files) = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
-        return files
+        throw DriveError.noPlayURL("百度文件列表解析失败")
     }
 
     func resolveBaiduPlayURL(shareURL: String, bduss: String, pcsCookie: String = "") async throws -> PlayResult {
@@ -753,6 +802,182 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu-DLNA] ⚠️ mediainfo 取 dlink 失败，兜底 locatedownload：\(error.localizedDescription)")
             return try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: cookie)
         }
+    }
+
+    private func baiduResolveOnDevice(
+        shareURL: String,
+        pwd: String?,
+        fsId: String,
+        webCookie: String,
+        pcsCookie: String
+    ) async throws -> PlayResult {
+        baiduLog("[Baidu-Local] 本机播放链路开始：fsId=\(fsId), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递")")
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
+        let selected = context.files.first { $0.fsId == fsId }
+            ?? context.files.first { $0.fsId.trimmingCharacters(in: .whitespacesAndNewlines) == fsId.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let selected else {
+            baiduLog("[Baidu-Local] ❌ 本机文件列表未找到 fsId=\(fsId)")
+            throw DriveError.noPlayURL("本机文件列表未找到目标文件")
+        }
+
+        let mergedCookie = baiduMergeCookieStrings([context.cookie, webCookie, pcsCookie])
+        try await baiduEnsureVboxFolderLocal(cookie: mergedCookie)
+        let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
+        let filePath: String
+        if let existingPath {
+            filePath = existingPath
+            baiduLog("[Baidu-Local] ✅ /vbox 命中已转存文件：\(filePath)")
+        } else {
+            filePath = try await baiduTransferFileOnDevice(
+                shareid: context.shareid,
+                shareUk: context.shareUk,
+                fsId: selected.fsId,
+                fileName: selected.name,
+                cookie: mergedCookie
+            )
+            baiduLog("[Baidu-Local] ✅ 本机转存完成：\(filePath)")
+        }
+
+        do {
+            return try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie)
+        } catch {
+            baiduLog("[Baidu-DLNA] ⚠️ 本机 mediainfo 失败，兜底 locatedownload：\(error.localizedDescription)")
+            return try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie)
+        }
+    }
+
+    private func baiduEnsureVboxFolderLocal(cookie: String) async throws {
+        var components = URLComponents(string: "https://pan.baidu.com/api/create")!
+        components.queryItems = [
+            URLQueryItem(name: "a", value: "commit"),
+            URLQueryItem(name: "bdstoken", value: ""),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 12
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.httpBody = "path=/vbox&isdir=1&block_list=[]".data(using: .utf8)
+
+        let (data, _) = try await session.data(for: request)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let errno = json["errno"] as? Int,
+           errno == 0 || errno == -8 {
+            return
+        }
+        baiduLog("[Baidu-Local] ⚠️ /vbox 创建响应：\(String(data: data.prefix(160), encoding: .utf8) ?? "")")
+    }
+
+    private func baiduFindExistingVboxPath(fileName: String, cookie: String) async throws -> String? {
+        var components = URLComponents(string: "https://pan.baidu.com/api/list")!
+        components.queryItems = [
+            URLQueryItem(name: "dir", value: "/vbox"),
+            URLQueryItem(name: "order", value: "time"),
+            URLQueryItem(name: "desc", value: "1"),
+            URLQueryItem(name: "num", value: "200"),
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "bdstoken", value: ""),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 12
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = json["list"] as? [[String: Any]] else {
+            return nil
+        }
+
+        let normalizedTarget = fileName.split(separator: "/").last.map(String.init) ?? fileName
+        for item in list {
+            let name = item["server_filename"] as? String
+                ?? item["filename"] as? String
+                ?? item["name"] as? String
+                ?? ""
+            if name == normalizedTarget {
+                return item["path"] as? String ?? "/vbox/\(normalizedTarget)"
+            }
+        }
+        return nil
+    }
+
+    private func baiduTransferFileOnDevice(
+        shareid: String,
+        shareUk: String,
+        fsId: String,
+        fileName: String,
+        cookie: String
+    ) async throws -> String {
+        var components = URLComponents(string: "https://pan.baidu.com/share/transfer")!
+        components.queryItems = [
+            URLQueryItem(name: "shareid", value: shareid),
+            URLQueryItem(name: "from", value: shareUk),
+            URLQueryItem(name: "sekey", value: baiduCookieValue(cookie, named: "randsk") ?? baiduCookieValue(cookie, named: "BDCLND") ?? ""),
+            URLQueryItem(name: "ondup", value: "newcopy"),
+            URLQueryItem(name: "async", value: "1"),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 25
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.httpBody = "fsidlist=[\(fsId)]&path=/vbox".data(using: .utf8)
+
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("百度本机转存 HTTP \(status)")
+        }
+
+        let errno = json["errno"] as? Int ?? -1
+        if errno != 0 {
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? "errno=\(errno)"
+            baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg)")
+            throw DriveError.noPlayURL("百度本机转存失败：\(msg)")
+        }
+
+        if let extra = json["extra"] as? [String: Any],
+           let list = extra["list"] as? [[String: Any]],
+           let first = list.first,
+           let to = first["to"] as? String,
+           !to.isEmpty {
+            return to
+        }
+
+        let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
+        return "/vbox/\(normalizedName)"
+    }
+
+    private func baiduCookieValue(_ cookie: String, named name: String) -> String? {
+        let lowerName = name.lowercased()
+        for part in cookie.split(separator: ";") {
+            let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = item.firstIndex(of: "=") else { continue }
+            let key = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if key == lowerName, !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
@@ -948,6 +1173,12 @@ class CloudDriveManager: ObservableObject {
         let parsedPcs = parseBaiduToken(pcsCookie)
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
+        if let files = try? await baiduGetFileList(shareURL: shareURL, bduss: bduss),
+           let first = files.first, !first.fsId.isEmpty {
+            return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: bduss, fsId: first.fsId, pcsCookie: pcsCookie)
+        }
+
+        baiduLog("[Baidu-Local] ⚠️ 自动播放本机文件列表失败，回退 Worker")
         do {
             return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie, pcsCookie: pcs)
         } catch {
@@ -974,6 +1205,14 @@ class CloudDriveManager: ObservableObject {
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
         do {
+            let result = try await baiduResolveOnDevice(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, webCookie: cookie, pcsCookie: pcs)
+            baiduStorePlayResult(result, for: cacheKey)
+            return result
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ 本机播放链路失败，回退 Worker：\(error.localizedDescription)")
+        }
+
+        do {
             let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
             baiduStorePlayResult(result, for: cacheKey)
             return result
@@ -983,7 +1222,7 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
-    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, files: [BaiduFileItem]) {
+    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, surl: String, cookie: String, files: [BaiduFileItem]) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
 
         let surl: String
@@ -1236,7 +1475,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu] ✅ shareid=\(shareid), shareUk=\(shareUk), 文件=\(files[0].name)")
-        return (shareid, shareUk, files)
+        return (shareid, shareUk, surl, currentCookie, files)
     }
 
     private func baiduTransferFile(shareid: String, surl: String, shareUk: String, fsId: String, cookie: String) async throws -> [String] {
