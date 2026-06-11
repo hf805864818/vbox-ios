@@ -214,17 +214,8 @@ struct VideoDetailView: View {
                 loadRealDetailIfNeeded()
             }
 
-            // 返回按钮
-            VStack {
-                Button(action: { dismiss() }) {
-                    ZStack {
-                        Circle().fill(Color.black.opacity(0.5)).frame(width: 32, height: 32)
-                        Image(systemName: "chevron.left").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                    }
-                }.padding(.leading, 16).padding(.top, 12)
-                Spacer()
-            }.zIndex(1000)
         }
+        .edgeSwipeBack { dismiss() }
     }
 }
 

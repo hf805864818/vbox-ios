@@ -5,6 +5,7 @@ import SwiftUI
 // 主标签视图
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @State private var tabHistory: [Int] = [0]
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
@@ -54,10 +55,35 @@ struct MainTabView: View {
             GlassBottomTabBar(selectedTab: $selectedTab)
         }
         .ignoresSafeArea(.keyboard)
+        .edgeSwipeBack {
+            guard selectedTab != 0 else { return }
+            if tabHistory.last == selectedTab { tabHistory.removeLast() }
+            selectedTab = tabHistory.last ?? 0
+            if tabHistory.isEmpty { tabHistory = [selectedTab] }
+        }
         .onChange(of: settings.searchRequestId) { _ in
             guard !settings.searchQuery.isEmpty else { return }
             selectedTab = 2
         }
+        .onChange(of: selectedTab) { newValue in
+            guard tabHistory.last != newValue else { return }
+            tabHistory.append(newValue)
+            if tabHistory.count > 8 { tabHistory.removeFirst(tabHistory.count - 8) }
+        }
+    }
+}
+
+extension View {
+    func edgeSwipeBack(_ action: @escaping () -> Void) -> some View {
+        simultaneousGesture(
+            DragGesture(minimumDistance: 24, coordinateSpace: .global)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = abs(value.translation.height)
+                    guard value.startLocation.x < 28, dx > 90, dx > dy * 1.4 else { return }
+                    action()
+                }
+        )
     }
 }
 
@@ -1079,14 +1105,10 @@ struct SearchResultsView: View {
                                 ForEach(sources, id: \.self) { name in
                                     let sel = (selectedSource ?? sources.first ?? "") == name
                                     Button(action: { selectedSource = name }) {
-                                        Text(name)
-                                            .font(.system(size: 12, weight: sel ? .semibold : .regular))
-                                            .foregroundColor(sel ? .white : .black)
-                                            .lineLimit(2)
-                                            .minimumScaleFactor(0.82)
+                                        SourceNameLabel(name: name, isSelected: sel)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.vertical, 10)
-                                            .padding(.horizontal, 8)
+                                            .padding(.horizontal, 7)
                                             .background(sel ? Color(hex: "E11D48") : Color.clear)
                                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
@@ -1119,6 +1141,41 @@ struct SearchResultsView: View {
     }
     private func singleColumnList(_ items: [VodItem]) -> some View {
         ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video) }
+    }
+}
+
+struct SourceNameLabel: View {
+    let name: String
+    let isSelected: Bool
+
+    private var hasCloudIcon: Bool {
+        name.contains("☁️") || name.contains("云") || name.contains("资源")
+    }
+
+    private var cleanName: String {
+        name.replacingOccurrences(of: "☁️", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Group {
+                if hasCloudIcon {
+                    Image(systemName: "cloud.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(isSelected ? .white : Color.gray.opacity(0.45))
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: 14, height: 14)
+
+            Text(cleanName)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .black)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .multilineTextAlignment(.leading)
+        }
     }
 }
 
