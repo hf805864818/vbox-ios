@@ -1,0 +1,25 @@
+name: Build MPVKit
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          brew install yasm pkg-config
+      - name: Clone mpv-ios-scripts
+        run: git clone https://github.com/mpv-ios/mpv-ios-scripts.git build-scripts
+      - name: Update sources
+        working-directory: build-scripts
+        run: ./update.sh
+      - name: Build MPVKit.xcframework
+        working-directory: build-scripts
+        run: ./build.sh -p iOS -k
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MPVKit.xcframework
+          path: build-scripts/build/ios/MPVKit.xcframework
