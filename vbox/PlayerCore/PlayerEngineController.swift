@@ -144,7 +144,7 @@ final class PlayerEngineController: ObservableObject {
         case .system:
             return AVPlayerEngine()
         case .vlc:
-            return UnsupportedPlayerEngine(type: .vlc, name: "VLC")
+            return VLCPlayerEngine()
         case .mpv:
             return MPVPlayerEngineStub()
         }
