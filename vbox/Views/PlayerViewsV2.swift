@@ -126,6 +126,7 @@ class PlayerState: ObservableObject {
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
+    private var baiduStreamRetryCount = 0        // 百度PCS流403后自动刷新直链次数
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
@@ -176,6 +177,9 @@ class PlayerState: ObservableObject {
                 pcsCookie: pcsCookie
             )
             log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功")
+            if !reason.contains("刷新") && !reason.contains("重试") {
+                baiduStreamRetryCount = 0
+            }
             await playDriveVideo(url: result.url, headers: result.headers)
         } catch let error as DriveError {
             let specificMsg: String
@@ -433,6 +437,7 @@ class PlayerState: ObservableObject {
             }
             return
         }
+        let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
         
         let assetHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
         let asset = AVURLAsset(url: urlObj, options: ["AVURLAssetHTTPHeaderFieldsKey": assetHeaders])
@@ -450,8 +455,18 @@ class PlayerState: ObservableObject {
                     let nsError = playerItem.error as? NSError
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
                     self.log("[PlayerV2] ❌ 网盘 PlayerItem 失败: code=\(nsError?.code ?? -1) domain=\(nsError?.domain ?? "") desc=\(errorDesc)")
+                    let underlyingDesc: String
                     if let underlying = nsError?.userInfo[NSUnderlyingErrorKey] as? Error {
-                        self.log("[PlayerV2] ❌ 网盘底层错误: \(underlying.localizedDescription)")
+                        underlyingDesc = underlying.localizedDescription
+                        self.log("[PlayerV2] ❌ 网盘底层错误: \(underlyingDesc)")
+                    } else {
+                        underlyingDesc = ""
+                    }
+
+                    if isBaiduLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
+                        self.log("[Baidu] ⚠️ 百度PCS流返回403，准备刷新直链后重试一次")
+                        self.retryCurrentBaiduPlaybackAfterForbidden()
+                        return
                     }
                     Task { @MainActor in
                         self.loadError = "网盘播放失败: \(errorDesc)"
@@ -492,6 +507,47 @@ class PlayerState: ObservableObject {
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { p.play() }
+    }
+
+    private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
+        let text = "\(errorDesc) \(underlyingDesc)".lowercased()
+        return text.contains("403") || text.contains("forbidden")
+    }
+
+    private func retryCurrentBaiduPlaybackAfterForbidden() {
+        guard baiduStreamRetryCount < 1 else {
+            log("[Baidu] ❌ 百度PCS流403重试后仍失败，请更新PCS Cookie或重新扫码登录")
+            Task { @MainActor in
+                self.loadError = "百度PCS返回403：请更新PCS Cookie或重新扫码登录"
+                self.isLoading = false
+            }
+            return
+        }
+
+        guard !baiduShareURL.isEmpty,
+              currentEpisodeIndex >= 0,
+              currentEpisodeIndex < baiduFileList.count
+        else {
+            log("[Baidu] ❌ 无法重试：缺少分享链接或当前集信息")
+            return
+        }
+
+        baiduStreamRetryCount += 1
+        let file = baiduFileList[currentEpisodeIndex]
+        let index = currentEpisodeIndex
+        currentTask?.cancel()
+        currentTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await self.startBaiduPlayback(
+                shareURL: self.baiduShareURL,
+                bduss: self.baiduBduss,
+                pcsCookie: self.baiduPcsCookie,
+                file: file,
+                index: index,
+                reason: "PCS403刷新直链重试"
+            )
+        }
     }
     
     func retry(video: VodItem) {
