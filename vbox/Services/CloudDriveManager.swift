@@ -990,12 +990,39 @@ class CloudDriveManager: ObservableObject {
         return components.url!
     }
 
-    private func quarkSetCommonHeaders(_ request: inout URLRequest, cookie: String) {
+    private func quarkSetCommonHeaders(_ request: inout URLRequest, cookie: String, referer: String = "https://pan.quark.cn/") {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+    }
+
+    private func quarkShareReferer(pwdId: String) -> String {
+        guard !pwdId.isEmpty else { return "https://pan.quark.cn/" }
+        return "https://pan.quark.cn/s/\(pwdId)"
+    }
+
+    private func quarkStrictQueryEncode(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private func quarkAPIURLWithStrictQuery(_ path: String, queryItems: [URLQueryItem], strictQueryItems: [(String, String)]) -> URL {
+        var components = URLComponents(string: "https://drive-pc.quark.cn\(path)")!
+        components.queryItems = [
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "uc_param_str", value: "")
+        ] + queryItems
+        var query = components.percentEncodedQuery ?? ""
+        for (name, value) in strictQueryItems {
+            if !query.isEmpty { query += "&" }
+            query += "\(quarkStrictQueryEncode(name))=\(quarkStrictQueryEncode(value))"
+        }
+        components.percentEncodedQuery = query
+        return components.url!
     }
 
     private func quarkPlaybackHeaders(cookie: String) -> [String: String] {
@@ -1056,7 +1083,7 @@ class CloudDriveManager: ObservableObject {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: cookie)
+        quarkSetCommonHeaders(&request, cookie: cookie, referer: quarkShareReferer(pwdId: pwdId))
         let body: [String: Any] = ["pwd_id": pwdId, "passcode": passcode]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await session.data(for: request)
@@ -1072,6 +1099,10 @@ class CloudDriveManager: ObservableObject {
               !st.isEmpty else {
             throw DriveError.noPlayURL("夸克未返回 stoken")
         }
+        let hasPlus = st.contains("+")
+        let hasSlash = st.contains("/")
+        let hasEqual = st.contains("=")
+        print("[Quark] stoken诊断 length=\(st.count), hasPlus=\(hasPlus), hasSlash=\(hasSlash), hasEqual=\(hasEqual)")
         return st
     }
 
@@ -1121,7 +1152,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> [QuarkShareFile] {
-        let url = quarkAPIURL("/1/clouddrive/share/sharepage/detail", extra: [
+        let url = quarkAPIURLWithStrictQuery("/1/clouddrive/share/sharepage/detail", queryItems: [
             URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
             URLQueryItem(name: "_fetch_banner", value: "1"),
             URLQueryItem(name: "_fetch_total", value: "1"),
@@ -1130,18 +1161,25 @@ class CloudDriveManager: ObservableObject {
             URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
             URLQueryItem(name: "force", value: "0"),
             URLQueryItem(name: "pdir_fid", value: pdirFid),
-            URLQueryItem(name: "pwd_id", value: pwdId),
-            URLQueryItem(name: "stoken", value: stoken)
-        ])
+            URLQueryItem(name: "pwd_id", value: pwdId)
+        ], strictQueryItems: [("stoken", stoken)])
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        quarkSetCommonHeaders(&request, cookie: cookie)
-        let (data, _) = try await session.data(for: request)
+        quarkSetCommonHeaders(&request, cookie: cookie, referer: quarkShareReferer(pwdId: pwdId))
+        let stokenHasPlus = stoken.contains("+")
+        let encodedPlus = url.absoluteString.contains("%2B")
+        print("[Quark] detail请求诊断 pdirFid=\(pdirFid), stokenLength=\(stoken.count), stokenHasPlus=\(stokenHasPlus), encodedPlus=\(encodedPlus)")
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let preview = String(data: data.prefix(300), encoding: .utf8) ?? ""
+            print("[Quark] ❌ detail非JSON status=\(httpStatus), preview=\(preview)")
             throw DriveError.invalidResponse
         }
         if let code = json["code"] as? Int, code != 0 {
             let message = json["message"] as? String ?? "code=\(code)"
+            let preview = String(data: data.prefix(300), encoding: .utf8) ?? ""
+            print("[Quark] ❌ detail失败 status=\(httpStatus), code=\(code), message=\(message), preview=\(preview)")
             throw DriveError.noPlayURL("夸克文件列表失败：\(message)")
         }
         guard let dataObj = json["data"] as? [String: Any],
@@ -1167,7 +1205,7 @@ class CloudDriveManager: ObservableObject {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/save", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: cookie)
+        quarkSetCommonHeaders(&request, cookie: cookie, referer: quarkShareReferer(pwdId: pwdId))
         let body: [String: Any] = [
             "fid_list": [file.fid],
             "fid_token_list": [file.shareFidToken],
