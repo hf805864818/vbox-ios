@@ -35,6 +35,7 @@ jobs:
       MPVKIT_REPO: "https://github.com/mpvkit/MPVKit.git"
       MPVKIT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.mpvkit_ref || 'main' }}
       MPVKIT_PRODUCT: ${{ github.event_name == 'workflow_dispatch' && inputs.product || 'MPVKit' }}
+      MPVKIT_WRAPPER_SCHEME: "MPVKitWrapper"
       PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release || false }}
 
     steps:
@@ -108,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild archive \
-            -scheme MPVKit \
+            -scheme "$MPVKIT_WRAPPER_SCHEME" \
             -destination "generic/platform=iOS" \
             -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/ios.xcarchive" \
             -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iOS" \
@@ -121,7 +122,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild archive \
-            -scheme MPVKit \
+            -scheme "$MPVKIT_WRAPPER_SCHEME" \
             -destination "generic/platform=iOS Simulator" \
             -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/isimulator.xcarchive" \
             -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iSimulator" \
@@ -134,6 +135,12 @@ jobs:
           set -euo pipefail
           DEVICE_FRAMEWORK="$(find mpvkit-build/archives/ios.xcarchive -name "MPVKit.framework" -type d | head -1)"
           SIMULATOR_FRAMEWORK="$(find mpvkit-build/archives/isimulator.xcarchive -name "MPVKit.framework" -type d | head -1)"
+          if [ -z "$DEVICE_FRAMEWORK" ]; then
+            DEVICE_FRAMEWORK="$(find mpvkit-build/archives/ios.xcarchive -name "MPVKitWrapper.framework" -type d | head -1)"
+          fi
+          if [ -z "$SIMULATOR_FRAMEWORK" ]; then
+            SIMULATOR_FRAMEWORK="$(find mpvkit-build/archives/isimulator.xcarchive -name "MPVKitWrapper.framework" -type d | head -1)"
+          fi
 
           if [ -z "$DEVICE_FRAMEWORK" ] || [ -z "$SIMULATOR_FRAMEWORK" ]; then
             echo "未找到 MPVKit.framework，输出 archive 目录："
