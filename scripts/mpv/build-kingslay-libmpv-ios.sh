@@ -6,6 +6,7 @@ BUILD_ROOT="${BUILD_ROOT:-ffmpegkit-source-build}"
 KINGS_LAY_REPO="${KINGS_LAY_REPO:-https://github.com/kingslay/FFmpegKit.git}"
 KINGS_LAY_REF="${KINGS_LAY_REF:-main}"
 KINGS_LAY_PLATFORMS="${KINGS_LAY_PLATFORMS:-platforms=ios,isimulator}"
+KINGS_LAY_USE_PREBUILT="${KINGS_LAY_USE_PREBUILT:-true}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -54,6 +55,27 @@ build_libmpv() {
   popd >/dev/null
 }
 
+dump_build_logs() {
+  echo ""
+  echo "==> FFmpegKit 内部构建日志"
+  if [[ ! -d "$CHECKOUT_DIR/.Script" ]]; then
+    echo "未发现 .Script 日志目录"
+    return 0
+  fi
+
+  find "$CHECKOUT_DIR/.Script" -name "*.log" -type f | sort | while read -r log_file; do
+    echo ""
+    echo "----- $log_file -----"
+    tail -200 "$log_file" || true
+  done
+}
+
+package_framework() {
+  local framework_path="$1"
+  log "找到 libmpv.xcframework: $framework_path"
+  "$SCRIPT_DIR/package-xcframework.sh" "$framework_path" "$OUTPUT_DIR" "libmpv"
+}
+
 find_libmpv_xcframework() {
   local found
   found="$(find "$CHECKOUT_DIR" -name "libmpv.xcframework" -type d | head -1 || true)"
@@ -78,12 +100,22 @@ main() {
 
   mkdir -p "$OUTPUT_DIR"
   checkout_source
-  build_libmpv
+
+  local prebuilt_framework="$CHECKOUT_DIR/Sources/libmpv.xcframework"
+  if [[ "$KINGS_LAY_USE_PREBUILT" == "true" && -d "$prebuilt_framework" ]]; then
+    log "使用 kingslay/FFmpegKit 仓库自带的 Sources/libmpv.xcframework"
+    package_framework "$prebuilt_framework"
+    return 0
+  fi
+
+  if ! build_libmpv; then
+    dump_build_logs
+    exit 1
+  fi
 
   local framework_path
   framework_path="$(find_libmpv_xcframework)"
-  log "找到 libmpv.xcframework: $framework_path"
-  "$SCRIPT_DIR/package-xcframework.sh" "$framework_path" "$OUTPUT_DIR" "libmpv"
+  package_framework "$framework_path"
 }
 
 main "$@"
