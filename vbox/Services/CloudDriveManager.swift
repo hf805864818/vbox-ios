@@ -1338,15 +1338,8 @@ class CloudDriveManager: ObservableObject {
                 else if errno == -9 { throw DriveError.noPlayURL("百度网盘：提取码错误") }
                 else if errno == 4 { throw DriveError.noPlayURL("百度网盘：需要图形验证码") }
                 else if errno == 105 {
-                    verifyRetryCount += 1
-                    if verifyRetryCount < 3 {
-                        let delay = verifyRetryCount * 3
-                        baiduLog("[Baidu] ❌ 风控，\(delay)秒后重试")
-                        try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
-                        continue verifyLoop
-                    }
-                    baiduLog("[Baidu] ❌ 风控重试失败，回退")
-                    break verifyLoop
+                    baiduLog("[Baidu] ⚠️ 本机提取码校验触发风控(errno=105)，快速回退 Worker")
+                    throw DriveError.noPlayURL("百度本机校验触发风控")
                 } else {
                     let em = vJson["errmsg"] as? String ?? "errno=\(errno)"
                     baiduLog("[Baidu] ❌ 验证失败：\(em)")
