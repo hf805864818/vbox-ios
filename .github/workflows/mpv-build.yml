@@ -66,7 +66,7 @@ jobs:
             exit 2
           fi
 
-          mkdir -p mpvkit-build/Wrapper/Sources/MPVKit
+          mkdir -p mpvkit-build/Wrapper/Sources/MPVKitWrapper
           cat > mpvkit-build/Wrapper/Package.swift <<'EOF'
           // swift-tools-version:5.9
           import PackageDescription
@@ -75,24 +75,24 @@ jobs:
               name: "MPVKitWrapper",
               platforms: [.iOS(.v14)],
               products: [
-                  .library(name: "MPVKit", type: .dynamic, targets: ["MPVKit"])
+                  .library(name: "MPVKitWrapper", type: .dynamic, targets: ["MPVKitWrapper"])
               ],
               dependencies: [
                   .package(path: "../MPVKit")
               ],
               targets: [
                   .target(
-                      name: "MPVKit",
+                      name: "MPVKitWrapper",
                       dependencies: [
                           .product(name: "MPVKit", package: "MPVKit")
                       ],
-                      path: "Sources/MPVKit"
+                      path: "Sources/MPVKitWrapper"
                   )
               ]
           )
           EOF
 
-          cat > mpvkit-build/Wrapper/Sources/MPVKit/MPVKitWrapper.swift <<'EOF'
+          cat > mpvkit-build/Wrapper/Sources/MPVKitWrapper/MPVKitWrapper.swift <<'EOF'
           @_exported import _MPVKit
 
           public enum MPVKitWrapperInfo {
@@ -114,6 +114,8 @@ jobs:
             -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/ios.xcarchive" \
             -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iOS" \
             SKIP_INSTALL=NO \
+            PRODUCT_NAME=MPVKit \
+            PRODUCT_MODULE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
             ENABLE_BITCODE=NO
 
@@ -127,6 +129,8 @@ jobs:
             -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/isimulator.xcarchive" \
             -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iSimulator" \
             SKIP_INSTALL=NO \
+            PRODUCT_NAME=MPVKit \
+            PRODUCT_MODULE_NAME=MPVKit \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
             ENABLE_BITCODE=NO
 
