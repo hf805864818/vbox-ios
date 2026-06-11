@@ -889,42 +889,47 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.invalidShareURL
         }
 
-        let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
+        var authCookie = cookie
+        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
+        authCookie = folder.cookie
+        print("[Quark] folderId=\(folder.folderId.isEmpty ? "空" : folder.folderId), hasPUUS=\(authCookie.contains("__puus="))")
+
+        let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
-        let folderId = try await quarkEnsureFolder(cookie: cookie)
-        print("[Quark] folderId=\(folderId.isEmpty ? "空" : folderId)")
-
-        let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: cookie)
+        let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
         print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
 
         let fileIds = try await quarkSaveShare(
             pwdId: pwdId,
             stoken: shareToken,
             file: sourceFile,
-            folderId: folderId,
-            cookie: cookie
+            folderId: folder.folderId,
+            cookie: authCookie
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
-        let download = try await quarkGetDownloadURL(fileId: fileId, cookie: cookie)
         let playURL: String
         let source: String
-        if !download.url.isEmpty {
+        if let transcodeURL = try? await quarkGetPlayURL(fileId: fileId, cookie: authCookie), !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play"
+        } else {
+            let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
+            guard !download.url.isEmpty else {
+                throw DriveError.noPlayURL("夸克: 转码和下载直链均为空")
+            }
             playURL = download.url
             source = "download_url"
-        } else {
-            playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
-            source = "v2-play"
         }
         print("[Quark] ✅ 播放地址 source=\(source), url=\(playURL.prefix(80))")
 
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 20 * 60)
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 20 * 60)
 
         return PlayResult(
             url: playURL,
-            headers: quarkPlaybackHeaders(cookie: cookie),
+            headers: quarkPlaybackHeaders(cookie: authCookie),
             driveType: .quark
         )
     }
@@ -992,6 +997,50 @@ class CloudDriveManager: ObservableObject {
         ]
     }
 
+    private func quarkMergeSetCookie(from response: URLResponse, into cookie: String) -> String {
+        guard let http = response as? HTTPURLResponse else { return cookie }
+        var cookieDict = quarkCookieDictionary(from: cookie)
+        var headerFields: [String: String] = [:]
+        for (key, value) in http.allHeaderFields {
+            headerFields["\(key)"] = "\(value)"
+        }
+        let responseCookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: URL(string: "https://drive-pc.quark.cn")!)
+        for item in responseCookies {
+            cookieDict[item.name] = item.value
+        }
+        return quarkCookieString(from: cookieDict)
+    }
+
+    private func quarkCookieDictionary(from cookie: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for part in cookie.components(separatedBy: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty { result[key] = value }
+        }
+        return result
+    }
+
+    private func quarkCookieString(from dict: [String: String]) -> String {
+        let preferred = ["__kps", "__puus", "ctoken", "__pus", "__ktd", "__kp", "__uid", "__sdid", "Video-Auth"]
+        var used = Set<String>()
+        var parts: [String] = []
+        for key in preferred {
+            if let value = dict[key], !value.isEmpty {
+                parts.append("\(key)=\(value)")
+                used.insert(key)
+            }
+        }
+        for key in dict.keys.sorted() where !used.contains(key) {
+            if let value = dict[key], !value.isEmpty {
+                parts.append("\(key)=\(value)")
+            }
+        }
+        return parts.joined(separator: "; ")
+    }
+
     private func quarkGetShareToken(pwdId: String, passcode: String, cookie: String) async throws -> String {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
@@ -1016,16 +1065,21 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkEnsureFolder(cookie: String) async throws -> String {
+        (try await quarkEnsureFolderWithCookie(cookie: cookie)).folderId
+    }
+
+    private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
         let listURL = quarkAPIURL("/1/clouddrive/share/sharepage/dir", extra: [URLQueryItem(name: "aver", value: "1")])
         var req = URLRequest(url: listURL)
         req.httpMethod = "GET"
         quarkSetCommonHeaders(&req, cookie: cookie)
-        let (data, _) = try await session.data(for: req)
+        let (data, response) = try await session.data(for: req)
+        let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
         if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
            let dataObj = json["data"] as? [String: Any],
            let fid = dataObj["pdir_fid"] as? String,
            !fid.isEmpty {
-            return fid
+            return (fid, mergedCookie)
         }
         throw DriveError.noPlayURL("夸克：无法获取转存目录")
     }
