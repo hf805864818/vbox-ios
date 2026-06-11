@@ -145,8 +145,10 @@ final class PlayerEngineController: ObservableObject {
             return AVPlayerEngine()
         case .vlc:
             return VLCPlayerEngine()
-        case .mpv:
-            return MPVPlayerEngineStub()
+        case .mpvKit:
+            return MPVPlayerEngine(backendType: .mpvKit)
+        case .libmpv:
+            return MPVPlayerEngine(backendType: .libmpv)
         }
     }
 }
