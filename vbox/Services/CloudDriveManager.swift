@@ -934,14 +934,38 @@ class CloudDriveManager: ObservableObject {
         } else {
             throw DriveError.noPlayURL("夸克: download_url 和转码地址均为空")
         }
-        print("[Quark] ✅ 播放地址 source=\(source), hasPUUS=\(authCookie.contains("__puus=")), hasVideoAuth=\(authCookie.contains("Video-Auth=")), host=\(URL(string: playURL)?.host ?? "unknown")")
+        let fallbackURL: String?
+        let fallbackSource: String?
+        if source == "download_url", !transcodeURL.isEmpty {
+            fallbackURL = transcodeURL
+            fallbackSource = "v2-play-m3u8"
+        } else if source == "v2-play-fallback", !download.url.isEmpty {
+            fallbackURL = download.url
+            fallbackSource = "download_url"
+        } else {
+            fallbackURL = nil
+            fallbackSource = nil
+        }
+
+        print("[Quark] ✅ 主线路 source=\(source), hasPUUS=\(authCookie.contains("__puus=")), hasVideoAuth=\(authCookie.contains("Video-Auth=")), host=\(URL(string: playURL)?.host ?? "unknown")")
+        if let fallbackURL, let fallbackSource {
+            print("[Quark] ✅ 兜底线路 source=\(fallbackSource), host=\(URL(string: fallbackURL)?.host ?? "unknown")")
+        } else {
+            print("[Quark] ⚠️ 兜底线路暂不可用，当前仅返回主线路")
+        }
 
         scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
+        let playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
+
         return PlayResult(
             url: playURL,
-            headers: quarkPlaybackHeaders(cookie: authCookie),
-            driveType: .quark
+            headers: playbackHeaders,
+            driveType: .quark,
+            source: source,
+            fallbackURL: fallbackURL,
+            fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
+            fallbackSource: fallbackSource
         )
     }
 
@@ -3665,6 +3689,28 @@ struct PlayResult {
     let url: String
     let headers: [String: String]
     let driveType: DriveTypeAlias
+    let source: String?
+    let fallbackURL: String?
+    let fallbackHeaders: [String: String]?
+    let fallbackSource: String?
+
+    init(
+        url: String,
+        headers: [String: String],
+        driveType: DriveTypeAlias,
+        source: String? = nil,
+        fallbackURL: String? = nil,
+        fallbackHeaders: [String: String]? = nil,
+        fallbackSource: String? = nil
+    ) {
+        self.url = url
+        self.headers = headers
+        self.driveType = driveType
+        self.source = source
+        self.fallbackURL = fallbackURL
+        self.fallbackHeaders = fallbackHeaders
+        self.fallbackSource = fallbackSource
+    }
 }
 
 enum DriveTypeAlias: String {
