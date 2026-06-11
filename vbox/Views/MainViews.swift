@@ -160,14 +160,30 @@ struct LiquidBackground: View {
 struct HomeView: View {
     @StateObject private var doubanService = DoubanService.shared
     @EnvironmentObject private var settings: AppSettings
-    @State private var isLoading = true
-    @State private var bannerSubjects: [DoubanSubject] = []
-    @State private var hotMovies: [DoubanSubject] = []
-    @State private var hotTV: [DoubanSubject] = []
-    @State private var hotVariety: [DoubanSubject] = []
-    @State private var top250: [DoubanSubject] = []
+    private static var cachedBannerSubjects: [DoubanSubject] = []
+    private static var cachedHotMovies: [DoubanSubject] = []
+    private static var cachedHotTV: [DoubanSubject] = []
+    private static var cachedHotVariety: [DoubanSubject] = []
+    private static var cachedTop250: [DoubanSubject] = []
+    private static var hasHomeCache: Bool {
+        !cachedBannerSubjects.isEmpty || !cachedHotMovies.isEmpty || !cachedHotTV.isEmpty || !cachedTop250.isEmpty
+    }
+    @State private var isLoading: Bool
+    @State private var bannerSubjects: [DoubanSubject]
+    @State private var hotMovies: [DoubanSubject]
+    @State private var hotTV: [DoubanSubject]
+    @State private var hotVariety: [DoubanSubject]
+    @State private var top250: [DoubanSubject]
     @State private var currentIndex = 0
-    @State private var hasLoadedOnce = false
+
+    init() {
+        _isLoading = State(initialValue: !Self.hasHomeCache)
+        _bannerSubjects = State(initialValue: Self.cachedBannerSubjects)
+        _hotMovies = State(initialValue: Self.cachedHotMovies)
+        _hotTV = State(initialValue: Self.cachedHotTV)
+        _hotVariety = State(initialValue: Self.cachedHotVariety)
+        _top250 = State(initialValue: Self.cachedTop250)
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -205,15 +221,20 @@ struct HomeView: View {
         .background(Color.white)
         .refreshable { await loadData(force: true) }
         .onAppear {
-            guard !hasLoadedOnce else { return }
-            hasLoadedOnce = true
+            guard !Self.hasHomeCache else {
+                restoreHomeCache()
+                return
+            }
             Task { await loadData(force: false) }
         }
     }
 
     @MainActor
     private func loadData(force: Bool) async {
-        if !force, !bannerSubjects.isEmpty { return }
+        if !force, Self.hasHomeCache {
+            restoreHomeCache()
+            return
+        }
         isLoading = true
         do {
             async let banner = doubanService.fetchTop250(start: 0, count: 10)
@@ -226,10 +247,24 @@ struct HomeView: View {
             hotTV = try await tv
             hotVariety = try await variety
             top250 = try await top
+            Self.cachedBannerSubjects = bannerSubjects
+            Self.cachedHotMovies = hotMovies
+            Self.cachedHotTV = hotTV
+            Self.cachedHotVariety = hotVariety
+            Self.cachedTop250 = top250
         } catch {
             print("Douban API error: \(error)")
         }
-            isLoading = false
+        isLoading = false
+    }
+
+    private func restoreHomeCache() {
+        bannerSubjects = Self.cachedBannerSubjects
+        hotMovies = Self.cachedHotMovies
+        hotTV = Self.cachedHotTV
+        hotVariety = Self.cachedHotVariety
+        top250 = Self.cachedTop250
+        isLoading = false
     }
 }
 
@@ -743,9 +778,11 @@ struct SearchView: View {
                                             .frame(height: 2)
                                             .clipShape(RoundedRectangle(cornerRadius: 1))
                                     }
-                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 14)
                                     .padding(.vertical, 10)
+                                    .background(Color.clear)
                                 }
+                                .buttonStyle(PlainButtonStyle())
                                 if index < doubanTabs.count - 1 {
                                     Rectangle()
                                         .fill(Color.gray.opacity(0.15))
@@ -1059,7 +1096,7 @@ struct SearchResultsView: View {
                             .padding(.vertical, 6)
                             .padding(.horizontal, 6)
                         }
-                        .frame(width: min(132, max(118, geometry.size.width * 0.28)))
+                        .frame(width: min(108, max(98, geometry.size.width * 0.23)))
                         .background(Color.white)
                         Divider().background(Color.gray.opacity(0.3))
                         ScrollView(showsIndicators: false) {

@@ -185,8 +185,8 @@ struct VideoDetailView: View {
                             }
                             EpisodeGridView(episodes: episodes) { episode in
                                 selectedEpisodeVideo = VodItem(
-                                    vodId: "\(displayVideo.vodId)#\(episode.name)",
-                                    vodName: displayVideo.vodName,
+                                    vodId: displayVideo.vodId,
+                                    vodName: "\(displayVideo.vodName) \(episode.name)",
                                     vodPic: displayVideo.vodPic,
                                     vodRemarks: episode.name,
                                     vodYear: displayVideo.vodYear,
