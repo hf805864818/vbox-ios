@@ -39,6 +39,7 @@ struct CategoryDetailView: View {
             .padding(.vertical, 12)
         }
         .background(Color.white)
+        .refreshable { loadData() }
         .navigationTitle(categoryName)
         .navigationBarTitleDisplayMode(.large)
         .onAppear {
@@ -251,7 +252,7 @@ struct CoverImageView: View {
     
     var body: some View {
         Group {
-            if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
+            if let url = DoubanImageProxyServer.shared.resolvedURL(for: subject.coverImageURL) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:

@@ -167,6 +167,7 @@ struct HomeView: View {
     @State private var hotVariety: [DoubanSubject] = []
     @State private var top250: [DoubanSubject] = []
     @State private var currentIndex = 0
+    @State private var hasLoadedOnce = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -202,39 +203,33 @@ struct HomeView: View {
             .padding(.bottom, 100)
         }
         .background(Color.white)
-        .onAppear { loadData() }
+        .refreshable { await loadData(force: true) }
+        .onAppear {
+            guard !hasLoadedOnce else { return }
+            hasLoadedOnce = true
+            Task { await loadData(force: false) }
+        }
     }
 
-    private func loadData() {
+    @MainActor
+    private func loadData(force: Bool) async {
+        if !force, !bannerSubjects.isEmpty { return }
         isLoading = true
-        Task {
-            do {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    var banner: [DoubanSubject] = []
-                    var movies: [DoubanSubject] = []
-                    var tv: [DoubanSubject] = []
-                    var variety: [DoubanSubject] = []
-                    var top: [DoubanSubject] = []
-                    
-                    group.addTask { banner = try await doubanService.fetchTop250(start: 0, count: 10) }
-                    group.addTask { movies = try await doubanService.fetchHotMovies(start: 0, count: 10) }
-                    group.addTask { tv = try await doubanService.fetchHotTV(start: 0, count: 10) }
-                    group.addTask { variety = try await doubanService.fetchHotVariety(start: 0, count: 10) }
-                    group.addTask { top = try await doubanService.fetchTop250(start: 0, count: 10) }
-                    
-                    try await group.waitForAll()
-                    
-                    bannerSubjects = banner
-                    hotMovies = movies
-                    hotTV = tv
-                    hotVariety = variety
-                    top250 = top
-                }
-            } catch {
-                print("Douban API error: \(error)")
-            }
-            isLoading = false
+        do {
+            async let banner = doubanService.fetchTop250(start: 0, count: 10)
+            async let movies = doubanService.fetchHotMovies(start: 0, count: 10)
+            async let tv = doubanService.fetchHotTV(start: 0, count: 10)
+            async let variety = doubanService.fetchHotVariety(start: 0, count: 10)
+            async let top = doubanService.fetchTop250(start: 0, count: 10)
+            bannerSubjects = try await banner
+            hotMovies = try await movies
+            hotTV = try await tv
+            hotVariety = try await variety
+            top250 = try await top
+        } catch {
+            print("Douban API error: \(error)")
         }
+            isLoading = false
     }
 }
 
@@ -585,6 +580,7 @@ struct SearchView: View {
     @State private var selectedDoubanTab = 0
     @State private var doubanSubjects: [String: [DoubanSubject]] = [:]
     @State private var doubanLoading = false
+    @State private var hasLoadedDefaultData = false
     
     private let doubanTabs = ["豆瓣周榜", "华语口碑剧集", "一周口碑电影榜", "国内即将上映"]
     
@@ -661,15 +657,28 @@ struct SearchView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
+            .refreshable {
+                if isSearching {
+                    performSearch()
+                } else {
+                    await loadSearchHistory()
+                    await loadDoubanData(force: true)
+                }
+            }
         }
         .background(Color.white)
         .onChange(of: settings.searchRequestId) { _ in
             runTriggeredSearch()
         }
         .onAppear {
+            guard !hasLoadedDefaultData else {
+                runTriggeredSearch()
+                return
+            }
+            hasLoadedDefaultData = true
             Task {
                 await loadSearchHistory()
-                await loadDoubanData()
+                await loadDoubanData(force: false)
             }
             runTriggeredSearch()
         }
@@ -703,25 +712,9 @@ struct SearchView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 ForEach(searchHistory, id: \.self) { keyword in
-                                    Button(action: {
+                                    SearchHistoryChip(keyword: keyword) {
                                         searchText = keyword
                                         performSearch()
-                                    }) {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "clock.arrow.circlepath")
-                                                .font(.system(size: 11))
-                                                .foregroundColor(Color(hex: "E11D48"))
-                                            Text(keyword)
-                                                .font(.system(size: 13))
-                                                .foregroundColor(.black)
-                                        }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                                .fill(Color.white)
-                                                .shadow(color: Color.black.opacity(0.06), radius: 4, y: 2)
-                                        )
                                     }
                                 }
                             }
@@ -739,7 +732,7 @@ struct SearchView: View {
                             ForEach(0..<doubanTabs.count, id: \.self) { index in
                                 Button(action: {
                                     selectedDoubanTab = index
-                                    Task { await loadDoubanData() }
+                                    Task { await loadDoubanData(force: false) }
                                 }) {
                                     VStack(spacing: 6) {
                                         Text(doubanTabs[index])
@@ -776,7 +769,9 @@ struct SearchView: View {
                 } else if let subjects = doubanSubjects[doubanTabs[selectedDoubanTab]], !subjects.isEmpty {
                     LazyVStack(spacing: 12) {
                         ForEach(subjects) { subject in
-                            DoubanCardItem(subject: subject)
+                            SearchDoubanCardItem(subject: subject) {
+                                runKeywordSearch(subject.title)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -794,7 +789,7 @@ struct SearchView: View {
                         SiteRow(site: site)
                     }
                 } else {
-                    SearchSuggestionsView()
+                    SearchSuggestionsView(onSelect: runKeywordSearch)
                 }
             }
             .padding(.bottom, 100)
@@ -873,6 +868,11 @@ struct SearchView: View {
         }
     }
 
+    private func runKeywordSearch(_ keyword: String) {
+        searchText = keyword
+        performSearch()
+    }
+
     private func runTriggeredSearch() {
         let query = settings.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
@@ -897,23 +897,22 @@ struct SearchView: View {
         UserDefaults.standard.set(searchHistory, forKey: "searchHistory")
     }
     
-    private func loadDoubanData() {
+    @MainActor
+    private func loadDoubanData(force: Bool = false) async {
         doubanLoading = true
         let tabName = doubanTabs[selectedDoubanTab]
+        if !force, let existing = doubanSubjects[tabName], !existing.isEmpty {
+            doubanLoading = false
+            return
+        }
         
-        Task {
-            do {
-                let subjects = try await DoubanService.shared.fetchByTab(tabName, start: 0, count: 20)
-                await MainActor.run {
-                    doubanSubjects[tabName] = subjects
-                    doubanLoading = false
-                }
-            } catch {
-                print("Douban fetch error: \(error)")
-                await MainActor.run {
-                    doubanLoading = false
-                }
-            }
+        do {
+            let subjects = try await DoubanService.shared.fetchByTab(tabName, start: 0, count: 20)
+            doubanSubjects[tabName] = subjects
+            doubanLoading = false
+        } catch {
+            print("Douban fetch error: \(error)")
+            doubanLoading = false
         }
     }
 }
@@ -941,16 +940,17 @@ struct SearchBar: View {
 struct SearchSuggestionsView: View {
     private let hotSearches = ["三体", "狂飙", "庆余年", "繁花", "肖申克的救赎"]
     private let recentSearches = ["黑袍纠察队", "权力的游戏", "绝命毒师"]
+    var onSelect: (String) -> Void = { _ in }
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack { Image(systemName: "flame.fill").foregroundColor(Color(hex: "E11D48")); Text("热门搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.black) }
-                    FlowLayout(spacing: 10) { ForEach(hotSearches, id: \.self) { kw in KeywordButton(keyword: kw) } }
+                    FlowLayout(spacing: 10) { ForEach(hotSearches, id: \.self) { kw in KeywordButton(keyword: kw, onSelect: onSelect) } }
                 }.padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 12) {
                     HStack { Image(systemName: "clock.fill").foregroundColor(Color(hex: "E11D48")); Text("最近搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.black) }
-                    ForEach(recentSearches, id: \.self) { kw in RecentSearchRow(keyword: kw) }
+                    ForEach(recentSearches, id: \.self) { kw in RecentSearchRow(keyword: kw, onSelect: onSelect) }
                 }.padding(.horizontal, 16)
             }.padding(.vertical, 20)
         }.background(Color.white)
@@ -959,25 +959,60 @@ struct SearchSuggestionsView: View {
 
 struct KeywordButton: View {
     let keyword: String
+    var onSelect: (String) -> Void = { _ in }
     var body: some View {
-        Button(action: {}) { Text(keyword).font(.system(size: 14)).foregroundColor(.black).padding(.horizontal, 16).padding(.vertical, 8).background(Capsule().fill(Color.gray.opacity(0.1))).overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1)) }.buttonStyle(PlainButtonStyle())
+        Button(action: { onSelect(keyword) }) { Text(keyword).font(.system(size: 14)).foregroundColor(.black).padding(.horizontal, 16).padding(.vertical, 8).background(Capsule().fill(Color.gray.opacity(0.1))).overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1)) }.buttonStyle(PlainButtonStyle())
     }
 }
 
 struct RecentSearchRow: View {
     let keyword: String
+    var onSelect: (String) -> Void = { _ in }
     var body: some View {
+        Button(action: { onSelect(keyword) }) {
         HStack {
             Text(keyword).font(.system(size: 15)).foregroundColor(.black)
             Spacer()
-            Button(action: {}) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundColor(Color.gray)
+        }
+        .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct SearchHistoryChip: View {
+    let keyword: String
+    let onSelect: () -> Void
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(hex: "E11D48"))
+                Text(keyword)
+                    .font(.system(size: 13))
+                    .foregroundColor(.black)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.gray.opacity(0.08)))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct SearchHistoryDeleteButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
                 Image(systemName: "xmark")
                     .font(.system(size: 12))
                     .foregroundColor(Color.gray)
-            }
-            .padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.gray.opacity(0.08)))
         }
+        .padding(.vertical, 12)
     }
 }
 
@@ -1008,19 +1043,23 @@ struct SearchResultsView: View {
                                     let sel = (selectedSource ?? sources.first ?? "") == name
                                     Button(action: { selectedSource = name }) {
                                         Text(name)
-                                            .font(.system(size: 13, weight: sel ? .bold : .regular))
-                                            .foregroundColor(sel ? Color(hex: "E11D48") : .black)
-                                            .lineLimit(1)
+                                            .font(.system(size: 12, weight: sel ? .semibold : .regular))
+                                            .foregroundColor(sel ? .white : .black)
+                                            .lineLimit(2)
+                                            .minimumScaleFactor(0.82)
                                             .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.vertical, 11)
-                                            .padding(.horizontal, 10)
-                                            .background(sel ? Color(hex: "E11D48").opacity(0.1) : Color.clear)
+                                            .padding(.vertical, 10)
+                                            .padding(.horizontal, 8)
+                                            .background(sel ? Color(hex: "E11D48") : Color.clear)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 6)
                         }
-                        .frame(width: min(110, geometry.size.width * 0.25))
+                        .frame(width: min(132, max(118, geometry.size.width * 0.28)))
                         .background(Color.white)
                         Divider().background(Color.gray.opacity(0.3))
                         ScrollView(showsIndicators: false) {
@@ -1051,7 +1090,7 @@ struct SearchResultRow: View {
     var body: some View {
         HStack(spacing: 12) {
             AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.black).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { TagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { TagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { TagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
+            VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.black).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { PlainTagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
             Spacer()
             Image(systemName: "play.circle.fill").font(.system(size: 30)).foregroundColor(Color(hex: "E11D48"))
         }.padding(10).background(Color.gray.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 10))
@@ -1063,7 +1102,73 @@ struct TagBadge: View {
     var body: some View { Text(text).font(.system(size: 11)).padding(.horizontal, 6).padding(.vertical, 2).background(Color.gray.opacity(0.15)).clipShape(Capsule()) }
 }
 
+struct PlainTagBadge: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(.gray)
+            .padding(.horizontal, 0)
+            .padding(.vertical, 0)
+    }
+}
+
 // MARK: - 豆瓣卡片组件
+struct SearchDoubanCardItem: View {
+    let subject: DoubanSubject
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: subject.coverImageURL)) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Rectangle().fill(Color.gray.opacity(0.15))
+                }
+                .frame(width: 70, height: 95)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(subject.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundColor(.black)
+
+                    if let rating = subject.rating, let value = rating.value {
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.yellow)
+                            Text(String(format: "%.1f", value))
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.yellow)
+                        }
+                    }
+
+                    Text(subject.card_subtitle ?? subject.genreText ?? "")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+
+                    Text("点击搜索 “\(subject.title)”")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(hex: "E11D48"))
+                }
+
+                Spacer()
+                Image(systemName: "magnifyingglass.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(Color(hex: "E11D48"))
+            }
+            .padding(8)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct DoubanCardItem: View {
     let subject: DoubanSubject
     
