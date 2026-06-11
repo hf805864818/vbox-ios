@@ -52,6 +52,7 @@ class CloudDriveManager: ObservableObject {
     private let baiduPersistedPlayItemCacheKey = "baidu_play_item_cache_v1"
     private let baiduIBoxPlayItemCacheKey = "baidu_ibox_play_item_cache_v1"
     private let baiduFileListCacheKey = "baidu_file_list_cache_v1"
+    private let unifiedCloudPlayItemCacheKey = "cloud_play_item_cache_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -103,6 +104,29 @@ class CloudDriveManager: ObservableObject {
         var totalCount: Int {
             playResultCount + playItemCount + iBoxPlayItemCount + fileListCount
         }
+    }
+    struct CloudPlayItem: Codable {
+        let provider: String
+        let sourceKey: String
+        let shareURL: String
+        let resourceId: String
+        let fileName: String
+        let ownPath: String?
+        let playURL: String?
+        let headers: [String: String]
+        let expiresAt: Date?
+        let compatibilityHint: String
+        let preferredEngine: String
+        let preparedAt: Date
+        let updatedAt: Date
+        let source: String
+    }
+    struct CloudPlayItemSummary {
+        let totalCount: Int
+        let validPlayURLCount: Int
+        let expiredPlayURLCount: Int
+        let storageBytes: Int
+        let lastUpdatedAt: Date?
     }
 
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
@@ -227,7 +251,7 @@ class CloudDriveManager: ObservableObject {
 
         var iboxCache = baiduLoadPersistedIBoxPlayItemCache()
         if let item = iboxCache[cacheKey] {
-            iboxCache[cacheKey] = BaiduIBoxPlayItem(
+            let invalidatedItem = BaiduIBoxPlayItem(
                 shareURL: item.shareURL,
                 fsId: item.fsId,
                 fileName: item.fileName,
@@ -242,9 +266,13 @@ class CloudDriveManager: ObservableObject {
                 lastUsedAt: item.lastUsedAt,
                 source: "\(item.source)-invalidated"
             )
+            iboxCache[cacheKey] = invalidatedItem
             if let data = try? JSONEncoder().encode(iboxCache) {
                 defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
             }
+            mirrorBaiduIBoxPlayItemToUnified(invalidatedItem, sourceKey: cacheKey)
+        } else {
+            invalidateUnifiedCloudPlayItem(provider: .baidu, sourceKey: cacheKey, reason: "invalidated")
         }
 
         baiduLog("[Baidu-Cache] 已清理播放缓存并保留 path：fsId=\(fsId), reason=\(reason)")
@@ -278,6 +306,7 @@ class CloudDriveManager: ObservableObject {
         if let data = try? JSONEncoder().encode(persisted) {
             defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
         }
+        mirrorBaiduIBoxPlayItemToUnified(item, sourceKey: key)
     }
 
     private func baiduLoadPersistedPlayCache() -> [String: BaiduPersistedPlayCacheItem] {
@@ -302,6 +331,132 @@ class CloudDriveManager: ObservableObject {
             return [:]
         }
         return cache
+    }
+
+    private func cloudPlayItemCacheKey(provider: DriveType, sourceKey: String) -> String {
+        "\(provider.rawValue)|\(sourceKey)"
+    }
+
+    private func loadUnifiedCloudPlayItemCache() -> [String: CloudPlayItem] {
+        guard let data = defaults.data(forKey: unifiedCloudPlayItemCacheKey),
+              let cache = try? JSONDecoder().decode([String: CloudPlayItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func saveUnifiedCloudPlayItemCache(_ cache: [String: CloudPlayItem]) {
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: unifiedCloudPlayItemCacheKey)
+        }
+    }
+
+    private func storeUnifiedCloudPlayItem(_ item: CloudPlayItem, provider: DriveType, sourceKey: String) {
+        var cache = loadUnifiedCloudPlayItemCache()
+        cache[cloudPlayItemCacheKey(provider: provider, sourceKey: sourceKey)] = item
+        if cache.count > 260 {
+            cache = Dictionary(uniqueKeysWithValues: cache.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(260).map { ($0.key, $0.value) })
+        }
+        saveUnifiedCloudPlayItemCache(cache)
+    }
+
+    private func mirrorBaiduIBoxPlayItemToUnified(_ item: BaiduIBoxPlayItem, sourceKey: String) {
+        storeUnifiedCloudPlayItem(
+            CloudPlayItem(
+                provider: DriveType.baidu.rawValue,
+                sourceKey: sourceKey,
+                shareURL: item.shareURL,
+                resourceId: item.fsId,
+                fileName: item.fileName,
+                ownPath: item.path,
+                playURL: item.dlinkURL,
+                headers: item.headers,
+                expiresAt: item.dlinkExpiresAt,
+                compatibilityHint: item.compatibilityHint,
+                preferredEngine: item.preferredEngine,
+                preparedAt: item.preparedAt,
+                updatedAt: item.updatedAt,
+                source: item.source
+            ),
+            provider: .baidu,
+            sourceKey: sourceKey
+        )
+    }
+
+    private func invalidateUnifiedCloudPlayItem(provider: DriveType, sourceKey: String, reason: String) {
+        var cache = loadUnifiedCloudPlayItemCache()
+        let key = cloudPlayItemCacheKey(provider: provider, sourceKey: sourceKey)
+        guard let item = cache[key] else { return }
+        cache[key] = CloudPlayItem(
+            provider: item.provider,
+            sourceKey: item.sourceKey,
+            shareURL: item.shareURL,
+            resourceId: item.resourceId,
+            fileName: item.fileName,
+            ownPath: item.ownPath,
+            playURL: nil,
+            headers: item.headers,
+            expiresAt: nil,
+            compatibilityHint: item.compatibilityHint,
+            preferredEngine: item.preferredEngine,
+            preparedAt: item.preparedAt,
+            updatedAt: Date(),
+            source: "\(item.source)-\(reason)"
+        )
+        saveUnifiedCloudPlayItemCache(cache)
+    }
+
+    private func clearExpiredUnifiedCloudPlayItems(provider: DriveType) {
+        let now = Date()
+        var cache = loadUnifiedCloudPlayItemCache()
+        var changed = false
+        for (key, item) in cache where item.provider == provider.rawValue {
+            guard let expiresAt = item.expiresAt, expiresAt <= now, item.playURL?.isEmpty == false else { continue }
+            cache[key] = CloudPlayItem(
+                provider: item.provider,
+                sourceKey: item.sourceKey,
+                shareURL: item.shareURL,
+                resourceId: item.resourceId,
+                fileName: item.fileName,
+                ownPath: item.ownPath,
+                playURL: nil,
+                headers: item.headers,
+                expiresAt: nil,
+                compatibilityHint: item.compatibilityHint,
+                preferredEngine: item.preferredEngine,
+                preparedAt: item.preparedAt,
+                updatedAt: now,
+                source: "\(item.source)-expired-cleaned"
+            )
+            changed = true
+        }
+        if changed {
+            saveUnifiedCloudPlayItemCache(cache)
+        }
+    }
+
+    private func clearUnifiedCloudPlayItems(provider: DriveType) {
+        var cache = loadUnifiedCloudPlayItemCache()
+        cache = cache.filter { $0.value.provider != provider.rawValue }
+        saveUnifiedCloudPlayItemCache(cache)
+    }
+
+    func cloudPlayItemSummary(for provider: DriveType) -> CloudPlayItemSummary {
+        let now = Date()
+        let cache = loadUnifiedCloudPlayItemCache().values.filter { $0.provider == provider.rawValue }
+        let valid = cache.filter { ($0.expiresAt ?? .distantPast) > now && ($0.playURL?.isEmpty == false) }.count
+        let expired = cache.filter { item in
+            guard let expiresAt = item.expiresAt, item.playURL?.isEmpty == false else { return false }
+            return expiresAt <= now
+        }.count
+        let storageBytes = defaults.data(forKey: unifiedCloudPlayItemCacheKey)?.count ?? 0
+        return CloudPlayItemSummary(
+            totalCount: cache.count,
+            validPlayURLCount: valid,
+            expiredPlayURLCount: expired,
+            storageBytes: storageBytes,
+            lastUpdatedAt: cache.map(\.updatedAt).max()
+        )
     }
 
     func baiduPlaybackCacheSummary() -> BaiduPlaybackCacheSummary {
@@ -364,7 +519,7 @@ class CloudDriveManager: ObservableObject {
         var iBoxItems = baiduLoadPersistedIBoxPlayItemCache()
         for (key, item) in iBoxItems {
             guard let expiresAt = item.dlinkExpiresAt, expiresAt <= now else { continue }
-            iBoxItems[key] = BaiduIBoxPlayItem(
+            let cleanedItem = BaiduIBoxPlayItem(
                 shareURL: item.shareURL,
                 fsId: item.fsId,
                 fileName: item.fileName,
@@ -379,10 +534,13 @@ class CloudDriveManager: ObservableObject {
                 lastUsedAt: item.lastUsedAt,
                 source: "\(item.source)-expired-cleaned"
             )
+            iBoxItems[key] = cleanedItem
+            mirrorBaiduIBoxPlayItemToUnified(cleanedItem, sourceKey: key)
         }
         if let data = try? JSONEncoder().encode(iBoxItems) {
             defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
         }
+        clearExpiredUnifiedCloudPlayItems(provider: .baidu)
 
         playCache.removeAll(keepingCapacity: false)
         fileLists.removeAll(keepingCapacity: false)
@@ -400,6 +558,7 @@ class CloudDriveManager: ObservableObject {
         defaults.removeObject(forKey: baiduPersistedPlayItemCacheKey)
         defaults.removeObject(forKey: baiduIBoxPlayItemCacheKey)
         defaults.removeObject(forKey: baiduFileListCacheKey)
+        clearUnifiedCloudPlayItems(provider: .baidu)
 
         baiduLog("[Baidu-Cache] 已清空全部百度播放缓存")
         return baiduPlaybackCacheSummary()

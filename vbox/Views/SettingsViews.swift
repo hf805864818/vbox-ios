@@ -477,6 +477,10 @@ struct CloudPlaybackCacheView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                let unified = cloudDriveManager.cloudPlayItemSummary(for: .baidu)
+                Text("统一 PlayItem：\(unified.totalCount) 项，有效直链 \(unified.validPlayURLCount)，过期直链 \(unified.expiredPlayURLCount)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
                 Text("占用：\(formatBytes(baiduSummary.storageBytes))")
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
@@ -519,6 +523,7 @@ struct CloudPlaybackCacheView: View {
     }
 
     private func placeholderCard(type: CloudDriveManager.DriveType, note: String) -> some View {
+        let summary = cloudDriveManager.cloudPlayItemSummary(for: type)
         HStack(spacing: 12) {
             Image(systemName: iconForDriveType(type))
                 .foregroundColor(.gray)
@@ -531,9 +536,12 @@ struct CloudPlaybackCacheView: View {
                 Text(note)
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
+                Text("统一 PlayItem：\(summary.totalCount) 项，有效直链 \(summary.validPlayURLCount)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
             }
             Spacer()
-            Text("待接入")
+            Text(summary.totalCount > 0 ? "已记录" : "待接入")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.gray)
                 .padding(.horizontal, 8)
