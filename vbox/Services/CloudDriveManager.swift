@@ -50,6 +50,7 @@ class CloudDriveManager: ObservableObject {
     private let tokenKey = "saved_drive_tokens"
     private let baiduPersistedPlayCacheKey = "baidu_play_result_cache_v1"
     private let baiduPersistedPlayItemCacheKey = "baidu_play_item_cache_v1"
+    private let baiduIBoxPlayItemCacheKey = "baidu_ibox_play_item_cache_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -66,6 +67,21 @@ class CloudDriveManager: ObservableObject {
         let headers: [String: String]
         let compatibilityHint: String
         let updatedAt: Date
+    }
+    private struct BaiduIBoxPlayItem: Codable {
+        let shareURL: String
+        let fsId: String
+        let fileName: String
+        let path: String
+        let dlinkURL: String?
+        let headers: [String: String]
+        let dlinkExpiresAt: Date?
+        let compatibilityHint: String
+        let preferredEngine: String
+        let preparedAt: Date
+        let updatedAt: Date
+        let lastUsedAt: Date?
+        let source: String
     }
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
     private let baiduPlayCacheLock = NSLock()
@@ -150,6 +166,21 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
+    private func baiduCachedIBoxPlayItem(for key: String) -> BaiduIBoxPlayItem? {
+        baiduLoadPersistedIBoxPlayItemCache()[key]
+    }
+
+    private func baiduStoreIBoxPlayItem(_ item: BaiduIBoxPlayItem, for key: String) {
+        var persisted = baiduLoadPersistedIBoxPlayItemCache()
+        persisted[key] = item
+        if persisted.count > 160 {
+            persisted = Dictionary(uniqueKeysWithValues: persisted.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(160).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(persisted) {
+            defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
+        }
+    }
+
     private func baiduLoadPersistedPlayCache() -> [String: BaiduPersistedPlayCacheItem] {
         guard let data = defaults.data(forKey: baiduPersistedPlayCacheKey),
               let cache = try? JSONDecoder().decode([String: BaiduPersistedPlayCacheItem].self, from: data) else {
@@ -166,10 +197,22 @@ class CloudDriveManager: ObservableObject {
         return cache
     }
 
+    private func baiduLoadPersistedIBoxPlayItemCache() -> [String: BaiduIBoxPlayItem] {
+        guard let data = defaults.data(forKey: baiduIBoxPlayItemCacheKey),
+              let cache = try? JSONDecoder().decode([String: BaiduIBoxPlayItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
     private func baiduCompatibilityHint(fileName: String) -> String {
         let lower = fileName.lowercased()
         let risky = ["mkv", "hevc", "h265", "x265", "10bit", "hdr", "高码率", "4k"]
         return risky.first(where: { lower.contains($0) }) ?? ""
+    }
+
+    private func baiduPreferredEngine(fileName: String) -> String {
+        baiduCompatibilityHint(fileName: fileName).isEmpty ? "system" : "compatibility"
     }
 
     private func baiduStableHash(_ input: String) -> String {
@@ -796,8 +839,9 @@ class CloudDriveManager: ObservableObject {
             ?? data["server_filename"] as? String
             ?? data["name"] as? String
             ?? ""
+        let inferredPath = baiduInferOwnFilePath(workerURL: playURL, workerPath: workerPath, fileName: workerFileName)
         if let cacheKey,
-           let path = baiduInferOwnFilePath(workerURL: playURL, workerPath: workerPath, fileName: workerFileName),
+           let path = inferredPath,
            !(fsId ?? "").isEmpty {
             baiduStorePlayItem(
                 BaiduPlayItem(
@@ -821,11 +865,137 @@ class CloudDriveManager: ObservableObject {
             pcsCookie: pcsCookie,
             workerHeaders: headers
         ) {
+            if let cacheKey, let path = inferredPath, !(fsId ?? "").isEmpty {
+                let fileNameForCache = workerFileName.isEmpty ? (path.split(separator: "/").last.map(String.init) ?? "") : workerFileName
+                baiduStoreIBoxPlayItem(
+                    BaiduIBoxPlayItem(
+                        shareURL: shareURL,
+                        fsId: fsId ?? "",
+                        fileName: fileNameForCache,
+                        path: path,
+                        dlinkURL: localResult.url,
+                        headers: localResult.headers,
+                        dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+                        compatibilityHint: baiduCompatibilityHint(fileName: fileNameForCache),
+                        preferredEngine: baiduPreferredEngine(fileName: fileNameForCache),
+                        preparedAt: Date(),
+                        updatedAt: Date(),
+                        lastUsedAt: Date(),
+                        source: "worker+local-dlna"
+                    ),
+                    for: cacheKey
+                )
+                baiduLog("[Baidu-iBox] ✅ PlayItem 已准备：path=\(path), engine=\(baiduPreferredEngine(fileName: fileNameForCache))")
+            }
             return localResult
         }
 
         baiduLog("[Baidu-LocalPCS] ⚠️ 本机 DLNA/locatedownload 未成功，暂用 Worker 返回地址")
+        if let cacheKey, let path = inferredPath, !(fsId ?? "").isEmpty {
+            let fileNameForCache = workerFileName.isEmpty ? (path.split(separator: "/").last.map(String.init) ?? "") : workerFileName
+            baiduStoreIBoxPlayItem(
+                BaiduIBoxPlayItem(
+                    shareURL: shareURL,
+                    fsId: fsId ?? "",
+                    fileName: fileNameForCache,
+                    path: path,
+                    dlinkURL: playURL,
+                    headers: headers,
+                    dlinkExpiresAt: Date().addingTimeInterval(2 * 60 * 60),
+                    compatibilityHint: baiduCompatibilityHint(fileName: fileNameForCache),
+                    preferredEngine: baiduPreferredEngine(fileName: fileNameForCache),
+                    preparedAt: Date(),
+                    updatedAt: Date(),
+                    lastUsedAt: Date(),
+                    source: "worker-fallback"
+                ),
+                for: cacheKey
+            )
+            baiduLog("[Baidu-iBox] ⚠️ 已保存 Worker 兜底 PlayItem：path=\(path)")
+        }
         return PlayResult(url: playURL, headers: headers, driveType: .baidu)
+    }
+
+    private func baiduResolveViaIBoxPlayItem(
+        cacheKey: String,
+        shareURL: String,
+        fsId: String,
+        fileName: String?,
+        cookie: String,
+        pcsCookie: String
+    ) async throws -> PlayResult? {
+        guard let item = baiduCachedIBoxPlayItem(for: cacheKey) else { return nil }
+        let now = Date()
+
+        if let expiresAt = item.dlinkExpiresAt,
+           expiresAt > now.addingTimeInterval(5 * 60),
+           let dlink = item.dlinkURL,
+           !dlink.isEmpty {
+            baiduLog("[Baidu-iBox] ✅ 命中已准备 dlink：fsId=\(fsId), source=\(item.source), engine=\(item.preferredEngine)")
+            baiduStoreIBoxPlayItem(
+                BaiduIBoxPlayItem(
+                    shareURL: item.shareURL,
+                    fsId: item.fsId,
+                    fileName: item.fileName,
+                    path: item.path,
+                    dlinkURL: item.dlinkURL,
+                    headers: item.headers,
+                    dlinkExpiresAt: item.dlinkExpiresAt,
+                    compatibilityHint: item.compatibilityHint,
+                    preferredEngine: item.preferredEngine,
+                    preparedAt: item.preparedAt,
+                    updatedAt: now,
+                    lastUsedAt: now,
+                    source: item.source
+                ),
+                for: cacheKey
+            )
+            return PlayResult(url: dlink, headers: item.headers, driveType: .baidu)
+        }
+
+        guard !item.path.isEmpty else { return nil }
+        baiduLog("[Baidu-iBox] ♻️ dlink 过期/缺失，用 PlayItem path 刷新：\(item.path)")
+        let mergedCookie = baiduMergeCookieStrings([
+            item.headers.first { $0.key.lowercased() == "cookie" }?.value ?? "",
+            item.headers.first { $0.key.lowercased() == "x-baidu-pcs-cookie" }?.value ?? "",
+            cookie,
+            pcsCookie
+        ])
+        guard !mergedCookie.isEmpty else {
+            baiduLog("[Baidu-iBox] ⚠️ path 刷新缺少 Cookie，回退 Worker")
+            return nil
+        }
+
+        let refreshed: PlayResult
+        do {
+            refreshed = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
+        } catch {
+            baiduLog("[Baidu-iBox] ⚠️ DLNA 刷新失败，尝试 locatedownload：\(error.localizedDescription)")
+            refreshed = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
+        }
+
+        let finalFileName = item.fileName.isEmpty ? (fileName ?? item.path.split(separator: "/").last.map(String.init) ?? "") : item.fileName
+        baiduStoreIBoxPlayItem(
+            BaiduIBoxPlayItem(
+                shareURL: shareURL,
+                fsId: fsId,
+                fileName: finalFileName,
+                path: item.path,
+                dlinkURL: refreshed.url,
+                headers: refreshed.headers,
+                dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+                compatibilityHint: baiduCompatibilityHint(fileName: finalFileName),
+                preferredEngine: baiduPreferredEngine(fileName: finalFileName),
+                preparedAt: item.preparedAt,
+                updatedAt: Date(),
+                lastUsedAt: Date(),
+                source: "ibox-path-refresh"
+            ),
+            for: cacheKey
+        )
+        baiduStorePlayResult(refreshed, for: cacheKey)
+        baiduLog("[Baidu-iBox] ✅ path 刷新完成：\(item.path)")
+        return refreshed
     }
 
     private func baiduResolveDLNAOnDevice(
@@ -1254,6 +1424,18 @@ class CloudDriveManager: ObservableObject {
         let parsedPcs = parseBaiduToken(pcsCookie)
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
+        if let iboxResult = try? await baiduResolveViaIBoxPlayItem(
+            cacheKey: cacheKey,
+            shareURL: shareURL,
+            fsId: fsId,
+            fileName: baiduCachedPlayItem(for: cacheKey)?.fileName,
+            cookie: cookie,
+            pcsCookie: pcs
+        ) {
+            baiduStorePlayResult(iboxResult, for: cacheKey)
+            return iboxResult
+        }
+
         if let item = baiduCachedPlayItem(for: cacheKey), !item.path.isEmpty {
             do {
                 baiduLog("[Baidu-PlayItem] ✅ 命中 path 缓存，直接 mediainfo：\(item.path), hint=\(item.compatibilityHint)")
@@ -1264,6 +1446,25 @@ class CloudDriveManager: ObservableObject {
                     pcs
                 ])
                 let result = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
+                baiduStoreIBoxPlayItem(
+                    BaiduIBoxPlayItem(
+                        shareURL: shareURL,
+                        fsId: fsId,
+                        fileName: item.fileName,
+                        path: item.path,
+                        dlinkURL: result.url,
+                        headers: result.headers,
+                        dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+                        compatibilityHint: item.compatibilityHint,
+                        preferredEngine: baiduPreferredEngine(fileName: item.fileName),
+                        preparedAt: item.updatedAt,
+                        updatedAt: Date(),
+                        lastUsedAt: Date(),
+                        source: "legacy-playitem-upgrade"
+                    ),
+                    for: cacheKey
+                )
+                baiduLog("[Baidu-iBox] ✅ 旧 PlayItem 已升级为 iBox PlayItem")
                 baiduStorePlayResult(result, for: cacheKey)
                 return result
             } catch {
@@ -1279,6 +1480,14 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu-Worker] ❌ 指定文件播放代理失败：\(error.localizedDescription)")
             throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
         }
+    }
+
+    @discardableResult
+    func prepareBaiduIBoxPlayItem(shareURL: String, bduss: String, fsId: String, pcsCookie: String = "") async throws -> PlayResult {
+        baiduLog("[Baidu-iBox] 开始准备 PlayItem：fsId=\(fsId)")
+        let result = try await resolveBaiduPlayURL(shareURL: shareURL, bduss: bduss, fsId: fsId, pcsCookie: pcsCookie)
+        baiduLog("[Baidu-iBox] ✅ PlayItem 准备完成：fsId=\(fsId)")
+        return result
     }
 
     private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, surl: String, cookie: String, files: [BaiduFileItem]) {
