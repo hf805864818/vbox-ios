@@ -103,6 +103,11 @@ struct VideoPlayerViewV2: View {
 
 // MARK: - 播放器状态管理
 class PlayerState: ObservableObject {
+    enum PlaybackEngineMode: String {
+        case system = "系统内核"
+        case compatibility = "兼容内核"
+    }
+
     @Published var player: AVPlayer?
     @Published var isPlaying = true
     @Published var showControls = true
@@ -128,6 +133,8 @@ class PlayerState: ObservableObject {
     @Published var danmakuItems: [DanmakuRenderItem] = []
     @Published var currentEpisodeIndex = 0
     @Published var debugLogs: [String] = []  // 可视化调试日志
+    @Published var playbackEngineMode: PlaybackEngineMode = .system
+    @Published var compatibilityHint: String?
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
@@ -136,6 +143,21 @@ class PlayerState: ObservableObject {
     private var baiduPrefetchTask: Task<Void, Never>?
     private var baiduPrefetchingIds = Set<String>()
     private var baiduNearEndPrefetchedIndexes = Set<Int>()
+
+    private func compatibilityReason(for fileName: String) -> String? {
+        let lower = fileName.lowercased()
+        let rules: [(String, String)] = [
+            (".mkv", "MKV 封装"),
+            ("hevc", "HEVC/H.265"),
+            ("h265", "HEVC/H.265"),
+            ("x265", "HEVC/H.265"),
+            ("10bit", "10bit 视频"),
+            ("hdr", "HDR 视频"),
+            ("4k", "4K 高码率"),
+            ("高码率", "高码率视频")
+        ]
+        return rules.first(where: { lower.contains($0.0) })?.1
+    }
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
@@ -227,6 +249,14 @@ class PlayerState: ObservableObject {
             isLoading = true
             loadingMessage = "正在获取百度视频地址..."
             loadError = nil
+            if let reason = compatibilityReason(for: file.name) {
+                playbackEngineMode = .compatibility
+                compatibilityHint = reason
+                log("[PlayerV2] 当前资源疑似需要兼容内核：\(reason)")
+            } else {
+                playbackEngineMode = .system
+                compatibilityHint = nil
+            }
         }
 
         do {

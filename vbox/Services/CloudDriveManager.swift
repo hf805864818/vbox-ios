@@ -49,6 +49,7 @@ class CloudDriveManager: ObservableObject {
     private let defaults = UserDefaults.standard
     private let tokenKey = "saved_drive_tokens"
     private let baiduPersistedPlayCacheKey = "baidu_play_result_cache_v1"
+    private let baiduPersistedPlayItemCacheKey = "baidu_play_item_cache_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -57,6 +58,14 @@ class CloudDriveManager: ObservableObject {
         let url: String
         let headers: [String: String]
         let expiresAt: Date
+    }
+    private struct BaiduPlayItem: Codable {
+        let fsId: String
+        let fileName: String
+        let path: String
+        let headers: [String: String]
+        let compatibilityHint: String
+        let updatedAt: Date
     }
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
     private let baiduPlayCacheLock = NSLock()
@@ -126,12 +135,41 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
+    private func baiduCachedPlayItem(for key: String) -> BaiduPlayItem? {
+        baiduLoadPersistedPlayItemCache()[key]
+    }
+
+    private func baiduStorePlayItem(_ item: BaiduPlayItem, for key: String) {
+        var persisted = baiduLoadPersistedPlayItemCache()
+        persisted[key] = item
+        if persisted.count > 120 {
+            persisted = Dictionary(uniqueKeysWithValues: persisted.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(120).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(persisted) {
+            defaults.set(data, forKey: baiduPersistedPlayItemCacheKey)
+        }
+    }
+
     private func baiduLoadPersistedPlayCache() -> [String: BaiduPersistedPlayCacheItem] {
         guard let data = defaults.data(forKey: baiduPersistedPlayCacheKey),
               let cache = try? JSONDecoder().decode([String: BaiduPersistedPlayCacheItem].self, from: data) else {
             return [:]
         }
         return cache
+    }
+
+    private func baiduLoadPersistedPlayItemCache() -> [String: BaiduPlayItem] {
+        guard let data = defaults.data(forKey: baiduPersistedPlayItemCacheKey),
+              let cache = try? JSONDecoder().decode([String: BaiduPlayItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func baiduCompatibilityHint(fileName: String) -> String {
+        let lower = fileName.lowercased()
+        let risky = ["mkv", "hevc", "h265", "x265", "10bit", "hdr", "高码率", "4k"]
+        return risky.first(where: { lower.contains($0) }) ?? ""
     }
 
     private func baiduStableHash(_ input: String) -> String {
@@ -695,7 +733,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 【新增】通过 Cloudflare Worker 代理获取播放地址
-    private func baiduResolveViaWorker(shareURL: String, pwd: String?, fsId: String? = nil, cookie: String = "", pcsCookie: String = "") async throws -> PlayResult {
+    private func baiduResolveViaWorker(shareURL: String, pwd: String?, fsId: String? = nil, cookie: String = "", pcsCookie: String = "", cacheKey: String? = nil) async throws -> PlayResult {
         baiduLog("[Baidu-Worker] 调用 Cloudflare Worker 代理... fsId=\((fsId ?? "").isEmpty ? "自动" : fsId!), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递"), WebCookie=\(cookie.isEmpty ? "无" : "已传递"), PCSCookie=\(pcsCookie.isEmpty ? "无" : "已传递")")
 
         let response = try await BaiduProxyClient.shared.getPlayURL(
@@ -753,10 +791,32 @@ class CloudDriveManager: ObservableObject {
 
         baiduLog("[Baidu-Worker] ✅ 成功获取播放地址：\(playURL.prefix(80))...")
 
+        let workerPath = data["path"] as? String
+        let workerFileName = data["file_name"] as? String
+            ?? data["server_filename"] as? String
+            ?? data["name"] as? String
+            ?? ""
+        if let cacheKey,
+           let path = baiduInferOwnFilePath(workerURL: playURL, workerPath: workerPath, fileName: workerFileName),
+           !(fsId ?? "").isEmpty {
+            baiduStorePlayItem(
+                BaiduPlayItem(
+                    fsId: fsId ?? "",
+                    fileName: workerFileName,
+                    path: path,
+                    headers: headers,
+                    compatibilityHint: baiduCompatibilityHint(fileName: workerFileName),
+                    updatedAt: Date()
+                ),
+                for: cacheKey
+            )
+            baiduLog("[Baidu-PlayItem] ✅ 缓存 path=\(path), hint=\(baiduCompatibilityHint(fileName: workerFileName))")
+        }
+
         if let localResult = try? await baiduResolveDLNAOnDevice(
             workerURL: playURL,
-            workerPath: data["path"] as? String,
-            fileName: data["file_name"] as? String,
+            workerPath: workerPath,
+            fileName: workerFileName,
             webCookie: cookie,
             pcsCookie: pcsCookie,
             workerHeaders: headers
@@ -1194,8 +1254,25 @@ class CloudDriveManager: ObservableObject {
         let parsedPcs = parseBaiduToken(pcsCookie)
         let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
 
+        if let item = baiduCachedPlayItem(for: cacheKey), !item.path.isEmpty {
+            do {
+                baiduLog("[Baidu-PlayItem] ✅ 命中 path 缓存，直接 mediainfo：\(item.path), hint=\(item.compatibilityHint)")
+                let mergedCookie = baiduMergeCookieStrings([
+                    item.headers.first { $0.key.lowercased() == "cookie" }?.value ?? "",
+                    item.headers.first { $0.key.lowercased() == "x-baidu-pcs-cookie" }?.value ?? "",
+                    cookie,
+                    pcs
+                ])
+                let result = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
+                baiduStorePlayResult(result, for: cacheKey)
+                return result
+            } catch {
+                baiduLog("[Baidu-PlayItem] ⚠️ path 缓存刷新 dlink 失败，回退 Worker：\(error.localizedDescription)")
+            }
+        }
+
         do {
-            let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs)
+            let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs, cacheKey: cacheKey)
             baiduStorePlayResult(result, for: cacheKey)
             return result
         } catch {
