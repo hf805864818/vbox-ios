@@ -181,7 +181,7 @@ final class DoubanImageProxyServer {
         }
 
         let pathAndQuery = String(parts[1])
-        if pathAndQuery.hasPrefix("/baidu-stream") {
+        if pathAndQuery.hasPrefix("/baidu-stream") || pathAndQuery.hasPrefix("/quark-stream") {
             routeStream(pathAndQuery, requestText: requestText, on: connection)
             return
         }
@@ -236,14 +236,26 @@ final class DoubanImageProxyServer {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        if request.value(forHTTPHeaderField: "User-Agent") == nil {
-            request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
-        }
-        if request.value(forHTTPHeaderField: "Referer") == nil {
-            request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
-        }
-        if request.value(forHTTPHeaderField: "Origin") == nil {
-            request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        if item.provider == "quark" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+            }
+        } else {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+            }
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
@@ -261,7 +273,7 @@ final class DoubanImageProxyServer {
     }
 
     private func preheatStream(item: StreamItem, id: String) {
-        guard item.provider == "baidu" else { return }
+        guard item.provider == "baidu" || item.provider == "quark" else { return }
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 12
         for (key, value) in item.headers {
@@ -269,14 +281,26 @@ final class DoubanImageProxyServer {
             if lower == "host" || lower == "content-length" || lower == "connection" { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
-        if request.value(forHTTPHeaderField: "User-Agent") == nil {
-            request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
-        }
-        if request.value(forHTTPHeaderField: "Referer") == nil {
-            request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
-        }
-        if request.value(forHTTPHeaderField: "Origin") == nil {
-            request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        if item.provider == "quark" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+            }
+        } else {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+            }
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
         request.setValue("bytes=0-65535", forHTTPHeaderField: "Range")
@@ -284,13 +308,13 @@ final class DoubanImageProxyServer {
         let startedAt = Date()
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
-                print("♨️ 本地视频代理预热失败[baidu]: id=\(id), err=\(error.localizedDescription)")
+                print("♨️ 本地视频代理预热失败[\(item.provider)]: id=\(id), err=\(error.localizedDescription)")
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
             let bytes = data?.count ?? 0
-            print("♨️ 本地视频代理预热完成[baidu]: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(bytes)")
+            print("♨️ 本地视频代理预热完成[\(item.provider)]: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(bytes)")
         }.resume()
     }
 
@@ -487,7 +511,9 @@ final class DoubanImageProxyServer {
             return false
         }
 
-        return host.contains("baidupcs.com") || host == "d.pcs.baidu.com"
+        return host.contains("baidupcs.com")
+            || host == "d.pcs.baidu.com"
+            || host.hasSuffix(".drive.quark.cn")
     }
 
     private func cleanupExpiredStreams() {

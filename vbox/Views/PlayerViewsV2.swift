@@ -778,6 +778,14 @@ class PlayerState: ObservableObject {
                 finalURLString = url
                 log("[PlayerV2] ⚠️ 百度本地代理创建失败，回退直连")
             }
+        } else if url.contains(".drive.quark.cn") {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "quark") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 夸克直链走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 夸克本地代理创建失败，回退直连")
+            }
         } else {
             finalURLString = url
         }
@@ -790,6 +798,7 @@ class PlayerState: ObservableObject {
             return
         }
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
+        let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
 
         if shouldUseCompatibilityEngine {
             log("[PlayerV2] 使用 VLC 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
@@ -846,6 +855,9 @@ class PlayerState: ObservableObject {
                         self.retryCurrentBaiduPlaybackAfterForbidden()
                         return
                     }
+                    if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
+                        self.log("[Quark] ⚠️ 夸克本地代理返回403，后续需要重新刷新 download_url")
+                    }
                     if self.isUnsupportedMediaError(nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[PlayerV2] ⚠️ 当前资源疑似 AVPlayer 不支持，建议后续使用兼容内核")
                         Task { @MainActor in
@@ -873,6 +885,8 @@ class PlayerState: ObservableObject {
                     if isBaiduLocalProxy && self.isHTTPForbidden(errorDesc: error.localizedDescription, underlyingDesc: "") {
                         self.log("[Baidu] ⚠️ 百度PCS播放中断疑似403，清理旧直链后重试一次")
                         self.retryCurrentBaiduPlaybackAfterForbidden()
+                    } else if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: error.localizedDescription, underlyingDesc: "") {
+                        self.log("[Quark] ⚠️ 夸克播放中断疑似403，当前版本将提示重新打开刷新直链")
                     }
                 }
             }
