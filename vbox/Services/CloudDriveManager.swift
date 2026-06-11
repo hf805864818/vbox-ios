@@ -53,6 +53,7 @@ class CloudDriveManager: ObservableObject {
     private let baiduIBoxPlayItemCacheKey = "baidu_ibox_play_item_cache_v1"
     private let baiduFileListCacheKey = "baidu_file_list_cache_v1"
     private let unifiedCloudPlayItemCacheKey = "cloud_play_item_cache_v1"
+    private let baiduRouteDiagnosticsKey = "baidu_route_diagnostics_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -128,6 +129,15 @@ class CloudDriveManager: ObservableObject {
         let storageBytes: Int
         let lastUpdatedAt: Date?
     }
+    struct BaiduRouteDiagnostic: Codable, Identifiable {
+        let id: UUID
+        let time: Date
+        let stage: String
+        let status: String
+        let detail: String
+        let fsId: String?
+        let fileName: String?
+    }
 
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
     private let baiduPlayCacheLock = NSLock()
@@ -148,6 +158,41 @@ class CloudDriveManager: ObservableObject {
         if let handler = CloudDriveManager.onLog {
             handler(msg)
         }
+    }
+
+    private func recordBaiduRouteDiagnostic(stage: String, status: String, detail: String, fsId: String? = nil, fileName: String? = nil) {
+        var items = recentBaiduRouteDiagnostics()
+        items.insert(
+            BaiduRouteDiagnostic(
+                id: UUID(),
+                time: Date(),
+                stage: stage,
+                status: status,
+                detail: detail,
+                fsId: fsId,
+                fileName: fileName
+            ),
+            at: 0
+        )
+        if items.count > 60 {
+            items = Array(items.prefix(60))
+        }
+        if let data = try? JSONEncoder().encode(items) {
+            defaults.set(data, forKey: baiduRouteDiagnosticsKey)
+        }
+    }
+
+    func recentBaiduRouteDiagnostics() -> [BaiduRouteDiagnostic] {
+        guard let data = defaults.data(forKey: baiduRouteDiagnosticsKey),
+              let items = try? JSONDecoder().decode([BaiduRouteDiagnostic].self, from: data) else {
+            return []
+        }
+        return items
+    }
+
+    func clearBaiduRouteDiagnostics() {
+        defaults.removeObject(forKey: baiduRouteDiagnosticsKey)
+        baiduLog("[Baidu-Diag] 已清空路链诊断记录")
     }
 
     private func baiduPlayCacheKey(shareURL: String, fsId: String, bduss: String, pcsCookie: String) -> String {
@@ -276,6 +321,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-Cache] 已清理播放缓存并保留 path：fsId=\(fsId), reason=\(reason)")
+        recordBaiduRouteDiagnostic(stage: "播放缓存", status: "失效清理", detail: "已清理旧 dlink/播放缓存，保留 path，原因：\(reason)", fsId: fsId)
     }
 
     private func baiduCachedPlayItem(for key: String) -> BaiduPlayItem? {
@@ -1064,17 +1110,21 @@ class CloudDriveManager: ObservableObject {
 
         if let cached = baiduCachedFileList(for: cacheKey) {
             baiduLog("[Baidu-iBox] ✅ 命中文件列表缓存：\(cached.count) 个文件")
+            recordBaiduRouteDiagnostic(stage: "文件列表", status: "缓存命中", detail: "命中百度文件列表缓存：\(cached.count) 个文件")
             return cached
         }
 
         if let files = try? await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie) {
             baiduStoreFileList(files, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker成功", detail: "Worker 返回 \(files.count) 个文件")
             return files
         }
 
         baiduLog("[Baidu-Worker] ⚠️ 文件列表代理失败，回退直连解析")
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker失败", detail: "文件列表代理失败，回退本机直连解析")
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
         baiduStoreFileList(context.files, for: cacheKey)
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机成功", detail: "本机解析返回 \(context.files.count) 个文件")
         return context.files
     }
 
@@ -1200,6 +1250,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-Worker] ✅ 成功获取播放地址：\(playURL.prefix(80))...")
+        recordBaiduRouteDiagnostic(stage: "Worker取链", status: "成功", detail: "Worker 返回播放地址", fsId: fsId)
 
         let workerPath = data["path"] as? String
         let workerFileName = data["file_name"] as? String
@@ -1232,6 +1283,7 @@ class CloudDriveManager: ObservableObject {
             pcsCookie: pcsCookie,
             workerHeaders: headers
         ) {
+            recordBaiduRouteDiagnostic(stage: "本机取链", status: "成功", detail: "Worker 返回 path 后，本机刷新 dlink 成功", fsId: fsId, fileName: workerFileName)
             if let cacheKey, let path = inferredPath, !(fsId ?? "").isEmpty {
                 let fileNameForCache = workerFileName.isEmpty ? (path.split(separator: "/").last.map(String.init) ?? "") : workerFileName
                 baiduStoreIBoxPlayItem(
@@ -1258,6 +1310,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-LocalPCS] ⚠️ 本机 DLNA/locatedownload 未成功，暂用 Worker 返回地址")
+        recordBaiduRouteDiagnostic(stage: "本机取链", status: "失败兜底", detail: "本机刷新 dlink 失败，使用 Worker 地址兜底", fsId: fsId, fileName: workerFileName)
         if let cacheKey, let path = inferredPath, !(fsId ?? "").isEmpty {
             let fileNameForCache = workerFileName.isEmpty ? (path.split(separator: "/").last.map(String.init) ?? "") : workerFileName
             baiduStoreIBoxPlayItem(
@@ -1299,6 +1352,7 @@ class CloudDriveManager: ObservableObject {
            let dlink = item.dlinkURL,
            !dlink.isEmpty {
             baiduLog("[Baidu-iBox] ✅ 命中已准备 dlink：fsId=\(fsId), source=\(item.source), engine=\(item.preferredEngine)")
+            recordBaiduRouteDiagnostic(stage: "iBox", status: "dlink命中", detail: "命中已准备 dlink，source=\(item.source), engine=\(item.preferredEngine)", fsId: fsId, fileName: item.fileName)
             baiduStoreIBoxPlayItem(
                 BaiduIBoxPlayItem(
                     shareURL: item.shareURL,
@@ -1322,6 +1376,7 @@ class CloudDriveManager: ObservableObject {
 
         guard !item.path.isEmpty else { return nil }
         baiduLog("[Baidu-iBox] ♻️ dlink 过期/缺失，用 PlayItem path 刷新：\(item.path)")
+        recordBaiduRouteDiagnostic(stage: "iBox", status: "path刷新", detail: "dlink 过期/缺失，使用 path 刷新：\(item.path)", fsId: fsId, fileName: item.fileName)
         let mergedCookie = baiduMergeCookieStrings([
             item.headers.first { $0.key.lowercased() == "cookie" }?.value ?? "",
             item.headers.first { $0.key.lowercased() == "x-baidu-pcs-cookie" }?.value ?? "",
@@ -1330,6 +1385,7 @@ class CloudDriveManager: ObservableObject {
         ])
         guard !mergedCookie.isEmpty else {
             baiduLog("[Baidu-iBox] ⚠️ path 刷新缺少 Cookie，回退 Worker")
+            recordBaiduRouteDiagnostic(stage: "iBox", status: "Cookie缺失", detail: "path 刷新缺少 Cookie，回退 Worker", fsId: fsId, fileName: item.fileName)
             return nil
         }
 
@@ -1338,6 +1394,7 @@ class CloudDriveManager: ObservableObject {
             refreshed = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
         } catch {
             baiduLog("[Baidu-iBox] ⚠️ DLNA 刷新失败，尝试 locatedownload：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "iBox", status: "mediainfo失败", detail: "path mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: item.fileName)
             refreshed = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
         }
 
@@ -1362,6 +1419,7 @@ class CloudDriveManager: ObservableObject {
         )
         baiduStorePlayResult(refreshed, for: cacheKey)
         baiduLog("[Baidu-iBox] ✅ path 刷新完成：\(item.path)")
+        recordBaiduRouteDiagnostic(stage: "iBox", status: "path刷新成功", detail: "path 刷新完成：\(item.path)", fsId: fsId, fileName: finalFileName)
         return refreshed
     }
 
@@ -1782,6 +1840,7 @@ class CloudDriveManager: ObservableObject {
         let cacheKey = baiduPlayCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
         if let cached = baiduCachedPlayResult(for: cacheKey) {
             baiduLog("[Baidu-Cache] ✅ 命中播放地址缓存 fsId=\(fsId)")
+            recordBaiduRouteDiagnostic(stage: "播放缓存", status: "命中", detail: "命中播放地址缓存", fsId: fsId)
             return cached
         }
 
@@ -1806,6 +1865,7 @@ class CloudDriveManager: ObservableObject {
         if let item = baiduCachedPlayItem(for: cacheKey), !item.path.isEmpty {
             do {
                 baiduLog("[Baidu-PlayItem] ✅ 命中 path 缓存，直接 mediainfo：\(item.path), hint=\(item.compatibilityHint)")
+                recordBaiduRouteDiagnostic(stage: "PlayItem", status: "path命中", detail: "命中旧 PlayItem path，开始刷新：\(item.path)", fsId: fsId, fileName: item.fileName)
                 let mergedCookie = baiduMergeCookieStrings([
                     item.headers.first { $0.key.lowercased() == "cookie" }?.value ?? "",
                     item.headers.first { $0.key.lowercased() == "x-baidu-pcs-cookie" }?.value ?? "",
@@ -1817,6 +1877,7 @@ class CloudDriveManager: ObservableObject {
                     result = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie)
                 } catch {
                     baiduLog("[Baidu-PlayItem] ⚠️ path mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)")
+                    recordBaiduRouteDiagnostic(stage: "PlayItem", status: "mediainfo失败", detail: "旧 path mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: item.fileName)
                     result = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
                 }
                 baiduStoreIBoxPlayItem(
@@ -1838,10 +1899,12 @@ class CloudDriveManager: ObservableObject {
                     for: cacheKey
                 )
                 baiduLog("[Baidu-iBox] ✅ 旧 PlayItem 已通过 path 刷新并升级为 iBox PlayItem")
+                recordBaiduRouteDiagnostic(stage: "PlayItem", status: "path刷新成功", detail: "旧 PlayItem 已刷新并升级为 iBox", fsId: fsId, fileName: item.fileName)
                 baiduStorePlayResult(result, for: cacheKey)
                 return result
             } catch {
                 baiduLog("[Baidu-PlayItem] ⚠️ path 缓存刷新失败，回退 Worker：\(error.localizedDescription)")
+                recordBaiduRouteDiagnostic(stage: "PlayItem", status: "path刷新失败", detail: "旧 path 刷新失败，回退 Worker：\(error.localizedDescription)", fsId: fsId, fileName: item.fileName)
             }
         }
 
@@ -1851,6 +1914,7 @@ class CloudDriveManager: ObservableObject {
             return result
         } catch {
             baiduLog("[Baidu-Worker] ❌ 指定文件播放代理失败：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "Worker取链", status: "失败", detail: "指定文件 Worker 播放失败：\(error.localizedDescription)", fsId: fsId)
             throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
         }
     }

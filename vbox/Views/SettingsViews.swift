@@ -637,6 +637,7 @@ struct CloudPlaybackCacheView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var baiduSummary = CloudDriveManager.shared.baiduPlaybackCacheSummary()
+    @State private var baiduDiagnostics = CloudDriveManager.shared.recentBaiduRouteDiagnostics()
     @State private var showClearAllAlert = false
 
     var body: some View {
@@ -644,6 +645,7 @@ struct CloudPlaybackCacheView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     baiduCacheCard
+                    baiduRouteDiagnosticCard
                     placeholderCard(type: .quark, note: "预留夸克 PlayItem/转码缓存清理入口")
                     placeholderCard(type: .ali, note: "预留阿里云盘播放缓存清理入口")
                     placeholderCard(type: .uc, note: "预留 UC 网盘播放缓存清理入口")
@@ -744,6 +746,83 @@ struct CloudPlaybackCacheView: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
     }
 
+    private var baiduRouteDiagnosticCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 20))
+                    .foregroundColor(Color(hex: "E11D48"))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("百度路链诊断")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text("显示最近文件列表、iBox、path、Worker、本机取链状态")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Button("清空") {
+                    cloudDriveManager.clearBaiduRouteDiagnostics()
+                    baiduDiagnostics = []
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.gray)
+            }
+
+            if baiduDiagnostics.isEmpty {
+                Text("暂无诊断记录。播放一次百度网盘资源后，这里会显示最近路链命中和失败原因。")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color.white.opacity(0.85))
+                    .cornerRadius(10)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(baiduDiagnostics.prefix(8)) { item in
+                        diagnosticRow(item)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
+    }
+
+    private func diagnosticRow(_ item: CloudDriveManager.BaiduRouteDiagnostic) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(item.stage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.black)
+                Text(item.status)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(statusColor(item.status))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(statusColor(item.status).opacity(0.12))
+                    .cornerRadius(6)
+                Spacer()
+                Text(formatDate(item.time))
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+            }
+            Text(item.detail)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+                .lineLimit(2)
+            if let fsId = item.fsId, !fsId.isEmpty {
+                Text("fsId：\(fsId)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+            }
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.85))
+        .cornerRadius(10)
+    }
+
     private func placeholderCard(type: CloudDriveManager.DriveType, note: String) -> some View {
         let summary = cloudDriveManager.cloudPlayItemSummary(for: type)
         return HStack(spacing: 12) {
@@ -795,6 +874,13 @@ struct CloudPlaybackCacheView: View {
 
     private func refreshSummary() {
         baiduSummary = cloudDriveManager.baiduPlaybackCacheSummary()
+        baiduDiagnostics = cloudDriveManager.recentBaiduRouteDiagnostics()
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        if status.contains("成功") || status.contains("命中") { return .green }
+        if status.contains("失败") || status.contains("缺失") { return .orange }
+        return Color(hex: "E11D48")
     }
 
     private func formatBytes(_ bytes: Int) -> String {
