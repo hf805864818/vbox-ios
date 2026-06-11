@@ -883,111 +883,235 @@ class CloudDriveManager: ObservableObject {
 
     func resolveQuarkPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
         print("[Quark] 开始解析: \(shareURL)")
-        let (shareId, pwdId) = try await quarkExtractShareInfo(shareURL: shareURL, cookie: cookie)
-        print("[Quark] shareId=\(shareId) pwdId=\(pwdId)")
+        let (pwdId, passcode) = quarkExtractShareInfo(shareURL: shareURL)
+        print("[Quark] pwdId=\(pwdId), passcode=\(passcode.isEmpty ? "无" : "已传递")")
+        guard !pwdId.isEmpty else {
+            throw DriveError.invalidShareURL
+        }
 
-        let shareToken = try await quarkGetShareToken(shareId: shareId, pwdId: pwdId, cookie: cookie)
-        print("[Quark] shareToken=\(shareToken.isEmpty ? "空" : "已获取")")
+        let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
+        print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
         let folderId = try await quarkEnsureFolder(cookie: cookie)
         print("[Quark] folderId=\(folderId.isEmpty ? "空" : folderId)")
 
-        let fileIds = try await quarkSaveShare(shareId: shareId, pwdId: pwdId, shareToken: shareToken, folderId: folderId, cookie: cookie)
+        let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: cookie)
+        print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
+
+        let fileIds = try await quarkSaveShare(
+            pwdId: pwdId,
+            stoken: shareToken,
+            file: sourceFile,
+            folderId: folderId,
+            cookie: cookie
+        )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
-        let playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
-        print("[Quark] ✅ 播放地址: \(playURL.prefix(80))")
+        let download = try await quarkGetDownloadURL(fileId: fileId, cookie: cookie)
+        let playURL: String
+        let source: String
+        if !download.url.isEmpty {
+            playURL = download.url
+            source = "download_url"
+        } else {
+            playURL = try await quarkGetPlayURL(fileId: fileId, cookie: cookie)
+            source = "v2-play"
+        }
+        print("[Quark] ✅ 播放地址 source=\(source), url=\(playURL.prefix(80))")
 
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 180)
+        scheduleCleanup(drive: .quark, fileIds: fileIds, token: cookie, delay: 20 * 60)
 
         return PlayResult(
             url: playURL,
-            headers: ["Cookie": cookie, "Referer": "https://pan.quark.cn/"],
+            headers: quarkPlaybackHeaders(cookie: cookie),
             driveType: .quark
         )
     }
 
-    private func quarkExtractShareInfo(shareURL: String, cookie: String) async throws -> (String, String) {
-        let shareId = shareURL.split(separator: "/").last?.split(separator: "?").first.map(String.init) ?? ""
-        var pwdId = ""
-        if let range = shareURL.range(of: #"pwd=([^&]+)"#, options: .regularExpression) {
-            pwdId = String(shareURL[range]).replacingOccurrences(of: "pwd=", with: "")
-        }
-        return (shareId, pwdId)
+    private struct QuarkShareFile {
+        let fid: String
+        let fileName: String
+        let shareFidToken: String
+        let pdirFid: String
+        let isDir: Bool
     }
 
-    private func quarkGetShareToken(shareId: String, pwdId: String, cookie: String) async throws -> String {
-        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/token")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+    private func quarkExtractShareInfo(shareURL: String) -> (pwdId: String, passcode: String) {
+        var pwdId = ""
+        if let url = URL(string: shareURL) {
+            let comps = url.path.split(separator: "/").map(String.init)
+            if let sIndex = comps.firstIndex(of: "s"), comps.count > sIndex + 1 {
+                pwdId = comps[sIndex + 1]
+            } else if let last = comps.last, !last.isEmpty {
+                pwdId = last
+            }
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let passcode = query.first(where: { ["pwd", "passcode", "password"].contains($0.name.lowercased()) })?.value ?? ""
+            return (pwdId, passcode)
+        }
+
+        let cleaned = shareURL
+            .replacingOccurrences(of: #".*/s/"#, with: "", options: .regularExpression)
+            .components(separatedBy: "?")
+            .first ?? shareURL
+        pwdId = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        var passcode = ""
+        if let range = shareURL.range(of: #"(pwd|passcode|password)=([^&]+)"#, options: .regularExpression) {
+            let text = String(shareURL[range])
+            passcode = text.components(separatedBy: "=").last ?? ""
+        }
+        return (pwdId, passcode)
+    }
+
+    private func quarkAPIURL(_ path: String, extra: [URLQueryItem] = []) -> URL {
+        var components = URLComponents(string: "https://drive-pc.quark.cn\(path)")!
+        components.queryItems = [
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "uc_param_str", value: "")
+        ] + extra
+        return components.url!
+    }
+
+    private func quarkSetCommonHeaders(_ request: inout URLRequest, cookie: String) {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        let body: [String: Any] = ["share_id": shareId, "pwd_id": pwdId]
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+    }
+
+    private func quarkPlaybackHeaders(cookie: String) -> [String: String] {
+        [
+            "Cookie": cookie,
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
+            "Referer": "https://pan.quark.cn/",
+            "Origin": "https://pan.quark.cn",
+            "Accept": "*/*"
+        ]
+    }
+
+    private func quarkGetShareToken(pwdId: String, passcode: String, cookie: String) async throws -> String {
+        let url = quarkAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let body: [String: Any] = ["pwd_id": pwdId, "passcode": passcode]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let st = dataObj["share_token"] as? String else { return "" }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("夸克分享 token 获取失败：\(message)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let st = dataObj["stoken"] as? String,
+              !st.isEmpty else {
+            throw DriveError.noPlayURL("夸克未返回 stoken")
+        }
         return st
     }
 
     private func quarkEnsureFolder(cookie: String) async throws -> String {
-        let listURL = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file/sort")!
+        let listURL = quarkAPIURL("/1/clouddrive/share/sharepage/dir", extra: [URLQueryItem(name: "aver", value: "1")])
         var req = URLRequest(url: listURL)
-        req.httpMethod = "POST"
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let listBody: [String: Any] = ["pdir_fid": "", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
-        req.httpBody = try JSONSerialization.data(withJSONObject: listBody)
+        req.httpMethod = "GET"
+        quarkSetCommonHeaders(&req, cookie: cookie)
         let (data, _) = try await session.data(for: req)
         if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let list = json["data"] as? [String: Any],
-           let files = list["list"] as? [[String: Any]] {
-            for file in files {
-                if let name = file["file_name"] as? String, name == "vbox播放",
-                   let fid = file["fid"] as? String { return fid }
-            }
+           let dataObj = json["data"] as? [String: Any],
+           let fid = dataObj["pdir_fid"] as? String,
+           !fid.isEmpty {
+            return fid
         }
-        let createURL = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file")!
-        var createReq = URLRequest(url: createURL)
-        createReq.httpMethod = "POST"
-        createReq.setValue(cookie, forHTTPHeaderField: "Cookie")
-        createReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let createBody: [String: Any] = ["pdir_fid": "", "file_name": "vbox播放", "dir": true, "dir_path": ""]
-        createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
-        let (createData, _) = try await session.data(for: createReq)
-        if let createJson = try JSONSerialization.jsonObject(with: createData) as? [String: Any],
-           let d = createJson["data"] as? [String: Any],
-           let fid = d["fid"] as? String { return fid }
-        return ""
+        throw DriveError.noPlayURL("夸克：无法获取转存目录")
     }
 
     private func quarkDeleteFiles(fileIds: [String], cookie: String) async {
         guard !fileIds.isEmpty else { return }
-        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file/trash")!
+        let url = quarkAPIURL("/1/clouddrive/file/delete")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["file_ids": fileIds, "trash": true]
+        quarkSetCommonHeaders(&req, cookie: cookie)
+        let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let _ = try? await session.data(for: req)
-        print("[CloudDrive] ✅ 夸克已删除 \(fileIds.count) 个转存文件")
+        print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
     }
 
-    private func quarkSaveShare(shareId: String, pwdId: String, shareToken: String, folderId: String, cookie: String) async throws -> [String] {
-        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/save")!
+    private func quarkFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> QuarkShareFile {
+        let files = try await quarkGetShareDetail(pwdId: pwdId, stoken: stoken, pdirFid: pdirFid, cookie: cookie)
+        if let playable = files.first(where: { !$0.isDir && quarkIsPlayableFileName($0.fileName) }) {
+            return playable
+        }
+        for dir in files where dir.isDir {
+            if let found = try? await quarkFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: dir.fid, cookie: cookie) {
+                return found
+            }
+        }
+        throw DriveError.noPlayURL("夸克分享内未找到可播放视频")
+    }
+
+    private func quarkGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> [QuarkShareFile] {
+        let url = quarkAPIURL("/1/clouddrive/share/sharepage/detail", extra: [
+            URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
+            URLQueryItem(name: "_fetch_banner", value: "1"),
+            URLQueryItem(name: "_fetch_total", value: "1"),
+            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_size", value: "100"),
+            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+            URLQueryItem(name: "force", value: "0"),
+            URLQueryItem(name: "pdir_fid", value: pdirFid),
+            URLQueryItem(name: "pwd_id", value: pwdId),
+            URLQueryItem(name: "stoken", value: stoken)
+        ])
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("夸克文件列表失败：\(message)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["list"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("夸克文件列表为空")
+        }
+        return list.compactMap { item in
+            let fid = item["fid"] as? String ?? ""
+            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+            let token = item["share_fid_token"] as? String ?? item["fid_token"] as? String ?? ""
+            let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
+            guard !fid.isEmpty, !name.isEmpty else { return nil }
+            return QuarkShareFile(fid: fid, fileName: name, shareFidToken: token, pdirFid: pdirFid, isDir: isDir)
+        }
+    }
+
+    private func quarkIsPlayableFileName(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "mp3", "m4a"].contains { lower.hasSuffix(".\($0)") }
+    }
+
+    private func quarkSaveShare(pwdId: String, stoken: String, file: QuarkShareFile, folderId: String, cookie: String) async throws -> [String] {
+        let url = quarkAPIURL("/1/clouddrive/share/sharepage/save", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        var body: [String: Any] = [
-            "share_id": shareId,
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let body: [String: Any] = [
+            "fid_list": [file.fid],
+            "fid_token_list": [file.shareFidToken],
+            "to_pdir_fid": folderId,
             "pwd_id": pwdId,
-            "to_pdir_fid": folderId
+            "stoken": stoken,
+            "pdir_fid": file.pdirFid,
+            "scene": "link"
         ]
-        if !shareToken.isEmpty { body["share_token"] = shareToken }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
@@ -1013,49 +1137,84 @@ class CloudDriveManager: ObservableObject {
         }
 
         if let d = json["data"] as? [String: Any] {
-            if let fileIds = d["file_ids"] as? [String] {
-                print("[Quark] ✅ 转存成功，file_ids: \(fileIds)")
-                return fileIds
+            let taskResp = d["task_resp"] as? [String: Any]
+            let taskData = taskResp?["data"] as? [String: Any]
+            let saveAs = taskData?["save_as"] as? [String: Any]
+            if let ids = saveAs?["save_as_top_fids"] as? [String], !ids.isEmpty {
+                print("[Quark] ✅ 转存成功，save_as_top_fids: \(ids)")
+                return ids
             }
-            if let fileIds = d["file_ids"] as? [Int] {
-                let stringIds = fileIds.map { String($0) }
-                print("[Quark] ✅ 转存成功，file_ids(Int): \(stringIds)")
-                return stringIds
+            if let ids = saveAs?["save_as_select_top_fids"] as? [String], !ids.isEmpty {
+                print("[Quark] ✅ 转存成功，save_as_select_top_fids: \(ids)")
+                return ids
             }
-            if let list = d["list"] as? [[String: Any]], let first = list.first {
-                if let fid = first["fid"] as? String {
-                    print("[Quark] ✅ 转存成功，从list获取fid: \(fid)")
-                    return [fid]
-                } else if let fid = first["fid"] as? Int {
-                    print("[Quark] ✅ 转存成功，从list获取fid(Int): \(fid)")
-                    return [String(fid)]
-                } else if let fileId = first["file_id"] as? String {
-                    return [fileId]
-                } else if let fileId = first["file_id"] as? Int {
-                    return [String(fileId)]
+            if let ids = d["file_ids"] as? [String], !ids.isEmpty {
+                return ids
+            }
+            if let list = d["list"] as? [[String: Any]], !list.isEmpty {
+                let ids = list.compactMap { $0["fid"] as? String ?? $0["file_id"] as? String }
+                if !ids.isEmpty {
+                    return ids
                 }
             }
         }
 
-        print("[Quark] ⚠️ 转存成功但未找到file_ids，返回shareId作为fallback")
-        return [shareId]
+        throw DriveError.noPlayURL("夸克转存成功但未返回已转存 fid")
+    }
+
+    private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String) {
+        let url = quarkAPIURL("/1/clouddrive/file/download")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["fids": [fileId]])
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("夸克 download_url 获取失败：\(message)")
+        }
+        guard let list = json["data"] as? [[String: Any]],
+              let first = list.first else {
+            throw DriveError.noPlayURL("夸克未返回 download_url 数据")
+        }
+        let downloadURL = first["download_url"] as? String ?? ""
+        let fileName = first["file_name"] as? String ?? ""
+        return (downloadURL, fileName)
     }
 
     private func quarkGetPlayURL(fileId: String, cookie: String) async throws -> String {
-        let url = URL(string: "https://drive-pc.quark.cn/1/clouddrive/file/v2/play")!
+        let url = quarkAPIURL("/1/clouddrive/file/v2/play")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        let body: [String: Any] = ["file_id": fileId]
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let body: [String: Any] = [
+            "fid": fileId,
+            "resolutions": "normal,low,high,super,2k,4k",
+            "supports": "fmp4,m3u8"
+        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let playURL = json["play_url"] as? String else {
-            throw DriveError.noPlayURL("夸克: 未返回播放地址")
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
         }
-        return playURL
+        if let dataObj = json["data"] as? [String: Any],
+           let videos = dataObj["video_list"] as? [[String: Any]] {
+            for item in videos {
+                guard (item["accessable"] as? Bool) != false,
+                      let info = item["video_info"] as? [String: Any],
+                      let url = info["url"] as? String,
+                      !url.isEmpty else { continue }
+                return url
+            }
+        }
+        if let playURL = json["play_url"] as? String, !playURL.isEmpty {
+            return playURL
+        }
+        throw DriveError.noPlayURL("夸克: 未返回可播放地址")
     }
 
     // MARK: - 百度网盘
