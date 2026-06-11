@@ -54,28 +54,29 @@ jobs:
         run: |
           git clone --depth 1 --branch "$MPVKIT_REF" "$MPVKIT_REPO" mpvkit-build/MPVKit
           git -C mpvkit-build/MPVKit rev-parse --short HEAD
-          xcodebuild -list -packagePath mpvkit-build/MPVKit
+          cd mpvkit-build/MPVKit
+          xcodebuild -list
 
       - name: 🏗️ Archive MPVKit for iOS device
+        working-directory: mpvkit-build/MPVKit
         run: |
           xcodebuild archive \
-            -packagePath mpvkit-build/MPVKit \
             -scheme "$MPVKIT_PRODUCT" \
             -destination "generic/platform=iOS" \
-            -archivePath "$PWD/mpvkit-build/archives/ios.xcarchive" \
-            -derivedDataPath "$PWD/mpvkit-build/DerivedData-iOS" \
+            -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/ios.xcarchive" \
+            -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iOS" \
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
             ENABLE_BITCODE=NO
 
       - name: 🏗️ Archive MPVKit for iOS simulator
+        working-directory: mpvkit-build/MPVKit
         run: |
           xcodebuild archive \
-            -packagePath mpvkit-build/MPVKit \
             -scheme "$MPVKIT_PRODUCT" \
             -destination "generic/platform=iOS Simulator" \
-            -archivePath "$PWD/mpvkit-build/archives/isimulator.xcarchive" \
-            -derivedDataPath "$PWD/mpvkit-build/DerivedData-iSimulator" \
+            -archivePath "$GITHUB_WORKSPACE/mpvkit-build/archives/isimulator.xcarchive" \
+            -derivedDataPath "$GITHUB_WORKSPACE/mpvkit-build/DerivedData-iSimulator" \
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
             ENABLE_BITCODE=NO
