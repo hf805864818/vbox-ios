@@ -16,14 +16,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 "$SCRIPT_DIR/validate-xcframework.sh" "$XCFRAMEWORK_PATH" "$EXPECTED_NAME"
 
 mkdir -p "$OUTPUT_DIR"
+ABS_OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 ABS_XCFRAMEWORK="$(cd "$(dirname "$XCFRAMEWORK_PATH")" && pwd)/$(basename "$XCFRAMEWORK_PATH")"
 BASE_NAME="$(basename "$ABS_XCFRAMEWORK" .xcframework)"
-ZIP_PATH="$OUTPUT_DIR/${BASE_NAME}.xcframework.zip"
+ZIP_PATH="$ABS_OUTPUT_DIR/${BASE_NAME}.xcframework.zip"
 
 rm -f "$ZIP_PATH"
 (
   cd "$(dirname "$ABS_XCFRAMEWORK")"
-  ditto -c -k --sequesterRsrc --keepParent "$(basename "$ABS_XCFRAMEWORK")" "$REPO_ROOT/$ZIP_PATH"
+  ditto -c -k --sequesterRsrc --keepParent "$(basename "$ABS_XCFRAMEWORK")" "$ZIP_PATH"
 )
 
 echo "📦 已打包: $ZIP_PATH"

@@ -3,3 +3,5 @@ Build/
 *.xcuserdata
 *.ipa
 *.zip
+mpv-source-build/
+mpv-artifacts/

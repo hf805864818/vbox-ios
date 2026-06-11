@@ -4,14 +4,21 @@
 
 ## 当前分支目标
 
-当前第一版先提供两类能力：
+当前分支提供两类能力：
 
 ```text
 1. 验证并打包已有 MPVKit.xcframework / libmpv.xcframework
-2. 预留从源码编译 libmpv.xcframework 的入口
+2. 从源码尝试编译 libmpv.xcframework
 ```
 
-完整从源码编译 `libmpv.xcframework` 需要同时处理 FFmpeg、libass、freetype、harfbuzz、fribidi、zlib 等依赖，后续需要单独迭代。
+源码模式会先编译 `FFmpeg`，再通过 `meson` 编译 `mpv/libmpv`，目标 slice 为：
+
+```text
+ios-arm64
+ios-arm64-simulator
+```
+
+说明：MPV 源码构建链路很重，第一次跑 Actions 可能还需要根据失败日志调整 Meson 选项或补依赖。脚本已经保留 `MPV_EXTRA_MESON_OPTIONS` 用于后续快速修正。
 
 ## 推荐产物
 
@@ -30,7 +37,7 @@ package-xcframework.sh
   将 .xcframework 打包为 zip，输出校验信息，供 Actions 上传 artifact 或 Release。
 
 build-libmpv-ios.sh
-  从源码构建 libmpv 的预留入口。当前不会假装完成源码编译，后续补齐依赖构建链。
+  从源码构建 FFmpeg + libmpv，并合成包含 ios-arm64 / ios-arm64-simulator 的 libmpv.xcframework。
 ```
 
 ## GitHub Actions
@@ -48,7 +55,7 @@ package-prebuilt
   从 URL 下载 zip/tar/xcframework，验证后重新打包上传 artifact。
 
 source-build-libmpv
-  预留源码编译入口，后续补齐后可输出 libmpv.xcframework。
+  源码编译 libmpv.xcframework，输出 zip 和 sha256。
 ```
 
 ## 为什么先做 package-prebuilt
