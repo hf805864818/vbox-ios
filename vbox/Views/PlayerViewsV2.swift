@@ -10,6 +10,8 @@ import MobileVLCKit
 extension Notification.Name {
     static let vboxVLCPlay = Notification.Name("vbox.vlc.play")
     static let vboxVLCPause = Notification.Name("vbox.vlc.pause")
+    static let vboxVLCSeek = Notification.Name("vbox.vlc.seek")
+    static let vboxVLCSpeed = Notification.Name("vbox.vlc.speed")
 }
 
 // 屏幕方向辅助类
@@ -269,6 +271,18 @@ class PlayerState: ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        if compatibilityURL != nil {
+            guard duration.isFinite, duration > 0 else { return }
+            let target = max(0, min(seconds, duration))
+            isSeeking = true
+            seekPreviewTime = target
+            currentTime = target
+            isLoading = false
+            log("[PlayerV2] VLC 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
+            NotificationCenter.default.post(name: .vboxVLCSeek, object: nil, userInfo: ["seconds": target])
+            isSeeking = false
+            return
+        }
         guard let player, duration.isFinite, duration > 0 else { return }
         let target = max(0, min(seconds, duration))
         let cmTime = CMTime(seconds: target, preferredTimescale: 600)
@@ -316,6 +330,17 @@ class PlayerState: ObservableObject {
             NotificationCenter.default.post(name: .vboxVLCPlay, object: nil)
         }
         isPlaying.toggle()
+    }
+
+    func changePlaybackSpeed(_ speed: Double) {
+        playbackSpeed = speed
+        if let player {
+            player.rate = isPlaying ? Float(speed) : 0
+        }
+        if compatibilityURL != nil {
+            NotificationCenter.default.post(name: .vboxVLCSpeed, object: nil, userInfo: ["speed": speed])
+            log("[PlayerV2] VLC 倍速切换：\(String(format: "%.2f", speed))X")
+        }
     }
 
     func changeQuality(index: Int) {
@@ -1474,7 +1499,7 @@ struct PlayerContainerView: View {
             // 视频层（如果有播放器）
             if let url = playerState.compatibilityURL {
                 #if canImport(MobileVLCKit)
-                VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders)
+                VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                     .ignoresSafeArea()
                 #else
                 VStack(spacing: 10) {
@@ -1832,7 +1857,7 @@ struct PlayerControlsView: View {
         .overlay(
             SidePanelView(isPresented: $playerState.showSettings, title: "播放设置") {
                 PlayerSettingsPanelV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
-                    player?.rate = Float(speed)
+                    playerState.changePlaybackSpeed(speed)
                 })
             }
         )
@@ -1909,9 +1934,10 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
 struct VLCPlayerRepresentableV2: UIViewRepresentable {
     let url: URL
     let headers: [String: String]
+    @ObservedObject var playerState: PlayerState
 
     func makeCoordinator() -> VLCPlayerCoordinatorV2 {
-        VLCPlayerCoordinatorV2()
+        VLCPlayerCoordinatorV2(playerState: playerState)
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -1934,9 +1960,13 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
     final class VLCPlayerCoordinatorV2 {
         private let mediaPlayer = VLCMediaPlayer()
         private var observers: [NSObjectProtocol] = []
+        private var progressTimer: Timer?
+        private weak var playerState: PlayerState?
+        private var didFinish = false
         var currentURL: URL?
 
-        init() {
+        init(playerState: PlayerState) {
+            self.playerState = playerState
             observers.append(
                 NotificationCenter.default.addObserver(forName: .vboxVLCPlay, object: nil, queue: .main) { [weak self] _ in
                     self?.mediaPlayer.play()
@@ -1947,10 +1977,23 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
                     self?.mediaPlayer.pause()
                 }
             )
+            observers.append(
+                NotificationCenter.default.addObserver(forName: .vboxVLCSeek, object: nil, queue: .main) { [weak self] note in
+                    guard let seconds = note.userInfo?["seconds"] as? Double else { return }
+                    self?.seek(to: seconds)
+                }
+            )
+            observers.append(
+                NotificationCenter.default.addObserver(forName: .vboxVLCSpeed, object: nil, queue: .main) { [weak self] note in
+                    guard let speed = note.userInfo?["speed"] as? Double else { return }
+                    self?.mediaPlayer.rate = Float(speed)
+                }
+            )
         }
 
         deinit {
             observers.forEach { NotificationCenter.default.removeObserver($0) }
+            progressTimer?.invalidate()
         }
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
@@ -1969,12 +2012,43 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             }
             mediaPlayer.media = media
             mediaPlayer.play()
+            mediaPlayer.rate = Float(playerState?.playbackSpeed ?? 1.0)
+            didFinish = false
+            startProgressTimer()
         }
 
         func stop() {
+            progressTimer?.invalidate()
+            progressTimer = nil
             mediaPlayer.stop()
             mediaPlayer.drawable = nil
             currentURL = nil
+        }
+
+        private func seek(to seconds: Double) {
+            let duration = Double(mediaPlayer.media?.length.intValue ?? 0) / 1000.0
+            guard duration.isFinite, duration > 0 else { return }
+            mediaPlayer.position = Float(max(0, min(seconds / duration, 1)))
+        }
+
+        private func startProgressTimer() {
+            progressTimer?.invalidate()
+            progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                let current = Double(self.mediaPlayer.time.intValue) / 1000.0
+                let total = Double(self.mediaPlayer.media?.length.intValue ?? 0) / 1000.0
+                guard current.isFinite, total.isFinite, total > 0 else { return }
+
+                self.playerState?.currentTime = max(0, current)
+                self.playerState?.duration = max(0, total)
+
+                if !self.didFinish, current >= max(0, total - 0.8), total > 1 {
+                    self.didFinish = true
+                    self.playerState?.isPlaying = false
+                    self.playerState?.currentTime = total
+                    self.playerState?.log("[PlayerV2] VLC 播放结束")
+                }
+            }
         }
     }
 }
