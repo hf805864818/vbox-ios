@@ -283,7 +283,7 @@ struct SettingsView: View {
 
     private func driveTokenRow(index: Int, token: DriveToken) -> some View {
         HStack {
-            Image(systemName: iconForDriveType(CloudDriveManager.DriveType(rawValue: token.type) ?? .ali))
+            Image(systemName: iconForDriveType(token.type))
                 .foregroundColor(Color(hex: "E11D48")).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
@@ -632,7 +632,8 @@ struct CloudAuthCenterView: View {
     }
 
     private func iconForDriveTokenType(_ type: String) -> String {
-        iconForDriveType(CloudDriveManager.DriveType(rawValue: type) ?? .ali)
+        guard let driveType = CloudDriveManager.DriveType(rawValue: type) else { return "cloud.fill" }
+        return iconForDriveType(driveType)
     }
 
     private var quarkAccountCard: some View {
