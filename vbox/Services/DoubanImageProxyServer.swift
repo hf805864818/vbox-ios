@@ -18,6 +18,8 @@ final class DoubanImageProxyServer {
         let createdAt: Date
     }
 
+    private static let baiduPCSUserAgent = "netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
+
     private let allowedHosts: Set<String> = [
         "img1.doubanio.com",
         "img2.doubanio.com",
@@ -105,7 +107,7 @@ final class DoubanImageProxyServer {
                 provider: provider,
                 createdAt: Date()
             )
-            print("✅ 注册本地视频代理[\(provider)]: \(id), host=\(targetURL.host ?? "")")
+            print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(Self.hasHeader(headers, named: "Cookie") || Self.hasHeader(headers, named: "X-Baidu-Pcs-Cookie")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
         }
 
         var components = URLComponents()
@@ -201,19 +203,26 @@ final class DoubanImageProxyServer {
 
     private func routeStream(_ pathAndQuery: String, requestText: String, on connection: NWConnection) {
         guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
-              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
-              let item = streamItems[id]
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value
         else {
+            print("❌ 本地视频代理请求缺少 id: \(pathAndQuery)")
+            send(statusCode: 404, body: Data("Stream Not Found".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        guard let item = streamItems[id] else {
+            print("❌ 本地视频代理未找到注册项: id=\(id), active=\(streamItems.count)")
             send(statusCode: 404, body: Data("Stream Not Found".utf8), contentType: "text/plain", on: connection)
             return
         }
 
         let requestHeaders = parseRequestHeaders(requestText)
         let incomingRange = requestHeaders["range"]
-        fetchStream(item: item, incomingRange: incomingRange, on: connection)
+        print("📥 本地视频代理收到请求[\(item.provider)]: id=\(id), range=\(incomingRange ?? "无"), path=\(pathAndQuery)")
+        fetchStream(item: item, id: id, incomingRange: incomingRange, on: connection)
     }
 
-    private func fetchStream(item: StreamItem, incomingRange: String?, on connection: NWConnection) {
+    private func fetchStream(item: StreamItem, id: String, incomingRange: String?, on connection: NWConnection) {
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 30
 
@@ -224,10 +233,13 @@ final class DoubanImageProxyServer {
         }
 
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
-            request.setValue("netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;", forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
         }
         if request.value(forHTTPHeaderField: "Referer") == nil {
             request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        }
+        if request.value(forHTTPHeaderField: "Origin") == nil {
+            request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
@@ -235,36 +247,18 @@ final class DoubanImageProxyServer {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
 
-        print("📡 本地视频代理请求[\(item.provider)]: range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? "")")
+        print("📡 本地视频代理上游请求[\(item.provider)]: id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self else {
-                connection.cancel()
-                return
-            }
-
-            if let error {
-                print("❌ 本地视频代理拉流失败: \(error.localizedDescription)")
-                self.send(statusCode: 502, body: Data("Bad Gateway".utf8), contentType: "text/plain", on: connection)
-                return
-            }
-
-            guard let data else {
-                self.send(statusCode: 502, body: Data("Empty Stream".utf8), contentType: "text/plain", on: connection)
-                return
-            }
-
-            let http = response as? HTTPURLResponse
-            let statusCode = http?.statusCode ?? 200
-            let headers = http?.allHeaderFields ?? [:]
-            print("📥 本地视频代理响应: status=\(statusCode), bytes=\(data.count), range=\(http?.value(forHTTPHeaderField: "Content-Range") ?? "无")")
-            self.sendStream(statusCode: statusCode, headers: headers, body: data, on: connection)
-        }.resume()
+        StreamForwarder(
+            provider: item.provider,
+            id: id,
+            connection: connection
+        ).start(request: request)
     }
 
     private func normalizedRange(_ raw: String?) -> String? {
         guard let raw, raw.lowercased().hasPrefix("bytes=") else {
-            return "bytes=0-2097151"
+            return "bytes=0-1048575"
         }
 
         let text = raw.replacingOccurrences(of: "bytes=", with: "")
@@ -279,7 +273,7 @@ final class DoubanImageProxyServer {
             return "bytes=\(start)-\(end)"
         }
 
-        let end = start + 2 * 1024 * 1024 - 1
+        let end = start + 1024 * 1024 - 1
         return "bytes=\(start)-\(end)"
     }
 
@@ -337,7 +331,7 @@ final class DoubanImageProxyServer {
     }
 
     private func send(statusCode: Int, body: Data, contentType: String, on connection: NWConnection) {
-        let reason = reasonPhrase(for: statusCode)
+        let reason = Self.reasonPhrase(for: statusCode)
         let header = """
         HTTP/1.1 \(statusCode) \(reason)\r
         Content-Type: \(contentType)\r
@@ -357,7 +351,7 @@ final class DoubanImageProxyServer {
     }
 
     private func sendStream(statusCode: Int, headers: [AnyHashable: Any], body: Data, on connection: NWConnection) {
-        let reason = reasonPhrase(for: statusCode)
+        let reason = Self.reasonPhrase(for: statusCode)
         let contentType = (headers["Content-Type"] as? String)
             ?? (headers["content-type"] as? String)
             ?? "application/octet-stream"
@@ -388,6 +382,50 @@ final class DoubanImageProxyServer {
         connection.send(content: response, completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+
+    fileprivate static func streamResponseHeader(statusCode: Int, headers: [AnyHashable: Any]) -> Data {
+        let reason = Self.reasonPhrase(for: statusCode)
+        let contentType = headerValue(headers, "Content-Type") ?? "application/octet-stream"
+        let contentRange = headerValue(headers, "Content-Range")
+        let acceptRanges = headerValue(headers, "Accept-Ranges") ?? "bytes"
+        let contentLength = headerValue(headers, "Content-Length")
+
+        var header = """
+        HTTP/1.1 \(statusCode) \(reason)\r
+        Content-Type: \(contentType)\r
+        Accept-Ranges: \(acceptRanges)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        """
+
+        if let contentLength {
+            header += "Content-Length: \(contentLength)\r\n"
+        }
+        if let contentRange {
+            header += "Content-Range: \(contentRange)\r\n"
+        }
+
+        header += "\r\n"
+        return Data(header.utf8)
+    }
+
+    fileprivate static func headerValue(_ headers: [AnyHashable: Any], _ name: String) -> String? {
+        if let direct = headers[name] as? String {
+            return direct
+        }
+        let lower = name.lowercased()
+        for (key, value) in headers {
+            if String(describing: key).lowercased() == lower {
+                return String(describing: value)
+            }
+        }
+        return nil
+    }
+
+    private static func hasHeader(_ headers: [String: String], named name: String) -> Bool {
+        let lower = name.lowercased()
+        return headers.contains { $0.key.lowercased() == lower && !$0.value.isEmpty }
     }
 
     private func isAllowedDoubanImageURL(_ rawURL: String) -> Bool {
@@ -432,20 +470,152 @@ final class DoubanImageProxyServer {
         }
     }
 
-    private func reasonPhrase(for statusCode: Int) -> String {
+    fileprivate static func reasonPhrase(for statusCode: Int) -> String {
         switch statusCode {
         case 200:
             return "OK"
+        case 206:
+            return "Partial Content"
+        case 301:
+            return "Moved Permanently"
+        case 302:
+            return "Found"
         case 400:
             return "Bad Request"
         case 403:
             return "Forbidden"
+        case 404:
+            return "Not Found"
         case 405:
             return "Method Not Allowed"
+        case 416:
+            return "Range Not Satisfiable"
         case 502:
             return "Bad Gateway"
         default:
-            return "OK"
+            return "HTTP Status"
         }
+    }
+}
+
+private final class StreamForwarder: NSObject, URLSessionDataDelegate {
+    private let provider: String
+    private let id: String
+    private let connection: NWConnection
+    private let callbackQueue = OperationQueue()
+    private var session: URLSession?
+    private var responseStarted = false
+    private var statusCode = 0
+    private var receivedBytes = 0
+    private var preview = Data()
+    private var shouldPreviewBody = false
+
+    init(provider: String, id: String, connection: NWConnection) {
+        self.provider = provider
+        self.id = id
+        self.connection = connection
+        self.callbackQueue.maxConcurrentOperationCount = 1
+        super.init()
+    }
+
+    func start(request: URLRequest) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 45
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: callbackQueue)
+        self.session = session
+        session.dataTask(with: request).resume()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            print("❌ 本地视频代理上游响应无效[\(provider)]: id=\(id)")
+            sendErrorAndClose(statusCode: 502, message: "Invalid Upstream Response")
+            completionHandler(.cancel)
+            return
+        }
+
+        statusCode = http.statusCode
+        let headers = http.allHeaderFields
+        let contentType = DoubanImageProxyServer.headerValue(headers, "Content-Type") ?? "无"
+        let contentLength = DoubanImageProxyServer.headerValue(headers, "Content-Length") ?? "\(response.expectedContentLength)"
+        let contentRange = DoubanImageProxyServer.headerValue(headers, "Content-Range") ?? "无"
+        let location = DoubanImageProxyServer.headerValue(headers, "Location") ?? "无"
+        shouldPreviewBody = statusCode >= 400 || contentType.lowercased().contains("text/html") || contentType.lowercased().contains("json")
+
+        print("📥 本地视频代理上游响应[\(provider)]: id=\(id), status=\(statusCode), contentType=\(contentType), contentLength=\(contentLength), contentRange=\(contentRange), location=\(location)")
+
+        let responseHeader = DoubanImageProxyServer.streamResponseHeader(statusCode: statusCode, headers: headers)
+        responseStarted = true
+        connection.send(content: responseHeader, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 本地视频代理响应头发送失败[\(self.provider)]: id=\(self.id), error=\(error)")
+            } else {
+                print("📤 本地视频代理已返回响应头[\(self.provider)]: id=\(self.id), status=\(self.statusCode)")
+            }
+        })
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        receivedBytes += data.count
+        if shouldPreviewBody && preview.count < 512 {
+            preview.append(data.prefix(max(0, 512 - preview.count)))
+        }
+
+        connection.send(content: data, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 本地视频代理数据发送失败[\(self.provider)]: id=\(self.id), error=\(error)")
+            }
+        })
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer {
+            session.invalidateAndCancel()
+            self.session = nil
+        }
+
+        if let error {
+            print("❌ 本地视频代理拉流失败[\(provider)]: id=\(id), error=\(error.localizedDescription), receivedBytes=\(receivedBytes)")
+            if !responseStarted {
+                sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+                return
+            }
+        }
+
+        if shouldPreviewBody, !preview.isEmpty, let text = String(data: preview, encoding: .utf8) {
+            print("⚠️ 本地视频代理上游错误体预览[\(provider)]: id=\(id), preview=\(text.prefix(240))")
+        }
+
+        print("✅ 本地视频代理转发完成[\(provider)]: id=\(id), status=\(statusCode), bytes=\(receivedBytes)")
+        connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
+    }
+
+    private func sendErrorAndClose(statusCode: Int, message: String) {
+        let body = Data(message.utf8)
+        let header = """
+        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
+        Content-Type: text/plain\r
+        Content-Length: \(body.count)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        \r
+
+        """
+
+        var response = Data(header.utf8)
+        response.append(body)
+        connection.send(content: response, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
     }
 }
