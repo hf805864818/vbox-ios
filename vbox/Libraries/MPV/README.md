@@ -10,6 +10,25 @@
 vbox/Libraries/MPV/MPVKit.xcframework
 ```
 
+当前已接入：
+
+```text
+MPVKit.xcframework
+```
+
+这是基于 `mpvkit/MPVKit` 封装出的 wrapper framework，模块名为：
+
+```swift
+import MPVKit
+```
+
+该 framework 是动态 framework，Xcode 工程中使用：
+
+```text
+Link Binary With Libraries
+Embed & Sign
+```
+
 后续如果要接“自由度”内核，再放置：
 
 ```text

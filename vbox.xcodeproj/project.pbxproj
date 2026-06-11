@@ -47,6 +47,8 @@
 		A10015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
 		A10020 /* js in Resources */ = {isa = PBXBuildFile; fileRef = B10030 /* js */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
+		A13001 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; };
+		A13002 /* MPVKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
@@ -107,6 +109,7 @@
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
+		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
 		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
@@ -173,6 +176,7 @@
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
+				B13001 /* MPVKit.xcframework */,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
@@ -269,6 +273,7 @@
 			buildPhases = (
 				P20001 /* Sources */,
 				P20003 /* Frameworks */,
+				P20004 /* Embed Frameworks */,
 				P20002 /* Resources */,
 			);
 			buildRules = ();
@@ -279,6 +284,20 @@
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		P20004 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				A13002 /* MPVKit.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		P20001 /* Sources */ = {
@@ -342,6 +361,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016 /* libquickjs.a in Frameworks */,
+				A13001 /* MPVKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -414,8 +434,9 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 142;
+					CURRENT_PROJECT_VERSION = 143;
 					GENERATE_INFOPLIST_FILE = YES;
+					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
 					INFOPLIST_KEY_CFBundleDisplayName = vbox;
@@ -426,7 +447,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.142;
+					MARKETING_VERSION = 3.143;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -443,8 +464,9 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 142;
+					CURRENT_PROJECT_VERSION = 143;
 					GENERATE_INFOPLIST_FILE = YES;
+					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
 					INFOPLIST_KEY_CFBundleDisplayName = vbox;
@@ -455,7 +477,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.142;
+					MARKETING_VERSION = 3.143;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
