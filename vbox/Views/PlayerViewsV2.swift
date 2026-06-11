@@ -433,6 +433,17 @@ class PlayerState: ObservableObject {
         }
     }
 
+    private func logDrivePlayResult(_ result: PlayResult) {
+        if result.driveType == .quark {
+            log("[Quark] 主线路：\(result.source ?? "未知")，host=\(URL(string: result.url)?.host ?? "unknown")")
+            if let fallbackURL = result.fallbackURL {
+                log("[Quark] 兜底线路：\(result.fallbackSource ?? "未知")，host=\(URL(string: fallbackURL)?.host ?? "unknown")")
+            } else {
+                log("[Quark] 兜底线路：暂无")
+            }
+        }
+    }
+
     private func prefetchNextBaiduFile(after index: Int) {
         let nextIndex = index + 1
         guard nextIndex < baiduFileList.count else { return }
@@ -607,6 +618,7 @@ class PlayerState: ObservableObject {
                                 log("[PlayerV2] 尝试播放 \(driveType.displayName)")
                                 do {
                                     let result = try await CloudDriveManager.shared.resolvePlayURL(from: url)
+                                    logDrivePlayResult(result)
                                     await playDriveVideo(url: result.url, headers: result.headers)
                                     return
                                 } catch {
@@ -648,6 +660,7 @@ class PlayerState: ObservableObject {
                         if !tokens.isEmpty {
                             do {
                                 let playResult = try await CloudDriveManager.shared.resolvePlayURL(from: link.url)
+                                logDrivePlayResult(playResult)
                                 await playDriveVideo(url: playResult.url, headers: playResult.headers)
                                 return
                             } catch {
@@ -737,6 +750,7 @@ class PlayerState: ObservableObject {
         
         do {
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+            logDrivePlayResult(result)
             await playDriveVideo(url: result.url, headers: result.headers)
         } catch let error as DriveError {
             let msg: String
@@ -1298,6 +1312,7 @@ class PlayerState: ObservableObject {
             do {
                 log("[PlayerV2] ⏳ 正在调用 \(driveType.displayName) API 解析...")
                 let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
+                logDrivePlayResult(result)
                 log("[PlayerV2] ✅ 网盘解析成功! 播放地址: \(result.url.prefix(80))...")
                 log("[PlayerV2] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
                 if URL(string: result.url) != nil {
