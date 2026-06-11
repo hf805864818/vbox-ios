@@ -778,7 +778,7 @@ class PlayerState: ObservableObject {
                 finalURLString = url
                 log("[PlayerV2] ⚠️ 百度本地代理创建失败，回退直连")
             }
-        } else if url.contains(".drive.quark.cn") {
+        } else if isQuarkDirectPlaybackURL(url) {
             if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "quark") {
                 finalURLString = localURL.absoluteString
                 log("[PlayerV2] 夸克直链走本地代理: \(finalURLString)")
@@ -857,6 +857,16 @@ class PlayerState: ObservableObject {
                     }
                     if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[Quark] ⚠️ 夸克本地代理返回403，后续需要重新刷新 download_url")
+                    }
+                    // 夸克常见失败：NSURLErrorDomain code=-1 / "The network connection was lost"。
+                    // 一般是上游签名失效或 UA/Cookie 不匹配被风控，提示用户重新进入触发刷新。
+                    if isQuarkLocalProxy && self.isQuarkConnectionLost(error: nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
+                        self.log("[Quark] ⚠️ 夸克播放连接被中断 (network connection lost)，疑似签名/风控，建议返回重新播放刷新直链")
+                        Task { @MainActor in
+                            self.loadError = "夸克直链已失效或被风控，请返回后再次进入播放"
+                            self.isLoading = false
+                        }
+                        return
                     }
                     if self.isUnsupportedMediaError(nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[PlayerV2] ⚠️ 当前资源疑似 AVPlayer 不支持，建议后续使用兼容内核")
@@ -938,6 +948,39 @@ class PlayerState: ObservableObject {
     private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
         let text = "\(errorDesc) \(underlyingDesc)".lowercased()
         return text.contains("403") || text.contains("forbidden")
+    }
+
+    /// 判断是否是夸克侧常见的"连接被中断"。AVPlayer 在签名失效或 TLS 被风控关闭时通常返回
+    /// NSURLErrorDomain code=-1（NSURLErrorUnknown）或 -1005（NSURLErrorNetworkConnectionLost），
+    /// 描述里会带 "network connection was lost" / "未知错误"。
+    private func isQuarkConnectionLost(error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {
+        let text = "\(errorDesc) \(underlyingDesc)".lowercased()
+        if let error, error.domain == NSURLErrorDomain {
+            if [-1, -1005, NSURLErrorNetworkConnectionLost, NSURLErrorCannotConnectToHost].contains(error.code) {
+                return true
+            }
+        }
+        return text.contains("network connection was lost")
+            || text.contains("connection was lost")
+            || text.contains("未知错误")
+    }
+
+    /// 夸克 download_url 实际跳转后域名波动较大（drive、dl、cdn、pcs、video 等多种 host）。
+    /// 这里只要落在 *.quark.cn 且不属于 API/页面域，都认为是真实播放直链，需要走本地代理补 Header。
+    private func isQuarkDirectPlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        guard host == "quark.cn" || host.hasSuffix(".quark.cn") else { return false }
+        let excluded: Set<String> = [
+            "pan.quark.cn",
+            "drive-pc.quark.cn",
+            "drive-h.quark.cn",
+            "drive-m.quark.cn",
+            "uop.quark.cn",
+            "su.quark.cn",
+            "www.quark.cn"
+        ]
+        return !excluded.contains(host)
     }
 
     private func isUnsupportedMediaError(_ error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {

@@ -1026,12 +1026,15 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkPlaybackHeaders(cookie: String) -> [String: String] {
+        // 抓包显示 PC 客户端拉取 download_url 直链时用的就是 quark-cloud-drive 的 PC UA。
+        // 切换为移动 UA 容易让签名链返回 403/未知错误，这里统一与 API 阶段保持一致。
         [
             "Cookie": cookie,
-            "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
             "Referer": "https://pan.quark.cn/",
-            "X-Device-Id": "2f49b7e148714010b615bfba561ae679",
-            "Accept": "*/*"
+            "Origin": "https://pan.quark.cn",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity"
         ]
     }
 
