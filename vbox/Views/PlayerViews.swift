@@ -10,9 +10,14 @@ struct VideoDetailView: View {
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
     @State private var selectedPanVideo: VodItem?
+    @State private var selectedEpisodeVideo: VodItem?
+    @State private var detailVideo: VodItem?
+    @State private var isLoadingDetail = false
     @Environment(\.dismiss) private var dismiss
 
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
+    private var displayVideo: VodItem { detailVideo ?? video }
+    private var episodes: [(name: String, url: String)] { parseEpisodeList(from: displayVideo.vodPlayUrl) }
 
     private func loadPanLinks() {
         guard panLinks.isEmpty, !isLoadingPan else { return }
@@ -49,6 +54,43 @@ struct VideoDetailView: View {
                                     vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
     }
 
+    private func loadRealDetailIfNeeded() {
+        guard detailVideo == nil, !isLoadingDetail else { return }
+        isLoadingDetail = true
+        Task {
+            let detail = await SpiderManager.shared.nativeDetail(ids: video.vodId, name: video.vodName)
+            await MainActor.run {
+                if let detail, detail.vodPlayUrl?.isEmpty == false {
+                    detailVideo = detail
+                }
+                isLoadingDetail = false
+            }
+        }
+    }
+
+    private func parseEpisodeList(from raw: String?) -> [(name: String, url: String)] {
+        guard let raw, !raw.isEmpty else { return [] }
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[") { return [] }
+        let groups = raw.components(separatedBy: "$$$")
+        let bestGroup = groups.max { parseGroupEpisodes($0).count < parseGroupEpisodes($1).count } ?? raw
+        return parseGroupEpisodes(bestGroup)
+    }
+
+    private func parseGroupEpisodes(_ group: String) -> [(name: String, url: String)] {
+        group.components(separatedBy: "#").compactMap { part in
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let pieces = trimmed.components(separatedBy: "$")
+            if pieces.count >= 2 {
+                return (name: pieces[0].isEmpty ? "播放" : pieces[0], url: pieces[1])
+            }
+            if trimmed.hasPrefix("http") || trimmed.contains("pan.baidu.com") {
+                return (name: "播放", url: trimmed)
+            }
+            return nil
+        }
+    }
+
     private func driveColor(_ name: String) -> Color {
         if name.contains("115") { return .orange }
         if name.contains("阿里") { return .blue }
@@ -83,10 +125,10 @@ struct VideoDetailView: View {
 
                     // 信息区
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(video.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.black)
+                        Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.black)
                         HStack(spacing: 12) {
-                            TagLabel(text: video.vodRemarks ?? "")
-                            TagLabel(text: video.vodYear ?? "")
+                            TagLabel(text: displayVideo.vodRemarks ?? "")
+                            TagLabel(text: displayVideo.vodYear ?? "")
                         }
 
                         HStack(spacing: 16) {
@@ -98,7 +140,7 @@ struct VideoDetailView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
-                            Text(video.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.gray).lineSpacing(4)
+                            Text(displayVideo.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.gray).lineSpacing(4)
                         }
 
                         // 网盘资源展示
@@ -134,9 +176,28 @@ struct VideoDetailView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("剧集列表").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
-                                Spacer(); Text("共 24 集").font(.system(size: 12)).foregroundColor(.gray)
+                                Spacer()
+                                if isLoadingDetail {
+                                    ProgressView().scaleEffect(0.8)
+                                } else {
+                                    Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集").font(.system(size: 12)).foregroundColor(.gray)
+                                }
                             }
-                            EpisodeGridView()
+                            EpisodeGridView(episodes: episodes) { episode in
+                                selectedEpisodeVideo = VodItem(
+                                    vodId: "\(displayVideo.vodId)#\(episode.name)",
+                                    vodName: displayVideo.vodName,
+                                    vodPic: displayVideo.vodPic,
+                                    vodRemarks: episode.name,
+                                    vodYear: displayVideo.vodYear,
+                                    vodArea: displayVideo.vodArea,
+                                    vodDirector: displayVideo.vodDirector,
+                                    vodActor: displayVideo.vodActor,
+                                    vodContent: displayVideo.vodContent,
+                                    vodPlayFrom: displayVideo.vodPlayFrom,
+                                    vodPlayUrl: episode.url
+                                )
+                            }
                         }.padding(.top, 8)
                     }.padding(20).padding(.bottom, 100)
                 }
@@ -147,7 +208,11 @@ struct VideoDetailView: View {
             .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
             // 网盘资源 → 新版播放器（构造 VodItem 传入）
             .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
-            .onAppear { if isCloudVideo { loadPanLinks() } }
+            .fullScreenCover(item: $selectedEpisodeVideo) { epVideo in VideoPlayerViewV2(video: epVideo) }
+            .onAppear {
+                if isCloudVideo { loadPanLinks() }
+                loadRealDetailIfNeeded()
+            }
 
             // 返回按钮
             VStack {
@@ -167,10 +232,8 @@ struct VideoDetailView: View {
 struct TagLabel: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.black)
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.gray)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Capsule().fill(Color.gray.opacity(0.1)))
-            .overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1))
     }
 }
 
@@ -188,14 +251,32 @@ struct ActionButton: View {
 
 struct EpisodeGridView: View {
     @State private var selectedEpisode = 1
+    let episodes: [(name: String, url: String)]
+    let onSelect: ((name: String, url: String)) -> Void
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
-            ForEach(1..<25) { ep in
-                Button(action: { selectedEpisode = ep }) {
-                    Text("\(ep)").font(.system(size: 14, weight: ep == selectedEpisode ? .semibold : .medium))
-                        .foregroundColor(ep == selectedEpisode ? .white : .black).frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.gray.opacity(0.1)))
-                }.buttonStyle(PlainButtonStyle())
+        if episodes.isEmpty {
+            Text("当前资源暂未解析到真实剧集列表")
+                .font(.system(size: 13))
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+        } else {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
+                    let ep = idx + 1
+                    Button(action: {
+                        selectedEpisode = ep
+                        onSelect(episode)
+                    }) {
+                        Text(episode.name).font(.system(size: 13, weight: ep == selectedEpisode ? .semibold : .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .foregroundColor(ep == selectedEpisode ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.gray.opacity(0.1)))
+                    }.buttonStyle(PlainButtonStyle())
+                }
             }
         }
     }
