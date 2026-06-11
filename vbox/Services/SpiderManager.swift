@@ -39,6 +39,7 @@ class SpiderManager: ObservableObject {
 
     let subManager = SubscriptionManager()
     private var engines: [String: JSSpiderEngine] = [:]
+    private var cloudPlayCache: [String: (links: [(url: String, name: String)], siteName: String, expiresAt: Date)] = [:]
 
     private init() {
         self.fallbackEnabled = UserDefaults.standard.object(forKey: "fallback_enabled") as? Bool ?? true
@@ -893,6 +894,10 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 网盘资源详情解析（从详情页 HTML 中提取所有网盘链接+标题）
     func resolveCloudPlay(from detailURL: String) async -> (links: [(url: String, name: String)], siteName: String)? {
         print("[SpiderManager] resolveCloudPlay: \(detailURL)")
+        if let cached = cloudPlayCache[detailURL], cached.expiresAt > Date(), !cached.links.isEmpty {
+            print("[SpiderManager] resolveCloudPlay 命中缓存: \(cached.links.count) 条")
+            return (cached.links, cached.siteName)
+        }
         guard let url = URL(string: detailURL) else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = 10
@@ -903,15 +908,27 @@ globalThis.__JS_SPIDER__ = _spider;
             guard let html = String(data: data, encoding: .utf8) else {
                 // 尝试 GBK 编码
                 if let gbkData = try? NSString(data: data, encoding: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))) as String? {
-                    return try await parseCloudHTML(html: gbkData)
+                    let result = try await parseCloudHTML(html: gbkData)
+                    if let result { cacheCloudPlay(result, for: detailURL) }
+                    return result
                 }
                 print("[SpiderManager] ❌ 编码错误")
                 return nil
             }
-            return try await parseCloudHTML(html: html)
+            let result = try await parseCloudHTML(html: html)
+            if let result { cacheCloudPlay(result, for: detailURL) }
+            return result
         } catch {
             print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    private func cacheCloudPlay(_ result: (links: [(url: String, name: String)], siteName: String), for detailURL: String) {
+        cloudPlayCache[detailURL] = (result.links, result.siteName, Date().addingTimeInterval(30 * 60))
+        if cloudPlayCache.count > 100 {
+            let now = Date()
+            cloudPlayCache = cloudPlayCache.filter { $0.value.expiresAt > now }
         }
     }
 

@@ -7,7 +7,7 @@ struct DriveToken: Codable {
     let value: String
 }
 
-struct BaiduFileItem {
+struct BaiduFileItem: Codable {
     let fsId: String
     let name: String
 }
@@ -51,6 +51,7 @@ class CloudDriveManager: ObservableObject {
     private let baiduPersistedPlayCacheKey = "baidu_play_result_cache_v1"
     private let baiduPersistedPlayItemCacheKey = "baidu_play_item_cache_v1"
     private let baiduIBoxPlayItemCacheKey = "baidu_ibox_play_item_cache_v1"
+    private let baiduFileListCacheKey = "baidu_file_list_cache_v1"
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -83,6 +84,10 @@ class CloudDriveManager: ObservableObject {
         let lastUsedAt: Date?
         let source: String
     }
+    private struct BaiduFileListCacheItem: Codable {
+        let files: [BaiduFileItem]
+        let expiresAt: Date
+    }
     private var baiduPlayCache: [String: BaiduPlayCacheItem] = [:]
     private let baiduPlayCacheLock = NSLock()
 
@@ -108,6 +113,10 @@ class CloudDriveManager: ObservableObject {
         "\(shareURL)|\(fsId)|\(baiduStableHash(bduss))|\(baiduStableHash(pcsCookie))"
     }
 
+    private func baiduFileListCacheKey(shareURL: String, bduss: String) -> String {
+        "\(shareURL)|\(baiduStableHash(bduss))"
+    }
+
     private func baiduCachedPlayResult(for key: String) -> PlayResult? {
         baiduPlayCacheLock.lock()
         if let item = baiduPlayCache[key] {
@@ -127,6 +136,42 @@ class CloudDriveManager: ObservableObject {
 
         baiduPlayCacheLock.unlock()
         return nil
+    }
+
+    private func baiduCachedFileList(for key: String) -> [BaiduFileItem]? {
+        var cache = baiduLoadPersistedFileListCache()
+        guard let item = cache[key] else { return nil }
+        if item.expiresAt > Date(), !item.files.isEmpty {
+            return item.files
+        }
+        cache.removeValue(forKey: key)
+        baiduSavePersistedFileListCache(cache)
+        return nil
+    }
+
+    private func baiduStoreFileList(_ files: [BaiduFileItem], for key: String, ttl: TimeInterval = 8 * 60 * 60) {
+        guard !files.isEmpty else { return }
+        var cache = baiduLoadPersistedFileListCache()
+        cache[key] = BaiduFileListCacheItem(files: files, expiresAt: Date().addingTimeInterval(ttl))
+        if cache.count > 80 {
+            let now = Date()
+            cache = cache.filter { $0.value.expiresAt > now }
+        }
+        baiduSavePersistedFileListCache(cache)
+    }
+
+    private func baiduLoadPersistedFileListCache() -> [String: BaiduFileListCacheItem] {
+        guard let data = defaults.data(forKey: baiduFileListCacheKey),
+              let cache = try? JSONDecoder().decode([String: BaiduFileListCacheItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func baiduSavePersistedFileListCache(_ cache: [String: BaiduFileListCacheItem]) {
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: baiduFileListCacheKey)
+        }
     }
 
     private func baiduStorePlayResult(_ result: PlayResult, for key: String, ttl: TimeInterval = 6 * 60 * 60) {
@@ -701,13 +746,21 @@ class CloudDriveManager: ObservableObject {
     func baiduGetFileList(shareURL: String, bduss: String) async throws -> [BaiduFileItem] {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
+        let cacheKey = baiduFileListCacheKey(shareURL: shareURL, bduss: bduss)
+
+        if let cached = baiduCachedFileList(for: cacheKey) {
+            baiduLog("[Baidu-iBox] ✅ 命中文件列表缓存：\(cached.count) 个文件")
+            return cached
+        }
 
         if let files = try? await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie) {
+            baiduStoreFileList(files, for: cacheKey)
             return files
         }
 
         baiduLog("[Baidu-Worker] ⚠️ 文件列表代理失败，回退直连解析")
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+        baiduStoreFileList(context.files, for: cacheKey)
         return context.files
     }
 
