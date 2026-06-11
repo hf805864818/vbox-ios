@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12007 /* AVPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12007 /* AVPlayerEngine.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
 		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
@@ -47,6 +48,7 @@
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 
 /* Begin PBXFileReference section */
+		B12007 /* AVPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerEngine.swift; sourceTree = "<group>"; };
 		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
 		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
 		B12003 /* PlayerEngineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineState.swift; sourceTree = "<group>"; };
@@ -181,6 +183,7 @@
 				B12004 /* PlayerEngineEvent.swift */,
 				B12005 /* PlayerEngine.swift */,
 				B12006 /* MPVPlayerEngineStub.swift */,
+				B12007 /* AVPlayerEngine.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -255,6 +258,7 @@
 				A12004 /* PlayerEngineEvent.swift in Sources */,
 				A12005 /* PlayerEngine.swift in Sources */,
 				A12006 /* MPVPlayerEngineStub.swift in Sources */,
+				A12007 /* AVPlayerEngine.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
@@ -366,7 +370,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 137;
+					CURRENT_PROJECT_VERSION = 138;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
@@ -378,7 +382,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.137;
+					MARKETING_VERSION = 3.138;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -395,7 +399,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 137;
+					CURRENT_PROJECT_VERSION = 138;
 					GENERATE_INFOPLIST_FILE = YES;
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
@@ -407,7 +411,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.137;
+					MARKETING_VERSION = 3.138;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";

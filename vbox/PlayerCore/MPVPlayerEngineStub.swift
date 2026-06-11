@@ -6,6 +6,7 @@ final class MPVPlayerEngineStub: PlayerEngine {
     let type: PlayerEngineType = .mpv
     let name = "MPV"
     private(set) var state = PlayerEngineState()
+    var onEvent: ((PlayerEngineEvent) -> Void)?
 
     func attach(to view: UIView) {
         // 第一阶段只做占位，不创建真实渲染层。
@@ -13,6 +14,7 @@ final class MPVPlayerEngineStub: PlayerEngine {
 
     func load(route: PlaybackRoute) {
         state.errorMessage = "当前构建未包含 MPV 内核"
+        onEvent?(.failed("当前构建未包含 MPV 内核"))
     }
 
     func play() {}
