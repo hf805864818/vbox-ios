@@ -105,6 +105,8 @@ class PlayerState: ObservableObject {
     @Published var showControls = true
     @Published var currentTime: Double = 0
     @Published var duration: Double = 0
+    @Published var isSeeking = false
+    @Published var seekPreviewTime: Double = 0
     @Published var isLoading = true
     @Published var loadError: String?
     @Published var showSettings = false
@@ -130,6 +132,7 @@ class PlayerState: ObservableObject {
     private var baiduStreamRetryCount = 0        // 百度PCS流403后自动刷新直链次数
     private var baiduPrefetchTask: Task<Void, Never>?
     private var baiduPrefetchingIds = Set<String>()
+    private var baiduNearEndPrefetchedIndexes = Set<Int>()
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
@@ -150,6 +153,56 @@ class PlayerState: ObservableObject {
                 reason: "选集"
             )
         }
+    }
+
+    func seek(to seconds: Double) {
+        guard let player, duration.isFinite, duration > 0 else { return }
+        let target = max(0, min(seconds, duration))
+        let cmTime = CMTime(seconds: target, preferredTimescale: 600)
+        isSeeking = true
+        seekPreviewTime = target
+        loadingMessage = "正在跳转到 \(formatDuration(target))..."
+        isLoading = true
+        log("[PlayerV2] 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            Task { @MainActor in
+                guard let self else { return }
+                self.currentTime = target
+                self.isSeeking = false
+                self.isLoading = false
+                if finished, self.isPlaying {
+                    self.player?.play()
+                }
+            }
+        }
+    }
+
+    func skip(by seconds: Double) {
+        seek(to: currentTime + seconds)
+    }
+
+    func playNextBaiduFile() {
+        let next = currentEpisodeIndex + 1
+        guard next < baiduFileList.count else {
+            log("[Baidu] 已经是最后一集")
+            return
+        }
+        switchBaiduFile(index: next)
+    }
+
+    func changeQuality(index: Int) {
+        selectedQuality = index
+        if !baiduFileList.isEmpty {
+            log("[Baidu] 当前百度DLNA播放为源文件/原画链路，暂不支持转码清晰度切换")
+        }
+    }
+
+    private func formatDuration(_ time: Double) -> String {
+        guard time.isFinite, time >= 0 else { return "00:00" }
+        let hours = Int(time) / 3600
+        let minutes = (Int(time) % 3600) / 60
+        let seconds = Int(time) % 60
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, seconds) : String(format: "%02d:%02d", minutes, seconds)
     }
 
     /// 百度网盘统一播放入口：
@@ -187,7 +240,6 @@ class PlayerState: ObservableObject {
             }
             let streamHeaders = mergedBaiduStreamHeaders(result.headers)
             await playDriveVideo(url: result.url, headers: streamHeaders)
-            prefetchNextBaiduFile(after: index)
         } catch let error as DriveError {
             let specificMsg: String
             switch error {
@@ -361,6 +413,7 @@ class PlayerState: ObservableObject {
         baiduPrefetchTask?.cancel()
         baiduPrefetchTask = nil
         baiduPrefetchingIds.removeAll()
+        baiduNearEndPrefetchedIndexes.removeAll()
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -653,11 +706,31 @@ class PlayerState: ObservableObject {
         
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
-            self?.currentTime = time.seconds
-            if let d = p.currentItem?.duration { self?.duration = d.seconds.isFinite ? d.seconds : 0 }
+            guard let self else { return }
+            self.currentTime = time.seconds
+            if let d = p.currentItem?.duration {
+                self.duration = d.seconds.isFinite ? d.seconds : 0
+            }
+            if isBaiduLocalProxy {
+                self.prefetchNextBaiduFileNearEnd(current: self.currentTime, duration: self.duration)
+            }
         }
         
         p.play()
+    }
+
+    private func prefetchNextBaiduFileNearEnd(current: Double, duration: Double) {
+        guard duration.isFinite, duration > 0, current.isFinite, current > 0 else { return }
+        guard currentEpisodeIndex + 1 < baiduFileList.count else { return }
+        guard !baiduNearEndPrefetchedIndexes.contains(currentEpisodeIndex) else { return }
+
+        let remaining = duration - current
+        let threshold = duration >= 20 * 60 ? 180.0 : max(30.0, duration * 0.15)
+        guard remaining <= threshold else { return }
+
+        baiduNearEndPrefetchedIndexes.insert(currentEpisodeIndex)
+        log("[Baidu-Preload] 当前集接近结尾，剩余\(Int(max(0, remaining)))秒，开始预取下一集")
+        prefetchNextBaiduFile(after: currentEpisodeIndex)
     }
 
     private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
@@ -1428,11 +1501,13 @@ struct PlayerControlsView: View {
             VStack(spacing: 0) {
                 // 进度条区域
                 HStack(spacing: 12) {
-                    Text(formatTime(playerState.currentTime))
+                    Text(formatTime(playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
                     
                     GeometryReader { geometry in
+                        let displayTime = playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime
+                        let progress = playerState.duration > 0 ? max(0, min(displayTime / playerState.duration, 1)) : 0
                         ZStack(alignment: .leading) {
                             // 背景轨道
                             RoundedRectangle(cornerRadius: 2)
@@ -1443,9 +1518,30 @@ struct PlayerControlsView: View {
                             if playerState.duration > 0 {
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(Color(hex: "00BEFF"))
-                                    .frame(width: max(0, min(CGFloat(playerState.currentTime / playerState.duration) * geometry.size.width, geometry.size.width)), height: 4)
+                                    .frame(width: CGFloat(progress) * geometry.size.width, height: 4)
+                                Circle()
+                                    .fill(Color(hex: "00BEFF"))
+                                    .frame(width: 14, height: 14)
+                                    .offset(x: max(0, min(CGFloat(progress) * geometry.size.width - 7, geometry.size.width - 14)))
                             }
                         }
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    guard playerState.duration > 0 else { return }
+                                    let x = max(0, min(value.location.x, geometry.size.width))
+                                    let target = Double(x / geometry.size.width) * playerState.duration
+                                    playerState.isSeeking = true
+                                    playerState.seekPreviewTime = target
+                                }
+                                .onEnded { value in
+                                    guard playerState.duration > 0 else { return }
+                                    let x = max(0, min(value.location.x, geometry.size.width))
+                                    let target = Double(x / geometry.size.width) * playerState.duration
+                                    playerState.seek(to: target)
+                                }
+                        )
                     }
                     .frame(height: 20)
                     
@@ -1473,12 +1569,13 @@ struct PlayerControlsView: View {
                     .disabled(player == nil)
                     
                     // 下一个（如果是多集）
-                    Button(action: { /* 下一集 */ }) {
+                    Button(action: { playerState.playNextBaiduFile() }) {
                         Image(systemName: "forward.end.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(.white)
+                            .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
                             .frame(width: 44, height: 44)
                     }
+                    .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
                     
                     Spacer()
                     
@@ -1496,7 +1593,7 @@ struct PlayerControlsView: View {
                     
                     // 清晰度
                     Button(action: { playerState.showQualityPicker = true }) {
-                        Text("高清")
+                        Text(playerState.baiduFileList.isEmpty ? "高清" : "原画")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
@@ -1562,7 +1659,13 @@ struct PlayerControlsView: View {
         // 侧边栏弹窗 - 清晰度
         .overlay(
             SidePanelView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
-                QualityPickerPanelV2(selectedQuality: $playerState.selectedQuality, onQualityChange: { _ in })
+                QualityPickerPanelV2(
+                    selectedQuality: $playerState.selectedQuality,
+                    isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                    onQualityChange: { index in
+                        playerState.changeQuality(index: index)
+                    }
+                )
             }
         )
         // 侧边栏弹窗 - 弹幕设置
@@ -1835,13 +1938,24 @@ struct PlayerSettingsPanelV2: View {
 // MARK: - 清晰度面板 (侧边栏版本)
 struct QualityPickerPanelV2: View {
     @Binding var selectedQuality: Int
+    var isBaiduSourceMode: Bool = false
     var onQualityChange: (Int) -> Void
     
-    let qualities = ["标清", "高清", "蓝光"]
+    private var qualities: [String] {
+        isBaiduSourceMode ? ["原画"] : ["标清", "高清", "蓝光"]
+    }
     
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
+                if isBaiduSourceMode {
+                    Text("百度DLNA当前播放源文件链路，清晰度由资源本身决定。后续接入转码/兼容内核后再支持多清晰度切换。")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.65))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
                 ForEach(0..<qualities.count, id: \.self) { index in
                     Button(action: {
                         selectedQuality = index
