@@ -15,6 +15,7 @@ struct BaiduFileItem {
 class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
+    private static let baiduPCSUserAgent = "netdisk;1.4.2;22021211RC;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
 
     enum DriveType: String, CaseIterable {
         case ali = "ali"
@@ -675,7 +676,238 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-Worker] ✅ 成功获取播放地址：\(playURL.prefix(80))...")
+
+        if let localResult = try? await baiduResolveDLNAOnDevice(
+            workerURL: playURL,
+            workerPath: data["path"] as? String,
+            fileName: data["file_name"] as? String,
+            webCookie: cookie,
+            pcsCookie: pcsCookie,
+            workerHeaders: headers
+        ) {
+            return localResult
+        }
+
+        baiduLog("[Baidu-LocalPCS] ⚠️ 本机 DLNA/locatedownload 未成功，暂用 Worker 返回地址")
         return PlayResult(url: playURL, headers: headers, driveType: .baidu)
+    }
+
+    private func baiduResolveDLNAOnDevice(
+        workerURL: String,
+        workerPath: String?,
+        fileName: String?,
+        webCookie: String,
+        pcsCookie: String,
+        workerHeaders: [String: String]
+    ) async throws -> PlayResult {
+        guard let filePath = baiduInferOwnFilePath(workerURL: workerURL, workerPath: workerPath, fileName: fileName) else {
+            baiduLog("[Baidu-LocalPCS] ⚠️ 无法从 Worker 地址推断自己网盘文件路径")
+            throw DriveError.noPlayURL("无法推断百度转存路径")
+        }
+
+        let cookie = baiduMergeCookieStrings([
+            workerHeaders.first { $0.key.lowercased() == "cookie" }?.value ?? "",
+            workerHeaders.first { $0.key.lowercased() == "x-baidu-pcs-cookie" }?.value ?? "",
+            webCookie,
+            pcsCookie
+        ])
+        guard !cookie.isEmpty else {
+            baiduLog("[Baidu-LocalPCS] ⚠️ 本机取链缺少 Cookie")
+            throw DriveError.noPlayURL("百度本机取链缺少 Cookie")
+        }
+
+        do {
+            return try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: cookie)
+        } catch {
+            baiduLog("[Baidu-DLNA] ⚠️ mediainfo 取 dlink 失败，兜底 locatedownload：\(error.localizedDescription)")
+            return try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: cookie)
+        }
+    }
+
+    private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+        let deviceId = baiduStableDeviceId()
+        var components = URLComponents(string: "https://pan.baidu.com/api/mediainfo")!
+        components.queryItems = [
+            URLQueryItem(name: "clienttype", value: "80"),
+            URLQueryItem(name: "origin", value: "dlna"),
+            URLQueryItem(name: "path", value: filePath),
+            URLQueryItem(name: "type", value: "M3U8_FLV_264_480")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
+
+        baiduLog("[Baidu-DLNA] 本机调用 mediainfo：path=\(filePath), hasBDUSS=\(cookie.lowercased().contains("bduss=")), hasSTOKEN=\(cookie.lowercased().contains("stoken=")), hasPANPSC=\(cookie.lowercased().contains("panpsc=")), hasPTOKEN=\(cookie.lowercased().contains("ptoken"))")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            let preview = String(data: data.prefix(240), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-DLNA] ❌ HTTP \(status)：\(preview)")
+            throw DriveError.noPlayURL("百度 DLNA HTTP \(status)")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let preview = String(data: data.prefix(240), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-DLNA] ❌ 非 JSON 响应：\(preview)")
+            throw DriveError.noPlayURL("百度 DLNA 返回非 JSON")
+        }
+
+        let info = json["info"] as? [String: Any]
+        let dlink = info?["dlink"] as? String
+            ?? json["dlink"] as? String
+            ?? json["url"] as? String
+        if let dlink, !dlink.isEmpty {
+            let errno = json["errno"] as? Int ?? 0
+            baiduLog("[Baidu-DLNA] ✅ mediainfo 返回 dlink：errno=\(errno), url=\(dlink.prefix(80))...")
+            return baiduPlayResult(url: dlink, cookie: cookie)
+        }
+
+        let errno = json["errno"] as? Int ?? -1
+        let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+        baiduLog("[Baidu-DLNA] ❌ 未返回 dlink：errno=\(errno), msg=\(msg), fields=\(json.keys.sorted().joined(separator: ","))")
+        throw DriveError.noPlayURL("百度 DLNA 未返回 dlink：\(msg)")
+    }
+
+    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+        let deviceId = baiduStableDeviceId()
+        var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
+        components.queryItems = [
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "method", value: "locatedownload"),
+            URLQueryItem(name: "check_blue", value: "1"),
+            URLQueryItem(name: "path", value: filePath),
+            URLQueryItem(name: "version", value: "2.2.101.236"),
+            URLQueryItem(name: "clienttype", value: "17"),
+            URLQueryItem(name: "time", value: String(Int(Date().timeIntervalSince1970))),
+            URLQueryItem(name: "rand", value: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()),
+            URLQueryItem(name: "devuid", value: deviceId),
+            URLQueryItem(name: "channel", value: "0"),
+            URLQueryItem(name: "version_app", value: "12.24.6"),
+            URLQueryItem(name: "apn_id", value: "1_0"),
+            URLQueryItem(name: "freeisp", value: "0"),
+            URLQueryItem(name: "queryfree", value: "0"),
+            URLQueryItem(name: "cuid", value: deviceId),
+            URLQueryItem(name: "network_type", value: "WIFI"),
+            URLQueryItem(name: "deviceid", value: String(abs(deviceId.hashValue)))
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-ID")
+
+        baiduLog("[Baidu-LocalPCS] 本机调用 locatedownload：path=\(filePath), hasBDUSS=\(cookie.lowercased().contains("bduss=")), hasSTOKEN=\(cookie.lowercased().contains("stoken=")), hasPANPSC=\(cookie.lowercased().contains("panpsc=")), hasPTOKEN=\(cookie.lowercased().contains("ptoken"))")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            let preview = String(data: data.prefix(240), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-LocalPCS] ❌ HTTP \(status)：\(preview)")
+            throw DriveError.noPlayURL("百度本机取链 HTTP \(status)")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let preview = String(data: data.prefix(240), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-LocalPCS] ❌ 非 JSON 响应：\(preview)")
+            throw DriveError.noPlayURL("百度本机取链返回非 JSON")
+        }
+
+        if let errno = json["errno"] as? Int, errno != 0 {
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            baiduLog("[Baidu-LocalPCS] ❌ errno=\(errno), msg=\(msg)")
+            throw DriveError.noPlayURL("百度本机取链失败：\(msg)")
+        }
+
+        let urls = json["urls"] as? [[String: Any]]
+        let locatedURL = urls?.first?["url"] as? String
+            ?? json["url"] as? String
+            ?? json["dlink"] as? String
+        guard let locatedURL, !locatedURL.isEmpty else {
+            baiduLog("[Baidu-LocalPCS] ❌ 未返回 urls/url 字段，字段=\(json.keys.sorted().joined(separator: ","))")
+            throw DriveError.noPlayURL("百度本机取链未返回播放地址")
+        }
+
+        baiduLog("[Baidu-LocalPCS] ✅ 本机取链成功：\(locatedURL.prefix(80))...")
+        return baiduPlayResult(url: locatedURL, cookie: cookie)
+    }
+
+    private func baiduPlayResult(url: String, cookie: String) -> PlayResult {
+        PlayResult(
+            url: url,
+            headers: [
+                "Cookie": cookie,
+                "X-Baidu-Pcs-Cookie": cookie,
+                "User-Agent": Self.baiduPCSUserAgent,
+                "Referer": "https://pan.baidu.com/",
+                "Origin": "https://pan.baidu.com",
+                "X-Device-ID": baiduStableDeviceId()
+            ],
+            driveType: .baidu
+        )
+    }
+
+    private func baiduInferOwnFilePath(workerURL: String, workerPath: String?, fileName: String?) -> String? {
+        if let path = workerPath, path.hasPrefix("/vbox") || path.hasPrefix("/0000temp") || path.hasPrefix("/vbox播放") {
+            return path
+        }
+
+        guard let components = URLComponents(string: workerURL) else { return nil }
+        var fpath = components.queryItems?.first(where: { $0.name == "fpath" })?.value ?? ""
+        var fin = components.queryItems?.first(where: { $0.name == "fin" })?.value ?? ""
+        fpath = fpath.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? fpath
+        fin = fin.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? fin
+        fpath = fpath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !fpath.isEmpty, !fin.isEmpty {
+            return "/\(fpath)/\(fin)"
+        }
+
+        let fallbackName = fileName
+            ?? workerPath?.split(separator: "/").last.map(String.init)
+        if let fallbackName, !fallbackName.isEmpty {
+            return "/vbox/\(fallbackName)"
+        }
+
+        return nil
+    }
+
+    private func baiduMergeCookieStrings(_ cookies: [String]) -> String {
+        var keys: [String] = []
+        var values: [String: (name: String, value: String)] = [:]
+        for cookie in cookies where !cookie.isEmpty {
+            for part in cookie.replacingOccurrences(of: "\n", with: ";").split(separator: ";") {
+                let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let eq = item.firstIndex(of: "=") else { continue }
+                let name = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, !value.isEmpty else { continue }
+                let key = name.lowercased()
+                if values[key] == nil { keys.append(key) }
+                values[key] = (name, value)
+            }
+        }
+        return keys.compactMap { key in
+            guard let item = values[key] else { return nil }
+            return "\(item.name)=\(item.value)"
+        }.joined(separator: "; ")
+    }
+
+    private func baiduStableDeviceId() -> String {
+        let key = "baidu_local_pcs_device_id"
+        if let id = defaults.string(forKey: key), !id.isEmpty {
+            return id
+        }
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").uppercased()
+        defaults.set(id, forKey: key)
+        return id
     }
 
     private func resolveBaiduPlayURLInternal(shareURL: String, bduss: String, pwd: String?, pcsCookie: String = "") async throws -> PlayResult {

@@ -18,7 +18,7 @@ final class DoubanImageProxyServer {
         let createdAt: Date
     }
 
-    private static let baiduPCSUserAgent = "netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
+    private static let baiduPCSUserAgent = "netdisk;1.4.2;22021211RC;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
 
     private let allowedHosts: Set<String> = [
         "img1.doubanio.com",
