@@ -243,8 +243,8 @@ final class DoubanImageProxyServer {
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
             }
-            if request.value(forHTTPHeaderField: "Origin") == nil {
-                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+            if request.value(forHTTPHeaderField: "X-Device-Id") == nil {
+                request.setValue("2f49b7e148714010b615bfba561ae679", forHTTPHeaderField: "X-Device-Id")
             }
         } else {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
@@ -263,7 +263,7 @@ final class DoubanImageProxyServer {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
 
-        print("📡 本地视频代理上游请求[\(item.provider)]: id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
+        print("📡 本地视频代理上游请求[\(item.provider)]: id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasVideoAuth=\((request.value(forHTTPHeaderField: "Cookie") ?? "").contains("Video-Auth=")), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), hasDeviceId=\(request.value(forHTTPHeaderField: "X-Device-Id") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
 
         StreamForwarder(
             provider: item.provider,
@@ -288,8 +288,8 @@ final class DoubanImageProxyServer {
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
             }
-            if request.value(forHTTPHeaderField: "Origin") == nil {
-                request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+            if request.value(forHTTPHeaderField: "X-Device-Id") == nil {
+                request.setValue("2f49b7e148714010b615bfba561ae679", forHTTPHeaderField: "X-Device-Id")
             }
         } else {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
