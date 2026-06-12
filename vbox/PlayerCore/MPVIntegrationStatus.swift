@@ -52,6 +52,16 @@ enum MPVIntegrationStatus {
         return MPVKitBackend.runtimeProbeResult.isDynamicallyLoadable
     }
 
+    /// 3.152 step。App 内可见的 MPVKit/Libmpv 最小初始化诊断。
+    /// 只做 mpv_create / mpv_initialize / destroy，不启用正式播放后端。
+    static var initializationProbeSummary: String {
+        return MPVKitBackend.initializationProbeResult.summary
+    }
+
+    static var isMPVKitInitializationReady: Bool {
+        return MPVKitBackend.initializationProbeResult.isInitialized
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:

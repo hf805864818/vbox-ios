@@ -5,6 +5,10 @@ import Darwin
 import MPVKit
 #endif
 
+#if canImport(Libmpv)
+import Libmpv
+#endif
+
 /// MPVKit 运行时探针结果。
 /// 只检查动态库是否随包存在、是否能被系统 loader 打开。
 /// 不创建 mpv_handle，不调用播放、渲染、解码 API。
@@ -16,6 +20,21 @@ struct MPVKitRuntimeProbeResult {
 
     var summary: String {
         return "\(moduleStatus)，\(bundleStatus)，\(dynamicLoadStatus)"
+    }
+}
+
+/// MPVKit/Libmpv 最小初始化探针结果。
+/// 只做 mpv_create → mpv_initialize → mpv_terminate_destroy。
+/// 不加载媒体、不创建渲染层、不接正式播放器 UI。
+struct MPVKitInitializationProbeResult {
+    let moduleStatus: String
+    let apiVersionStatus: String
+    let createStatus: String
+    let initializeStatus: String
+    let isInitialized: Bool
+
+    var summary: String {
+        return "\(moduleStatus)，\(apiVersionStatus)，\(createStatus)，\(initializeStatus)"
     }
 }
 
@@ -35,6 +54,14 @@ final class MPVKitBackend: MPVBackend {
         return "MPVKit-imported"
         #else
         return "MPVKit-missing"
+        #endif
+    }
+
+    static var libmpvModuleProbeResult: String {
+        #if canImport(Libmpv)
+        return "Libmpv-imported"
+        #else
+        return "Libmpv-missing"
         #endif
     }
 
@@ -80,6 +107,55 @@ final class MPVKitBackend: MPVBackend {
             isDynamicallyLoadable: true
         )
     }
+
+    /// 3.152 step。最小内核初始化探针。
+    /// 只验证 Libmpv C API 是否能创建并初始化最小 mpv handle。
+    /// 不加载视频、不 attach view、不接正式播放链路。
+    static let initializationProbeResult: MPVKitInitializationProbeResult = {
+        #if canImport(Libmpv)
+        setlocale(LC_NUMERIC, "C")
+
+        let apiVersion = mpv_client_api_version()
+        guard let handle = mpv_create() else {
+            return MPVKitInitializationProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                apiVersionStatus: "libmpv API版本：\(apiVersion)",
+                createStatus: "mpv_create失败",
+                initializeStatus: "未初始化",
+                isInitialized: false
+            )
+        }
+
+        let initializeCode = mpv_initialize(handle)
+        if initializeCode < 0 {
+            mpv_destroy(handle)
+            return MPVKitInitializationProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                apiVersionStatus: "libmpv API版本：\(apiVersion)",
+                createStatus: "mpv_create成功",
+                initializeStatus: "mpv_initialize失败：\(initializeCode)",
+                isInitialized: false
+            )
+        }
+
+        mpv_terminate_destroy(handle)
+        return MPVKitInitializationProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            apiVersionStatus: "libmpv API版本：\(apiVersion)",
+            createStatus: "mpv_create成功",
+            initializeStatus: "mpv_initialize成功",
+            isInitialized: true
+        )
+        #else
+        return MPVKitInitializationProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            apiVersionStatus: "libmpv API不可用",
+            createStatus: "未创建",
+            initializeStatus: "未初始化",
+            isInitialized: false
+        )
+        #endif
+    }()
 
     static var isAvailable: Bool {
         // MPVKit.xcframework wrapper 已放入仓库，但在底层 Libmpv/FFmpeg 依赖补齐前，

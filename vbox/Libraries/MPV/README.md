@@ -101,6 +101,22 @@ MPVIntegrationStatus.runtimeProbeSummary
 
 该探针只检查 `MPVKit.framework/MPVKit` 是否随包存在、是否能被 `dlopen` 动态加载，不创建 `mpv_handle`，不接正式播放 UI。
 
+`3.152` 增加 MPVKit 后端的最小内核初始化探针：
+
+```text
+MPVKitBackend.initializationProbeResult
+MPVIntegrationStatus.initializationProbeSummary
+设置 → 关于 → MPV状态
+```
+
+由于当前 `MPVKit.xcframework` 未暴露可直接调用的播放器 API，初始化探针使用 `MPVKitDependencies/Libmpv.xcframework` 的 C API 执行：
+
+```text
+mpv_create → mpv_initialize → mpv_terminate_destroy
+```
+
+该探针只验证内核是否可创建和初始化，不加载媒体、不 attach 渲染层、不接正式播放 UI，也不触碰 Freedom 自由度内核。
+
 MPVKit 依赖包默认来源：
 
 ```text

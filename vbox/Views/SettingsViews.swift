@@ -354,10 +354,14 @@ struct SettingsView: View {
                 HStack {
                     Text("MPV状态").foregroundColor(.black)
                     Spacer()
-                    Text(MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用")
-                        .foregroundColor(MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .green : .gray)
+                    Text(MPVIntegrationStatus.isMPVKitInitializationReady ? "可初始化" : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用"))
+                        .foregroundColor(MPVIntegrationStatus.isMPVKitInitializationReady ? .green : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .orange : .gray))
                 }
                 Text(MPVIntegrationStatus.runtimeProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(MPVIntegrationStatus.initializationProbeSummary)
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
