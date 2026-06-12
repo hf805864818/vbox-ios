@@ -1,16 +1,22 @@
-# MPV framework 放置说明
+# MPV framework 与依赖放置说明
 
-这个目录用于放置后续接入的 MPV 相关 `.xcframework`。
+这个目录只服务播放器 MPV 内核开发。现阶段不改切片资源播放、网盘资源播放、弹幕系统和播放器 UI 主流程。
 
-## 推荐文件
+## 当前边界
 
-优先放置：
+当前只处理 MPV 内核和依赖：
 
 ```text
-vbox/Libraries/MPV/MPVKit.xcframework
+1. 不接管现有 PlayerViewsV2 正式播放链路
+2. 不改网盘资源和切片资源解析
+3. 不接入弹幕系统
+4. 不重构播放器 UI
+5. 不提前 Link/Embed 未验证完整的 MPV 依赖
 ```
 
-当前已接入：
+后续会为切片资源、网盘资源、弹幕和 UI 重构预留接口，但不在当前阶段实现。
+
+## 当前文件
 
 ```text
 MPVKit.xcframework
@@ -22,7 +28,7 @@ MPVKit.xcframework
 import MPVKit
 ```
 
-该 framework 是动态 framework。`3.143` 中曾直接 Link + Embed，但 App 启动闪退，说明 wrapper 的底层 Libmpv/FFmpeg 依赖尚未补齐。
+该 framework 是动态 framework。`3.143` 中曾直接 Link + Embed，但 App 启动闪退，说明 wrapper 的底层链接链路尚未验证完整。
 
 从 `3.144` 开始，工程先保留文件，但暂时不 Link、不 Embed：
 
@@ -36,47 +42,95 @@ import MPVKit
 
 `3.145` 增加了 `MPVFrameworkManifest.swift` 作为静态预检清单。它只记录模块名、路径、依赖和启用条件，不 import MPVKit，也不触发动态库加载。后端不可用提示统一从这份清单读取，避免后续接入时状态说明散落在多个文件中。
 
-后续如果要接“自由度”内核，再放置：
+`3.146` 增加依赖包检查与安装准备脚本：
 
 ```text
-vbox/Libraries/MPV/libmpv.xcframework
+scripts/inspect_mpvkit_bundle.py
+scripts/install_mpv_dependencies.sh
+```
+
+上传的 `MPVKit-xcframework.zip` 外层包含 `MPVKit-binary-bundle.zip` 和 sha256 文件。该 bundle 已确认包含核心依赖：
+
+```text
+Libmpv.xcframework
+Libavcodec.xcframework
+Libavdevice.xcframework
+Libavfilter.xcframework
+Libavformat.xcframework
+Libavutil.xcframework
+Libswresample.xcframework
+Libswscale.xcframework
+```
+
+它不是完整离线 Swift Package 依赖包。`Package.swift` 还声明了需要从 GitHub 下载的 binaryTarget，包括但不限于：
+
+```text
+Libcrypto
+Libssl
+Libass
+Libbluray
+Libuchardet
+MoltenVK
+Libplacebo
+Libdav1d
+gnutls
+```
+
+## 建议目录
+
+核心依赖安装目标：
+
+```text
+vbox/Libraries/MPV/
+├── MPVKit.xcframework
+├── Dependencies/
+│   ├── Libmpv.xcframework
+│   ├── Libavcodec.xcframework
+│   ├── Libavdevice.xcframework
+│   ├── Libavfilter.xcframework
+│   ├── Libavformat.xcframework
+│   ├── Libavutil.xcframework
+│   ├── Libswresample.xcframework
+│   └── Libswscale.xcframework
+└── README.md
+```
+
+`Libmpv.xcframework` 的模块名是：
+
+```swift
+import Libmpv
+```
+
+不是：
+
+```swift
+import libmpv
 ```
 
 ## UI 命名
 
 ```text
 MPV    = MPVKit.xcframework
-自由度 = libmpv.xcframework
+自由度 = Libmpv.xcframework
 ```
 
 ## 架构要求
 
-必须包含：
-
-```text
-ios-arm64
-```
-
-推荐包含：
-
-```text
-ios-arm64-simulator
-```
-
-如果 framework 不支持模拟器，可以先只用真机测试。
+必须包含 `ios-arm64`。推荐包含 `ios-arm64_x86_64-simulator`，方便后续模拟器验证。
 
 ## 接入规则
 
-在真实 framework 放入本目录之前，不要提前把不存在的 framework 加入 Xcode 的 `Link Binary With Libraries` 或 `Embed Frameworks`，否则 GitHub Actions 可能会因为找不到文件而失败。
+在完整依赖链路验证之前，不要提前把 MPV 相关 framework 加入 Xcode 的 `Link Binary With Libraries` 或 `Embed Frameworks`。
 
 真实接入时需要确认：
 
 ```text
-1. framework 的模块名
+1. framework 的模块名，尤其是 `Libmpv`
 2. Info.plist 支持的架构 slice
-3. 是否需要 Embed & Sign
-4. 是否需要额外系统 Framework
-5. GitHub Actions 是否能获取 framework
+3. Swift Package binaryTarget 是否能被 GitHub Actions 下载
+4. 手动 Link 时是否需要补齐所有间接依赖
+5. 是否需要 Embed & Sign
+6. 启动是否仍然闪退
 ```
 
 ## 体积建议
@@ -85,4 +139,4 @@ ios-arm64-simulator
 
 ## 冲突提醒
 
-不要随意同时放入多个都内置 FFmpeg/libmpv 的大型 framework。`MPVKit.xcframework` 可能已经包含 `libmpv` 和 FFmpeg，如果再同时接入 `libmpv.xcframework`，可能出现重复符号或运行时冲突。需要确认无冲突后再同时启用。
+不要随意同时启用多个都内置 FFmpeg/libmpv 的大型 framework。MPVKit wrapper、Libmpv 和 FFmpeg 组件之间要先确认链接关系，避免重复符号或运行时冲突。

@@ -1,10 +1,11 @@
 import Foundation
 
 /// MPV framework 接入状态说明。
-/// 当前已放入 MPVKit.xcframework wrapper，但在底层依赖补齐前不主动 link/embed。
+/// 当前已放入 MPVKit.xcframework wrapper，并识别出 MPVKit binary bundle 中的核心依赖。
+/// 在完整链接链路验证前，不主动 link/embed。
 enum MPVIntegrationStatus {
     static let mpvKitExpectedPath = "vbox/Libraries/MPV/MPVKit.xcframework"
-    static let libmpvExpectedPath = "vbox/Libraries/MPV/libmpv.xcframework"
+    static let libmpvExpectedPath = "vbox/Libraries/MPV/Dependencies/Libmpv.xcframework"
 
     static let preferredBackend: MPVBackendType = .mpvKit
     static let freedomBackend: MPVBackendType = .libmpv
@@ -44,7 +45,7 @@ enum MPVIntegrationStatus {
 
     static func disabledReason(for backendType: MPVBackendType) -> String {
         if backendType == .automatic {
-            return "当前构建未启用 MPVKit 或自由度内核。MPVKit 已保留 wrapper 文件，但仍需补齐底层 Libmpv/FFmpeg 依赖；自由度内核仍等待 libmpv.xcframework 产物。"
+            return "当前构建未启用 MPVKit 或自由度内核。已识别 MPVKit binary bundle 中的 Libmpv 和 FFmpeg 核心组件，但还没有安装到工程并验证完整链接链路。"
         }
 
         return MPVFrameworkManifests.manifest(for: backendType)?.unavailableReason
