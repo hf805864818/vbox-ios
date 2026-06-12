@@ -145,9 +145,33 @@ libiconv.tbd
 
 3.158 仍不加载媒体、不渲染、不接 PlayerViewsV2。若链接仍失败，按新日志继续补第二批外部依赖。
 
+## 3.159 完整静态依赖目标
+
+3.158 CI 日志确认最小外部依赖集不足，缺失符号覆盖：
+
+```text
+gnutls_*：gnutls / nettle / hogweed / gmp
+pl_*：Libplacebo
+shaderc_*：Libshaderc_combined
+uavs3d_*：Libuavs3d
+uchardet_*：Libuchardet
+vk*：MoltenVK
+init_linebreak / set_linebreaks_utf32：Libunibreak
+```
+
+3.159 调整为：
+
+```text
+1. 正式 IPA 和 Debug workflow 均使用 fetch_mpv_external_dependencies.py --all
+2. check_mpv_installed_dependencies.py 在完整验证阶段要求外部静态依赖全部存在
+3. fetch_mpv_dependencies.sh 内部核心检查使用 --allow-missing-external，避免核心包安装后、外部包安装前提前失败
+4. configure_mpvkit_link.rb 使用显式静态依赖顺序注入，不再简单按文件名排序
+5. 系统依赖提示与注入补充 QuartzCore / UIKit / IOSurface
+```
+
 ## 后续步骤
 
 ```text
-3.159：根据新 CI 链接日志判断是否需要第二批外部依赖
-3.160：初始化成功后测试 loadfile，但仍不接正式 UI
+3.160：观察 3.159 CI 是否仍有剩余 Undefined symbols
+3.161：初始化成功后测试 loadfile，但仍不接正式 UI
 ```

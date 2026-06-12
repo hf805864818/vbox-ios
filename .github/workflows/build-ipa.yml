@@ -28,7 +28,7 @@ jobs:
       - name: 🎬 Fetch MPVKit dependencies
         run: |
           bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
-          python3 scripts/fetch_mpv_external_dependencies.py --cache-dir .mpv-cache/external
+          python3 scripts/fetch_mpv_external_dependencies.py --all --cache-dir .mpv-cache/external
           python3 scripts/check_mpv_installed_dependencies.py
 
       - name: 🔗 Inject MPVKit Link & Embed
