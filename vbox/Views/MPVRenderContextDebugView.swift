@@ -2,6 +2,21 @@ import GLKit
 import SwiftUI
 import UIKit
 
+#if canImport(Libmpv)
+private final class MPVRenderContextCoreBox: ObservableObject {
+    var core = MPVRenderContextPlayerCore()
+
+    func replaceCore() {
+        core.teardown()
+        core = MPVRenderContextPlayerCore()
+    }
+
+    func teardown() {
+        core.teardown()
+    }
+}
+#endif
+
 struct MPVRenderContextDebugView: View {
     private static let defaultHLSURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 
@@ -10,7 +25,7 @@ struct MPVRenderContextDebugView: View {
     @State private var logs: [String] = []
     @State private var state = PlayerEngineState()
     @State private var isSwitching = false
-    @State private var lastProfile: MPVRenderContextPlayerCore.PlaybackProfile?
+    @State private var renderSessionID = UUID()
     private let initialHeaders: [String: String]
 
     private let hlsTSURL = MPVRenderContextDebugView.defaultHLSURL
@@ -20,7 +35,7 @@ struct MPVRenderContextDebugView: View {
     private let mkv200URL = "https://thetestdata.com/assets/video/mkv/1080/200MB_1080P_THETESTDATA.COM_mkv.mkv"
 
     #if canImport(Libmpv)
-    private let core = MPVRenderContextPlayerCore()
+    @StateObject private var coreBox = MPVRenderContextCoreBox()
     #endif
 
     init(initialURL: String? = nil, headers: [String: String] = [:]) {
@@ -46,7 +61,7 @@ struct MPVRenderContextDebugView: View {
             }
             .onDisappear {
                 #if canImport(Libmpv)
-                core.teardown()
+                coreBox.teardown()
                 #endif
             }
         }
@@ -54,11 +69,12 @@ struct MPVRenderContextDebugView: View {
 
     private var renderArea: some View {
         #if canImport(Libmpv)
-        MPVRenderContextHost(core: core, onLog: appendLog, onStateChange: { state = $0 })
+        MPVRenderContextHost(core: coreBox.core, onLog: appendLog, onStateChange: { state = $0 })
             .frame(height: 220)
             .background(Color.black)
             .cornerRadius(12)
             .padding(.horizontal, 16)
+            .id(renderSessionID)
         #else
         Text("Libmpv模块未导入，无法运行RenderContext调试")
             .frame(maxWidth: .infinity)
@@ -126,7 +142,7 @@ struct MPVRenderContextDebugView: View {
                 .buttonStyle(.bordered)
                 .disabled(isSwitching)
 
-                Button("HLS-fMP4") {
+                Button("HLS-fMP4兼容") {
                     urlText = hlsFMP4URL
                     loadCurrentURL(profile: .hlsFMP4)
                 }
@@ -149,7 +165,7 @@ struct MPVRenderContextDebugView: View {
                 .buttonStyle(.bordered)
                 .disabled(isSwitching)
 
-                Button("MKV-200M") {
+                Button("MKV-200M压力") {
                     urlText = mkv200URL
                     loadCurrentURL(profile: .mkvLarge)
                 }
@@ -164,7 +180,7 @@ struct MPVRenderContextDebugView: View {
 
                 Button(state.isPlaying ? "暂停" : "继续") {
                     #if canImport(Libmpv)
-                    state.isPlaying ? core.pause() : core.play()
+                    state.isPlaying ? coreBox.core.pause() : coreBox.core.play()
                     #endif
                 }
                 .buttonStyle(.bordered)
@@ -204,22 +220,17 @@ struct MPVRenderContextDebugView: View {
         }
         #if canImport(Libmpv)
         let effectiveProfile = profile ?? inferredProfile(for: url)
-        let needsRebuild = lastProfile.map { $0.family != effectiveProfile.family } ?? false
         isSwitching = true
         logs.removeAll()
         state = PlayerEngineState()
         appendLog("准备切换：\(url.absoluteString)")
-        appendLog(needsRebuild ? "切换方式：重建内核" : "切换方式：轻切换")
-        if needsRebuild {
-            core.rebuildForNewLoad()
-        } else {
-            core.resetForNewLoad()
-        }
+        appendLog("播放会话：新建 session")
+        coreBox.replaceCore()
+        renderSessionID = UUID()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: needsRebuild ? 450_000_000 : 250_000_000)
-            core.load(url: url, headers: initialHeaders, profile: effectiveProfile)
-            core.play()
-            lastProfile = effectiveProfile
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            coreBox.core.load(url: url, headers: initialHeaders, profile: effectiveProfile)
+            coreBox.core.play()
             isSwitching = false
         }
         #else
@@ -232,11 +243,11 @@ struct MPVRenderContextDebugView: View {
         isSwitching = true
         logs.removeAll()
         state = PlayerEngineState()
-        lastProfile = nil
-        appendLog("手动重置RenderContext内核")
-        core.rebuildForNewLoad()
+        appendLog("手动重置RenderContext播放会话")
+        coreBox.replaceCore()
+        renderSessionID = UUID()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 450_000_000)
             isSwitching = false
         }
         #endif
