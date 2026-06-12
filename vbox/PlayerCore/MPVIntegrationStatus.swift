@@ -35,6 +35,13 @@ enum MPVIntegrationStatus {
         manifests.map { $0.shortSummary }.joined(separator: "\n")
     }
 
+    /// 3.150 step。链接验证分支用。
+    /// 直接读取 MPVKitBackend 的编译期探针，告诉调试位 MPVKit 模块是否真的被 import 进来。
+    /// 不调用任何 MPVKit/libmpv 运行时 API。
+    static var moduleProbeResult: String {
+        return MPVKitBackend.moduleProbeResult
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:

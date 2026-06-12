@@ -2,6 +2,18 @@ name: Build IPA (Debug)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/mpvkit-link-validation
+    paths:
+      - '.github/workflows/build-ipa-debug.yml'
+      - 'scripts/fetch_mpv_dependencies.sh'
+      - 'scripts/install_mpv_dependencies.sh'
+      - 'scripts/check_mpv_installed_dependencies.py'
+      - 'scripts/configure_mpvkit_link.rb'
+      - 'vbox.xcodeproj/project.pbxproj'
+      - 'vbox/PlayerCore/**'
+      - 'vbox/Libraries/MPV/**'
 
 jobs:
   build:
@@ -14,7 +26,27 @@ jobs:
           submodules: recursive
 
       - name: 🔧 Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+          xcrun simctl list runtimes || true
+
+      - name: 🎬 Fetch MPVKit dependencies
+        run: |
+          bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+          python3 scripts/check_mpv_installed_dependencies.py
+
+      - name: 🔗 Inject MPVKit Link & Embed (validation only)
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/configure_mpvkit_link.rb
 
       - name: 📦 Install CocoaPods dependencies
         run: |
@@ -23,6 +55,7 @@ jobs:
 
       - name: 🏗️ Build with Verbose Output
         run: |
+          set -o pipefail
           xcodebuild \
             -workspace vbox.xcworkspace \
             -scheme vbox \
@@ -54,6 +87,10 @@ jobs:
       - name: 📦 Export IPA
         if: success()
         run: |
+          if [ ! -f exportOptions.plist ]; then
+            echo "未找到 exportOptions.plist，跳过 IPA 导出。MPVKit Link/Embed 验证只要求 archive 成功。"
+            exit 0
+          fi
           xcodebuild -exportArchive \
             -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
             -exportPath ${{ github.workspace }}/build/ \

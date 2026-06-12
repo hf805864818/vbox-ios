@@ -1,5 +1,9 @@
 import UIKit
 
+#if canImport(MPVKit)
+import MPVKit
+#endif
+
 /// MPVKit 后端占位。
 /// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
 final class MPVKitBackend: MPVBackend {
@@ -7,6 +11,17 @@ final class MPVKitBackend: MPVBackend {
     let name = "MPV"
     private(set) var state = PlayerEngineState()
     var onEvent: ((PlayerEngineEvent) -> Void)?
+
+    /// 软探针：仅检查 MPVKit 模块在编译期是否可见。
+    /// 不创建 mpv_handle、不触发渲染回调，只用于验证 Link/Embed 是否成功。
+    /// 3.150 step。后续真实 isAvailable 仍由 MPVIntegrationStatus 控制。
+    static var moduleProbeResult: String {
+        #if canImport(MPVKit)
+        return "MPVKit-imported"
+        #else
+        return "MPVKit-missing"
+        #endif
+    }
 
     static var isAvailable: Bool {
         // MPVKit.xcframework wrapper 已放入仓库，但在底层 Libmpv/FFmpeg 依赖补齐前，
