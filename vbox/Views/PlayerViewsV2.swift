@@ -189,6 +189,18 @@ class PlayerState: ObservableObject {
     private var quarkFallbackSource: String?
     private var quarkFallbackAttempted = false
     private var quarkFallbackTimeoutTask: Task<Void, Never>?
+    private var m3u8ProbeCache: [String: M3U8ProbeCacheEntry] = [:]
+
+    private enum M3U8PlaylistKind: String {
+        case fmp4 = "hls-fmp4"
+        case ts = "hls-ts"
+        case unknown = "hls-unknown"
+    }
+
+    private struct M3U8ProbeCacheEntry {
+        let kind: M3U8PlaylistKind
+        let expiresAt: Date
+    }
 
     private var isVLCBuildAvailable: Bool {
         #if canImport(MobileVLCKit)
@@ -935,25 +947,46 @@ class PlayerState: ObservableObject {
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
         let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
+        let resourceName = currentPlaybackResourceName(fallbackURL: urlObj, originalURL: url)
+        let playlistKind = await probeM3U8IfNeeded(url: urlObj, headers: headers)
 
         if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "百度原画本地代理"
             }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流")
             log("[Baidu] 自动模式下百度原画本地代理优先使用 MPV-MoltenVK，跳过系统内核 0x0 画面等待")
+        } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
+            await MainActor.run {
+                playbackEngineMode = .system
+                compatibilityHint = nil
+            }
+            let kind = playlistKind ?? .unknown
+            let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
         } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链兼容")
             log("[Quark] 自动模式下夸克直链优先使用 VLC 兼容内核，减少 AVPlayer 首帧慢和 12847 兼容问题")
         } else if isQuarkLocalProxy && enginePreference == .auto && quarkFallbackURL != nil {
             await MainActor.run {
                 playbackEngineMode = .system
                 compatibilityHint = nil
             }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "夸克m3u8兜底可用")
             log("[Quark] 已启用 m3u8 兜底，原画主线路先用系统内核观察失败/超时")
+        } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = compatibilityReason(for: resourceName) ?? "复杂封装"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "真实文件名/URL命中复杂封装")
+        } else if enginePreference == .auto {
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "默认系统内核")
         }
 
         if shouldUseCompatibilityEngine {
@@ -1124,6 +1157,82 @@ class PlayerState: ObservableObject {
     private func isHTTPForbidden(errorDesc: String, underlyingDesc: String) -> Bool {
         let text = "\(errorDesc) \(underlyingDesc)".lowercased()
         return text.contains("403") || text.contains("forbidden")
+    }
+
+    private func currentPlaybackResourceName(fallbackURL: URL, originalURL: String) -> String {
+        if currentEpisodeIndex >= 0, currentEpisodeIndex < baiduFileList.count {
+            return baiduFileList[currentEpisodeIndex].name
+        }
+        if let decoded = fallbackURL.lastPathComponent.removingPercentEncoding, !decoded.isEmpty {
+            return decoded
+        }
+        if let original = URL(string: originalURL)?.lastPathComponent.removingPercentEncoding, !original.isEmpty {
+            return original
+        }
+        return fallbackURL.absoluteString
+    }
+
+    private func shouldPreferMPVByResourceName(_ resourceName: String, url: URL) -> Bool {
+        let text = "\(resourceName) \(url.absoluteString)".lowercased()
+        if text.contains(".mp4") || text.contains(".m3u8") || text.contains(".m4v") || text.contains(".mov") {
+            return false
+        }
+        return text.contains(".mkv")
+            || text.contains("mkv")
+            || text.contains("hevc")
+            || text.contains("h265")
+            || text.contains("x265")
+            || text.contains("10bit")
+            || text.contains("hdr")
+            || text.contains("4k")
+    }
+
+    private func isM3U8URL(_ url: URL) -> Bool {
+        url.absoluteString.lowercased().contains(".m3u8") || url.path.lowercased().contains("m3u8")
+    }
+
+    private func logEngineResolver(resourceName: String, url: URL, playlistKind: M3U8PlaylistKind?, engine: String, reason: String) {
+        let kindText = playlistKind?.rawValue ?? "none"
+        log("[EngineResolver] resource=\(resourceName), kind=\(kindText), engine=\(engine), reason=\(reason), url=\(url.absoluteString.prefix(80))")
+    }
+
+    private func probeM3U8IfNeeded(url: URL, headers: [String: String]) async -> M3U8PlaylistKind? {
+        guard isM3U8URL(url) else { return nil }
+        let key = url.absoluteString
+        if let cached = m3u8ProbeCache[key], cached.expiresAt > Date() {
+            log("[EngineResolver] m3u8探测缓存命中：\(cached.kind.rawValue)")
+            return cached.kind
+        }
+
+        do {
+            let kind = try await probeM3U8Playlist(url: url, headers: headers)
+            m3u8ProbeCache[key] = M3U8ProbeCacheEntry(kind: kind, expiresAt: Date().addingTimeInterval(5 * 60))
+            log("[EngineResolver] m3u8探测完成：\(kind.rawValue)")
+            return kind
+        } catch {
+            log("[EngineResolver] m3u8探测失败，默认系统内核：\(error.localizedDescription)")
+            m3u8ProbeCache[key] = M3U8ProbeCacheEntry(kind: .unknown, expiresAt: Date().addingTimeInterval(60))
+            return .unknown
+        }
+    }
+
+    private func probeM3U8Playlist(url: URL, headers: [String: String]) async throws -> M3U8PlaylistKind {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 1.5
+        request.setValue("bytes=0-131071", forHTTPHeaderField: "Range")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let sample = String(data: data.prefix(131_072), encoding: .utf8)?.lowercased() ?? ""
+        if sample.contains("#ext-x-map") || sample.contains(".m4s") {
+            return .fmp4
+        }
+        if sample.contains(".ts") || sample.contains("mpegts") {
+            return .ts
+        }
+        return .unknown
     }
 
     /// 判断是否是夸克侧常见的"连接被中断"。AVPlayer 在签名失效或 TLS 被风控关闭时通常返回
