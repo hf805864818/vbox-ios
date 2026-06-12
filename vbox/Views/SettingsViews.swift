@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var showUniversalPlayTestView = false
     @State private var showCloudCacheSheet = false
     @State private var showAuthCenter = false
+    @State private var showMPVKitDebugView = false
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
@@ -241,6 +242,29 @@ struct SettingsView: View {
                     .background(Color.gray.opacity(0.04))
                 }
 
+                Button(action: { showMPVKitDebugView = true }) {
+                    HStack {
+                        Image(systemName: "play.tv.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("MPV播放调试")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.black)
+                            Text("验证 MPVKit.xcframework 的真实画面渲染、mp4/m3u8播放")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.gray.opacity(0.04))
+                }
+
                 // 百度网盘测试入口
                 Button(action: { showBaiduTestView = true }) {
                     HStack {
@@ -290,6 +314,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showUniversalPlayTestView) {
             UniversalPlayTestView()
+        }
+        .sheet(isPresented: $showMPVKitDebugView) {
+            MPVKitDebugPlayerView()
         }
         .sheet(isPresented: $showCloudCacheSheet) {
             CloudPlaybackCacheView()
