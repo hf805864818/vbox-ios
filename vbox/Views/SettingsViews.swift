@@ -446,6 +446,10 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
+                Text("提示：真实播放测试请使用“MPV播放调试”。日志采样已降级，避免诊断页闪退。")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button(action: runMPVLoadfileProbe) {
                     HStack {
                         if isRunningMPVLoadfileProbe {
@@ -504,11 +508,11 @@ struct SettingsView: View {
                 }
                 .disabled(isRunningMPVMinimalPlaybackTest || !MPVIntegrationStatus.isMPVKitInitializationReady)
                 mpvDiagnosticButton(
-                    title: "运行MPV日志采样探针",
-                    runningTitle: "正在运行MPV日志采样",
+                    title: "MPV日志采样已禁用",
+                    runningTitle: "MPV日志采样已禁用",
                     isRunning: isRunningMPVLogProbe,
-                    icon: "doc.text.magnifyingglass",
-                    color: Color.purple.opacity(0.85),
+                    icon: "exclamationmark.triangle",
+                    color: Color.gray,
                     action: runMPVLogProbe
                 )
                 mpvDiagnosticButton(
@@ -635,16 +639,8 @@ struct SettingsView: View {
 
     private func runMPVLogProbe() {
         guard !isRunningMPVLogProbe else { return }
-        isRunningMPVLogProbe = true
-        mpvLogProbeSummary = "正在采样MPV日志事件..."
-
-        Task.detached {
-            let result = MPVIntegrationStatus.runLogSamplingProbe()
-            await MainActor.run {
-                mpvLogProbeSummary = "\(result.title)：\(result.summary)"
-                isRunningMPVLogProbe = false
-            }
-        }
+        let result = MPVIntegrationStatus.runLogSamplingProbe()
+        mpvLogProbeSummary = "\(result.title)：\(result.summary)"
     }
 
     private func runMPVAudioProbe() {
@@ -718,33 +714,26 @@ struct SettingsView: View {
             let minimal = await runMPVMinimalPlaybackSequence()
             mpvMinimalPlaybackSummary = minimal
 
-            let log = await Task.detached { MPVIntegrationStatus.runLogSamplingProbe() }.value
-            mpvLogProbeSummary = "\(log.title)：\(log.summary)"
-
-            let audio = await Task.detached { MPVIntegrationStatus.runAudioOutputProbe() }.value
-            mpvAudioProbeSummary = "\(audio.title)：\(audio.summary)"
-
-            let video = await Task.detached { MPVIntegrationStatus.runVideoOutputCapabilityProbe() }.value
-            mpvVideoProbeSummary = "\(video.title)：\(video.summary)"
-
             let network = await Task.detached { MPVIntegrationStatus.runNetworkPlaybackProbe() }.value
             mpvNetworkProbeSummary = "\(network.title)：\(network.summary)"
 
             let lifecycle = await Task.detached { MPVIntegrationStatus.runLifecycleStressProbe() }.value
             mpvLifecycleProbeSummary = "\(lifecycle.title)：\(lifecycle.summary)"
 
+            let log = MPVIntegrationStatus.runLogSamplingProbe()
+            mpvLogProbeSummary = "\(log.title)：\(log.summary)"
+            mpvAudioProbeSummary = "音频输出：已跳过，一键诊断只运行安全项"
+            mpvVideoProbeSummary = "视频输出能力：已跳过，一键诊断只运行安全项"
+
             let passedCount = [
                 loadfile.isMediaLoadObserved,
                 control.isControlPathReady,
                 !minimal.contains("失败"),
-                log.isPassed,
-                audio.isPassed,
-                video.isPassed,
                 network.isPassed,
                 lifecycle.isPassed
             ].filter { $0 }.count
 
-            mpvAllDiagnosticsSummary = "全部MPV诊断完成：\(passedCount)/8 通过，截图发我统一排查"
+            mpvAllDiagnosticsSummary = "安全MPV诊断完成：\(passedCount)/5 通过，已跳过日志/音频/视频危险探针"
             isRunningMPVAllDiagnostics = false
         }
     }
@@ -761,10 +750,12 @@ struct SettingsView: View {
         try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         controller.play()
-        try? await Task.sleep(nanoseconds: 800_000_000)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
-        controller.seek(to: 5)
-        try? await Task.sleep(nanoseconds: 800_000_000)
+        if controller.state.duration > 0 || controller.state.currentTime > 0 {
+            controller.seek(to: 5)
+            try? await Task.sleep(nanoseconds: 800_000_000)
+        }
 
         controller.pause()
         try? await Task.sleep(nanoseconds: 500_000_000)

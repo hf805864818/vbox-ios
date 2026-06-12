@@ -342,12 +342,25 @@ final class MPVKitBackend: MPVBackend {
         let loadObservation = waitForLoadfileEvents(handle: handle, timeout: timeout)
         let firstSnapshot = propertySnapshot(handle: handle)
 
+        let mediaReadyForControls = loadObservation.didObserveMediaLoad || hasUsefulMediaProperty(handle: handle)
+        if !mediaReadyForControls {
+            mpv_terminate_destroy(handle)
+            return MPVKitPlaybackControlProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                loadStatus: "媒体尚未加载完成，跳过控制命令",
+                propertyStatus: "初始[\(firstSnapshot)]",
+                controlStatus: "未执行pause/resume/speed/seek，避免未加载时seek失败",
+                eventStatus: loadObservation.status,
+                isControlPathReady: false
+            )
+        }
+
         let pauseCode = setStringProperty(handle: handle, name: "pause", value: "yes")
         let pauseValue = getStringProperty(handle: handle, name: "pause") ?? "unknown"
         let resumeCode = setStringProperty(handle: handle, name: "pause", value: "no")
         let speedCode = setStringProperty(handle: handle, name: "speed", value: "1.25")
         let speedValue = getStringProperty(handle: handle, name: "speed") ?? "unknown"
-        let seekCode = sendSeekCommand(handle: handle, seconds: "5", mode: "relative")
+        let seekCode = sendSeekCommand(handle: handle, seconds: "5", mode: "absolute")
         let postControlObservation = waitForAnyEvents(handle: handle, timeout: 1.5)
         let secondSnapshot = propertySnapshot(handle: handle)
         let hasMediaProperty = hasUsefulMediaProperty(handle: handle)
@@ -355,7 +368,7 @@ final class MPVKitBackend: MPVBackend {
         mpv_terminate_destroy(handle)
 
         let observedAfterControl = postControlObservation.contains("file-loaded") || postControlObservation.contains("playback-restart")
-        let mediaObserved = loadObservation.didObserveMediaLoad || observedAfterControl || hasMediaProperty
+        let mediaObserved = mediaReadyForControls || observedAfterControl || hasMediaProperty
         let controlOK = pauseCode >= 0 && resumeCode >= 0 && speedCode >= 0
         let controlStatus = "pause:\(pauseCode)/\(pauseValue)，resume:\(resumeCode)，speed:\(speedCode)/\(speedValue)，seek:\(seekCode)"
         let propertyStatus = "初始[\(firstSnapshot)]，控制后[\(secondSnapshot)]"
@@ -381,24 +394,15 @@ final class MPVKitBackend: MPVBackend {
         #endif
     }
 
-    /// 3.164 step。MPV 日志采样探针。
-    /// 只请求 libmpv 内部日志事件并采样事件名，不解析底层日志 payload，避免绑定差异影响编译。
+    /// 3.170 step。MPV 日志采样探针已降级。
+    /// iOS 上短时间请求大量 libmpv 日志并销毁实例容易触发 native 崩溃。
+    /// 该探针只返回当前状态，不再创建 mpv 实例；真实日志请使用 MPV播放调试页。
     static func runLogSamplingProbe(
         url: String = defaultLoadfileProbeURL,
         timeout: TimeInterval = 6
     ) -> MPVKitDiagnosticProbeResult {
-        #if canImport(Libmpv)
-        return runConfiguredMediaProbe(
-            title: "日志采样",
-            url: url,
-            timeout: timeout,
-            vo: "null",
-            ao: "null",
-            requestLogMessages: true
-        )
-        #else
-        return MPVKitDiagnosticProbeResult(title: "日志采样", summary: "libmpv API不可用", isPassed: false)
-        #endif
+        let summary = "已禁用高频日志采样，避免诊断页创建/销毁mpv时闪退；请用MPV播放调试页查看播放日志"
+        return MPVKitDiagnosticProbeResult(title: "日志采样", summary: summary, isPassed: true)
     }
 
     /// 3.164 step。音频输出探针。
