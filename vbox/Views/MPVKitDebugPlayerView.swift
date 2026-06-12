@@ -7,6 +7,11 @@ struct MPVKitDebugPlayerView: View {
     @State private var logs: [String] = []
     @State private var state = PlayerEngineState()
 
+    private let hlsURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    private let mp4URL = "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"
+    private let mkv720LargeURL = "https://test-videos.co.uk/vids/bigbuckbunny/mkv/720/Big_Buck_Bunny_720_10s_30MB.mkv"
+    private let mkv1080LargeURL = "https://test-videos.co.uk/vids/bigbuckbunny/mkv/1080/Big_Buck_Bunny_1080_10s_30MB.mkv"
+
     #if canImport(Libmpv)
     private let core = MPVKitRenderedPlayerCore()
     #endif
@@ -91,30 +96,46 @@ struct MPVKitDebugPlayerView: View {
                 .background(Color.gray.opacity(0.08))
                 .cornerRadius(8)
 
-            HStack(spacing: 10) {
-                Button("HLS") {
-                    urlText = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-                    loadCurrentURL()
-                }
-                .buttonStyle(.bordered)
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Button("HLS") {
+                        urlText = hlsURL
+                        loadCurrentURL()
+                    }
+                    .buttonStyle(.bordered)
 
-                Button("MP4") {
-                    urlText = MPVKitBackend.defaultMP4ProbeURL
-                    loadCurrentURL()
-                }
-                .buttonStyle(.bordered)
+                    Button("MP4") {
+                        urlText = mp4URL
+                        loadCurrentURL()
+                    }
+                    .buttonStyle(.bordered)
 
-                Button("播放") {
-                    loadCurrentURL()
-                }
-                .buttonStyle(.borderedProminent)
+                    Button("播放") {
+                        loadCurrentURL()
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button(state.isPlaying ? "暂停" : "继续") {
-                    #if canImport(Libmpv)
-                    state.isPlaying ? core.pause() : core.play()
-                    #endif
+                    Button(state.isPlaying ? "暂停" : "继续") {
+                        #if canImport(Libmpv)
+                        state.isPlaying ? core.pause() : core.play()
+                        #endif
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
+
+                HStack(spacing: 8) {
+                    Button("MKV-720P大") {
+                        urlText = mkv720LargeURL
+                        loadCurrentURL()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("MKV-1080P大") {
+                        urlText = mkv1080LargeURL
+                        loadCurrentURL()
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -143,6 +164,7 @@ struct MPVKitDebugPlayerView: View {
             return
         }
         #if canImport(Libmpv)
+        logs.removeAll()
         core.load(url: url)
         core.play()
         #else
