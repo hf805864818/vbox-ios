@@ -1,0 +1,56 @@
+name: MPVKit Dependencies Check
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/fetch_mpv_dependencies.sh'
+      - 'scripts/install_mpv_dependencies.sh'
+      - 'scripts/check_mpv_installed_dependencies.py'
+      - 'scripts/inspect_mpvkit_bundle.py'
+      - '.github/workflows/mpvkit-deps-check.yml'
+
+# 该工作流只验证 MPVKit 依赖闭环（fetch → install → check）。
+# 不构建 Xcode 工程，不修改 Link/Embed，不触碰播放器 UI。
+# 只服务 MPVKit 内核依赖，不处理后续自由度 libmpv.xcframework。
+
+jobs:
+  mpvkit-deps:
+    name: Verify MPVKit dependency bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache MPVKit archive
+        id: cache-archive
+        uses: actions/cache@v4
+        with:
+          path: .mpv-cache
+          key: mpvkit-deps-${{ hashFiles('scripts/fetch_mpv_dependencies.sh') }}-v1
+          restore-keys: |
+            mpvkit-deps-
+
+      - name: Fetch + install MPVKit dependencies
+        run: |
+          bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+
+      - name: Check installed dependencies
+        run: |
+          python3 scripts/check_mpv_installed_dependencies.py
+
+      - name: Inspect bundle (informational)
+        if: always()
+        run: |
+          if [ -f .mpv-cache/MPVKit-xcframework.zip ]; then
+            python3 scripts/inspect_mpvkit_bundle.py .mpv-cache/MPVKit-xcframework.zip || true
+          else
+            echo "未找到缓存压缩包，跳过 inspect"
+          fi
