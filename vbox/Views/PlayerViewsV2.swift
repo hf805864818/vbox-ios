@@ -788,7 +788,7 @@ class PlayerState: ObservableObject {
         currentTask?.cancel()
         currentVideo = video
         brightness = UIScreen.main.brightness
-        volume = AVAudioSession.sharedInstance().outputVolume
+        volume = Double(AVAudioSession.sharedInstance().outputVolume)
         restorePlaybackProgress(for: video)
         loadDanmaku(for: video, fileName: video.vodName)
         currentTask = Task { [weak self] in
