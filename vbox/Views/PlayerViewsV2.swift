@@ -1887,6 +1887,10 @@ class PlayerState: ObservableObject {
         
         // 配置PlayerItem（针对HLS/m3u8优化）
         playerItem.preferredForwardBufferDuration = 10.0 // 预缓冲10秒
+
+        // 创建播放器
+        let p = AVPlayer(playerItem: playerItem)
+        p.automaticallyWaitsToMinimizeStalling = true
         
         // 监听PlayerItem状态
         var localStatusObserver: AnyCancellable?
@@ -1923,10 +1927,6 @@ class PlayerState: ObservableObject {
                 }
             }
         statusObserver = localStatusObserver
-        
-        // 创建播放器
-        let p = AVPlayer(playerItem: playerItem)
-        p.automaticallyWaitsToMinimizeStalling = true
         
         // 监听播放失败
         failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
