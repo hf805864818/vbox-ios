@@ -40,7 +40,7 @@ enum MPVFrameworkManifests {
             "Package.swift 中声明的外部 binaryTarget"
         ],
         currentLinkPolicy: "main 不固化 Link/Embed，CI 构建时通过 configure_mpvkit_link.rb 临时注入",
-        enableCondition: "CI 已验证 Link/Embed 与 archive；App 内运行时加载和最小 Libmpv 初始化探针通过后，再进入测试媒体加载",
+        enableCondition: "CI 已验证 Link/Embed 与 archive；App 内 MPVKit 动态加载通过后，需先补齐 Libmpv 静态库外部依赖，再进入最小初始化",
         roleDescription: "这是标准 MPVKit wrapper 路线，不直接使用 Freedom/libmpv.xcframework"
     )
 

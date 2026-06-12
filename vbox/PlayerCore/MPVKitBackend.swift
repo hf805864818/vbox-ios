@@ -5,10 +5,6 @@ import Darwin
 import MPVKit
 #endif
 
-#if canImport(Libmpv)
-import Libmpv
-#endif
-
 /// MPVKit 运行时探针结果。
 /// 只检查动态库是否随包存在、是否能被系统 loader 打开。
 /// 不创建 mpv_handle，不调用播放、渲染、解码 API。
@@ -24,8 +20,9 @@ struct MPVKitRuntimeProbeResult {
 }
 
 /// MPVKit/Libmpv 最小初始化探针结果。
-/// 只做 mpv_create → mpv_initialize → mpv_terminate_destroy。
-/// 不加载媒体、不创建渲染层、不接正式播放器 UI。
+/// 当前 Release 依赖中的 Libmpv.framework 是静态库 archive。
+/// 不能在 App 运行时 dlopen，也不能直接 import 后调用 mpv_create，
+/// 否则会在链接阶段拉入 gmp/libass/libbluray/lcms2 等未补齐外部依赖。
 struct MPVKitInitializationProbeResult {
     let moduleStatus: String
     let apiVersionStatus: String
@@ -58,11 +55,7 @@ final class MPVKitBackend: MPVBackend {
     }
 
     static var libmpvModuleProbeResult: String {
-        #if canImport(Libmpv)
-        return "Libmpv-imported"
-        #else
-        return "Libmpv-missing"
-        #endif
+        return "Libmpv-static"
     }
 
     /// 3.151 step。运行时加载探针。
@@ -108,53 +101,18 @@ final class MPVKitBackend: MPVBackend {
         )
     }
 
-    /// 3.152 step。最小内核初始化探针。
-    /// 只验证 Libmpv C API 是否能创建并初始化最小 mpv handle。
-    /// 不加载视频、不 attach view、不接正式播放链路。
+    /// 3.154 修正。
+    /// 当前 Libmpv 是静态库，直接调用 mpv_create 会触发完整静态链接，
+    /// 而依赖包尚未包含 gmp/libass/libbluray/lcms2 等外部库。
+    /// 因此这里先只暴露状态，不在正式 IPA 中强行初始化。
     static let initializationProbeResult: MPVKitInitializationProbeResult = {
-        #if canImport(Libmpv)
-        setlocale(LC_NUMERIC, "C")
-
-        let apiVersion = mpv_client_api_version()
-        guard let handle = mpv_create() else {
-            return MPVKitInitializationProbeResult(
-                moduleStatus: libmpvModuleProbeResult,
-                apiVersionStatus: "libmpv API版本：\(apiVersion)",
-                createStatus: "mpv_create失败",
-                initializeStatus: "未初始化",
-                isInitialized: false
-            )
-        }
-
-        let initializeCode = mpv_initialize(handle)
-        if initializeCode < 0 {
-            mpv_destroy(handle)
-            return MPVKitInitializationProbeResult(
-                moduleStatus: libmpvModuleProbeResult,
-                apiVersionStatus: "libmpv API版本：\(apiVersion)",
-                createStatus: "mpv_create成功",
-                initializeStatus: "mpv_initialize失败：\(initializeCode)",
-                isInitialized: false
-            )
-        }
-
-        mpv_terminate_destroy(handle)
         return MPVKitInitializationProbeResult(
             moduleStatus: libmpvModuleProbeResult,
-            apiVersionStatus: "libmpv API版本：\(apiVersion)",
-            createStatus: "mpv_create成功",
-            initializeStatus: "mpv_initialize成功",
-            isInitialized: true
-        )
-        #else
-        return MPVKitInitializationProbeResult(
-            moduleStatus: libmpvModuleProbeResult,
-            apiVersionStatus: "libmpv API不可用",
-            createStatus: "未创建",
-            initializeStatus: "未初始化",
+            apiVersionStatus: "libmpv为静态库",
+            createStatus: "未直接调用mpv_create",
+            initializeStatus: "需补齐外部静态依赖后再初始化",
             isInitialized: false
         )
-        #endif
     }()
 
     static var isAvailable: Bool {

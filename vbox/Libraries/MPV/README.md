@@ -101,7 +101,7 @@ MPVIntegrationStatus.runtimeProbeSummary
 
 该探针只检查 `MPVKit.framework/MPVKit` 是否随包存在、是否能被 `dlopen` 动态加载，不创建 `mpv_handle`，不接正式播放 UI。
 
-`3.152` 增加 MPVKit 后端的最小内核初始化探针：
+`3.152` 曾尝试增加 MPVKit 后端的最小内核初始化探针：
 
 ```text
 MPVKitBackend.initializationProbeResult
@@ -109,13 +109,25 @@ MPVIntegrationStatus.initializationProbeSummary
 设置 → 关于 → MPV状态
 ```
 
-由于当前 `MPVKit.xcframework` 未暴露可直接调用的播放器 API，初始化探针使用 `MPVKitDependencies/Libmpv.xcframework` 的 C API 执行：
+由于当前 `MPVKit.xcframework` 未暴露可直接调用的播放器 API，初始化探针曾尝试使用 `MPVKitDependencies/Libmpv.xcframework` 的 C API 执行：
 
 ```text
 mpv_create → mpv_initialize → mpv_terminate_destroy
 ```
 
-该探针只验证内核是否可创建和初始化，不加载媒体、不 attach 渲染层、不接正式播放 UI，也不触碰 Freedom 自由度内核。
+`3.154` 修正该策略：`Libmpv.framework/Libmpv` 实际是静态库 archive，不是动态库。直接 `import Libmpv` 并调用 `mpv_create` 会在链接阶段拉入完整静态依赖链，当前依赖包还缺 `gmp/libass/libbluray/lcms2` 等外部 binaryTarget，因此正式 IPA 暂不直接调用 `mpv_create`。
+
+当前 App 内显示会保留：
+
+```text
+MPVKit-imported
+MPVKit动态库已随包嵌入
+动态加载成功
+Libmpv-static
+需补齐外部静态依赖后再初始化
+```
+
+后续要继续初始化，需要先补齐 Package.swift 中声明但未随 Release 包携带的外部依赖，再重新打开 `mpv_create → mpv_initialize` 探针。
 
 MPVKit 依赖包默认来源：
 
