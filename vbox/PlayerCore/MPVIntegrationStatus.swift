@@ -24,7 +24,7 @@ enum MPVIntegrationStatus {
     static let libmpvManifest = MPVFrameworkManifests.libmpv
 
     static var isMPVKitFrameworkLinked: Bool {
-        return false
+        return MPVKitBackend.initializationProbeResult.isInitialized
     }
 
     static var isLibMPVFrameworkLinked: Bool {
@@ -108,7 +108,7 @@ enum MPVIntegrationStatus {
 
     static func disabledReason(for backendType: MPVBackendType) -> String {
         if backendType == .automatic {
-            return "当前构建未启用 MPVKit 或自由度内核。MPVKit 已识别 binary bundle 中的 Libmpv 和 FFmpeg 核心组件，但尚未安装到 MPVKitDependencies 并验证完整链接链路；自由度内核仍只预留 Freedom/libmpv.xcframework 路径。"
+            return "当前构建未启用 MPVKit 或自由度内核。MPVKit 最小链路需要先通过 mpv_create / mpv_initialize；自由度内核仍只预留 Freedom/libmpv.xcframework 路径。"
         }
 
         return MPVFrameworkManifests.manifest(for: backendType)?.unavailableReason

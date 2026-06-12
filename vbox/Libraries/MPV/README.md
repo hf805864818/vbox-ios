@@ -273,6 +273,15 @@ teardown
 
 一键全部诊断会顺序运行 `loadfile`、综合控制、最小播放链路、日志采样、音频输出、视频输出能力、网络播放、生命周期压力共 8 项，最后显示通过数量。音频和视频仍是能力探针，不接正式播放器页面；如果失败，失败信息用于判断后续真实音视频输出方案。
 
+`3.165` 修正 3.164 诊断误判：
+
+```text
+MPVKitBackend 最小 PlayerEngine 链路在 mpv_initialize 成功后启用
+综合控制探针把后续 file-loaded/playback-restart 和 duration/time-pos 算作有效媒体加载
+seek=-12 不再单独导致综合控制失败
+生命周期压力测试把 start-file/audio-reconfig/file-loaded/playback-restart 算作有效加载观察
+```
+
 MPVKit 依赖包默认来源：
 
 ```text

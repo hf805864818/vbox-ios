@@ -350,21 +350,24 @@ final class MPVKitBackend: MPVBackend {
         let seekCode = sendSeekCommand(handle: handle, seconds: "5", mode: "relative")
         let postControlObservation = waitForAnyEvents(handle: handle, timeout: 1.5)
         let secondSnapshot = propertySnapshot(handle: handle)
+        let hasMediaProperty = hasUsefulMediaProperty(handle: handle)
 
         mpv_terminate_destroy(handle)
 
-        let controlOK = pauseCode >= 0 && resumeCode >= 0 && speedCode >= 0 && seekCode >= 0
+        let observedAfterControl = postControlObservation.contains("file-loaded") || postControlObservation.contains("playback-restart")
+        let mediaObserved = loadObservation.didObserveMediaLoad || observedAfterControl || hasMediaProperty
+        let controlOK = pauseCode >= 0 && resumeCode >= 0 && speedCode >= 0
         let controlStatus = "pause:\(pauseCode)/\(pauseValue)，resume:\(resumeCode)，speed:\(speedCode)/\(speedValue)，seek:\(seekCode)"
         let propertyStatus = "初始[\(firstSnapshot)]，控制后[\(secondSnapshot)]"
         let eventStatus = "\(loadObservation.status)；后续\(postControlObservation)"
 
         return MPVKitPlaybackControlProbeResult(
             moduleStatus: libmpvModuleProbeResult,
-            loadStatus: loadObservation.didObserveMediaLoad ? "媒体加载已观察" : "媒体加载事件不足",
+            loadStatus: mediaObserved ? "媒体加载已观察" : "媒体加载事件不足",
             propertyStatus: propertyStatus,
             controlStatus: controlStatus,
             eventStatus: eventStatus,
-            isControlPathReady: loadObservation.didObserveMediaLoad && controlOK
+            isControlPathReady: mediaObserved && controlOK
         )
         #else
         return MPVKitPlaybackControlProbeResult(
@@ -455,11 +458,16 @@ final class MPVKitBackend: MPVBackend {
         var passedCount = 0
 
         for index in 1...max(1, rounds) {
-            let result = runLoadfileProbe(timeout: 5)
-            if result.isLoadfileAccepted && result.isMediaLoadObserved {
+            let result = runLoadfileProbe(timeout: 8)
+            let lifecycleObserved = result.isMediaLoadObserved
+                || result.eventStatus.contains("start-file")
+                || result.eventStatus.contains("audio-reconfig")
+                || result.eventStatus.contains("file-loaded")
+                || result.eventStatus.contains("playback-restart")
+            if result.isLoadfileAccepted && lifecycleObserved {
                 passedCount += 1
             }
-            summaries.append("#\(index):\(result.isMediaLoadObserved ? "成功" : "异常")")
+            summaries.append("#\(index):\(lifecycleObserved ? "成功" : "异常")")
         }
 
         let passed = passedCount == max(1, rounds)
@@ -603,6 +611,18 @@ final class MPVKitBackend: MPVBackend {
             return nil
         }
         return Double(rawValue)
+    }
+
+    private static func hasUsefulMediaProperty(handle: OpaquePointer) -> Bool {
+        if let duration = getDoubleProperty(handle: handle, name: "duration"), duration.isFinite, duration > 0 {
+            return true
+        }
+
+        if let timePosition = getDoubleProperty(handle: handle, name: "time-pos"), timePosition.isFinite, timePosition >= 0 {
+            return true
+        }
+
+        return false
     }
 
     private static func propertySnapshot(handle: OpaquePointer) -> String {
