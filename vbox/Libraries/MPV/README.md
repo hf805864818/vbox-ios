@@ -137,6 +137,22 @@ Library not loaded: @rpath/MPVKit.framework/MPVKitWrapper
 
 `MPVKit.framework/Info.plist` 中 `CFBundleExecutable` 为 `MPVKit`，但动态库 install name 指向 `MPVKitWrapper`。正式 IPA 打包阶段会在 `MPVKit.framework` 内复制一份 `MPVKitWrapper`，避免 dyld 在启动时找不到该文件。
 
+`3.156` 增加 Libmpv 静态依赖补齐检查和计划文档：
+
+```text
+vbox/Libraries/MPV/MPVKitDependencyPlan.md
+scripts/check_mpv_installed_dependencies.py
+```
+
+检查脚本现在分两层：
+
+```text
+核心依赖：Libmpv + FFmpeg 7 件套，缺失时 CI 失败
+外部静态依赖：gmp/libass/libbluray/lcms2 等，只提示缺失，不影响当前 CI
+```
+
+3.156 不重新打开 `import Libmpv`，也不调用 `mpv_create`。后续必须先补齐 `MPVKitDependencyPlan.md` 中列出的外部 binaryTarget，再进入 Libmpv 初始化。
+
 MPVKit 依赖包默认来源：
 
 ```text
