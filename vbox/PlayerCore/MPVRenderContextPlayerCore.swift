@@ -66,6 +66,7 @@ final class MPVRenderContextPlayerCore: NSObject {
 
     func resetForNewLoad() {
         command("stop", checkForErrors: false)
+        clearCurrentDrawable()
         state = PlayerEngineState()
         emitState()
         DispatchQueue.main.async { [weak self] in
@@ -75,6 +76,7 @@ final class MPVRenderContextPlayerCore: NSObject {
 
     func rebuildForNewLoad() {
         command("stop", checkForErrors: false)
+        clearCurrentDrawable()
         if let renderContext {
             mpv_render_context_free(renderContext)
             self.renderContext = nil
@@ -83,9 +85,17 @@ final class MPVRenderContextPlayerCore: NSObject {
             mpv_terminate_destroy(handle)
             mpv = nil
         }
+        if EAGLContext.current() === eaglContext {
+            EAGLContext.setCurrent(nil)
+        }
+        eaglContext = nil
         state = PlayerEngineState()
         emitState()
-        setupMPV()
+        if let glView {
+            attach(to: glView)
+        } else {
+            setupMPV()
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.glView?.delegate = self
@@ -131,6 +141,7 @@ final class MPVRenderContextPlayerCore: NSObject {
     }
 
     func teardown() {
+        clearCurrentDrawable()
         if let renderContext {
             mpv_render_context_free(renderContext)
             self.renderContext = nil
@@ -270,6 +281,15 @@ final class MPVRenderContextPlayerCore: NSObject {
         }
     }
 
+    private func clearCurrentDrawable() {
+        guard let glView, let eaglContext else { return }
+        EAGLContext.setCurrent(eaglContext)
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), 0)
+        glClearColor(0, 0, 0, 1)
+        glClear(GLbitfield(GL_COLOR_BUFFER_BIT))
+        glView.setNeedsDisplay()
+    }
+
     private func readEvents() {
         eventQueue.async { [weak self] in
             guard let self else { return }
@@ -407,8 +427,8 @@ final class MPVRenderContextPlayerCore: NSObject {
         case .hlsFast:
             setOption("cache-secs", "1")
             setOption("demuxer-readahead-secs", "1")
-            setOption("demuxer-lavf-analyzeduration", "0.3")
-            setOption("demuxer-lavf-probesize", "131072")
+            setOption("demuxer-lavf-analyzeduration", "0.5")
+            setOption("demuxer-lavf-probesize", "262144")
             setOption("network-timeout", "8")
             setOption("hls-bitrate", "min")
         case .hlsQuality:
@@ -426,10 +446,10 @@ final class MPVRenderContextPlayerCore: NSObject {
             setOption("network-timeout", "10")
             setOption("hls-bitrate", "max")
         case .mkvLarge:
-            setOption("cache-secs", "15")
-            setOption("demuxer-readahead-secs", "10")
-            setOption("demuxer-max-bytes", "256MiB")
-            setOption("demuxer-max-back-bytes", "64MiB")
+            setOption("cache-secs", "8")
+            setOption("demuxer-readahead-secs", "5")
+            setOption("demuxer-max-bytes", "128MiB")
+            setOption("demuxer-max-back-bytes", "32MiB")
             setOption("network-timeout", "15")
         case .mp4, .generic:
             setOption("cache-secs", "8")
@@ -443,7 +463,7 @@ final class MPVRenderContextPlayerCore: NSObject {
     private func inferredProfile(for url: URL) -> PlaybackProfile {
         let ext = url.pathExtension.lowercased()
         if ext == "m3u8" {
-            return .hlsQuality
+            return .hlsFast
         }
         if ext == "mkv" {
             return .mkvLarge

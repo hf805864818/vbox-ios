@@ -28,6 +28,7 @@ struct SettingsView: View {
     @State private var showMPVKitDebugView = false
     @State private var showMPVRenderContextDebugView = false
     @State private var showPlaybackTestTools = false
+    @State private var showMPVAdvancedDiagnostics = false
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
@@ -297,8 +298,12 @@ struct SettingsView: View {
                 showUniversalPlayTestView: $showUniversalPlayTestView,
                 showMPVKitDebugView: $showMPVKitDebugView,
                 showMPVRenderContextDebugView: $showMPVRenderContextDebugView,
-                showBaiduTestView: $showBaiduTestView
+                showBaiduTestView: $showBaiduTestView,
+                showMPVAdvancedDiagnostics: $showMPVAdvancedDiagnostics
             )
+        }
+        .sheet(isPresented: $showMPVAdvancedDiagnostics) {
+            mpvAdvancedDiagnosticsView
         }
     }
 
@@ -371,175 +376,150 @@ struct SettingsView: View {
             HStack {
                 Text("版本").foregroundColor(.black); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("MPV状态").foregroundColor(.black)
-                    Spacer()
-                    Text(MPVIntegrationStatus.isMPVKitInitializationReady ? "可初始化" : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用"))
-                        .foregroundColor(MPVIntegrationStatus.isMPVKitInitializationReady ? .green : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .orange : .gray))
-                }
-                Text(MPVIntegrationStatus.runtimeProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(MPVIntegrationStatus.initializationProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvLoadfileProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvControlProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvMinimalPlaybackSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvLogProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvAudioProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvVideoProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvNetworkProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvLifecycleProbeSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(mpvAllDiagnosticsSummary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("提示：真实播放测试请使用“MPV播放调试”。日志采样已降级，避免诊断页闪退。")
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(action: runMPVLoadfileProbe) {
-                    HStack {
-                        if isRunningMPVLoadfileProbe {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Image(systemName: "play.circle")
-                                .font(.system(size: 13))
-                        }
-                        Text(isRunningMPVLoadfileProbe ? "正在运行MPV loadfile探针" : "运行MPV loadfile探针")
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color(hex: "E11D48") : Color.gray)
-                    .cornerRadius(8)
-                }
-                .disabled(isRunningMPVLoadfileProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
-                Button(action: runMPVControlProbe) {
-                    HStack {
-                        if isRunningMPVControlProbe {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 13))
-                        }
-                        Text(isRunningMPVControlProbe ? "正在运行MPV综合探针" : "运行MPV综合控制探针")
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.black.opacity(0.85) : Color.gray)
-                    .cornerRadius(8)
-                }
-                .disabled(isRunningMPVControlProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
-                Button(action: runMPVMinimalPlaybackTest) {
-                    HStack {
-                        if isRunningMPVMinimalPlaybackTest {
-                            ProgressView().scaleEffect(0.75)
-                        } else {
-                            Image(systemName: "waveform.path.ecg")
-                                .font(.system(size: 13))
-                        }
-                        Text(isRunningMPVMinimalPlaybackTest ? "正在运行MPV最小播放链路" : "运行MPV最小播放链路")
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.blue.opacity(0.85) : Color.gray)
-                    .cornerRadius(8)
-                }
-                .disabled(isRunningMPVMinimalPlaybackTest || !MPVIntegrationStatus.isMPVKitInitializationReady)
-                mpvDiagnosticButton(
-                    title: "MPV日志采样已禁用",
-                    runningTitle: "MPV日志采样已禁用",
-                    isRunning: isRunningMPVLogProbe,
-                    icon: "exclamationmark.triangle",
-                    color: Color.gray,
-                    action: runMPVLogProbe
-                )
-                mpvDiagnosticButton(
-                    title: "运行MPV音频输出探针",
-                    runningTitle: "正在运行MPV音频输出",
-                    isRunning: isRunningMPVAudioProbe,
-                    icon: "speaker.wave.2.fill",
-                    color: Color.orange.opacity(0.9),
-                    action: runMPVAudioProbe
-                )
-                mpvDiagnosticButton(
-                    title: "运行MPV视频输出能力探针",
-                    runningTitle: "正在运行MPV视频输出能力",
-                    isRunning: isRunningMPVVideoProbe,
-                    icon: "display",
-                    color: Color.green.opacity(0.85),
-                    action: runMPVVideoProbe
-                )
-                mpvDiagnosticButton(
-                    title: "运行MPV网络播放探针",
-                    runningTitle: "正在运行MPV网络播放",
-                    isRunning: isRunningMPVNetworkProbe,
-                    icon: "network",
-                    color: Color.cyan.opacity(0.9),
-                    action: runMPVNetworkProbe
-                )
-                mpvDiagnosticButton(
-                    title: "运行MPV生命周期压力测试",
-                    runningTitle: "正在运行MPV生命周期压力",
-                    isRunning: isRunningMPVLifecycleProbe,
-                    icon: "repeat.circle",
-                    color: Color.indigo.opacity(0.85),
-                    action: runMPVLifecycleProbe
-                )
-                mpvDiagnosticButton(
-                    title: "一键运行全部MPV诊断",
-                    runningTitle: "正在运行全部MPV诊断",
-                    isRunning: isRunningMPVAllDiagnostics,
-                    icon: "checklist",
-                    color: Color(hex: "E11D48"),
-                    action: runMPVAllDiagnostics
-                )
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
             Button(action: { showUpdateSheet = true }) {
                 HStack {
                     Text("检查更新").foregroundColor(.black); Spacer()
                     if isChecking { ProgressView().scaleEffect(0.8) }
                     else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
                 }.padding(.horizontal, 16).padding(.vertical, 12)
+            }
+        }
+    }
+
+    private var mpvAdvancedDiagnosticsView: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("MPV状态").foregroundColor(.black)
+                        Spacer()
+                        Text(MPVIntegrationStatus.isMPVKitInitializationReady ? "可初始化" : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用"))
+                            .foregroundColor(MPVIntegrationStatus.isMPVKitInitializationReady ? .green : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .orange : .gray))
+                    }
+                    Text(MPVIntegrationStatus.runtimeProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(MPVIntegrationStatus.initializationProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvLoadfileProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvControlProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvMinimalPlaybackSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvLogProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvAudioProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvVideoProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvNetworkProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvLifecycleProbeSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(mpvAllDiagnosticsSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("提示：高级诊断只用于排查内核问题，真实播放测试优先使用 RenderContext。")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button(action: runMPVLoadfileProbe) {
+                        HStack {
+                            if isRunningMPVLoadfileProbe {
+                                ProgressView().scaleEffect(0.75)
+                            } else {
+                                Image(systemName: "play.circle")
+                                    .font(.system(size: 13))
+                            }
+                            Text(isRunningMPVLoadfileProbe ? "正在运行MPV loadfile探针" : "运行MPV loadfile探针")
+                                .font(.system(size: 13, weight: .medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color(hex: "E11D48") : Color.gray)
+                        .cornerRadius(8)
+                    }
+                    .disabled(isRunningMPVLoadfileProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
+
+                    Button(action: runMPVControlProbe) {
+                        HStack {
+                            if isRunningMPVControlProbe {
+                                ProgressView().scaleEffect(0.75)
+                            } else {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 13))
+                            }
+                            Text(isRunningMPVControlProbe ? "正在运行MPV综合探针" : "运行MPV综合控制探针")
+                                .font(.system(size: 13, weight: .medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.black.opacity(0.85) : Color.gray)
+                        .cornerRadius(8)
+                    }
+                    .disabled(isRunningMPVControlProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
+
+                    Button(action: runMPVMinimalPlaybackTest) {
+                        HStack {
+                            if isRunningMPVMinimalPlaybackTest {
+                                ProgressView().scaleEffect(0.75)
+                            } else {
+                                Image(systemName: "waveform.path.ecg")
+                                    .font(.system(size: 13))
+                            }
+                            Text(isRunningMPVMinimalPlaybackTest ? "正在运行MPV最小播放链路" : "运行MPV最小播放链路")
+                                .font(.system(size: 13, weight: .medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.blue.opacity(0.85) : Color.gray)
+                        .cornerRadius(8)
+                    }
+                    .disabled(isRunningMPVMinimalPlaybackTest || !MPVIntegrationStatus.isMPVKitInitializationReady)
+
+                    mpvDiagnosticButton(title: "MPV日志采样已禁用", runningTitle: "MPV日志采样已禁用", isRunning: isRunningMPVLogProbe, icon: "exclamationmark.triangle", color: Color.gray, action: runMPVLogProbe)
+                    mpvDiagnosticButton(title: "运行MPV音频输出探针", runningTitle: "正在运行MPV音频输出", isRunning: isRunningMPVAudioProbe, icon: "speaker.wave.2.fill", color: Color.orange.opacity(0.9), action: runMPVAudioProbe)
+                    mpvDiagnosticButton(title: "运行MPV视频输出能力探针", runningTitle: "正在运行MPV视频输出能力", isRunning: isRunningMPVVideoProbe, icon: "display", color: Color.green.opacity(0.85), action: runMPVVideoProbe)
+                    mpvDiagnosticButton(title: "运行MPV网络播放探针", runningTitle: "正在运行MPV网络播放", isRunning: isRunningMPVNetworkProbe, icon: "network", color: Color.cyan.opacity(0.9), action: runMPVNetworkProbe)
+                    mpvDiagnosticButton(title: "运行MPV生命周期压力测试", runningTitle: "正在运行MPV生命周期压力", isRunning: isRunningMPVLifecycleProbe, icon: "repeat.circle", color: Color.indigo.opacity(0.85), action: runMPVLifecycleProbe)
+                    mpvDiagnosticButton(title: "一键运行全部MPV诊断", runningTitle: "正在运行全部MPV诊断", isRunning: isRunningMPVAllDiagnostics, icon: "checklist", color: Color(hex: "E11D48"), action: runMPVAllDiagnostics)
+                }
+                .padding(16)
+            }
+            .navigationTitle("MPV高级诊断")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("关闭") { showMPVAdvancedDiagnostics = false }
+                }
             }
         }
     }
@@ -791,6 +771,7 @@ struct PlaybackTestToolsView: View {
     @Binding var showMPVKitDebugView: Bool
     @Binding var showMPVRenderContextDebugView: Bool
     @Binding var showBaiduTestView: Bool
+    @Binding var showMPVAdvancedDiagnostics: Bool
 
     var body: some View {
         NavigationView {
@@ -822,6 +803,13 @@ struct PlaybackTestToolsView: View {
                         title: "百度网盘测试工具",
                         subtitle: "百度网盘解析与播放专项测试",
                         action: { open($showBaiduTestView) }
+                    )
+
+                    toolRow(
+                        icon: "stethoscope",
+                        title: "MPV高级诊断",
+                        subtitle: "收纳底层探针，仅排查内核问题时使用",
+                        action: { open($showMPVAdvancedDiagnostics) }
                     )
                 }
                 .padding(16)
