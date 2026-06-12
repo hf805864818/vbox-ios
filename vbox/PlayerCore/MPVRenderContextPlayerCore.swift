@@ -48,13 +48,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         view.delegate = self
         view.enableSetNeedsDisplay = true
         view.isOpaque = true
-        view.clipsToBounds = true
         view.backgroundColor = .black
-        view.drawableColorFormat = .RGBA8888
-        view.drawableDepthFormat = .formatNone
-        view.drawableStencilFormat = .formatNone
-        view.drawableMultisample = .multisampleNone
-        view.contentScaleFactor = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
 
         if eaglContext == nil {
             eaglContext = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
@@ -178,13 +172,13 @@ final class MPVRenderContextPlayerCore: NSObject {
         mpv = handle
 
         #if DEBUG
-        check(mpv_request_log_messages(handle, "info"), context: "request_log_messages")
+        check(mpv_request_log_messages(handle, "warn"), context: "request_log_messages")
         #else
         check(mpv_request_log_messages(handle, "error"), context: "request_log_messages")
         #endif
 
         setOption("vo", "libmpv")
-        setOption("hwdec", "no")
+        setOption("hwdec", "videotoolbox")
         setOption("video-rotate", "no")
         setOption("cache", "yes")
         setOption("keep-open", "no")
@@ -445,7 +439,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-readahead-secs", "1")
         setOption("network-timeout", "8")
         setOption("hls-bitrate", "min")
-        setOption("hwdec", "no")
+        setOption("hwdec", "videotoolbox")
     }
 
     private func applyHLSQualityProfile() {
@@ -454,7 +448,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-readahead-secs", "2")
         setOption("network-timeout", "10")
         setOption("hls-bitrate", "max")
-        setOption("hwdec", "no")
+        setOption("hwdec", "videotoolbox")
     }
 
     private func applyHLSFMP4Profile() {
@@ -471,7 +465,7 @@ final class MPVRenderContextPlayerCore: NSObject {
     private func applyMKVBaselineProfile() {
         setOption("cache", "yes")
         setOption("network-timeout", "15")
-        setOption("hwdec", "no")
+        setOption("hwdec", "videotoolbox")
     }
 
     private func applyGenericProfile() {
@@ -481,7 +475,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-max-bytes", "32MiB")
         setOption("demuxer-max-back-bytes", "8MiB")
         setOption("network-timeout", "10")
-        setOption("hwdec", "no")
+        setOption("hwdec", "videotoolbox")
     }
 
     private func inferredProfile(for url: URL) -> PlaybackProfile {
