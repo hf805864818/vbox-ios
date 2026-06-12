@@ -164,17 +164,22 @@ final class MPVRenderContextPlayerCore: NSObject {
                 guard let name else { return nil }
                 return dlsym(UnsafeMutableRawPointer(bitPattern: -2), String(cString: name))
             },
-            get_proc_address_ctx: nil,
-            extra_exts: nil
+            get_proc_address_ctx: nil
         )
-        var params = [
-            mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(mutating: MPV_RENDER_API_TYPE_OPENGL)),
-            mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(&initParams)),
-            mpv_render_param(type: MPV_RENDER_PARAM_ADVANCED_CONTROL, data: UnsafeMutableRawPointer(&advancedControl)),
-            mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
-        ]
 
-        let code = mpv_render_context_create(&renderContext, handle, &params)
+        let code = MPV_RENDER_API_TYPE_OPENGL.withCString { apiType in
+            withUnsafeMutablePointer(to: &initParams) { initParamsPointer in
+                withUnsafeMutablePointer(to: &advancedControl) { advancedControlPointer in
+                    var params = [
+                        mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(mutating: apiType)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(initParamsPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_ADVANCED_CONTROL, data: UnsafeMutableRawPointer(advancedControlPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                    ]
+                    return mpv_render_context_create(&renderContext, handle, &params)
+                }
+            }
+        }
         guard code >= 0, renderContext != nil else {
             fail("mpv_render_context_create失败：\(String(cString: mpv_error_string(code)))")
             return false
@@ -202,12 +207,16 @@ final class MPVRenderContextPlayerCore: NSObject {
         let height = max(1, Int32(glView.bounds.height * scale))
         var flipY: CInt = 1
         var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: width, h: height, internal_format: 0)
-        var params = [
-            mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(&fbo)),
-            mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(&flipY)),
-            mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
-        ]
-        mpv_render_context_render(renderContext, &params)
+        withUnsafeMutablePointer(to: &fbo) { fboPointer in
+            withUnsafeMutablePointer(to: &flipY) { flipPointer in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(flipPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                ]
+                mpv_render_context_render(renderContext, &params)
+            }
+        }
     }
 
     private func readEvents() {
