@@ -5,6 +5,13 @@ import UIKit
 import Libmpv
 
 final class MPVKitRenderedPlayerCore {
+    enum MediaProfile: String {
+        case hls = "HLS快速起播"
+        case mp4 = "MP4普通文件"
+        case mkv = "MKV大文件"
+        case generic = "通用媒体"
+    }
+
     var onLog: ((String) -> Void)?
     var onStateChange: ((PlayerEngineState) -> Void)?
 
@@ -43,6 +50,7 @@ final class MPVKitRenderedPlayerCore {
         }
 
         applyHTTPOptions(headers: headers)
+        applyPlaybackOptions(for: url)
         command("loadfile", args: [url.absoluteString, "replace"])
         state.errorMessage = nil
         log("加载：\(url.absoluteString)")
@@ -104,6 +112,7 @@ final class MPVKitRenderedPlayerCore {
         setOption("video-rotate", "no")
         setOption("profile", "fast")
         setOption("cache", "yes")
+        setOption("keep-open", "no")
 
         let code = mpv_initialize(handle)
         guard code >= 0 else {
@@ -147,10 +156,19 @@ final class MPVKitRenderedPlayerCore {
             DispatchQueue.main.async { [weak self] in
                 self?.log("file-loaded")
             }
+        case MPV_EVENT_VIDEO_RECONFIG:
+            DispatchQueue.main.async { [weak self] in
+                self?.log("video-reconfig")
+            }
+        case MPV_EVENT_PLAYBACK_RESTART:
+            DispatchQueue.main.async { [weak self] in
+                self?.log("playback-restart")
+            }
         case MPV_EVENT_END_FILE:
+            let summary = endFileSummary(event: event)
             DispatchQueue.main.async { [weak self] in
                 self?.state.isPlaying = false
-                self?.log("end-file")
+                self?.log(summary)
                 self?.emitState()
             }
         case MPV_EVENT_PROPERTY_CHANGE:
@@ -174,6 +192,15 @@ final class MPVKitRenderedPlayerCore {
                 }
             }
         }
+    }
+
+    private func endFileSummary(event: mpv_event) -> String {
+        guard let data = event.data,
+              let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data))?.pointee else {
+            return "end-file"
+        }
+
+        return "end-file reason=\(endFile.reason) error=\(endFile.error)"
     }
 
     private func handlePropertyChange(event: mpv_event) {
@@ -239,6 +266,59 @@ final class MPVKitRenderedPlayerCore {
         if !headerFields.isEmpty {
             setOption("http-header-fields", headerFields)
         }
+    }
+
+    private func applyPlaybackOptions(for url: URL) {
+        let profile = mediaProfile(for: url)
+        log("应用参数：\(profile.rawValue)")
+
+        switch profile {
+        case .hls:
+            setOption("cache", "yes")
+            setOption("cache-secs", "3")
+            setOption("demuxer-readahead-secs", "3")
+            setOption("demuxer-max-bytes", "32MiB")
+            setOption("demuxer-max-back-bytes", "8MiB")
+            setOption("demuxer-lavf-analyzeduration", "1")
+            setOption("demuxer-lavf-probesize", "32768")
+            setOption("network-timeout", "10")
+            setOption("hls-bitrate", "max")
+        case .mp4:
+            setOption("cache", "yes")
+            setOption("cache-secs", "8")
+            setOption("demuxer-readahead-secs", "5")
+            setOption("demuxer-max-bytes", "64MiB")
+            setOption("demuxer-max-back-bytes", "16MiB")
+            setOption("network-timeout", "10")
+        case .mkv:
+            setOption("cache", "yes")
+            setOption("cache-secs", "15")
+            setOption("demuxer-readahead-secs", "10")
+            setOption("demuxer-max-bytes", "256MiB")
+            setOption("demuxer-max-back-bytes", "64MiB")
+            setOption("network-timeout", "15")
+        case .generic:
+            setOption("cache", "yes")
+            setOption("cache-secs", "8")
+            setOption("demuxer-readahead-secs", "5")
+            setOption("demuxer-max-bytes", "64MiB")
+            setOption("demuxer-max-back-bytes", "16MiB")
+            setOption("network-timeout", "10")
+        }
+    }
+
+    private func mediaProfile(for url: URL) -> MediaProfile {
+        let ext = url.pathExtension.lowercased()
+        if ext == "m3u8" {
+            return .hls
+        }
+        if ext == "mkv" {
+            return .mkv
+        }
+        if ext == "mp4" || ext == "m4v" || ext == "mov" {
+            return .mp4
+        }
+        return .generic
     }
 
     private func command(_ command: String, args: [String] = [], checkForErrors: Bool = true) {
