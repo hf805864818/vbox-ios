@@ -14,7 +14,26 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 🔧 Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: 🎬 Fetch MPVKit dependencies
+        run: |
+          bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+          python3 scripts/check_mpv_installed_dependencies.py
+
+      - name: 🔗 Inject MPVKit Link & Embed
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/configure_mpvkit_link.rb
 
       - name: 📖 获取版本号
         id: get_version
@@ -32,6 +51,7 @@ jobs:
 
       - name: 🏗️ Build
         run: |
+          set -o pipefail
           xcodebuild -workspace vbox.xcworkspace \
             -scheme vbox \
             -sdk iphoneos \
