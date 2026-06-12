@@ -14,6 +14,19 @@ final class MPVRenderContextPlayerCore: NSObject {
         case mp4 = "RenderContext普通文件"
         case mkvLarge = "RenderContext MKV大文件"
         case generic = "RenderContext通用"
+
+        var family: String {
+            switch self {
+            case .hlsFast, .hlsQuality, .hlsFMP4:
+                return "hls"
+            case .mp4:
+                return "mp4"
+            case .mkvLarge:
+                return "mkv"
+            case .generic:
+                return "generic"
+            }
+        }
     }
 
     var onLog: ((String) -> Void)?
@@ -57,6 +70,26 @@ final class MPVRenderContextPlayerCore: NSObject {
         emitState()
         DispatchQueue.main.async { [weak self] in
             self?.glView?.setNeedsDisplay()
+        }
+    }
+
+    func rebuildForNewLoad() {
+        command("stop", checkForErrors: false)
+        if let renderContext {
+            mpv_render_context_free(renderContext)
+            self.renderContext = nil
+        }
+        if let handle = mpv {
+            mpv_terminate_destroy(handle)
+            mpv = nil
+        }
+        state = PlayerEngineState()
+        emitState()
+        setupMPV()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.glView?.delegate = self
+            self.glView?.setNeedsDisplay()
         }
     }
 

@@ -10,6 +10,7 @@ struct MPVRenderContextDebugView: View {
     @State private var logs: [String] = []
     @State private var state = PlayerEngineState()
     @State private var isSwitching = false
+    @State private var lastProfile: MPVRenderContextPlayerCore.PlaybackProfile?
     private let initialHeaders: [String: String]
 
     private let hlsTSURL = MPVRenderContextDebugView.defaultHLSURL
@@ -169,6 +170,12 @@ struct MPVRenderContextDebugView: View {
                 .buttonStyle(.bordered)
                 .disabled(isSwitching)
             }
+
+            Button("重置内核") {
+                resetCore()
+            }
+            .buttonStyle(.bordered)
+            .disabled(isSwitching)
         }
         .padding(.horizontal, 16)
     }
@@ -196,20 +203,57 @@ struct MPVRenderContextDebugView: View {
             return
         }
         #if canImport(Libmpv)
+        let effectiveProfile = profile ?? inferredProfile(for: url)
+        let needsRebuild = lastProfile.map { $0.family != effectiveProfile.family } ?? false
         isSwitching = true
         logs.removeAll()
         state = PlayerEngineState()
         appendLog("准备切换：\(url.absoluteString)")
-        core.resetForNewLoad()
+        appendLog(needsRebuild ? "切换方式：重建内核" : "切换方式：轻切换")
+        if needsRebuild {
+            core.rebuildForNewLoad()
+        } else {
+            core.resetForNewLoad()
+        }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            core.load(url: url, headers: initialHeaders, profile: profile)
+            try? await Task.sleep(nanoseconds: needsRebuild ? 450_000_000 : 250_000_000)
+            core.load(url: url, headers: initialHeaders, profile: effectiveProfile)
             core.play()
+            lastProfile = effectiveProfile
             isSwitching = false
         }
         #else
         appendLog("Libmpv模块未导入")
         #endif
+    }
+
+    private func resetCore() {
+        #if canImport(Libmpv)
+        isSwitching = true
+        logs.removeAll()
+        state = PlayerEngineState()
+        lastProfile = nil
+        appendLog("手动重置RenderContext内核")
+        core.rebuildForNewLoad()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            isSwitching = false
+        }
+        #endif
+    }
+
+    private func inferredProfile(for url: URL) -> MPVRenderContextPlayerCore.PlaybackProfile {
+        let ext = url.pathExtension.lowercased()
+        if ext == "m3u8" {
+            return .hlsFast
+        }
+        if ext == "mkv" {
+            return .mkvLarge
+        }
+        if ext == "mp4" || ext == "m4v" || ext == "mov" {
+            return .mp4
+        }
+        return .generic
     }
 
     private func appendLog(_ message: String) {
