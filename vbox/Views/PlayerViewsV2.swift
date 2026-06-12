@@ -168,6 +168,7 @@ class PlayerState: ObservableObject {
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
     @Published var danmakuItems: [DanmakuRenderItem] = []
+    @Published var danmakuLoadedCount = 0
     @Published var currentEpisodeIndex = 0
     @Published var debugLogs: [String] = []  // 可视化调试日志
     @Published var playbackEngineMode: PlaybackEngineMode = .system
@@ -180,6 +181,11 @@ class PlayerState: ObservableObject {
     @Published var baiduShareURL: String = ""    // 百度分享链接
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
+    private var currentVideo: VodItem?
+    private var allDanmakuItems: [LogVarDanmakuItem] = []
+    private var emittedDanmakuIDs = Set<Int>()
+    private var danmakuTask: Task<Void, Never>?
+    private var lastProgressSaveAt: Date = .distantPast
     private var baiduStreamRetryCount = 0        // 百度PCS流403后自动刷新直链次数
     private var baiduPrefetchTask: Task<Void, Never>?
     private var baiduPrefetchingIds = Set<String>()
@@ -413,6 +419,87 @@ class PlayerState: ObservableObject {
         }
     }
 
+    private func loadDanmaku(for video: VodItem, fileName: String) {
+        danmakuTask?.cancel()
+        allDanmakuItems = []
+        danmakuItems = []
+        emittedDanmakuIDs.removeAll()
+        danmakuLoadedCount = 0
+
+        let query = bestDanmakuQuery(video: video, fileName: fileName)
+        guard !query.isEmpty else { return }
+        log("[Danmaku] 开始匹配：\(query)")
+        danmakuTask = Task { [weak self] in
+            let items = await LogVarDanmakuService.shared.matchAndFetch(fileName: query)
+            await MainActor.run {
+                guard let self else { return }
+                self.allDanmakuItems = items.sorted { $0.time < $1.time }
+                self.danmakuLoadedCount = items.count
+                self.emittedDanmakuIDs.removeAll()
+                self.danmakuItems = []
+                self.log(items.isEmpty ? "[Danmaku] 未匹配到弹幕" : "[Danmaku] 已加载 \(items.count) 条弹幕")
+            }
+        }
+    }
+
+    private func bestDanmakuQuery(video: VodItem, fileName: String) -> String {
+        let candidate = (fileName as NSString).deletingPathExtension
+        if candidate.count >= 4, candidate != "baidu-stream", candidate != "quark-stream" {
+            return candidate
+        }
+        return video.vodName
+    }
+
+    func updateDanmaku(at time: Double) {
+        guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
+        let windowStart = max(0, time - 0.4)
+        let windowEnd = time + 0.8
+        let newItems = allDanmakuItems
+            .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
+            .prefix(12)
+
+        guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
+        for item in newItems {
+            emittedDanmakuIDs.insert(item.id)
+        }
+        let appended = newItems.map { item in
+            DanmakuRenderItem(
+                id: item.id,
+                content: item.content,
+                time: max(time, item.time),
+                lane: abs(item.id) % 8,
+                color: item.color,
+                duration: 7.0
+            )
+        }
+        danmakuItems = (danmakuItems + appended)
+            .filter { time - $0.time < $0.duration }
+    }
+
+    private func playbackProgressKey(for video: VodItem) -> String {
+        "playback_progress_v2_\(video.vodId)_\(currentEpisodeIndex)"
+    }
+
+    private func restorePlaybackProgress(for video: VodItem) {
+        let key = playbackProgressKey(for: video)
+        let saved = UserDefaults.standard.double(forKey: key)
+        guard saved > 10 else { return }
+        currentTime = saved
+        seekPreviewTime = saved
+        log("[Progress] 已恢复上次进度：\(formatDuration(saved))")
+    }
+
+    func savePlaybackProgress(force: Bool = false) {
+        guard let video = currentVideo, currentTime.isFinite, currentTime > 5 else { return }
+        if duration > 0, duration - currentTime < 15 {
+            UserDefaults.standard.removeObject(forKey: playbackProgressKey(for: video))
+            return
+        }
+        guard force || Date().timeIntervalSince(lastProgressSaveAt) > 5 else { return }
+        lastProgressSaveAt = Date()
+        UserDefaults.standard.set(currentTime, forKey: playbackProgressKey(for: video))
+    }
+
     private func formatDuration(_ time: Double) -> String {
         guard time.isFinite, time >= 0 else { return "00:00" }
         let hours = Int(time) / 3600
@@ -437,6 +524,10 @@ class PlayerState: ObservableObject {
         log("[Baidu] ②\(reason)第\(episodeNo)集：\(file.name)，转存→获取播放地址...")
         await MainActor.run {
             currentEpisodeIndex = index
+            if let video = currentVideo {
+                loadDanmaku(for: video, fileName: file.name)
+                restorePlaybackProgress(for: video)
+            }
             isLoading = true
             loadingMessage = "正在获取百度视频地址..."
             loadError = nil
@@ -695,6 +786,11 @@ class PlayerState: ObservableObject {
     
     func setupPlayer(video: VodItem) {
         currentTask?.cancel()
+        currentVideo = video
+        brightness = UIScreen.main.brightness
+        volume = AVAudioSession.sharedInstance().outputVolume
+        restorePlaybackProgress(for: video)
+        loadDanmaku(for: video, fileName: video.vodName)
         currentTask = Task { [weak self] in
             guard let self = self else { return }
             await resolvePlayUrl(video: video)
@@ -704,6 +800,9 @@ class PlayerState: ObservableObject {
     func cleanup() {
         currentTask?.cancel()
         currentTask = nil
+        danmakuTask?.cancel()
+        danmakuTask = nil
+        savePlaybackProgress(force: true)
         quarkFallbackTimeoutTask?.cancel()
         quarkFallbackTimeoutTask = nil
         quarkFallbackURL = nil
@@ -1797,6 +1896,11 @@ class PlayerState: ObservableObject {
                 switch status {
                 case .readyToPlay:
                     self.log("[PlayerV2] PlayerItem 准备就绪")
+                    if self.currentTime > 10 {
+                        let resume = self.currentTime
+                        self.log("[Progress] 自动跳转到上次进度：\(self.formatDuration(resume))")
+                        p.seek(to: CMTime(seconds: resume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    }
                 case .failed:
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
                     let errorCode = (playerItem.error as? NSError)?.code ?? -1
@@ -1866,10 +1970,13 @@ class PlayerState: ObservableObject {
         // 添加时间观察者
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
-            self?.currentTime = time.seconds
+            guard let self else { return }
+            self.currentTime = time.seconds
             if let itemDuration = p.currentItem?.duration {
-                self?.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
+                self.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
             }
+            self.updateDanmaku(at: time.seconds)
+            self.savePlaybackProgress()
         }
         
         // 延迟播放确保UI准备好
@@ -1951,19 +2058,26 @@ struct PlayerContainerView: View {
                 DanmakuOverlayViewV2(
                     showDanmaku: $playerState.showDanmaku,
                     opacity: playerState.danmakuOpacity,
-                    fontSize: playerState.danmakuFontSize
+                    fontSize: playerState.danmakuFontSize,
+                    currentTime: playerState.currentTime,
+                    items: playerState.danmakuItems
                 )
                 .allowsHitTesting(false)
             }
             
             // 手势层
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        playerState.showControls.toggle()
-                    }
+            GestureControlView(playerState: playerState) {
+                guard !playerState.isSeeking else { return }
+                guard !playerState.showSettings,
+                      !playerState.showEpisodePicker,
+                      !playerState.showQualityPicker,
+                      !playerState.showDanmakuSettings,
+                      !playerState.showEnginePicker else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    playerState.showControls.toggle()
                 }
+            }
+            .ignoresSafeArea()
             
             // 控制层 - 始终显示，只是控制栏可以隐藏/显示
             if playerState.showControls {
@@ -2391,19 +2505,24 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         private let core = LibmpvMoltenVKPlayerCore()
         private var observers: [NSObjectProtocol] = []
         private weak var playerState: PlayerState?
+        private var isStopped = false
         var currentURL: URL?
 
         init(playerState: PlayerState) {
             self.playerState = playerState
             core.onLog = { [weak playerState] message in
+                guard playerState?.compatibilityURL != nil else { return }
                 playerState?.log("[MPV-MoltenVK] \(message)")
             }
             core.onStateChange = { [weak playerState] state in
                 guard let playerState else { return }
+                guard playerState.compatibilityURL != nil else { return }
                 playerState.currentTime = state.currentTime
                 if state.duration.isFinite, state.duration > 0 {
                     playerState.duration = state.duration
                 }
+                playerState.updateDanmaku(at: state.currentTime)
+                playerState.savePlaybackProgress()
                 playerState.isLoading = state.isBuffering
                 playerState.isPlaying = state.isPlaying
                 if let error = state.errorMessage {
@@ -2428,24 +2547,35 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         }
 
         deinit {
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            core.teardown()
+            stop()
         }
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
+            guard !isStopped else { return }
             currentURL = url
             core.attach(to: view)
             core.load(url: url, headers: headers, profile: inferredProfile(for: url))
             core.setRate(playerState?.playbackSpeed ?? 1.0)
             core.play()
+            if let resume = playerState?.currentTime, resume > 10 {
+                core.seek(to: resume)
+                playerState?.log("[Progress] MPV 自动跳转到上次进度：\(Int(resume))s")
+            }
             playerState?.isLoading = true
             playerState?.loadingMessage = "正在启动 MPV-MoltenVK..."
         }
 
         func stop() {
+            guard !isStopped else { return }
+            isStopped = true
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers.removeAll()
+            core.onLog = nil
+            core.onStateChange = nil
             core.stop()
             core.teardown()
             currentURL = nil
+            playerState = nil
         }
 
         private func inferredProfile(for url: URL) -> LibmpvMoltenVKPlayerCore.PlaybackProfile {

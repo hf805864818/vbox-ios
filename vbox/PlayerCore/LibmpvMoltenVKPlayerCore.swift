@@ -59,12 +59,14 @@ final class LibmpvMoltenVKPlayerCore {
     private weak var containerView: UIView?
     private var mpv: OpaquePointer?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
+    private var isShuttingDown = false
 
     deinit {
         teardown()
     }
 
     func attach(to view: UIView) {
+        guard !isShuttingDown else { return }
         containerView = view
         if renderView.superview !== view {
             renderView.removeFromSuperview()
@@ -79,6 +81,7 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     func load(url: URL, headers: [String: String] = [:], profile explicitProfile: PlaybackProfile? = nil) {
+        guard !isShuttingDown else { return }
         if mpv == nil {
             setupMPV()
         }
@@ -97,18 +100,21 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     func play() {
+        guard !isShuttingDown else { return }
         setFlag(MPVKitProperty.pause, false)
         state.isPlaying = true
         emitState()
     }
 
     func pause() {
+        guard !isShuttingDown else { return }
         setFlag(MPVKitProperty.pause, true)
         state.isPlaying = false
         emitState()
     }
 
     func stop() {
+        guard !isShuttingDown else { return }
         command("stop", checkForErrors: false)
         state.isPlaying = false
         state.currentTime = 0
@@ -116,34 +122,43 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     func seek(to seconds: Double) {
+        guard !isShuttingDown else { return }
         command("seek", args: [String(seconds), "absolute"])
     }
 
     func setRate(_ rate: Double) {
+        guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         var value = rate
         check(mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &value), context: "speed")
     }
 
     func setVolume(_ volume: Double) {
+        guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         var value = min(max(volume, 0), 1) * 100
         check(mpv_set_property(handle, "volume", MPV_FORMAT_DOUBLE, &value), context: "volume")
     }
 
     func teardown() {
-        command("stop", checkForErrors: false)
+        guard !isShuttingDown || mpv != nil else { return }
+        isShuttingDown = true
+        onLog = nil
+        onStateChange = nil
         if let handle = mpv {
+            mpv_set_wakeup_callback(handle, nil, nil)
+            eventQueue.sync {}
+            command("stop", checkForErrors: false)
             mpv_terminate_destroy(handle)
             mpv = nil
         }
         renderView.removeFromSuperview()
         state = PlayerEngineState()
-        emitState()
     }
 
     private func setupMPV() {
         guard mpv == nil, containerView != nil else { return }
+        isShuttingDown = false
         guard let handle = mpv_create() else {
             fail("mpv_create失败")
             return
@@ -201,15 +216,19 @@ final class LibmpvMoltenVKPlayerCore {
     private func readEvents() {
         eventQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.isShuttingDown else { return }
             while let handle = self.mpv {
+                if self.isShuttingDown { break }
                 guard let event = mpv_wait_event(handle, 0) else { break }
                 if event.pointee.event_id == MPV_EVENT_NONE { break }
+                if self.isShuttingDown { break }
                 self.handle(event: event.pointee)
             }
         }
     }
 
     private func handle(event: mpv_event) {
+        guard !isShuttingDown else { return }
         switch event.event_id {
         case MPV_EVENT_FILE_LOADED:
             DispatchQueue.main.async { [weak self] in self?.log("file-loaded") }
@@ -255,6 +274,7 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     private func handlePropertyChange(event: mpv_event) {
+        guard !isShuttingDown else { return }
         guard let data = event.data else { return }
         let property = UnsafePointer<mpv_event_property>(OpaquePointer(data))?.pointee
         guard let property, let namePointer = property.name else { return }
@@ -262,6 +282,7 @@ final class LibmpvMoltenVKPlayerCore {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard !self.isShuttingDown else { return }
             switch name {
             case MPVKitProperty.timePos:
                 if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
@@ -376,6 +397,7 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     private func command(_ command: String, args: [String] = [], checkForErrors: Bool = true) {
+        guard !isShuttingDown || command == "stop" else { return }
         guard let handle = mpv else { return }
         let values: [String?] = [command] + args + [nil]
         var cargs = values.map { value -> UnsafePointer<CChar>? in
@@ -394,17 +416,20 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     private func setOption(_ name: String, _ value: String) {
+        guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         check(mpv_set_option_string(handle, name, value), context: name)
     }
 
     private func setFlag(_ name: String, _ value: Bool) {
+        guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         var data: Int32 = value ? 1 : 0
         check(mpv_set_property(handle, name, MPV_FORMAT_FLAG, &data), context: name)
     }
 
     private func observe(_ name: String, format: mpv_format) {
+        guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         check(mpv_observe_property(handle, 0, name, format), context: "observe \(name)")
     }
@@ -421,6 +446,7 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     private func fail(_ message: String) {
+        guard !isShuttingDown else { return }
         state.errorMessage = message
         log(message)
         emitState()
