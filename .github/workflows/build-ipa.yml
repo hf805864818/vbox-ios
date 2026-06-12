@@ -40,7 +40,7 @@ jobs:
         id: get_version
         run: |
           MARKETING_VERSION=$(plutil -extract CFBundleShortVersionString raw vbox/Info.plist)
-          BUILD_NUM=$(git rev-list --count HEAD)
+          BUILD_NUM=$(plutil -extract CFBundleVersion raw vbox/Info.plist)
           echo "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_OUTPUT
           echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_OUTPUT
           echo "Version: $MARKETING_VERSION Build: $BUILD_NUM"
