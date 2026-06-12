@@ -3,3 +3,6 @@ Build/
 *.xcuserdata
 *.ipa
 *.zip
+.mpv-cache/
+vbox/Libraries/MPV/MPVKitDependencies/*.xcframework/
+vbox/Libraries/MPV/Freedom/*.xcframework/

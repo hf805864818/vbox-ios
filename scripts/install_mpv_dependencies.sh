@@ -114,4 +114,5 @@ print("MPVKit 核心依赖已安装。")
 print("注意：脚本只安装 MPVKit 运行依赖，不安装后续自由度 libmpv.xcframework。")
 print("注意：脚本不修改 Xcode Link/Embed。")
 print("如果后续走 Swift Package，还需要处理 Package.swift 中未随包携带的 binaryTarget。")
+print("可继续运行: python3 scripts/check_mpv_installed_dependencies.py")
 PY
