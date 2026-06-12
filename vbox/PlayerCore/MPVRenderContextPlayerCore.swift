@@ -178,7 +178,9 @@ final class MPVRenderContextPlayerCore: NSObject {
         #endif
 
         setOption("vo", "libmpv")
-        setOption("hwdec", "videotoolbox")
+        setOption("gpu-api", "opengl")
+        setOption("opengl-es", "yes")
+        setOption("hwdec", "no")
         setOption("video-rotate", "no")
         setOption("cache", "yes")
         setOption("keep-open", "no")
@@ -439,7 +441,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-readahead-secs", "1")
         setOption("network-timeout", "8")
         setOption("hls-bitrate", "min")
-        setOption("hwdec", "videotoolbox")
+        setOption("hwdec", "no")
     }
 
     private func applyHLSQualityProfile() {
@@ -448,7 +450,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-readahead-secs", "2")
         setOption("network-timeout", "10")
         setOption("hls-bitrate", "max")
-        setOption("hwdec", "videotoolbox")
+        setOption("hwdec", "no")
     }
 
     private func applyHLSFMP4Profile() {
@@ -465,7 +467,7 @@ final class MPVRenderContextPlayerCore: NSObject {
     private func applyMKVBaselineProfile() {
         setOption("cache", "yes")
         setOption("network-timeout", "15")
-        setOption("hwdec", "videotoolbox")
+        setOption("hwdec", "no")
     }
 
     private func applyGenericProfile() {
@@ -475,7 +477,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("demuxer-max-bytes", "32MiB")
         setOption("demuxer-max-back-bytes", "8MiB")
         setOption("network-timeout", "10")
-        setOption("hwdec", "videotoolbox")
+        setOption("hwdec", "no")
     }
 
     private func inferredProfile(for url: URL) -> PlaybackProfile {
