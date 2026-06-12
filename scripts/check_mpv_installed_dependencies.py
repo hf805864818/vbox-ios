@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""检查 MPVKitDependencies 是否已安装 MPVKit 核心依赖。
+"""检查 MPVKitDependencies 是否已安装 MPVKit 依赖。
 
 脚本只检查项目目录中的依赖文件，不下载、不修改、不 Link/Embed。
+核心依赖缺失会失败；外部静态依赖只提示缺失，不让当前 CI 失败。
 """
 from __future__ import annotations
 
@@ -23,6 +24,39 @@ REQUIRED_TARGETS = [
     "Libavutil",
     "Libswresample",
     "Libswscale",
+]
+
+OPTIONAL_STATIC_TARGETS = [
+    "Libcrypto",
+    "Libssl",
+    "gmp",
+    "nettle",
+    "hogweed",
+    "gnutls",
+    "Libunibreak",
+    "Libfreetype",
+    "Libfribidi",
+    "Libharfbuzz",
+    "Libass",
+    "Libsmbclient",
+    "Libbluray",
+    "Libuavs3d",
+    "Libdovi",
+    "MoltenVK",
+    "Libshaderc_combined",
+    "lcms2",
+    "Libplacebo",
+    "Libdav1d",
+    "Libuchardet",
+]
+
+SYSTEM_FRAMEWORKS_FOR_STATIC_LINK = [
+    "VideoToolbox.framework",
+    "CoreMedia.framework",
+    "CoreVideo.framework",
+    "AudioToolbox.framework",
+    "AVFoundation.framework",
+    "Metal.framework",
 ]
 
 
@@ -61,6 +95,44 @@ def check_target(name: str) -> bool:
     return has_device
 
 
+def existing_xcframework_names() -> set[str]:
+    if not DEPENDENCY_DIR.exists():
+        return set()
+
+    return {
+        path.name.removesuffix(".xcframework")
+        for path in DEPENDENCY_DIR.glob("*.xcframework")
+        if path.is_dir()
+    }
+
+
+def print_optional_static_dependency_report() -> None:
+    installed = existing_xcframework_names()
+    missing = [name for name in OPTIONAL_STATIC_TARGETS if name not in installed]
+    present = [name for name in OPTIONAL_STATIC_TARGETS if name in installed]
+
+    print("")
+    print("Libmpv 静态链接外部依赖检查（提示项，不影响当前退出码）:")
+    if present:
+        print("已安装外部依赖:")
+        for name in present:
+            print(f"  - {name}.xcframework")
+
+    if missing:
+        print("仍缺外部依赖:")
+        for name in missing:
+            print(f"  - {name}.xcframework")
+        print("")
+        print("说明：当前 Libmpv.framework 是静态库。未补齐这些依赖前，不要直接 import Libmpv 或调用 mpv_create/mpv_initialize。")
+    else:
+        print("外部静态依赖已全部安装，可进入下一阶段 mpv_create 初始化验证。")
+
+    print("")
+    print("打开 Libmpv 静态初始化时还需要确认系统 framework Link:")
+    for name in SYSTEM_FRAMEWORKS_FOR_STATIC_LINK:
+        print(f"  - {name}")
+
+
 def main() -> int:
     print(f"检查 MPVKit 运行依赖目录: {DEPENDENCY_DIR.relative_to(ROOT)}")
     if not DEPENDENCY_DIR.exists():
@@ -68,6 +140,7 @@ def main() -> int:
         return 1
 
     results = [check_target(name) for name in REQUIRED_TARGETS]
+    print_optional_static_dependency_report()
 
     print("")
     print(f"自由度内核占位目录: {FREEDOM_DIR.relative_to(ROOT)}")
@@ -76,7 +149,7 @@ def main() -> int:
     if all(results):
         print("")
         print("MPVKit 核心运行依赖检查通过。")
-        print("注意：这不代表 MPVKit 已经 Link/Embed，也不代表 Package.swift 外部 binaryTarget 已全部补齐。")
+        print("注意：这不代表 Package.swift 外部静态 binaryTarget 已全部补齐。")
         return 0
 
     print("")
