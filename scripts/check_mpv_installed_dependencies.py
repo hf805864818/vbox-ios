@@ -72,6 +72,7 @@ SYSTEM_FRAMEWORKS_FOR_STATIC_LINK = [
     "libz.tbd",
     "libbz2.tbd",
     "libiconv.tbd",
+    "libc++.tbd",
 ]
 
 

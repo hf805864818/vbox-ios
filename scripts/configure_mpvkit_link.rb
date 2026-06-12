@@ -72,6 +72,7 @@ SYSTEM_FRAMEWORKS = %w[
   libz.tbd
   libbz2.tbd
   libiconv.tbd
+  libc++.tbd
 ].freeze
 
 def framework_entries

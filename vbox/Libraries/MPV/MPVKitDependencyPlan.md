@@ -169,9 +169,21 @@ init_linebreak / set_linebreaks_utf32：Libunibreak
 5. 系统依赖提示与注入补充 QuartzCore / UIKit / IOSurface
 ```
 
+## 3.160 C++ 标准库链接目标
+
+3.159 CI 已确认完整外部静态依赖均下载、检查和注入成功，链接失败点继续推进到 C++ 标准库：
+
+```text
+std::runtime_error / std::logic_error / std::exception
+vtable for std::length_error / std::out_of_range
+___gxx_personality_v0
+```
+
+这些符号来自 `MoltenVK` 与 `Libshaderc_combined`，当前 App 主链接命令由 `clang` 发起，不会自动带上 C++ 标准库。3.160 只补充 `libc++.tbd` 到 CI 注入清单和检查脚本，不改播放器运行链路。
+
 ## 后续步骤
 
 ```text
-3.160：观察 3.159 CI 是否仍有剩余 Undefined symbols
-3.161：初始化成功后测试 loadfile，但仍不接正式 UI
+3.161：观察 3.160 CI 是否仍有剩余 Undefined symbols
+3.162：初始化成功后测试 loadfile，但仍不接正式 UI
 ```
