@@ -16,7 +16,7 @@ struct MPVFrameworkManifest {
 
     var unavailableReason: String {
         let dependencies = requiredRuntimeDependencies.joined(separator: "、")
-        return "\(displayName) 已完成文件占位，但当前构建暂不启用。需要确认 \(frameworkName) 可正常 Link + Embed，并补齐运行时依赖：\(dependencies)。"
+        return "\(displayName) 当前只完成依赖识别，尚未启用。需要安装并验证 \(frameworkName)，再确认以下依赖可正常链接：\(dependencies)。"
     }
 
     var shortSummary: String {
@@ -33,22 +33,30 @@ enum MPVFrameworkManifests {
         frameworkName: "MPVKit.xcframework",
         requiredSlices: ["ios-arm64"],
         recommendedSlices: ["ios-arm64_x86_64-simulator"],
-        requiredRuntimeDependencies: ["Libmpv", "FFmpeg", "MPVKit wrapper 内部动态依赖"],
-        currentLinkPolicy: "保留文件，不 Link，不 Embed",
-        enableCondition: "确认底层 Libmpv/FFmpeg 依赖完整后，再打开 MPVKitBackend 的启用开关"
+        requiredRuntimeDependencies: [
+            "Libmpv.xcframework",
+            "Libavcodec/Libavformat/Libavutil 等 FFmpeg 组件",
+            "Package.swift 中声明的外部 binaryTarget"
+        ],
+        currentLinkPolicy: "保留 wrapper 和依赖安装脚本，不 Link，不 Embed",
+        enableCondition: "安装核心依赖并补齐 Package.swift 外部 binaryTarget 后，再打开 MPVKitBackend 的启用开关"
     )
 
     static let libmpv = MPVFrameworkManifest(
         backendType: .libmpv,
         displayName: "自由度",
-        expectedPath: "vbox/Libraries/MPV/libmpv.xcframework",
-        moduleName: "libmpv",
-        frameworkName: "libmpv.xcframework",
+        expectedPath: "vbox/Libraries/MPV/Dependencies/Libmpv.xcframework",
+        moduleName: "Libmpv",
+        frameworkName: "Libmpv.xcframework",
         requiredSlices: ["ios-arm64"],
         recommendedSlices: ["ios-arm64_x86_64-simulator"],
-        requiredRuntimeDependencies: ["libmpv C API", "FFmpeg", "Metal/OpenGL 渲染上下文依赖"],
-        currentLinkPolicy: "等待 framework 产物，不 Link，不 Embed",
-        enableCondition: "确认 libmpv.xcframework 可 import 且渲染上下文可创建后，再启用 LibMPVBackend"
+        requiredRuntimeDependencies: [
+            "Libmpv C API",
+            "FFmpeg 组件",
+            "libass/libplacebo/MoltenVK 等 mpv 间接依赖"
+        ],
+        currentLinkPolicy: "可从 MPVKit binary bundle 安装核心文件，暂不 Link，不 Embed",
+        enableCondition: "确认 canImport(Libmpv)、链接依赖和渲染上下文后，再启用 LibMPVBackend"
     )
 
     static let all: [MPVFrameworkManifest] = [
