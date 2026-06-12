@@ -119,6 +119,18 @@ final class LibmpvMoltenVKPlayerCore {
         command("seek", args: [String(seconds), "absolute"])
     }
 
+    func setRate(_ rate: Double) {
+        guard let handle = mpv else { return }
+        var value = rate
+        check(mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &value), context: "speed")
+    }
+
+    func setVolume(_ volume: Double) {
+        guard let handle = mpv else { return }
+        var value = min(max(volume, 0), 1) * 100
+        check(mpv_set_property(handle, "volume", MPV_FORMAT_DOUBLE, &value), context: "volume")
+    }
+
     func teardown() {
         command("stop", checkForErrors: false)
         if let handle = mpv {

@@ -12,6 +12,10 @@ extension Notification.Name {
     static let vboxVLCPause = Notification.Name("vbox.vlc.pause")
     static let vboxVLCSeek = Notification.Name("vbox.vlc.seek")
     static let vboxVLCSpeed = Notification.Name("vbox.vlc.speed")
+    static let vboxMPVPlay = Notification.Name("vbox.mpv.play")
+    static let vboxMPVPause = Notification.Name("vbox.mpv.pause")
+    static let vboxMPVSeek = Notification.Name("vbox.mpv.seek")
+    static let vboxMPVSpeed = Notification.Name("vbox.mpv.speed")
 }
 
 // 屏幕方向辅助类
@@ -194,23 +198,34 @@ class PlayerState: ObservableObject {
         #endif
     }
 
+    private var isMPVBuildAvailable: Bool {
+        #if canImport(Libmpv)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var shouldUseCompatibilityEngine: Bool {
         switch enginePreference {
         case .auto:
-            return playbackEngineMode == .compatibility && isVLCBuildAvailable
+            return playbackEngineMode == .compatibility && (isMPVBuildAvailable || isVLCBuildAvailable)
         case .system:
             return false
         case .vlc:
             return isVLCBuildAvailable
         case .mpv:
-            return false
+            return isMPVBuildAvailable
         }
     }
 
     var currentEngineButtonTitle: String {
         switch enginePreference {
         case .auto:
-            return playbackEngineMode == .compatibility ? "自动/VLC" : "自动"
+            if playbackEngineMode == .compatibility {
+                return isMPVBuildAvailable ? "自动/MPV" : "自动/VLC"
+            }
+            return "自动"
         case .system:
             return "系统"
         case .vlc:
@@ -218,6 +233,33 @@ class PlayerState: ObservableObject {
         case .mpv:
             return "MPV"
         }
+    }
+
+    private func preferredCompatibilityEngineName(for url: URL? = nil) -> String {
+        switch enginePreference {
+        case .mpv:
+            return isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC"
+        case .vlc:
+            return isVLCBuildAvailable ? "VLC" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
+        case .auto:
+            if isMPVBuildAvailable, shouldPreferMPV(for: url) {
+                return "MPV-MoltenVK"
+            }
+            if isVLCBuildAvailable {
+                return "VLC"
+            }
+            return isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC"
+        case .system:
+            return "系统"
+        }
+    }
+
+    private func shouldPreferMPV(for url: URL?) -> Bool {
+        guard let url else { return compatibilityHint != nil }
+        let text = url.absoluteString.lowercased()
+        if text.contains(".mkv") || text.contains("mkv") { return true }
+        if compatibilityHint?.contains("MKV") == true { return true }
+        return false
     }
 
     private func compatibilityReason(for fileName: String) -> String? {
@@ -246,7 +288,7 @@ class PlayerState: ObservableObject {
         case .vlc:
             log("[PlayerV2] 已切换内核策略：VLC\(isVLCBuildAvailable ? "" : "（当前构建未包含 VLC）")")
         case .mpv:
-            log("[PlayerV2] 已切换内核策略：MPV（预留，待接入）")
+            log("[PlayerV2] 已切换内核策略：MPV-MoltenVK\(isMPVBuildAvailable ? "" : "（当前构建未包含 Libmpv）")")
         }
 
         if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
@@ -283,8 +325,9 @@ class PlayerState: ObservableObject {
             seekPreviewTime = target
             currentTime = target
             isLoading = false
-            log("[PlayerV2] VLC 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
-            NotificationCenter.default.post(name: .vboxVLCSeek, object: nil, userInfo: ["seconds": target])
+            log("[PlayerV2] \(compatibilityEngineName) 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
+            let notification: Notification.Name = compatibilityEngineName.contains("MPV") ? .vboxMPVSeek : .vboxVLCSeek
+            NotificationCenter.default.post(name: notification, object: nil, userInfo: ["seconds": target])
             isSeeking = false
             return
         }
@@ -330,9 +373,9 @@ class PlayerState: ObservableObject {
         }
         guard compatibilityURL != nil else { return }
         if isPlaying {
-            NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
+            NotificationCenter.default.post(name: compatibilityEngineName.contains("MPV") ? .vboxMPVPause : .vboxVLCPause, object: nil)
         } else {
-            NotificationCenter.default.post(name: .vboxVLCPlay, object: nil)
+            NotificationCenter.default.post(name: compatibilityEngineName.contains("MPV") ? .vboxMPVPlay : .vboxVLCPlay, object: nil)
         }
         isPlaying.toggle()
     }
@@ -343,8 +386,9 @@ class PlayerState: ObservableObject {
             player.rate = isPlaying ? Float(speed) : 0
         }
         if compatibilityURL != nil {
-            NotificationCenter.default.post(name: .vboxVLCSpeed, object: nil, userInfo: ["speed": speed])
-            log("[PlayerV2] VLC 倍速切换：\(String(format: "%.2f", speed))X")
+            let notification: Notification.Name = compatibilityEngineName.contains("MPV") ? .vboxMPVSpeed : .vboxVLCSpeed
+            NotificationCenter.default.post(name: notification, object: nil, userInfo: ["speed": speed])
+            log("[PlayerV2] \(compatibilityEngineName) 倍速切换：\(String(format: "%.2f", speed))X")
         }
     }
 
@@ -905,22 +949,23 @@ class PlayerState: ObservableObject {
         }
 
         if shouldUseCompatibilityEngine {
-            log("[PlayerV2] 使用 VLC 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
+            let engineName = preferredCompatibilityEngineName(for: urlObj)
+            log("[PlayerV2] 使用 \(engineName) 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
             await MainActor.run {
                 player?.pause()
                 player = nil
-                compatibilityEngineName = "VLC"
+                compatibilityEngineName = engineName
                 compatibilityURL = urlObj
-                compatibilityHeaders = headers
+                compatibilityHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
                 isPlaying = true
                 isLoading = false
             }
             return
         } else if playbackEngineMode == .compatibility {
             if enginePreference == .mpv {
-                log("[PlayerV2] 已选择 MPV，但当前版本尚未接入 libmpv，暂用系统内核尝试")
+                log("[PlayerV2] 已选择 MPV，但当前构建未包含 Libmpv，暂用系统内核尝试")
             } else {
-                log("[PlayerV2] 资源需要兼容内核，但当前构建未包含 VLC 或已强制系统内核，暂用系统内核尝试")
+                log("[PlayerV2] 资源需要兼容内核，但当前构建未包含可用兼容内核或已强制系统内核，暂用系统内核尝试")
             }
         }
         
@@ -1539,6 +1584,21 @@ class PlayerState: ObservableObject {
     
     private func initPlayer(url: URL) {
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
+
+        if shouldRouteDirectURLToMPV(url) {
+            log("[PlayerV2] 直链资源分流到 MPV-MoltenVK：\(url.pathExtension.lowercased())")
+            player?.pause()
+            player = nil
+            compatibilityEngineName = "MPV-MoltenVK"
+            compatibilityURL = url
+            compatibilityHeaders = [:]
+            playbackEngineMode = .compatibility
+            compatibilityHint = "MKV / 复杂封装"
+            isPlaying = true
+            isLoading = true
+            loadingMessage = "正在启动 MPV-MoltenVK..."
+            return
+        }
         
         // 清理旧的观察者（防止 retry 叠加）
         if let oldObserver = timeObserver {
@@ -1664,6 +1724,16 @@ class PlayerState: ObservableObject {
             self?.log("[PlayerV2] 播放器开始播放")
         }
     }
+
+    private func shouldRouteDirectURLToMPV(_ url: URL) -> Bool {
+        guard enginePreference != .system, isMPVBuildAvailable else { return false }
+        if enginePreference == .mpv { return true }
+        let text = url.absoluteString.lowercased()
+        let ext = url.pathExtension.lowercased()
+        if ext == "mp4" || ext == "m4v" || ext == "mov" { return false }
+        if ext == "m3u8" { return false }
+        return ext == "mkv" || text.contains(".mkv") || text.contains("mkv")
+    }
     
     private func cleanupObservers() {
         statusObserver?.cancel()
@@ -1686,22 +1756,21 @@ struct PlayerContainerView: View {
         ZStack {
             // 视频层（如果有播放器）
             if let url = playerState.compatibilityURL {
+                if playerState.compatibilityEngineName.contains("MPV") {
+                    #if canImport(Libmpv)
+                    LibmpvMoltenVKPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
+                        .ignoresSafeArea()
+                    #else
+                    CompatibilityUnavailableView(engineName: "MPV-MoltenVK", message: "当前构建未包含 Libmpv")
+                    #endif
+                } else {
                 #if canImport(MobileVLCKit)
                 VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                     .ignoresSafeArea()
                 #else
-                VStack(spacing: 10) {
-                    Image(systemName: "play.slash")
-                        .font(.system(size: 42))
-                        .foregroundColor(.white.opacity(0.85))
-                    Text("当前资源需要兼容内核")
-                        .foregroundColor(.white)
-                        .font(.headline)
-                    Text("当前构建未包含 VLC，请等待兼容内核构建包")
-                        .foregroundColor(.white.opacity(0.7))
-                        .font(.subheadline)
-                }
+                CompatibilityUnavailableView(engineName: "VLC", message: "当前构建未包含 VLC，请等待兼容内核构建包")
                 #endif
+                }
             } else if let player = player {
                 AVPlayerControllerRepresentableV2(player: player)
                     .ignoresSafeArea()
@@ -2116,6 +2185,126 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
         }
     }
 }
+
+struct CompatibilityUnavailableView: View {
+    let engineName: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "play.slash")
+                .font(.system(size: 42))
+                .foregroundColor(.white.opacity(0.85))
+            Text("当前资源需要\(engineName)兼容内核")
+                .foregroundColor(.white)
+                .font(.headline)
+            Text(message)
+                .foregroundColor(.white.opacity(0.7))
+                .font(.subheadline)
+        }
+    }
+}
+
+#if canImport(Libmpv)
+// MARK: - Libmpv-MoltenVK 正式播放层 V2
+struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
+    let url: URL
+    let headers: [String: String]
+    @ObservedObject var playerState: PlayerState
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(playerState: playerState)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        context.coordinator.attach(to: view, url: url, headers: headers)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if context.coordinator.currentURL != url {
+            context.coordinator.attach(to: uiView, url: url, headers: headers)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        private let core = LibmpvMoltenVKPlayerCore()
+        private var observers: [NSObjectProtocol] = []
+        private weak var playerState: PlayerState?
+        var currentURL: URL?
+
+        init(playerState: PlayerState) {
+            self.playerState = playerState
+            core.onLog = { [weak playerState] message in
+                playerState?.log("[MPV-MoltenVK] \(message)")
+            }
+            core.onStateChange = { [weak playerState] state in
+                guard let playerState else { return }
+                playerState.currentTime = state.currentTime
+                if state.duration.isFinite, state.duration > 0 {
+                    playerState.duration = state.duration
+                }
+                playerState.isLoading = state.isBuffering
+                playerState.isPlaying = state.isPlaying
+                if let error = state.errorMessage {
+                    playerState.loadError = error
+                }
+            }
+
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVPlay, object: nil, queue: .main) { [weak self] _ in
+                self?.core.play()
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVPause, object: nil, queue: .main) { [weak self] _ in
+                self?.core.pause()
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVSeek, object: nil, queue: .main) { [weak self] note in
+                guard let seconds = note.userInfo?["seconds"] as? Double else { return }
+                self?.core.seek(to: seconds)
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVSpeed, object: nil, queue: .main) { [weak self] note in
+                guard let speed = note.userInfo?["speed"] as? Double else { return }
+                self?.core.setRate(speed)
+            })
+        }
+
+        deinit {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            core.teardown()
+        }
+
+        func attach(to view: UIView, url: URL, headers: [String: String]) {
+            currentURL = url
+            core.attach(to: view)
+            core.load(url: url, headers: headers, profile: inferredProfile(for: url))
+            core.setRate(playerState?.playbackSpeed ?? 1.0)
+            core.play()
+            playerState?.isLoading = true
+            playerState?.loadingMessage = "正在启动 MPV-MoltenVK..."
+        }
+
+        func stop() {
+            core.stop()
+            core.teardown()
+            currentURL = nil
+        }
+
+        private func inferredProfile(for url: URL) -> LibmpvMoltenVKPlayerCore.PlaybackProfile {
+            let text = url.absoluteString.lowercased()
+            let ext = url.pathExtension.lowercased()
+            if ext == "mkv" || text.contains("mkv") { return .mkvLarge }
+            if ext == "m3u8" { return .hlsFast }
+            if ext == "mp4" || ext == "m4v" || ext == "mov" { return .mp4 }
+            return .generic
+        }
+    }
+}
+#endif
 
 #if canImport(MobileVLCKit)
 // MARK: - VLC 兼容播放内核封装 V2
