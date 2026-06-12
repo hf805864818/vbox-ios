@@ -31,6 +31,18 @@ struct SettingsView: View {
     @State private var mpvControlProbeSummary = "未运行MPV综合控制探针"
     @State private var isRunningMPVMinimalPlaybackTest = false
     @State private var mpvMinimalPlaybackSummary = "未运行MPV最小播放链路测试"
+    @State private var isRunningMPVLogProbe = false
+    @State private var mpvLogProbeSummary = "未运行MPV日志采样探针"
+    @State private var isRunningMPVAudioProbe = false
+    @State private var mpvAudioProbeSummary = "未运行MPV音频输出探针"
+    @State private var isRunningMPVVideoProbe = false
+    @State private var mpvVideoProbeSummary = "未运行MPV视频输出能力探针"
+    @State private var isRunningMPVNetworkProbe = false
+    @State private var mpvNetworkProbeSummary = "未运行MPV网络播放探针"
+    @State private var isRunningMPVLifecycleProbe = false
+    @State private var mpvLifecycleProbeSummary = "未运行MPV生命周期压力测试"
+    @State private var isRunningMPVAllDiagnostics = false
+    @State private var mpvAllDiagnosticsSummary = "未运行一键全部MPV诊断"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -383,6 +395,30 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(mpvLogProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(mpvAudioProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(mpvVideoProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(mpvNetworkProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(mpvLifecycleProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(mpvAllDiagnosticsSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button(action: runMPVLoadfileProbe) {
                     HStack {
                         if isRunningMPVLoadfileProbe {
@@ -440,6 +476,54 @@ struct SettingsView: View {
                     .cornerRadius(8)
                 }
                 .disabled(isRunningMPVMinimalPlaybackTest || !MPVIntegrationStatus.isMPVKitInitializationReady)
+                mpvDiagnosticButton(
+                    title: "运行MPV日志采样探针",
+                    runningTitle: "正在运行MPV日志采样",
+                    isRunning: isRunningMPVLogProbe,
+                    icon: "doc.text.magnifyingglass",
+                    color: Color.purple.opacity(0.85),
+                    action: runMPVLogProbe
+                )
+                mpvDiagnosticButton(
+                    title: "运行MPV音频输出探针",
+                    runningTitle: "正在运行MPV音频输出",
+                    isRunning: isRunningMPVAudioProbe,
+                    icon: "speaker.wave.2.fill",
+                    color: Color.orange.opacity(0.9),
+                    action: runMPVAudioProbe
+                )
+                mpvDiagnosticButton(
+                    title: "运行MPV视频输出能力探针",
+                    runningTitle: "正在运行MPV视频输出能力",
+                    isRunning: isRunningMPVVideoProbe,
+                    icon: "display",
+                    color: Color.green.opacity(0.85),
+                    action: runMPVVideoProbe
+                )
+                mpvDiagnosticButton(
+                    title: "运行MPV网络播放探针",
+                    runningTitle: "正在运行MPV网络播放",
+                    isRunning: isRunningMPVNetworkProbe,
+                    icon: "network",
+                    color: Color.cyan.opacity(0.9),
+                    action: runMPVNetworkProbe
+                )
+                mpvDiagnosticButton(
+                    title: "运行MPV生命周期压力测试",
+                    runningTitle: "正在运行MPV生命周期压力",
+                    isRunning: isRunningMPVLifecycleProbe,
+                    icon: "repeat.circle",
+                    color: Color.indigo.opacity(0.85),
+                    action: runMPVLifecycleProbe
+                )
+                mpvDiagnosticButton(
+                    title: "一键运行全部MPV诊断",
+                    runningTitle: "正在运行全部MPV诊断",
+                    isRunning: isRunningMPVAllDiagnostics,
+                    icon: "checklist",
+                    color: Color(hex: "E11D48"),
+                    action: runMPVAllDiagnostics
+                )
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -451,6 +535,35 @@ struct SettingsView: View {
                 }.padding(.horizontal, 16).padding(.vertical, 12)
             }
         }
+    }
+
+    private func mpvDiagnosticButton(
+        title: String,
+        runningTitle: String,
+        isRunning: Bool,
+        icon: String,
+        color: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                if isRunning {
+                    ProgressView().scaleEffect(0.75)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 13))
+                }
+                Text(isRunning ? runningTitle : title)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(MPVIntegrationStatus.isMPVKitInitializationReady ? color : Color.gray)
+            .cornerRadius(8)
+        }
+        .disabled(isRunning || !MPVIntegrationStatus.isMPVKitInitializationReady)
     }
 
     private func runMPVLoadfileProbe() {
@@ -490,6 +603,122 @@ struct SettingsView: View {
             let summary = await runMPVMinimalPlaybackSequence()
             mpvMinimalPlaybackSummary = summary
             isRunningMPVMinimalPlaybackTest = false
+        }
+    }
+
+    private func runMPVLogProbe() {
+        guard !isRunningMPVLogProbe else { return }
+        isRunningMPVLogProbe = true
+        mpvLogProbeSummary = "正在采样MPV日志事件..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runLogSamplingProbe()
+            await MainActor.run {
+                mpvLogProbeSummary = "\(result.title)：\(result.summary)"
+                isRunningMPVLogProbe = false
+            }
+        }
+    }
+
+    private func runMPVAudioProbe() {
+        guard !isRunningMPVAudioProbe else { return }
+        isRunningMPVAudioProbe = true
+        mpvAudioProbeSummary = "正在测试MPV音频输出路径..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runAudioOutputProbe()
+            await MainActor.run {
+                mpvAudioProbeSummary = "\(result.title)：\(result.summary)"
+                isRunningMPVAudioProbe = false
+            }
+        }
+    }
+
+    private func runMPVVideoProbe() {
+        guard !isRunningMPVVideoProbe else { return }
+        isRunningMPVVideoProbe = true
+        mpvVideoProbeSummary = "正在测试MPV视频输出能力..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runVideoOutputCapabilityProbe()
+            await MainActor.run {
+                mpvVideoProbeSummary = "\(result.title)：\(result.summary)"
+                isRunningMPVVideoProbe = false
+            }
+        }
+    }
+
+    private func runMPVNetworkProbe() {
+        guard !isRunningMPVNetworkProbe else { return }
+        isRunningMPVNetworkProbe = true
+        mpvNetworkProbeSummary = "正在测试HLS和MP4网络播放..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runNetworkPlaybackProbe()
+            await MainActor.run {
+                mpvNetworkProbeSummary = "\(result.title)：\(result.summary)"
+                isRunningMPVNetworkProbe = false
+            }
+        }
+    }
+
+    private func runMPVLifecycleProbe() {
+        guard !isRunningMPVLifecycleProbe else { return }
+        isRunningMPVLifecycleProbe = true
+        mpvLifecycleProbeSummary = "正在连续创建和销毁MPV实例..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runLifecycleStressProbe()
+            await MainActor.run {
+                mpvLifecycleProbeSummary = "\(result.title)：\(result.summary)"
+                isRunningMPVLifecycleProbe = false
+            }
+        }
+    }
+
+    private func runMPVAllDiagnostics() {
+        guard !isRunningMPVAllDiagnostics else { return }
+        isRunningMPVAllDiagnostics = true
+        mpvAllDiagnosticsSummary = "正在按顺序运行全部MPV诊断..."
+
+        Task { @MainActor in
+            let loadfile = await Task.detached { MPVIntegrationStatus.runLoadfileProbe() }.value
+            mpvLoadfileProbeSummary = loadfile.summary
+
+            let control = await Task.detached { MPVIntegrationStatus.runPlaybackControlProbe() }.value
+            mpvControlProbeSummary = control.summary
+
+            let minimal = await runMPVMinimalPlaybackSequence()
+            mpvMinimalPlaybackSummary = minimal
+
+            let log = await Task.detached { MPVIntegrationStatus.runLogSamplingProbe() }.value
+            mpvLogProbeSummary = "\(log.title)：\(log.summary)"
+
+            let audio = await Task.detached { MPVIntegrationStatus.runAudioOutputProbe() }.value
+            mpvAudioProbeSummary = "\(audio.title)：\(audio.summary)"
+
+            let video = await Task.detached { MPVIntegrationStatus.runVideoOutputCapabilityProbe() }.value
+            mpvVideoProbeSummary = "\(video.title)：\(video.summary)"
+
+            let network = await Task.detached { MPVIntegrationStatus.runNetworkPlaybackProbe() }.value
+            mpvNetworkProbeSummary = "\(network.title)：\(network.summary)"
+
+            let lifecycle = await Task.detached { MPVIntegrationStatus.runLifecycleStressProbe() }.value
+            mpvLifecycleProbeSummary = "\(lifecycle.title)：\(lifecycle.summary)"
+
+            let passedCount = [
+                loadfile.isMediaLoadObserved,
+                control.isControlPathReady,
+                !minimal.contains("失败"),
+                log.isPassed,
+                audio.isPassed,
+                video.isPassed,
+                network.isPassed,
+                lifecycle.isPassed
+            ].filter { $0 }.count
+
+            mpvAllDiagnosticsSummary = "全部MPV诊断完成：\(passedCount)/8 通过，截图发我统一排查"
+            isRunningMPVAllDiagnostics = false
         }
     }
 

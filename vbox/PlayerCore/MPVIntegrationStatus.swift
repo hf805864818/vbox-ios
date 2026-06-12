@@ -74,6 +74,27 @@ enum MPVIntegrationStatus {
         return MPVKitBackend.runPlaybackControlProbe()
     }
 
+    /// 3.164 step。MPV 全量诊断入口，集中暴露日志、音频、视频、网络和生命周期探针。
+    static func runLogSamplingProbe() -> MPVKitDiagnosticProbeResult {
+        return MPVKitBackend.runLogSamplingProbe()
+    }
+
+    static func runAudioOutputProbe() -> MPVKitDiagnosticProbeResult {
+        return MPVKitBackend.runAudioOutputProbe()
+    }
+
+    static func runVideoOutputCapabilityProbe() -> MPVKitDiagnosticProbeResult {
+        return MPVKitBackend.runVideoOutputCapabilityProbe()
+    }
+
+    static func runNetworkPlaybackProbe() -> MPVKitDiagnosticProbeResult {
+        return MPVKitBackend.runNetworkPlaybackProbe()
+    }
+
+    static func runLifecycleStressProbe() -> MPVKitDiagnosticProbeResult {
+        return MPVKitBackend.runLifecycleStressProbe()
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:

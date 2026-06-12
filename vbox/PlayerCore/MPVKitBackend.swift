@@ -69,6 +69,14 @@ struct MPVKitPlaybackControlProbeResult {
     }
 }
 
+/// MPVKit/Libmpv 通用诊断探针结果。
+/// 用于 3.164 的日志、音频、视频、网络和生命周期集中测试。
+struct MPVKitDiagnosticProbeResult {
+    let title: String
+    let summary: String
+    let isPassed: Bool
+}
+
 /// MPVKit 后端占位。
 /// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
 final class MPVKitBackend: MPVBackend {
@@ -85,6 +93,7 @@ final class MPVKitBackend: MPVBackend {
     #endif
 
     static let defaultLoadfileProbeURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    static let defaultMP4ProbeURL = "https://filesamples.com/samples/video/mp4/sample_640x360.mp4"
 
     deinit {
         teardown()
@@ -369,6 +378,98 @@ final class MPVKitBackend: MPVBackend {
         #endif
     }
 
+    /// 3.164 step。MPV 日志采样探针。
+    /// 只请求 libmpv 内部日志事件并采样事件名，不解析底层日志 payload，避免绑定差异影响编译。
+    static func runLogSamplingProbe(
+        url: String = defaultLoadfileProbeURL,
+        timeout: TimeInterval = 6
+    ) -> MPVKitDiagnosticProbeResult {
+        #if canImport(Libmpv)
+        return runConfiguredMediaProbe(
+            title: "日志采样",
+            url: url,
+            timeout: timeout,
+            vo: "null",
+            ao: "null",
+            requestLogMessages: true
+        )
+        #else
+        return MPVKitDiagnosticProbeResult(title: "日志采样", summary: "libmpv API不可用", isPassed: false)
+        #endif
+    }
+
+    /// 3.164 step。音频输出探针。
+    /// 视频仍为 null，只放开音频输出，判断当前构建是否能进入真实音频输出路径。
+    static func runAudioOutputProbe(
+        url: String = defaultLoadfileProbeURL,
+        timeout: TimeInterval = 8
+    ) -> MPVKitDiagnosticProbeResult {
+        #if canImport(Libmpv)
+        return runConfiguredMediaProbe(
+            title: "音频输出",
+            url: url,
+            timeout: timeout,
+            vo: "null",
+            ao: nil,
+            requestLogMessages: true
+        )
+        #else
+        return MPVKitDiagnosticProbeResult(title: "音频输出", summary: "libmpv API不可用", isPassed: false)
+        #endif
+    }
+
+    /// 3.164 step。视频输出能力探针。
+    /// 尝试进入 gpu vo 路径，但不接正式渲染 View；失败结果用于判断下一步渲染层方案。
+    static func runVideoOutputCapabilityProbe(
+        url: String = defaultLoadfileProbeURL,
+        timeout: TimeInterval = 8
+    ) -> MPVKitDiagnosticProbeResult {
+        #if canImport(Libmpv)
+        return runConfiguredMediaProbe(
+            title: "视频输出能力",
+            url: url,
+            timeout: timeout,
+            vo: "gpu",
+            ao: "null",
+            requestLogMessages: true
+        )
+        #else
+        return MPVKitDiagnosticProbeResult(title: "视频输出能力", summary: "libmpv API不可用", isPassed: false)
+        #endif
+    }
+
+    /// 3.164 step。网络播放探针。
+    /// 同时跑 HLS 和 MP4 两种公开测试资源，便于一次判断网络协议基础能力。
+    static func runNetworkPlaybackProbe(timeout: TimeInterval = 8) -> MPVKitDiagnosticProbeResult {
+        let hls = runLoadfileProbe(url: defaultLoadfileProbeURL, timeout: timeout)
+        let mp4 = runLoadfileProbe(url: defaultMP4ProbeURL, timeout: timeout)
+        let passed = hls.isMediaLoadObserved && mp4.isMediaLoadObserved
+        let summary = "HLS[\(hls.commandStatus)，\(hls.eventStatus)]；MP4[\(mp4.commandStatus)，\(mp4.eventStatus)]"
+        return MPVKitDiagnosticProbeResult(title: "网络播放", summary: summary, isPassed: passed)
+    }
+
+    /// 3.164 step。生命周期压力探针。
+    /// 连续创建、loadfile、stop、destroy 多轮，观察是否有返回码错误或事件异常。
+    static func runLifecycleStressProbe(rounds: Int = 3) -> MPVKitDiagnosticProbeResult {
+        var summaries: [String] = []
+        var passedCount = 0
+
+        for index in 1...max(1, rounds) {
+            let result = runLoadfileProbe(timeout: 5)
+            if result.isLoadfileAccepted && result.isMediaLoadObserved {
+                passedCount += 1
+            }
+            summaries.append("#\(index):\(result.isMediaLoadObserved ? "成功" : "异常")")
+        }
+
+        let passed = passedCount == max(1, rounds)
+        return MPVKitDiagnosticProbeResult(
+            title: "生命周期压力",
+            summary: "\(passedCount)/\(max(1, rounds)) 通过，\(summaries.joined(separator: " / "))",
+            isPassed: passed
+        )
+    }
+
     #if canImport(Libmpv)
     private static func configureNullOutput(handle: OpaquePointer) {
         _ = mpv_set_option_string(handle, "config", "no")
@@ -376,6 +477,69 @@ final class MPVKitBackend: MPVBackend {
         _ = mpv_set_option_string(handle, "msg-level", "all=no")
         _ = mpv_set_option_string(handle, "vo", "null")
         _ = mpv_set_option_string(handle, "ao", "null")
+    }
+
+    private static func configureProbeOutput(
+        handle: OpaquePointer,
+        vo: String?,
+        ao: String?
+    ) {
+        _ = mpv_set_option_string(handle, "config", "no")
+        _ = mpv_set_option_string(handle, "terminal", "no")
+        _ = mpv_set_option_string(handle, "msg-level", "all=info")
+        if let vo {
+            _ = mpv_set_option_string(handle, "vo", vo)
+        }
+        if let ao {
+            _ = mpv_set_option_string(handle, "ao", ao)
+        }
+    }
+
+    private static func runConfiguredMediaProbe(
+        title: String,
+        url: String,
+        timeout: TimeInterval,
+        vo: String?,
+        ao: String?,
+        requestLogMessages: Bool
+    ) -> MPVKitDiagnosticProbeResult {
+        setlocale(LC_NUMERIC, "C")
+
+        guard let handle = mpv_create() else {
+            return MPVKitDiagnosticProbeResult(title: title, summary: "mpv_create失败", isPassed: false)
+        }
+
+        configureProbeOutput(handle: handle, vo: vo, ao: ao)
+
+        if requestLogMessages {
+            "info".withCString { levelPointer in
+                _ = mpv_request_log_messages(handle, levelPointer)
+            }
+        }
+
+        let initializeCode = mpv_initialize(handle)
+        guard initializeCode >= 0 else {
+            mpv_destroy(handle)
+            return MPVKitDiagnosticProbeResult(title: title, summary: "mpv_initialize失败：\(initializeCode)", isPassed: false)
+        }
+
+        let commandCode = sendLoadfileCommand(handle: handle, url: url)
+        guard commandCode >= 0 else {
+            mpv_terminate_destroy(handle)
+            return MPVKitDiagnosticProbeResult(title: title, summary: "loadfile失败：\(commandCode)", isPassed: false)
+        }
+
+        let observation = waitForMediaProbeEvents(handle: handle, timeout: timeout)
+        let snapshot = propertySnapshot(handle: handle)
+        mpv_terminate_destroy(handle)
+
+        let output = "vo=\(vo ?? "default")，ao=\(ao ?? "default")"
+        let summary = "\(output)，\(observation.status)，\(snapshot)"
+        return MPVKitDiagnosticProbeResult(
+            title: title,
+            summary: summary,
+            isPassed: observation.didObserveMediaLoad
+        )
     }
 
     private static func sendLoadfileCommand(handle: OpaquePointer, url: String) -> Int32 {
@@ -505,6 +669,41 @@ final class MPVKitBackend: MPVBackend {
 
         let uniqueEvents = Array(NSOrderedSet(array: eventNames)) as? [String] ?? eventNames
         return "事件：\(uniqueEvents.prefix(6).joined(separator: " / "))"
+    }
+
+    private static func waitForMediaProbeEvents(
+        handle: OpaquePointer,
+        timeout: TimeInterval
+    ) -> (status: String, didObserveMediaLoad: Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var eventNames: [String] = []
+        var didObserveMediaLoad = false
+
+        while Date() < deadline {
+            guard let event = mpv_wait_event(handle, 0.1) else {
+                continue
+            }
+
+            let eventName = String(cString: mpv_event_name(event.pointee.event_id))
+            if eventName != "none" {
+                eventNames.append(eventName)
+            }
+
+            if eventName == "file-loaded" || eventName == "playback-restart" {
+                didObserveMediaLoad = true
+            }
+
+            if eventName == "end-file" || eventName == "shutdown" {
+                break
+            }
+        }
+
+        if eventNames.isEmpty {
+            return ("等待\(Int(timeout))秒未收到事件", false)
+        }
+
+        let uniqueEvents = Array(NSOrderedSet(array: eventNames)) as? [String] ?? eventNames
+        return ("事件：\(uniqueEvents.prefix(10).joined(separator: " / "))", didObserveMediaLoad)
     }
     #endif
 
