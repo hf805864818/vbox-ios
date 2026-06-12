@@ -12,6 +12,7 @@
 		A12021 /* MPVKitMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12021 /* MPVKitMetalLayer.swift */; };
 		A12022 /* MPVKitRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12022 /* MPVKitRenderView.swift */; };
 		A12023 /* MPVKitRenderedPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12023 /* MPVKitRenderedPlayerCore.swift */; };
+		A12024 /* MPVRenderContextPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12024 /* MPVRenderContextPlayerCore.swift */; };
 		A12018 /* MPVIntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12018 /* MPVIntegrationStatus.swift */; };
 		A12011 /* MPVBackendType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12011 /* MPVBackendType.swift */; };
 		A12012 /* MPVBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12012 /* MPVBackend.swift */; };
@@ -63,6 +64,7 @@
 		A10033 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* BaiduWebViewBridge.swift */; };
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 		A10036 /* MPVKitDebugPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MPVKitDebugPlayerView.swift */; };
+		A10037 /* MPVRenderContextDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MPVRenderContextDebugView.swift */; };
 
 /* Begin PBXFileReference section */
 		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 		B12021 /* MPVKitMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitMetalLayer.swift; sourceTree = "<group>"; };
 		B12022 /* MPVKitRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderView.swift; sourceTree = "<group>"; };
 		B12023 /* MPVKitRenderedPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderedPlayerCore.swift; sourceTree = "<group>"; };
+		B12024 /* MPVRenderContextPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextPlayerCore.swift; sourceTree = "<group>"; };
 		B12018 /* MPVIntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVIntegrationStatus.swift; sourceTree = "<group>"; };
 		B12011 /* MPVBackendType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendType.swift; sourceTree = "<group>"; };
 		B12012 /* MPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackend.swift; sourceTree = "<group>"; };
@@ -117,6 +120,7 @@
 		B10034 /* DoubanImageProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanImageProxyServer.swift; sourceTree = "<group>"; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B10036 /* MPVKitDebugPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitDebugPlayerView.swift; sourceTree = "<group>"; };
+		B10037 /* MPVRenderContextDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextDebugView.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
@@ -206,6 +210,7 @@
 				B10032 /* CategoryDetailView.swift */,
 				B10031 /* TokenWebView.swift */,
 				B10036 /* MPVKitDebugPlayerView.swift */,
+				B10037 /* MPVRenderContextDebugView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -237,6 +242,7 @@
 				B12021 /* MPVKitMetalLayer.swift */,
 				B12022 /* MPVKitRenderView.swift */,
 				B12023 /* MPVKitRenderedPlayerCore.swift */,
+				B12024 /* MPVRenderContextPlayerCore.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -328,6 +334,7 @@
 				A12021 /* MPVKitMetalLayer.swift in Sources */,
 				A12022 /* MPVKitRenderView.swift in Sources */,
 				A12023 /* MPVKitRenderedPlayerCore.swift in Sources */,
+				A12024 /* MPVRenderContextPlayerCore.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
@@ -357,6 +364,7 @@
 				A10034 /* DoubanImageProxyServer.swift in Sources */,
 				A10035 /* BaiduProxyClient.swift in Sources */,
 				A10036 /* MPVKitDebugPlayerView.swift in Sources */,
+				A10037 /* MPVRenderContextDebugView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,7 +448,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 170;
+					CURRENT_PROJECT_VERSION = 171;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV", "$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -453,7 +461,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.170;
+					MARKETING_VERSION = 3.171;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -470,7 +478,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 170;
+					CURRENT_PROJECT_VERSION = 171;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV", "$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -483,7 +491,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.170;
+					MARKETING_VERSION = 3.171;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
