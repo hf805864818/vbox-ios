@@ -989,7 +989,13 @@ class PlayerState: ObservableObject {
                     Task { @MainActor in
                         self.isLoading = false
                     }
-                    self.scheduleVideoTrackCheck(for: playerItem, startedAt: playStartTime, isBaiduLocalProxy: isBaiduLocalProxy)
+                    self.scheduleVideoTrackCheck(
+                        for: playerItem,
+                        startedAt: playStartTime,
+                        isBaiduLocalProxy: isBaiduLocalProxy,
+                        fallbackURL: urlObj,
+                        fallbackHeaders: assetHeaders
+                    )
                 case .failed:
                     let nsError = playerItem.error as? NSError
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
@@ -1167,7 +1173,13 @@ class PlayerState: ObservableObject {
         return text.contains("-11828") || text.contains("-12847") || text.contains("无法打开") || text.contains("not open")
     }
 
-    private func scheduleVideoTrackCheck(for item: AVPlayerItem, startedAt: Date, isBaiduLocalProxy: Bool) {
+    private func scheduleVideoTrackCheck(
+        for item: AVPlayerItem,
+        startedAt: Date,
+        isBaiduLocalProxy: Bool,
+        fallbackURL: URL,
+        fallbackHeaders: [String: String]
+    ) {
         guard isBaiduLocalProxy else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
@@ -1178,8 +1190,33 @@ class PlayerState: ObservableObject {
             self.log("[PlayerV2] 首帧检测：耗时=\(elapsed)ms，进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))")
             if seconds > 2, size.width <= 1 || size.height <= 1 {
                 self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
+                self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
             }
         }
+    }
+
+    private func switchAVPlayerVideoTrackFailureToMPV(url: URL, headers: [String: String]) {
+        guard enginePreference != .system, isMPVBuildAvailable else {
+            log("[PlayerV2] 当前构建/策略无法自动切 MPV，保留系统内核")
+            return
+        }
+
+        log("[PlayerV2] 自动切换到 MPV-MoltenVK：系统内核有进度但无视频画面")
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        cleanupObservers()
+        player?.pause()
+        player = nil
+        compatibilityEngineName = "MPV-MoltenVK"
+        compatibilityURL = url
+        compatibilityHeaders = headers
+        playbackEngineMode = .compatibility
+        compatibilityHint = "系统内核无视频画面"
+        isPlaying = true
+        isLoading = true
+        loadingMessage = "正在切换 MPV-MoltenVK..."
     }
 
     private func retryCurrentBaiduPlaybackAfterForbidden() {
