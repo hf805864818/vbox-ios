@@ -181,9 +181,38 @@ ___gxx_personality_v0
 
 这些符号来自 `MoltenVK` 与 `Libshaderc_combined`，当前 App 主链接命令由 `clang` 发起，不会自动带上 C++ 标准库。3.160 只补充 `libc++.tbd` 到 CI 注入清单和检查脚本，不改播放器运行链路。
 
+## 3.161 loadfile 探针目标
+
+3.160 已在真机 App 内验证：
+
+```text
+MPVKit 动态库已随包嵌入
+动态加载成功
+Libmpv-imported
+mpv_create 成功
+mpv_initialize 成功
+```
+
+3.161 进入最小媒体加载验证：
+
+```text
+1. 新增 MPVKitBackend.runLoadfileProbe()
+2. 使用 vo=null / ao=null，不创建渲染层
+3. 使用公开测试媒体地址，只验证 loadfile 命令和 MPV 事件流
+4. 设置页关于区域提供手动触发按钮
+5. 不接正式播放器 UI、不接切片资源、不接网盘资源、不接弹幕系统
+```
+
+成功标准：
+
+```text
+loadfile 命令返回 >= 0
+在等待窗口内收到 file-loaded 或 playback-restart
+```
+
 ## 后续步骤
 
 ```text
-3.161：观察 3.160 CI 是否仍有剩余 Undefined symbols
-3.162：初始化成功后测试 loadfile，但仍不接正式 UI
+3.162：根据 3.161 真机探针结果修正网络、事件循环或媒体加载参数
+3.163：loadfile 成功后接 MPV 事件循环和状态同步，但仍不接正式 UI
 ```

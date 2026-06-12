@@ -25,6 +25,8 @@ struct SettingsView: View {
     @State private var showUniversalPlayTestView = false
     @State private var showCloudCacheSheet = false
     @State private var showAuthCenter = false
+    @State private var isRunningMPVLoadfileProbe = false
+    @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -365,6 +367,29 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(mpvLoadfileProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: runMPVLoadfileProbe) {
+                    HStack {
+                        if isRunningMPVLoadfileProbe {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "play.circle")
+                                .font(.system(size: 13))
+                        }
+                        Text(isRunningMPVLoadfileProbe ? "正在运行MPV loadfile探针" : "运行MPV loadfile探针")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color(hex: "E11D48") : Color.gray)
+                    .cornerRadius(8)
+                }
+                .disabled(isRunningMPVLoadfileProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -374,6 +399,20 @@ struct SettingsView: View {
                     if isChecking { ProgressView().scaleEffect(0.8) }
                     else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
                 }.padding(.horizontal, 16).padding(.vertical, 12)
+            }
+        }
+    }
+
+    private func runMPVLoadfileProbe() {
+        guard !isRunningMPVLoadfileProbe else { return }
+        isRunningMPVLoadfileProbe = true
+        mpvLoadfileProbeSummary = "正在使用测试媒体运行loadfile探针..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runLoadfileProbe()
+            await MainActor.run {
+                mpvLoadfileProbeSummary = result.summary
+                isRunningMPVLoadfileProbe = false
             }
         }
     }

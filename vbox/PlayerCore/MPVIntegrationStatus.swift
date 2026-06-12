@@ -62,6 +62,12 @@ enum MPVIntegrationStatus {
         return MPVKitBackend.initializationProbeResult.isInitialized
     }
 
+    /// 3.161 step。手动触发的 MPV loadfile 探针。
+    /// 只验证普通测试媒体能否进入 MPV 加载事件流，不接正式播放链路。
+    static func runLoadfileProbe() -> MPVKitLoadfileProbeResult {
+        return MPVKitBackend.runLoadfileProbe()
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:
