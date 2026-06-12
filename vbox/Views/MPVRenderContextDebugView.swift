@@ -3,12 +3,16 @@ import SwiftUI
 import UIKit
 
 struct MPVRenderContextDebugView: View {
+    private static let defaultHLSURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+
     @Environment(\.dismiss) private var dismiss
-    @State private var urlText = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    @State private var urlText: String
     @State private var logs: [String] = []
     @State private var state = PlayerEngineState()
+    @State private var isSwitching = false
+    private let initialHeaders: [String: String]
 
-    private let hlsTSURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    private let hlsTSURL = MPVRenderContextDebugView.defaultHLSURL
     private let hlsFMP4URL = "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
     private let mp4URL = "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"
     private let mkv100URL = "https://thetestdata.com/assets/video/mkv/720/100MB_720P_THETESTDATA.COM_mkv.mkv"
@@ -17,6 +21,11 @@ struct MPVRenderContextDebugView: View {
     #if canImport(Libmpv)
     private let core = MPVRenderContextPlayerCore()
     #endif
+
+    init(initialURL: String? = nil, headers: [String: String] = [:]) {
+        _urlText = State(initialValue: initialURL?.isEmpty == false ? initialURL! : Self.defaultHLSURL)
+        self.initialHeaders = headers
+    }
 
     var body: some View {
         NavigationView {
@@ -102,42 +111,55 @@ struct MPVRenderContextDebugView: View {
                 .cornerRadius(8)
 
             HStack(spacing: 8) {
-                Button("HLS-TS") {
+                Button("HLS-极速") {
                     urlText = hlsTSURL
-                    loadCurrentURL()
+                    loadCurrentURL(profile: .hlsFast)
                 }
                 .buttonStyle(.bordered)
+                .disabled(isSwitching)
+
+                Button("HLS-高清") {
+                    urlText = hlsTSURL
+                    loadCurrentURL(profile: .hlsQuality)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSwitching)
 
                 Button("HLS-fMP4") {
                     urlText = hlsFMP4URL
-                    loadCurrentURL()
+                    loadCurrentURL(profile: .hlsFMP4)
                 }
                 .buttonStyle(.bordered)
-
-                Button("MP4") {
-                    urlText = mp4URL
-                    loadCurrentURL()
-                }
-                .buttonStyle(.bordered)
+                .disabled(isSwitching)
             }
 
             HStack(spacing: 8) {
-                Button("MKV-100M") {
-                    urlText = mkv100URL
-                    loadCurrentURL()
+                Button("MP4") {
+                    urlText = mp4URL
+                    loadCurrentURL(profile: .mp4)
                 }
                 .buttonStyle(.bordered)
+                .disabled(isSwitching)
+
+                Button("MKV-100M") {
+                    urlText = mkv100URL
+                    loadCurrentURL(profile: .mkvLarge)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSwitching)
 
                 Button("MKV-200M") {
                     urlText = mkv200URL
-                    loadCurrentURL()
+                    loadCurrentURL(profile: .mkvLarge)
                 }
                 .buttonStyle(.bordered)
+                .disabled(isSwitching)
 
                 Button("播放") {
                     loadCurrentURL()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isSwitching)
 
                 Button(state.isPlaying ? "暂停" : "继续") {
                     #if canImport(Libmpv)
@@ -145,6 +167,7 @@ struct MPVRenderContextDebugView: View {
                     #endif
                 }
                 .buttonStyle(.bordered)
+                .disabled(isSwitching)
             }
         }
         .padding(.horizontal, 16)
@@ -167,15 +190,23 @@ struct MPVRenderContextDebugView: View {
         .padding(.horizontal, 16)
     }
 
-    private func loadCurrentURL() {
+    private func loadCurrentURL(profile: MPVRenderContextPlayerCore.PlaybackProfile? = nil) {
         guard let url = URL(string: urlText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             appendLog("URL无效")
             return
         }
         #if canImport(Libmpv)
+        isSwitching = true
         logs.removeAll()
-        core.load(url: url)
-        core.play()
+        state = PlayerEngineState()
+        appendLog("准备切换：\(url.absoluteString)")
+        core.resetForNewLoad()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            core.load(url: url, headers: initialHeaders, profile: profile)
+            core.play()
+            isSwitching = false
+        }
         #else
         appendLog("Libmpv模块未导入")
         #endif

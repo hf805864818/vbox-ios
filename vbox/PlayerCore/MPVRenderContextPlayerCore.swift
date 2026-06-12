@@ -7,6 +7,15 @@ import UIKit
 import Libmpv
 
 final class MPVRenderContextPlayerCore: NSObject {
+    enum PlaybackProfile: String {
+        case hlsFast = "RenderContext HLS极速"
+        case hlsQuality = "RenderContext HLS高清"
+        case hlsFMP4 = "RenderContext HLS-fMP4兼容"
+        case mp4 = "RenderContext普通文件"
+        case mkvLarge = "RenderContext MKV大文件"
+        case generic = "RenderContext通用"
+    }
+
     var onLog: ((String) -> Void)?
     var onStateChange: ((PlayerEngineState) -> Void)?
 
@@ -42,7 +51,16 @@ final class MPVRenderContextPlayerCore: NSObject {
         }
     }
 
-    func load(url: URL, headers: [String: String] = [:]) {
+    func resetForNewLoad() {
+        command("stop", checkForErrors: false)
+        state = PlayerEngineState()
+        emitState()
+        DispatchQueue.main.async { [weak self] in
+            self?.glView?.setNeedsDisplay()
+        }
+    }
+
+    func load(url: URL, headers: [String: String] = [:], profile: PlaybackProfile? = nil) {
         if mpv == nil {
             setupMPV()
         }
@@ -53,7 +71,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         }
 
         applyHTTPOptions(headers: headers)
-        applyPlaybackOptions(for: url)
+        applyPlaybackOptions(for: url, profile: profile)
         command("loadfile", args: [url.absoluteString, "replace"])
         state.errorMessage = nil
         log("RenderContext加载：\(url.absoluteString)")
@@ -233,11 +251,20 @@ final class MPVRenderContextPlayerCore: NSObject {
     private func handle(event: mpv_event) {
         switch event.event_id {
         case MPV_EVENT_FILE_LOADED:
-            DispatchQueue.main.async { [weak self] in self?.log("file-loaded") }
+            DispatchQueue.main.async { [weak self] in
+                self?.log("file-loaded")
+                self?.glView?.setNeedsDisplay()
+            }
         case MPV_EVENT_VIDEO_RECONFIG:
-            DispatchQueue.main.async { [weak self] in self?.log("video-reconfig") }
+            DispatchQueue.main.async { [weak self] in
+                self?.log("video-reconfig")
+                self?.glView?.setNeedsDisplay()
+            }
         case MPV_EVENT_PLAYBACK_RESTART:
-            DispatchQueue.main.async { [weak self] in self?.log("playback-restart") }
+            DispatchQueue.main.async { [weak self] in
+                self?.log("playback-restart")
+                self?.glView?.setNeedsDisplay()
+            }
         case MPV_EVENT_END_FILE:
             let summary = endFileSummary(event: event)
             DispatchQueue.main.async { [weak self] in
@@ -336,34 +363,62 @@ final class MPVRenderContextPlayerCore: NSObject {
         }
     }
 
-    private func applyPlaybackOptions(for url: URL) {
-        let ext = url.pathExtension.lowercased()
+    private func applyPlaybackOptions(for url: URL, profile explicitProfile: PlaybackProfile?) {
+        let profile = explicitProfile ?? inferredProfile(for: url)
         setOption("cache", "yes")
         setOption("force-seekable", "yes")
 
-        if ext == "m3u8" {
-            log("应用参数：RenderContext HLS兼容")
-            setOption("cache-secs", "8")
-            setOption("demuxer-readahead-secs", "5")
+        log("应用参数：\(profile.rawValue)")
+
+        switch profile {
+        case .hlsFast:
+            setOption("cache-secs", "1")
+            setOption("demuxer-readahead-secs", "1")
+            setOption("demuxer-lavf-analyzeduration", "0.3")
+            setOption("demuxer-lavf-probesize", "131072")
+            setOption("network-timeout", "8")
+            setOption("hls-bitrate", "min")
+        case .hlsQuality:
+            setOption("cache-secs", "3")
+            setOption("demuxer-readahead-secs", "2")
+            setOption("demuxer-lavf-analyzeduration", "1")
+            setOption("demuxer-lavf-probesize", "524288")
+            setOption("network-timeout", "10")
+            setOption("hls-bitrate", "max")
+        case .hlsFMP4:
+            setOption("cache-secs", "6")
+            setOption("demuxer-readahead-secs", "4")
             setOption("demuxer-lavf-analyzeduration", "2")
             setOption("demuxer-lavf-probesize", "1048576")
             setOption("network-timeout", "10")
             setOption("hls-bitrate", "max")
-        } else if ext == "mkv" {
-            log("应用参数：RenderContext MKV大文件")
+        case .mkvLarge:
             setOption("cache-secs", "15")
             setOption("demuxer-readahead-secs", "10")
             setOption("demuxer-max-bytes", "256MiB")
             setOption("demuxer-max-back-bytes", "64MiB")
             setOption("network-timeout", "15")
-        } else {
-            log("应用参数：RenderContext普通文件")
+        case .mp4, .generic:
             setOption("cache-secs", "8")
             setOption("demuxer-readahead-secs", "5")
             setOption("demuxer-max-bytes", "64MiB")
             setOption("demuxer-max-back-bytes", "16MiB")
             setOption("network-timeout", "10")
         }
+    }
+
+    private func inferredProfile(for url: URL) -> PlaybackProfile {
+        let ext = url.pathExtension.lowercased()
+        if ext == "m3u8" {
+            return .hlsQuality
+        }
+        if ext == "mkv" {
+            return .mkvLarge
+        }
+        if ext == "mp4" || ext == "m4v" || ext == "mov" {
+            return .mp4
+        }
+        return .generic
     }
 
     private func command(_ command: String, args: [String] = [], checkForErrors: Bool = true) {

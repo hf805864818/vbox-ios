@@ -2182,6 +2182,11 @@ struct UniversalPlayTestView: View {
     @State private var showPlayer = false
     @State private var testVideo: VodItem?
     @State private var warningText: String?
+    @State private var mpvTestURL = ""
+    @State private var showMPVRenderTest = false
+    @State private var testUserAgent = ""
+    @State private var testReferer = ""
+    @State private var testCookie = ""
 
     var body: some View {
         NavigationView {
@@ -2198,19 +2203,35 @@ struct UniversalPlayTestView: View {
                     .padding(16)
                 }
 
-                Button(action: startPlayTest) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "play.fill")
-                        Text("打开播放器测试")
-                            .font(.system(size: 15, weight: .semibold))
+                VStack(spacing: 10) {
+                    Button(action: startPlayTest) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                            Text("打开正式播放器测试")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(canStart ? Color(hex: "E11D48") : Color.gray)
+                        .cornerRadius(12)
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(canStart ? Color(hex: "E11D48") : Color.gray)
-                    .cornerRadius(12)
+                    .disabled(!canStart)
+
+                    Button(action: startMPVRenderTest) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "rectangle.on.rectangle.angled")
+                            Text("MPV RenderContext实测")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(Color(hex: "E11D48"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(canStart ? Color(hex: "E11D48").opacity(0.08) : Color.gray.opacity(0.08))
+                        .cornerRadius(12)
+                    }
+                    .disabled(!canStart)
                 }
-                .disabled(!canStart)
                 .padding(16)
                 .background(Color.white)
             }
@@ -2228,6 +2249,9 @@ struct UniversalPlayTestView: View {
             .fullScreenCover(item: $testVideo) { video in
                 VideoPlayerViewV2(video: video)
             }
+            .sheet(isPresented: $showMPVRenderTest) {
+                MPVRenderContextDebugView(initialURL: mpvTestURL, headers: mpvHeaders)
+            }
         }
     }
 
@@ -2244,9 +2268,9 @@ struct UniversalPlayTestView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 InfoRow(icon: "externaldrive.connected.to.line.below", text: "网盘分享链接：百度、夸克、阿里、UC、115 等会走现有网盘解析")
-                InfoRow(icon: "film", text: "直链资源：mp4、m3u8、mov 等会直接交给播放器")
+                InfoRow(icon: "film", text: "直链资源：mp4、m3u8、mov 等可用正式播放器或 MPV RenderContext 对比")
                 InfoRow(icon: "square.stack.3d.up", text: "切片资源：粘贴 m3u8 或站点解析出的播放链接即可测试")
-                InfoRow(icon: "exclamationmark.triangle", text: "mkv 当前仍受原生播放器限制，后续接 mpv 后再重点测试")
+                InfoRow(icon: "externaldrive", text: "m3u8 是主要测试方向，MKV 可走 MPV RenderContext 单独验证")
             }
             .padding(12)
             .background(Color.white)
@@ -2278,6 +2302,36 @@ struct UniversalPlayTestView: View {
                     updateWarning()
                 }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("MPV Header（可选，测试网盘/切片直链时使用）")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.gray)
+
+                TextField("User-Agent", text: $testUserAgent)
+                    .font(.system(size: 12))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(10)
+                    .background(Color.white)
+                    .cornerRadius(8)
+
+                TextField("Referer", text: $testReferer)
+                    .font(.system(size: 12))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(10)
+                    .background(Color.white)
+                    .cornerRadius(8)
+
+                TextField("Cookie", text: $testCookie)
+                    .font(.system(size: 12))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(10)
+                    .background(Color.white)
+                    .cornerRadius(8)
+            }
+
             HStack(spacing: 8) {
                 Button("清空") {
                     resourceURL = ""
@@ -2305,6 +2359,17 @@ struct UniversalPlayTestView: View {
         return "请输入 http/https 链接"
     }
 
+    private var mpvHeaders: [String: String] {
+        var headers: [String: String] = [:]
+        let ua = testUserAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let referer = testReferer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookie = testCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ua.isEmpty { headers["User-Agent"] = ua }
+        if !referer.isEmpty { headers["Referer"] = referer }
+        if !cookie.isEmpty { headers["Cookie"] = cookie }
+        return headers
+    }
+
     private func warningSection(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -2322,9 +2387,11 @@ struct UniversalPlayTestView: View {
     private func updateWarning() {
         let lower = resourceURL.lowercased()
         if lower.contains(".mkv") {
-            warningText = "当前 iOS 原生播放器对 MKV 支持较差。这个入口可以测试取链是否成功，但最终播放可能仍需后续接入 mpv。"
+            warningText = "检测到 MKV。建议优先使用 MPV RenderContext实测，正式播放器可能仍受原生内核限制。"
         } else if CloudDriveManager.detectDrive(from: resourceURL) != nil {
-            warningText = "检测到网盘链接，会使用已保存的对应网盘 Token 解析播放；如果未配置 Token，播放器会提示。"
+            warningText = "检测到网盘分享链接。正式播放器会走现有网盘解析；MPV RenderContext实测适合粘贴解析后的直链或切片地址。"
+        } else if lower.contains(".m3u8") {
+            warningText = "检测到 m3u8。MPV RenderContext实测里可用 HLS-极速/高清/fMP4 对比首帧速度。"
         } else {
             warningText = nil
         }
@@ -2351,6 +2418,13 @@ struct UniversalPlayTestView: View {
             vodPlayFrom: "通用测试",
             vodPlayUrl: trimmed
         )
+    }
+
+    private func startMPVRenderTest() {
+        let trimmed = resourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        mpvTestURL = trimmed
+        showMPVRenderTest = true
     }
 }
 
