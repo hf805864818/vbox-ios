@@ -2,10 +2,11 @@
 """检查 MPVKitDependencies 是否已安装 MPVKit 依赖。
 
 脚本只检查项目目录中的依赖文件，不下载、不修改、不 Link/Embed。
-核心依赖缺失会失败；外部静态依赖只提示缺失，不让当前 CI 失败。
+核心依赖缺失会失败；外部静态依赖用于完整 Link/Embed 验证，缺失时会返回失败。
 """
 from __future__ import annotations
 
+import argparse
 import plistlib
 import sys
 from pathlib import Path
@@ -64,6 +65,13 @@ SYSTEM_FRAMEWORKS_FOR_STATIC_LINK = [
     "AudioToolbox.framework",
     "AVFoundation.framework",
     "Metal.framework",
+    "QuartzCore.framework",
+    "UIKit.framework",
+    "IOSurface.framework",
+    "Security.framework",
+    "libz.tbd",
+    "libbz2.tbd",
+    "libiconv.tbd",
 ]
 
 
@@ -113,7 +121,7 @@ def existing_xcframework_names() -> set[str]:
     }
 
 
-def print_optional_static_dependency_report() -> None:
+def print_optional_static_dependency_report() -> bool:
     installed = existing_xcframework_names()
     missing_minimum = [name for name in MINIMUM_STATIC_TARGETS if name not in installed]
     present_minimum = [name for name in MINIMUM_STATIC_TARGETS if name in installed]
@@ -154,28 +162,40 @@ def print_optional_static_dependency_report() -> None:
     for name in SYSTEM_FRAMEWORKS_FOR_STATIC_LINK:
         print(f"  - {name}")
 
+    return not missing
+
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="检查 MPVKit / Libmpv 依赖是否已安装")
+    parser.add_argument(
+        "--allow-missing-external",
+        action="store_true",
+        help="只强制检查 MPVKit 核心运行依赖；外部静态依赖缺失仅提示",
+    )
+    args = parser.parse_args()
+
     print(f"检查 MPVKit 运行依赖目录: {DEPENDENCY_DIR.relative_to(ROOT)}")
     if not DEPENDENCY_DIR.exists():
         print("目录尚未创建，请先运行 scripts/fetch_mpv_dependencies.sh 或 scripts/install_mpv_dependencies.sh。")
         return 1
 
     results = [check_target(name) for name in REQUIRED_TARGETS]
-    print_optional_static_dependency_report()
+    static_dependencies_ready = print_optional_static_dependency_report()
 
     print("")
     print(f"自由度内核占位目录: {FREEDOM_DIR.relative_to(ROOT)}")
     print("该目录不属于 MPVKit 依赖检查范围，后续 Freedom/libmpv.xcframework 单独验证。")
 
-    if all(results):
+    if all(results) and (static_dependencies_ready or args.allow_missing_external):
         print("")
-        print("MPVKit 核心运行依赖检查通过。")
-        print("注意：这不代表 Package.swift 外部静态 binaryTarget 已全部补齐。")
+        if static_dependencies_ready:
+            print("MPVKit 核心运行依赖与外部静态依赖检查通过。")
+        else:
+            print("MPVKit 核心运行依赖检查通过；外部静态依赖缺失已按参数降级为提示。")
         return 0
 
     print("")
-    print("MPVKit 核心运行依赖不完整。")
+    print("MPVKit 依赖不完整。")
     return 1
 
 

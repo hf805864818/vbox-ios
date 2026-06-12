@@ -140,7 +140,7 @@ def main() -> int:
 
     print("")
     print("外部静态依赖安装步骤完成。")
-    print("注意：3.157 只安装/检查依赖，不重新打开 import Libmpv 或 mpv_create。")
+    print("注意：该脚本只安装/检查依赖，不修改播放器运行代码。")
     return 0
 
 

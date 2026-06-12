@@ -18,7 +18,7 @@ TARGET_NAME = 'vbox'
 LIB_ROOT = 'vbox/Libraries/MPV'
 DEPS_ROOT = 'vbox/Libraries/MPV/MPVKitDependencies'
 
-# 顺序敏感：先 MPVKit wrapper，再 Libmpv，再 FFmpeg 核心组件，最后外部静态依赖。
+# 顺序敏感：先 MPVKit wrapper，再 Libmpv，再 FFmpeg 核心组件，最后按静态库依赖关系注入外部依赖。
 BASE_FRAMEWORKS = [
   "#{LIB_ROOT}/MPVKit.xcframework",
   "#{DEPS_ROOT}/Libmpv.xcframework",
@@ -31,6 +31,33 @@ BASE_FRAMEWORKS = [
   "#{DEPS_ROOT}/Libswscale.xcframework"
 ].freeze
 
+# 外部依赖不能简单按文件名排序。Libmpv / FFmpeg 当前预编译包会直接引用
+# gnutls、libplacebo、shaderc、uavs3d、uchardet、MoltenVK 等符号；这些
+# provider 必须稳定出现在核心静态库之后，且二级依赖继续排在使用方之后。
+EXTERNAL_FRAMEWORK_ORDER = %w[
+  Libass
+  Libbluray
+  Libuavs3d
+  Libdovi
+  Libdav1d
+  Libuchardet
+  Libplacebo
+  Libsmbclient
+  gnutls
+  Libssl
+  Libunibreak
+  Libharfbuzz
+  Libfribidi
+  Libfreetype
+  Libshaderc_combined
+  MoltenVK
+  lcms2
+  Libcrypto
+  hogweed
+  nettle
+  gmp
+].freeze
+
 SYSTEM_FRAMEWORKS = %w[
   VideoToolbox.framework
   CoreMedia.framework
@@ -38,6 +65,9 @@ SYSTEM_FRAMEWORKS = %w[
   AudioToolbox.framework
   AVFoundation.framework
   Metal.framework
+  QuartzCore.framework
+  UIKit.framework
+  IOSurface.framework
   Security.framework
   libz.tbd
   libbz2.tbd
@@ -50,12 +80,18 @@ def framework_entries
     { name: File.basename(relative_path), relative_path: relative_path }
   end
 
-  installed = Dir.glob(File.join(root, DEPS_ROOT, '*.xcframework')).sort.map do |path|
+  installed_by_name = Dir.glob(File.join(root, DEPS_ROOT, '*.xcframework')).each_with_object({}) do |path, memo|
     relative_path = path.sub("#{root}/", '')
-    { name: File.basename(relative_path), relative_path: relative_path }
+    memo[File.basename(relative_path, '.xcframework')] = {
+      name: File.basename(relative_path),
+      relative_path: relative_path
+    }
   end
 
-  (base + installed).uniq { |item| item[:relative_path] }
+  ordered_external = EXTERNAL_FRAMEWORK_ORDER.filter_map { |name| installed_by_name.delete(name) }
+  remaining_external = installed_by_name.values.sort_by { |item| item[:name] }
+
+  (base + ordered_external + remaining_external).uniq { |item| item[:relative_path] }
 end
 
 def find_or_create_group(project, path_components)

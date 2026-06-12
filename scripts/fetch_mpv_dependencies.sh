@@ -120,4 +120,4 @@ if [ "$MPVKIT_DEPS_SKIP_INSTALL" = "1" ]; then
 fi
 
 scripts/install_mpv_dependencies.sh "$ARCHIVE_PATH"
-python3 scripts/check_mpv_installed_dependencies.py
+python3 scripts/check_mpv_installed_dependencies.py --allow-missing-external

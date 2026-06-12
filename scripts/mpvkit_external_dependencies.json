@@ -1,5 +1,5 @@
 {
-  "description": "MPVKit/Libmpv 外部静态依赖清单。3.157 先安装 minimum=true 的最小缺失集，不自动打开 mpv_create。",
+  "description": "MPVKit/Libmpv 外部静态依赖清单。默认可安装 minimum=true 的最小集；CI 完整 Link/Embed 验证使用 --all 补齐全部静态依赖。",
   "dependencies": [
     {
       "name": "gmp",

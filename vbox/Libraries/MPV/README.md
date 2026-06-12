@@ -186,6 +186,17 @@ mpv_terminate_destroy
 
 3.158 仍然不加载视频、不渲染、不接正式播放器 UI。若 CI 再次出现 `Undefined symbols`，继续按日志补第二批外部依赖。
 
+`3.159` 根据 3.158 CI 链接日志补齐完整外部静态依赖：
+
+```text
+gnutls / nettle / hogweed / Libunibreak
+Libplacebo / Libshaderc_combined / MoltenVK
+Libuavs3d / Libuchardet / Libdav1d / Libdovi
+Libssl / Libcrypto / Libfreetype / Libfribidi / Libharfbuzz / Libsmbclient
+```
+
+正式 IPA 和 Debug 验证 workflow 已改为 `fetch_mpv_external_dependencies.py --all`，并让 `check_mpv_installed_dependencies.py` 在完整 Link/Embed 验证阶段对外部静态依赖缺失直接失败。`configure_mpvkit_link.rb` 同步改为显式静态依赖顺序，避免简单文件名排序导致 provider framework 出现在使用方之前。
+
 MPVKit 依赖包默认来源：
 
 ```text
