@@ -115,10 +115,39 @@ lcms2.xcframework
 
 这些依赖来自 MPVKit `Package.swift` 中声明的官方 Release URL。3.157 仍不重新打开 `import Libmpv` 和 `mpv_create`，只验证外部依赖能被下载、解压并放入 `MPVKitDependencies/`。
 
+## 3.158 初始化探针目标
+
+3.158 在最小外部依赖集安装成功后，重新打开：
+
+```text
+import Libmpv
+mpv_client_api_version
+mpv_create
+mpv_set_option_string(config=no / terminal=no / vo=null / ao=null)
+mpv_initialize
+mpv_terminate_destroy
+```
+
+同时 CI 注入脚本会自动 Link/Embed `MPVKitDependencies/` 下所有已安装的 `.xcframework`，并补充必要系统 framework / tbd：
+
+```text
+VideoToolbox.framework
+CoreMedia.framework
+CoreVideo.framework
+AudioToolbox.framework
+AVFoundation.framework
+Metal.framework
+Security.framework
+libz.tbd
+libbz2.tbd
+libiconv.tbd
+```
+
+3.158 仍不加载媒体、不渲染、不接 PlayerViewsV2。若链接仍失败，按新日志继续补第二批外部依赖。
+
 ## 后续步骤
 
 ```text
-3.158：根据新 CI 链接日志判断是否需要第二批外部依赖
-3.159：最小依赖补齐后，尝试重新打开 mpv_create 初始化探针
-3.160：测试 loadfile，但仍不接正式 UI
+3.159：根据新 CI 链接日志判断是否需要第二批外部依赖
+3.160：初始化成功后测试 loadfile，但仍不接正式 UI
 ```

@@ -171,6 +171,21 @@ lcms2.xcframework
 
 3.157 仍然不调用 `mpv_create`，只验证外部依赖能被下载、解压并进入 `MPVKitDependencies/`。
 
+`3.158` 重新打开最小 Libmpv 初始化探针：
+
+```text
+import Libmpv
+mpv_client_api_version
+mpv_create
+mpv_set_option_string(config=no / terminal=no / vo=null / ao=null)
+mpv_initialize
+mpv_terminate_destroy
+```
+
+同时 `scripts/configure_mpvkit_link.rb` 改为自动注入 `MPVKitDependencies/` 下已经安装的所有 `.xcframework`，并额外注入 `VideoToolbox/CoreMedia/CoreVideo/AudioToolbox/AVFoundation/Metal/Security/libz/libbz2/libiconv` 等系统依赖。
+
+3.158 仍然不加载视频、不渲染、不接正式播放器 UI。若 CI 再次出现 `Undefined symbols`，继续按日志补第二批外部依赖。
+
 MPVKit 依赖包默认来源：
 
 ```text

@@ -1,13 +1,13 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# 在 CI 阶段把 MPVKit + 8 个核心依赖 xcframework 注入到 vbox target：
+# 在 CI 阶段把 MPVKit + MPVKitDependencies 下已安装的 xcframework 注入到 vbox target：
 #   1. 添加 PBXFileReference（如未存在）
 #   2. 加入 Frameworks build phase（Link Required）
 #   3. 加入 Embed Frameworks build phase（Embed & Sign + CodeSignOnCopy）
 #
 # 该脚本是幂等的：重复运行不会重复添加。
-# 仅在验证分支 / CI 中临时调用，main 的 pbxproj 不应包含 Link/Embed 的副本。
+# 仅在 CI 中临时调用，main 的 pbxproj 不固化 Link/Embed 副本。
 # 不会处理 vbox/Libraries/MPV/Freedom/ 下的任何文件，自由度内核独立分支再处理。
 
 require 'xcodeproj'
@@ -18,18 +18,45 @@ TARGET_NAME = 'vbox'
 LIB_ROOT = 'vbox/Libraries/MPV'
 DEPS_ROOT = 'vbox/Libraries/MPV/MPVKitDependencies'
 
-# 顺序敏感：MPVKit wrapper 依赖 Libmpv，Libmpv 依赖 FFmpeg 组件。
-FRAMEWORKS = [
-  { name: 'MPVKit.xcframework',          relative_path: "#{LIB_ROOT}/MPVKit.xcframework" },
-  { name: 'Libmpv.xcframework',          relative_path: "#{DEPS_ROOT}/Libmpv.xcframework" },
-  { name: 'Libavcodec.xcframework',      relative_path: "#{DEPS_ROOT}/Libavcodec.xcframework" },
-  { name: 'Libavdevice.xcframework',     relative_path: "#{DEPS_ROOT}/Libavdevice.xcframework" },
-  { name: 'Libavfilter.xcframework',     relative_path: "#{DEPS_ROOT}/Libavfilter.xcframework" },
-  { name: 'Libavformat.xcframework',     relative_path: "#{DEPS_ROOT}/Libavformat.xcframework" },
-  { name: 'Libavutil.xcframework',       relative_path: "#{DEPS_ROOT}/Libavutil.xcframework" },
-  { name: 'Libswresample.xcframework',   relative_path: "#{DEPS_ROOT}/Libswresample.xcframework" },
-  { name: 'Libswscale.xcframework',      relative_path: "#{DEPS_ROOT}/Libswscale.xcframework" }
+# 顺序敏感：先 MPVKit wrapper，再 Libmpv，再 FFmpeg 核心组件，最后外部静态依赖。
+BASE_FRAMEWORKS = [
+  "#{LIB_ROOT}/MPVKit.xcframework",
+  "#{DEPS_ROOT}/Libmpv.xcframework",
+  "#{DEPS_ROOT}/Libavcodec.xcframework",
+  "#{DEPS_ROOT}/Libavdevice.xcframework",
+  "#{DEPS_ROOT}/Libavfilter.xcframework",
+  "#{DEPS_ROOT}/Libavformat.xcframework",
+  "#{DEPS_ROOT}/Libavutil.xcframework",
+  "#{DEPS_ROOT}/Libswresample.xcframework",
+  "#{DEPS_ROOT}/Libswscale.xcframework"
 ].freeze
+
+SYSTEM_FRAMEWORKS = %w[
+  VideoToolbox.framework
+  CoreMedia.framework
+  CoreVideo.framework
+  AudioToolbox.framework
+  AVFoundation.framework
+  Metal.framework
+  Security.framework
+  libz.tbd
+  libbz2.tbd
+  libiconv.tbd
+].freeze
+
+def framework_entries
+  root = File.dirname(PROJECT_PATH)
+  base = BASE_FRAMEWORKS.map do |relative_path|
+    { name: File.basename(relative_path), relative_path: relative_path }
+  end
+
+  installed = Dir.glob(File.join(root, DEPS_ROOT, '*.xcframework')).sort.map do |path|
+    relative_path = path.sub("#{root}/", '')
+    { name: File.basename(relative_path), relative_path: relative_path }
+  end
+
+  (base + installed).uniq { |item| item[:relative_path] }
+end
 
 def find_or_create_group(project, path_components)
   group = project.main_group
@@ -53,6 +80,23 @@ def ensure_file_reference(project, framework)
   ref.source_tree = 'SOURCE_ROOT'
   ref.last_known_file_type = 'wrapper.xcframework'
   ref
+end
+
+def ensure_system_framework(target, name)
+  phase = target.frameworks_build_phase
+  return if phase.files_references.any? { |ref| ref.display_name == name || ref.path&.end_with?(name) }
+
+  group = find_or_create_group(target.project, ['Frameworks'])
+  if name.end_with?('.framework')
+    ref = group.new_file("System/Library/Frameworks/#{name}")
+    ref.source_tree = 'SDKROOT'
+    phase.add_file_reference(ref, true)
+  elsif name.end_with?('.tbd')
+    ref = group.new_file("usr/lib/#{name}")
+    ref.source_tree = 'SDKROOT'
+    ref.last_known_file_type = 'sourcecode.text-based-dylib-definition'
+    phase.add_file_reference(ref, true)
+  end
 end
 
 def ensure_in_frameworks_phase(target, file_ref)
@@ -90,7 +134,7 @@ def main
   abort "找不到 target: #{TARGET_NAME}" unless target
 
   changed = []
-  FRAMEWORKS.each do |framework|
+  framework_entries.each do |framework|
     abs = File.expand_path(framework[:relative_path], File.dirname(PROJECT_PATH))
     unless File.exist?(abs)
       warn "跳过（文件不存在）: #{framework[:relative_path]}"
@@ -101,6 +145,11 @@ def main
     ensure_in_frameworks_phase(target, ref)
     ensure_in_embed_phase(target, ref)
     changed << framework[:name]
+  end
+
+  SYSTEM_FRAMEWORKS.each do |name|
+    ensure_system_framework(target, name)
+    changed << name
   end
 
   if changed.empty?
