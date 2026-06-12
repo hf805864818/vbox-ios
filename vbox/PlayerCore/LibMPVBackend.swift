@@ -14,7 +14,7 @@ final class LibMPVBackend: MPVBackend {
 
     static var isAvailable: Bool {
         #if canImport(libmpv)
-        return true
+        return MPVIntegrationStatus.isFrameworkLinked(for: .libmpv)
         #else
         return false
         #endif
@@ -25,7 +25,7 @@ final class LibMPVBackend: MPVBackend {
     }
 
     func load(route: PlaybackRoute) {
-        let message = "自由度后端已预留，等待接入 libmpv.xcframework"
+        let message = MPVIntegrationStatus.disabledReason(for: .libmpv)
         state.errorMessage = message
         onEvent?(.failed(message))
     }

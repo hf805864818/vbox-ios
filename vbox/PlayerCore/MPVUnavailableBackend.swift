@@ -16,15 +16,7 @@ final class MPVUnavailableBackend: MPVBackend {
     func attach(to view: UIView) {}
 
     func load(route: PlaybackRoute) {
-        let message: String
-        switch backendType {
-        case .automatic:
-            message = "当前构建未包含 MPVKit 或 libmpv 内核"
-        case .mpvKit:
-            message = "当前构建未包含 MPV 内核"
-        case .libmpv:
-            message = "当前构建未包含自由度内核"
-        }
+        let message = MPVIntegrationStatus.disabledReason(for: backendType)
         state.errorMessage = message
         onEvent?(.failed(message))
     }
