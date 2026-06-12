@@ -11,7 +11,7 @@ final class MPVKitBackend: MPVBackend {
     static var isAvailable: Bool {
         // MPVKit.xcframework wrapper 已放入仓库，但在底层 Libmpv/FFmpeg 依赖补齐前，
         // 不主动 import/link，避免 App 启动时加载不完整动态库导致闪退。
-        return false
+        return MPVIntegrationStatus.isFrameworkLinked(for: .mpvKit)
     }
 
     func attach(to view: UIView) {
@@ -19,7 +19,7 @@ final class MPVKitBackend: MPVBackend {
     }
 
     func load(route: PlaybackRoute) {
-        let message = "MPVKit wrapper 已放入工程，等待补齐底层依赖后启用"
+        let message = MPVIntegrationStatus.disabledReason(for: .mpvKit)
         state.errorMessage = message
         onEvent?(.failed(message))
     }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12019 /* MPVFrameworkManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12019 /* MPVFrameworkManifest.swift */; };
 		A12018 /* MPVIntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12018 /* MPVIntegrationStatus.swift */; };
 		A12011 /* MPVBackendType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12011 /* MPVBackendType.swift */; };
 		A12012 /* MPVBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12012 /* MPVBackend.swift */; };
@@ -59,6 +60,7 @@
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 
 /* Begin PBXFileReference section */
+		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
 		B12018 /* MPVIntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVIntegrationStatus.swift; sourceTree = "<group>"; };
 		B12011 /* MPVBackendType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendType.swift; sourceTree = "<group>"; };
 		B12012 /* MPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackend.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				B12016 /* MPVBackendFactory.swift */,
 				B12017 /* MPVPlayerEngine.swift */,
 				B12018 /* MPVIntegrationStatus.swift */,
+				B12019 /* MPVFrameworkManifest.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -305,6 +308,7 @@
 				A12016 /* MPVBackendFactory.swift in Sources */,
 				A12017 /* MPVPlayerEngine.swift in Sources */,
 				A12018 /* MPVIntegrationStatus.swift in Sources */,
+				A12019 /* MPVFrameworkManifest.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
@@ -416,7 +420,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 144;
+					CURRENT_PROJECT_VERSION = 145;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -429,7 +433,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.144;
+					MARKETING_VERSION = 3.145;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -446,7 +450,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 144;
+					CURRENT_PROJECT_VERSION = 145;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -459,7 +463,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.144;
+					MARKETING_VERSION = 3.145;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
