@@ -169,6 +169,12 @@ jobs:
               find "$framework" -maxdepth 3 -print
               exit 1
             fi
+            # xcodebuild archive 可能保留原始 wrapper 的动态库 install name：
+            # @rpath/MPVKit.framework/MPVKitWrapper
+            # App 链接后会在启动时寻找 MPVKitWrapper，导致 dyld 启动闪退。
+            # 这里统一修正为最终 framework 可执行文件名 MPVKit。
+            /usr/bin/install_name_tool -id "@rpath/MPVKit.framework/MPVKit" "$framework/MPVKit" || true
+            /usr/bin/otool -D "$framework/MPVKit" || true
           }
 
           normalize_framework "$DEVICE_FRAMEWORK"
