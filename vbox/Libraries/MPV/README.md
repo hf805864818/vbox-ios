@@ -22,12 +22,17 @@ MPVKit.xcframework
 import MPVKit
 ```
 
-该 framework 是动态 framework，Xcode 工程中使用：
+该 framework 是动态 framework。`3.143` 中曾直接 Link + Embed，但 App 启动闪退，说明 wrapper 的底层 Libmpv/FFmpeg 依赖尚未补齐。
+
+从 `3.144` 开始，工程先保留文件，但暂时不 Link、不 Embed：
 
 ```text
-Link Binary With Libraries
-Embed & Sign
+保留：vbox/Libraries/MPV/MPVKit.xcframework
+暂不：Link Binary With Libraries
+暂不：Embed & Sign
 ```
+
+后续补齐官方依赖后，再重新启用 Link + Embed。
 
 后续如果要接“自由度”内核，再放置：
 

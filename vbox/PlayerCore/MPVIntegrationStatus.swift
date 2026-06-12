@@ -1,7 +1,7 @@
 import Foundation
 
 /// MPV framework 接入状态说明。
-/// 当前已接入 MPVKit.xcframework wrapper，但真实播放逻辑仍在 MPVKitBackend 中保持占位。
+/// 当前已放入 MPVKit.xcframework wrapper，但在底层依赖补齐前不主动 link/embed。
 enum MPVIntegrationStatus {
     static let mpvKitExpectedPath = "vbox/Libraries/MPV/MPVKit.xcframework"
     static let libmpvExpectedPath = "vbox/Libraries/MPV/libmpv.xcframework"
@@ -16,10 +16,6 @@ enum MPVIntegrationStatus {
     static let recommendsSimulatorArm64 = true
 
     static var isMPVKitFrameworkLinked: Bool {
-        #if canImport(MPVKit)
-        return true
-        #else
         return false
-        #endif
     }
 }
