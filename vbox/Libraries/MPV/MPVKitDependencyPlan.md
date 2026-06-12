@@ -210,9 +210,30 @@ loadfile 命令返回 >= 0
 在等待窗口内收到 file-loaded 或 playback-restart
 ```
 
+## 3.162 综合控制探针目标
+
+3.161 真机截图已确认：
+
+```text
+loadfile命令已接受
+事件：start-file / audio-reconfig / file-loaded
+```
+
+3.162 在不接正式 UI 的前提下，把验证面扩展到控制链路：
+
+```text
+1. loadfile 成功后读取 duration / time-pos / pause
+2. 验证 pause=yes 和 pause=no
+3. 验证 speed=1.25
+4. 验证 seek 5 relative
+5. 控制命令后再次读取属性并采样 MPV 事件
+```
+
+这一步仍不创建渲染层，不接 PlayerEngine 正式播放链路，不处理切片资源、网盘资源和弹幕。
+
 ## 后续步骤
 
 ```text
-3.162：根据 3.161 真机探针结果修正网络、事件循环或媒体加载参数
-3.163：loadfile 成功后接 MPV 事件循环和状态同步，但仍不接正式 UI
+3.163：根据 3.162 真机综合探针结果修正控制命令和属性读取
+3.164：综合探针稳定后接 MPV 事件循环和状态同步，但仍不接正式 UI
 ```

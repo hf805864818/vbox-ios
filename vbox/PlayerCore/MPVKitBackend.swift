@@ -53,6 +53,21 @@ struct MPVKitLoadfileProbeResult {
     }
 }
 
+/// MPVKit/Libmpv 综合控制探针结果。
+/// 只验证 loadfile 后的属性读取、暂停/恢复、seek、倍速命令，不创建渲染层。
+struct MPVKitPlaybackControlProbeResult {
+    let moduleStatus: String
+    let loadStatus: String
+    let propertyStatus: String
+    let controlStatus: String
+    let eventStatus: String
+    let isControlPathReady: Bool
+
+    var summary: String {
+        return "\(moduleStatus)，\(loadStatus)，\(propertyStatus)，\(controlStatus)，\(eventStatus)"
+    }
+}
+
 /// MPVKit 后端占位。
 /// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
 final class MPVKitBackend: MPVBackend {
@@ -255,7 +270,102 @@ final class MPVKitBackend: MPVBackend {
         #endif
     }
 
+    /// 3.162 step。综合播放控制探针。
+    /// 仍使用 vo=null / ao=null，不渲染、不接正式 PlayerEngine，只验证控制命令和状态读取链路。
+    static func runPlaybackControlProbe(
+        url: String = defaultLoadfileProbeURL,
+        timeout: TimeInterval = 8
+    ) -> MPVKitPlaybackControlProbeResult {
+        #if canImport(Libmpv)
+        setlocale(LC_NUMERIC, "C")
+
+        guard let handle = mpv_create() else {
+            return MPVKitPlaybackControlProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                loadStatus: "mpv_create失败",
+                propertyStatus: "未读取属性",
+                controlStatus: "未发送控制命令",
+                eventStatus: "未等待事件",
+                isControlPathReady: false
+            )
+        }
+
+        configureNullOutput(handle: handle)
+
+        let initializeCode = mpv_initialize(handle)
+        if initializeCode < 0 {
+            mpv_destroy(handle)
+            return MPVKitPlaybackControlProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                loadStatus: "mpv_initialize失败：\(initializeCode)",
+                propertyStatus: "未读取属性",
+                controlStatus: "未发送控制命令",
+                eventStatus: "未等待事件",
+                isControlPathReady: false
+            )
+        }
+
+        let commandCode = sendLoadfileCommand(handle: handle, url: url)
+        guard commandCode >= 0 else {
+            mpv_terminate_destroy(handle)
+            return MPVKitPlaybackControlProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                loadStatus: "loadfile失败：\(commandCode)",
+                propertyStatus: "未读取属性",
+                controlStatus: "未发送控制命令",
+                eventStatus: "未等待事件",
+                isControlPathReady: false
+            )
+        }
+
+        let loadObservation = waitForLoadfileEvents(handle: handle, timeout: timeout)
+        let firstSnapshot = propertySnapshot(handle: handle)
+
+        let pauseCode = setStringProperty(handle: handle, name: "pause", value: "yes")
+        let pauseValue = getStringProperty(handle: handle, name: "pause") ?? "unknown"
+        let resumeCode = setStringProperty(handle: handle, name: "pause", value: "no")
+        let speedCode = setStringProperty(handle: handle, name: "speed", value: "1.25")
+        let speedValue = getStringProperty(handle: handle, name: "speed") ?? "unknown"
+        let seekCode = sendSeekCommand(handle: handle, seconds: "5", mode: "relative")
+        let postControlObservation = waitForAnyEvents(handle: handle, timeout: 1.5)
+        let secondSnapshot = propertySnapshot(handle: handle)
+
+        mpv_terminate_destroy(handle)
+
+        let controlOK = pauseCode >= 0 && resumeCode >= 0 && speedCode >= 0 && seekCode >= 0
+        let controlStatus = "pause:\(pauseCode)/\(pauseValue)，resume:\(resumeCode)，speed:\(speedCode)/\(speedValue)，seek:\(seekCode)"
+        let propertyStatus = "初始[\(firstSnapshot)]，控制后[\(secondSnapshot)]"
+        let eventStatus = "\(loadObservation.status)；后续\(postControlObservation)"
+
+        return MPVKitPlaybackControlProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            loadStatus: loadObservation.didObserveMediaLoad ? "媒体加载已观察" : "媒体加载事件不足",
+            propertyStatus: propertyStatus,
+            controlStatus: controlStatus,
+            eventStatus: eventStatus,
+            isControlPathReady: loadObservation.didObserveMediaLoad && controlOK
+        )
+        #else
+        return MPVKitPlaybackControlProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            loadStatus: "libmpv API不可用",
+            propertyStatus: "未读取属性",
+            controlStatus: "未发送控制命令",
+            eventStatus: "未等待事件",
+            isControlPathReady: false
+        )
+        #endif
+    }
+
     #if canImport(Libmpv)
+    private static func configureNullOutput(handle: OpaquePointer) {
+        _ = mpv_set_option_string(handle, "config", "no")
+        _ = mpv_set_option_string(handle, "terminal", "no")
+        _ = mpv_set_option_string(handle, "msg-level", "all=no")
+        _ = mpv_set_option_string(handle, "vo", "null")
+        _ = mpv_set_option_string(handle, "ao", "null")
+    }
+
     private static func sendLoadfileCommand(handle: OpaquePointer, url: String) -> Int32 {
         return "loadfile".withCString { loadfilePointer in
             url.withCString { urlPointer in
@@ -273,6 +383,50 @@ final class MPVKitBackend: MPVBackend {
                 }
             }
         }
+    }
+
+    private static func sendSeekCommand(handle: OpaquePointer, seconds: String, mode: String) -> Int32 {
+        return "seek".withCString { seekPointer in
+            seconds.withCString { secondsPointer in
+                mode.withCString { modePointer in
+                    var command: [UnsafePointer<CChar>?] = [
+                        seekPointer,
+                        secondsPointer,
+                        modePointer,
+                        nil
+                    ]
+                    return command.withUnsafeMutableBufferPointer { buffer in
+                        guard let baseAddress = buffer.baseAddress else { return -1 }
+                        return mpv_command(handle, baseAddress)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func setStringProperty(handle: OpaquePointer, name: String, value: String) -> Int32 {
+        return name.withCString { namePointer in
+            value.withCString { valuePointer in
+                return mpv_set_property_string(handle, namePointer, valuePointer)
+            }
+        }
+    }
+
+    private static func getStringProperty(handle: OpaquePointer, name: String) -> String? {
+        return name.withCString { namePointer in
+            guard let rawValue = mpv_get_property_string(handle, namePointer) else {
+                return nil
+            }
+            defer { mpv_free(UnsafeMutableRawPointer(rawValue)) }
+            return String(cString: rawValue)
+        }
+    }
+
+    private static func propertySnapshot(handle: OpaquePointer) -> String {
+        let duration = getStringProperty(handle: handle, name: "duration") ?? "nil"
+        let timePosition = getStringProperty(handle: handle, name: "time-pos") ?? "nil"
+        let pause = getStringProperty(handle: handle, name: "pause") ?? "nil"
+        return "duration=\(duration), time-pos=\(timePosition), pause=\(pause)"
     }
 
     private static func waitForLoadfileEvents(
@@ -309,6 +463,29 @@ final class MPVKitBackend: MPVBackend {
 
         let uniqueEvents = Array(NSOrderedSet(array: eventNames)) as? [String] ?? eventNames
         return ("事件：\(uniqueEvents.prefix(6).joined(separator: " / "))", didObserveMediaLoad)
+    }
+
+    private static func waitForAnyEvents(handle: OpaquePointer, timeout: TimeInterval) -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var eventNames: [String] = []
+
+        while Date() < deadline {
+            guard let event = mpv_wait_event(handle, 0.1) else {
+                continue
+            }
+
+            let eventName = String(cString: mpv_event_name(event.pointee.event_id))
+            if eventName != "none" {
+                eventNames.append(eventName)
+            }
+        }
+
+        if eventNames.isEmpty {
+            return "未收到后续事件"
+        }
+
+        let uniqueEvents = Array(NSOrderedSet(array: eventNames)) as? [String] ?? eventNames
+        return "事件：\(uniqueEvents.prefix(6).joined(separator: " / "))"
     }
     #endif
 

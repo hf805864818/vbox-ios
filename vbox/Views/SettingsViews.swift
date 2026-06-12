@@ -27,6 +27,8 @@ struct SettingsView: View {
     @State private var showAuthCenter = false
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
+    @State private var isRunningMPVControlProbe = false
+    @State private var mpvControlProbeSummary = "未运行MPV综合控制探针"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -371,6 +373,10 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(mpvControlProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button(action: runMPVLoadfileProbe) {
                     HStack {
                         if isRunningMPVLoadfileProbe {
@@ -390,6 +396,25 @@ struct SettingsView: View {
                     .cornerRadius(8)
                 }
                 .disabled(isRunningMPVLoadfileProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
+                Button(action: runMPVControlProbe) {
+                    HStack {
+                        if isRunningMPVControlProbe {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 13))
+                        }
+                        Text(isRunningMPVControlProbe ? "正在运行MPV综合探针" : "运行MPV综合控制探针")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.black.opacity(0.85) : Color.gray)
+                    .cornerRadius(8)
+                }
+                .disabled(isRunningMPVControlProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -413,6 +438,20 @@ struct SettingsView: View {
             await MainActor.run {
                 mpvLoadfileProbeSummary = result.summary
                 isRunningMPVLoadfileProbe = false
+            }
+        }
+    }
+
+    private func runMPVControlProbe() {
+        guard !isRunningMPVControlProbe else { return }
+        isRunningMPVControlProbe = true
+        mpvControlProbeSummary = "正在验证属性读取、暂停、倍速和seek..."
+
+        Task.detached {
+            let result = MPVIntegrationStatus.runPlaybackControlProbe()
+            await MainActor.run {
+                mpvControlProbeSummary = result.summary
+                isRunningMPVControlProbe = false
             }
         }
     }

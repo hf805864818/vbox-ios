@@ -215,6 +215,27 @@ MPVIntegrationStatus.runLoadfileProbe()
 
 该探针使用 `vo=null / ao=null` 和公开测试媒体地址，只验证 `mpv_command(loadfile)` 是否被接受、是否能收到 `file-loaded` / `playback-restart` / `end-file` 等事件。不创建渲染层，不输出画面和声音，不接切片资源、网盘资源、弹幕和正式播放器 UI。
 
+`3.162` 增加手动综合控制探针：
+
+```text
+MPVKitBackend.runPlaybackControlProbe()
+MPVIntegrationStatus.runPlaybackControlProbe()
+设置 → 关于 → MPV状态 → 运行MPV综合控制探针
+```
+
+该探针会在 `loadfile` 成功后继续验证：
+
+```text
+1. 读取 duration / time-pos / pause
+2. 设置 pause=yes
+3. 设置 pause=no
+4. 设置 speed=1.25
+5. 发送 seek 5 relative
+6. 采样后续 MPV 事件
+```
+
+仍然使用 `vo=null / ao=null`，只验证控制命令和状态读取链路，不创建渲染层、不接正式播放器 UI、不处理切片资源、网盘资源和弹幕。
+
 MPVKit 依赖包默认来源：
 
 ```text
