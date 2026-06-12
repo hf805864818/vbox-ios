@@ -180,7 +180,6 @@ final class MPVRenderContextPlayerCore: NSObject {
         setOption("vo", "libmpv")
         setOption("hwdec", "videotoolbox")
         setOption("video-rotate", "no")
-        setOption("profile", "fast")
         setOption("cache", "yes")
         setOption("keep-open", "no")
         setOption("subs-match-os-language", "yes")
@@ -418,46 +417,65 @@ final class MPVRenderContextPlayerCore: NSObject {
 
     private func applyPlaybackOptions(for url: URL, profile explicitProfile: PlaybackProfile?) {
         let profile = explicitProfile ?? inferredProfile(for: url)
-        setOption("cache", "yes")
-        setOption("force-seekable", "yes")
-
         log("应用参数：\(profile.rawValue)")
 
         switch profile {
         case .hlsFast:
-            setOption("cache-secs", "1")
-            setOption("demuxer-readahead-secs", "1")
-            setOption("demuxer-lavf-analyzeduration", "0.5")
-            setOption("demuxer-lavf-probesize", "262144")
-            setOption("network-timeout", "8")
-            setOption("hls-bitrate", "min")
+            applyHLSFastProfile()
         case .hlsQuality:
-            setOption("cache-secs", "3")
-            setOption("demuxer-readahead-secs", "2")
-            setOption("demuxer-lavf-analyzeduration", "1")
-            setOption("demuxer-lavf-probesize", "524288")
-            setOption("network-timeout", "10")
-            setOption("hls-bitrate", "max")
+            applyHLSQualityProfile()
         case .hlsFMP4:
-            setOption("cache-secs", "6")
-            setOption("demuxer-readahead-secs", "4")
-            setOption("demuxer-lavf-analyzeduration", "2")
-            setOption("demuxer-lavf-probesize", "1048576")
-            setOption("network-timeout", "10")
-            setOption("hls-bitrate", "max")
+            applyHLSFMP4Profile()
         case .mkvLarge:
-            setOption("cache-secs", "8")
-            setOption("demuxer-readahead-secs", "5")
-            setOption("demuxer-max-bytes", "128MiB")
-            setOption("demuxer-max-back-bytes", "32MiB")
-            setOption("network-timeout", "15")
+            applyMKVBaselineProfile()
         case .mp4, .generic:
-            setOption("cache-secs", "8")
-            setOption("demuxer-readahead-secs", "5")
-            setOption("demuxer-max-bytes", "64MiB")
-            setOption("demuxer-max-back-bytes", "16MiB")
-            setOption("network-timeout", "10")
+            applyGenericProfile()
         }
+    }
+
+    private func applyHLSFastProfile() {
+        setOption("cache", "yes")
+        setOption("cache-secs", "1")
+        setOption("demuxer-readahead-secs", "1")
+        setOption("network-timeout", "8")
+        setOption("hls-bitrate", "min")
+        setOption("hwdec", "videotoolbox")
+    }
+
+    private func applyHLSQualityProfile() {
+        setOption("cache", "yes")
+        setOption("cache-secs", "3")
+        setOption("demuxer-readahead-secs", "2")
+        setOption("network-timeout", "10")
+        setOption("hls-bitrate", "max")
+        setOption("hwdec", "videotoolbox")
+    }
+
+    private func applyHLSFMP4Profile() {
+        setOption("cache", "yes")
+        setOption("cache-secs", "1")
+        setOption("demuxer-readahead-secs", "1")
+        setOption("demuxer-lavf-analyzeduration", "0.5")
+        setOption("demuxer-lavf-probesize", "262144")
+        setOption("network-timeout", "12")
+        setOption("hls-bitrate", "min")
+        setOption("hwdec", "no")
+    }
+
+    private func applyMKVBaselineProfile() {
+        setOption("cache", "yes")
+        setOption("network-timeout", "15")
+        setOption("hwdec", "videotoolbox")
+    }
+
+    private func applyGenericProfile() {
+        setOption("cache", "yes")
+        setOption("cache-secs", "3")
+        setOption("demuxer-readahead-secs", "1")
+        setOption("demuxer-max-bytes", "32MiB")
+        setOption("demuxer-max-back-bytes", "8MiB")
+        setOption("network-timeout", "10")
+        setOption("hwdec", "videotoolbox")
     }
 
     private func inferredProfile(for url: URL) -> PlaybackProfile {
