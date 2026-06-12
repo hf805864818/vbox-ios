@@ -1,0 +1,131 @@
+{
+  "description": "MPVKit/Libmpv 外部静态依赖清单。3.157 先安装 minimum=true 的最小缺失集，不自动打开 mpv_create。",
+  "dependencies": [
+    {
+      "name": "gmp",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gmp.xcframework.zip",
+      "minimum": true,
+      "reason": "3.153 链接日志出现 ___gmpz_* 缺失符号"
+    },
+    {
+      "name": "Libass",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libass.xcframework.zip",
+      "minimum": true,
+      "reason": "3.153 链接日志出现 ass_configure_prune 缺失符号"
+    },
+    {
+      "name": "Libbluray",
+      "url": "https://github.com/mpvkit/libbluray-build/releases/download/1.4.0/Libbluray.xcframework.zip",
+      "minimum": true,
+      "reason": "3.153 链接日志出现 bd_* 缺失符号"
+    },
+    {
+      "name": "lcms2",
+      "url": "https://github.com/mpvkit/lcms2-build/releases/download/2.17.0/lcms2.xcframework.zip",
+      "minimum": true,
+      "reason": "3.153 链接日志出现 cms* 缺失符号"
+    },
+    {
+      "name": "Libcrypto",
+      "url": "https://github.com/mpvkit/openssl-build/releases/download/3.3.5/Libcrypto.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget，后续 HTTPS/加密链路可能需要"
+    },
+    {
+      "name": "Libssl",
+      "url": "https://github.com/mpvkit/openssl-build/releases/download/3.3.5/Libssl.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget，后续 HTTPS/加密链路可能需要"
+    },
+    {
+      "name": "nettle",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/nettle.xcframework.zip",
+      "minimum": false,
+      "reason": "gnutls 依赖链"
+    },
+    {
+      "name": "hogweed",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/hogweed.xcframework.zip",
+      "minimum": false,
+      "reason": "gnutls 依赖链"
+    },
+    {
+      "name": "gnutls",
+      "url": "https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gnutls.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget"
+    },
+    {
+      "name": "Libunibreak",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libunibreak.xcframework.zip",
+      "minimum": false,
+      "reason": "libass 依赖链"
+    },
+    {
+      "name": "Libfreetype",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libfreetype.xcframework.zip",
+      "minimum": false,
+      "reason": "libass 字体渲染依赖链"
+    },
+    {
+      "name": "Libfribidi",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libfribidi.xcframework.zip",
+      "minimum": false,
+      "reason": "libass 字幕排版依赖链"
+    },
+    {
+      "name": "Libharfbuzz",
+      "url": "https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libharfbuzz.xcframework.zip",
+      "minimum": false,
+      "reason": "libass 字形排版依赖链"
+    },
+    {
+      "name": "Libsmbclient",
+      "url": "https://github.com/mpvkit/libsmbclient-build/releases/download/4.15.13-2512/Libsmbclient.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget"
+    },
+    {
+      "name": "Libuavs3d",
+      "url": "https://github.com/mpvkit/libuavs3d-build/releases/download/1.2.1-xcode/Libuavs3d.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget"
+    },
+    {
+      "name": "Libdovi",
+      "url": "https://github.com/mpvkit/libdovi-build/releases/download/3.3.2/Libdovi.xcframework.zip",
+      "minimum": false,
+      "reason": "Package.swift 外部 binaryTarget"
+    },
+    {
+      "name": "MoltenVK",
+      "url": "https://github.com/mpvkit/moltenvk-build/releases/download/1.4.1/MoltenVK.xcframework.zip",
+      "minimum": false,
+      "reason": "Vulkan/MoltenVK 渲染链路，后续渲染阶段再处理"
+    },
+    {
+      "name": "Libshaderc_combined",
+      "url": "https://github.com/mpvkit/libshaderc-build/releases/download/2025.5.0/Libshaderc_combined.xcframework.zip",
+      "minimum": false,
+      "reason": "shader 编译链路，后续渲染阶段再处理"
+    },
+    {
+      "name": "Libplacebo",
+      "url": "https://github.com/mpvkit/libplacebo-build/releases/download/7.360.1/Libplacebo.xcframework.zip",
+      "minimum": false,
+      "reason": "高阶视频渲染链路，后续渲染阶段再处理"
+    },
+    {
+      "name": "Libdav1d",
+      "url": "https://github.com/mpvkit/libdav1d-build/releases/download/1.5.2-xcode/Libdav1d.xcframework.zip",
+      "minimum": false,
+      "reason": "AV1 解码链路，后续播放能力扩展再处理"
+    },
+    {
+      "name": "Libuchardet",
+      "url": "https://github.com/mpvkit/libuchardet-build/releases/download/0.0.8-xcode/Libuchardet.xcframework.zip",
+      "minimum": false,
+      "reason": "字符集检测链路，后续字幕/文本兼容再处理"
+    }
+  ]
+}

@@ -153,6 +153,24 @@ scripts/check_mpv_installed_dependencies.py
 
 3.156 不重新打开 `import Libmpv`，也不调用 `mpv_create`。后续必须先补齐 `MPVKitDependencyPlan.md` 中列出的外部 binaryTarget，再进入 Libmpv 初始化。
 
+`3.157` 增加外部静态依赖最小集自动下载：
+
+```text
+scripts/mpvkit_external_dependencies.json
+scripts/fetch_mpv_external_dependencies.py
+```
+
+正式 IPA 和 Debug 验证 workflow 会在核心依赖安装后继续安装：
+
+```text
+gmp.xcframework
+Libass.xcframework
+Libbluray.xcframework
+lcms2.xcframework
+```
+
+3.157 仍然不调用 `mpv_create`，只验证外部依赖能被下载、解压并进入 `MPVKitDependencies/`。
+
 MPVKit 依赖包默认来源：
 
 ```text
