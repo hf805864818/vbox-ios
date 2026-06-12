@@ -29,7 +29,7 @@ struct LibmpvMoltenVKDebugView: View {
 
     private let hlsTSURL = LibmpvMoltenVKDebugView.defaultHLSURL
     private let hlsFMP4URL = "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
-    private let mp4URL = "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"
+    private let mp4URL = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4"
     private let mkv100URL = "https://thetestdata.com/assets/video/mkv/720/100MB_720P_THETESTDATA.COM_mkv.mkv"
     private let mkv200URL = "https://thetestdata.com/assets/video/mkv/1080/200MB_1080P_THETESTDATA.COM_mkv.mkv"
 
