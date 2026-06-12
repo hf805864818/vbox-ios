@@ -158,9 +158,9 @@ final class MPVKitRenderedPlayerCore {
         case MPV_EVENT_LOG_MESSAGE:
             guard let data = event.data else { return }
             let message = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data))
-            let prefix = message?.pointee.prefix.map { String(cString: $0) } ?? "mpv"
-            let level = message?.pointee.level.map { String(cString: $0) } ?? "log"
-            let text = message?.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+            let prefix = message.pointee.prefix.map { String(cString: $0) } ?? "mpv"
+            let level = message.pointee.level.map { String(cString: $0) } ?? "log"
+            let text = message.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
             if !text.isEmpty {
                 DispatchQueue.main.async { [weak self] in
                     self?.log("[\(prefix)] \(level): \(text)")
