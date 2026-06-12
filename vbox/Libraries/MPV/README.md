@@ -197,6 +197,24 @@ Libssl / Libcrypto / Libfreetype / Libfribidi / Libharfbuzz / Libsmbclient
 
 正式 IPA 和 Debug 验证 workflow 已改为 `fetch_mpv_external_dependencies.py --all`，并让 `check_mpv_installed_dependencies.py` 在完整 Link/Embed 验证阶段对外部静态依赖缺失直接失败。`configure_mpvkit_link.rb` 同步改为显式静态依赖顺序，避免简单文件名排序导致 provider framework 出现在使用方之前。
 
+`3.160` 补齐 C++ 标准库链接：
+
+```text
+libc++.tbd
+```
+
+用于解决 `MoltenVK` / `Libshaderc_combined` 引出的 `std::runtime_error`、`std::__1::basic_string`、`___gxx_personality_v0` 等 C++ runtime 符号缺失。
+
+`3.161` 增加手动 `loadfile` 探针：
+
+```text
+MPVKitBackend.runLoadfileProbe()
+MPVIntegrationStatus.runLoadfileProbe()
+设置 → 关于 → MPV状态 → 运行MPV loadfile探针
+```
+
+该探针使用 `vo=null / ao=null` 和公开测试媒体地址，只验证 `mpv_command(loadfile)` 是否被接受、是否能收到 `file-loaded` / `playback-restart` / `end-file` 等事件。不创建渲染层，不输出画面和声音，不接切片资源、网盘资源、弹幕和正式播放器 UI。
+
 MPVKit 依赖包默认来源：
 
 ```text

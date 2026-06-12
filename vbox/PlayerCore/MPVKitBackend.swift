@@ -38,6 +38,21 @@ struct MPVKitInitializationProbeResult {
     }
 }
 
+/// MPVKit/Libmpv 最小 loadfile 探针结果。
+/// 只验证 mpv 能否接收并加载测试媒体，不创建渲染层、不接正式播放器 UI。
+struct MPVKitLoadfileProbeResult {
+    let moduleStatus: String
+    let initializeStatus: String
+    let commandStatus: String
+    let eventStatus: String
+    let isLoadfileAccepted: Bool
+    let isMediaLoadObserved: Bool
+
+    var summary: String {
+        return "\(moduleStatus)，\(initializeStatus)，\(commandStatus)，\(eventStatus)"
+    }
+}
+
 /// MPVKit 后端占位。
 /// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
 final class MPVKitBackend: MPVBackend {
@@ -45,6 +60,8 @@ final class MPVKitBackend: MPVBackend {
     let name = "MPV"
     private(set) var state = PlayerEngineState()
     var onEvent: ((PlayerEngineEvent) -> Void)?
+
+    static let defaultLoadfileProbeURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 
     /// 软探针：仅检查 MPVKit 模块在编译期是否可见。
     /// 不创建 mpv_handle、不触发渲染回调，只用于验证 Link/Embed 是否成功。
@@ -162,6 +179,138 @@ final class MPVKitBackend: MPVBackend {
         )
         #endif
     }()
+
+    /// 3.161 step。最小 loadfile 探针。
+    /// 使用 vo=null / ao=null，只验证媒体加载链路，不输出画面和声音。
+    static func runLoadfileProbe(
+        url: String = defaultLoadfileProbeURL,
+        timeout: TimeInterval = 8
+    ) -> MPVKitLoadfileProbeResult {
+        #if canImport(Libmpv)
+        setlocale(LC_NUMERIC, "C")
+
+        guard let handle = mpv_create() else {
+            return MPVKitLoadfileProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                initializeStatus: "mpv_create失败",
+                commandStatus: "未发送loadfile",
+                eventStatus: "未等待事件",
+                isLoadfileAccepted: false,
+                isMediaLoadObserved: false
+            )
+        }
+
+        _ = mpv_set_option_string(handle, "config", "no")
+        _ = mpv_set_option_string(handle, "terminal", "no")
+        _ = mpv_set_option_string(handle, "msg-level", "all=no")
+        _ = mpv_set_option_string(handle, "vo", "null")
+        _ = mpv_set_option_string(handle, "ao", "null")
+
+        let initializeCode = mpv_initialize(handle)
+        if initializeCode < 0 {
+            mpv_destroy(handle)
+            return MPVKitLoadfileProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                initializeStatus: "mpv_initialize失败：\(initializeCode)",
+                commandStatus: "未发送loadfile",
+                eventStatus: "未等待事件",
+                isLoadfileAccepted: false,
+                isMediaLoadObserved: false
+            )
+        }
+
+        let commandCode = sendLoadfileCommand(handle: handle, url: url)
+        guard commandCode >= 0 else {
+            mpv_terminate_destroy(handle)
+            return MPVKitLoadfileProbeResult(
+                moduleStatus: libmpvModuleProbeResult,
+                initializeStatus: "mpv_initialize成功",
+                commandStatus: "loadfile命令失败：\(commandCode)",
+                eventStatus: "未等待事件",
+                isLoadfileAccepted: false,
+                isMediaLoadObserved: false
+            )
+        }
+
+        let observation = waitForLoadfileEvents(handle: handle, timeout: timeout)
+        mpv_terminate_destroy(handle)
+
+        return MPVKitLoadfileProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            initializeStatus: "mpv_initialize成功",
+            commandStatus: "loadfile命令已接受",
+            eventStatus: observation.status,
+            isLoadfileAccepted: true,
+            isMediaLoadObserved: observation.didObserveMediaLoad
+        )
+        #else
+        return MPVKitLoadfileProbeResult(
+            moduleStatus: libmpvModuleProbeResult,
+            initializeStatus: "libmpv API不可用",
+            commandStatus: "未发送loadfile",
+            eventStatus: "未等待事件",
+            isLoadfileAccepted: false,
+            isMediaLoadObserved: false
+        )
+        #endif
+    }
+
+    #if canImport(Libmpv)
+    private static func sendLoadfileCommand(handle: OpaquePointer, url: String) -> Int32 {
+        return "loadfile".withCString { loadfilePointer in
+            url.withCString { urlPointer in
+                "replace".withCString { replacePointer in
+                    var command: [UnsafePointer<CChar>?] = [
+                        loadfilePointer,
+                        urlPointer,
+                        replacePointer,
+                        nil
+                    ]
+                    return command.withUnsafeMutableBufferPointer { buffer in
+                        guard let baseAddress = buffer.baseAddress else { return -1 }
+                        return mpv_command(handle, baseAddress)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func waitForLoadfileEvents(
+        handle: OpaquePointer,
+        timeout: TimeInterval
+    ) -> (status: String, didObserveMediaLoad: Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var eventNames: [String] = []
+        var didObserveMediaLoad = false
+
+        while Date() < deadline {
+            guard let event = mpv_wait_event(handle, 0.1) else {
+                continue
+            }
+
+            let eventName = String(cString: mpv_event_name(event.pointee.event_id))
+            if eventName != "none" {
+                eventNames.append(eventName)
+            }
+
+            if eventName == "file-loaded" || eventName == "playback-restart" {
+                didObserveMediaLoad = true
+                break
+            }
+
+            if eventName == "end-file" || eventName == "shutdown" {
+                break
+            }
+        }
+
+        if eventNames.isEmpty {
+            return ("等待\(Int(timeout))秒未收到关键事件", false)
+        }
+
+        let uniqueEvents = Array(NSOrderedSet(array: eventNames)) as? [String] ?? eventNames
+        return ("事件：\(uniqueEvents.prefix(6).joined(separator: " / "))", didObserveMediaLoad)
+    }
+    #endif
 
     static var isAvailable: Bool {
         // MPVKit.xcframework wrapper 已放入仓库，但在底层 Libmpv/FFmpeg 依赖补齐前，
