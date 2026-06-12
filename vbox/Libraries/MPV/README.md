@@ -129,6 +129,14 @@ Libmpv-static
 
 后续要继续初始化，需要先补齐 Package.swift 中声明但未随 Release 包携带的外部依赖，再重新打开 `mpv_create → mpv_initialize` 探针。
 
+`3.155` 修复 MPVKit 动态库文件名不一致导致的启动闪退：
+
+```text
+Library not loaded: @rpath/MPVKit.framework/MPVKitWrapper
+```
+
+`MPVKit.framework/Info.plist` 中 `CFBundleExecutable` 为 `MPVKit`，但动态库 install name 指向 `MPVKitWrapper`。正式 IPA 打包阶段会在 `MPVKit.framework` 内复制一份 `MPVKitWrapper`，避免 dyld 在启动时找不到该文件。
+
 MPVKit 依赖包默认来源：
 
 ```text
