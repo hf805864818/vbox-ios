@@ -68,6 +68,12 @@ enum MPVIntegrationStatus {
         return MPVKitBackend.runLoadfileProbe()
     }
 
+    /// 3.162 step。手动触发的 MPV 综合控制探针。
+    /// 验证 loadfile 后的属性读取、暂停/恢复、倍速和 seek 命令，不接正式播放链路。
+    static func runPlaybackControlProbe() -> MPVKitPlaybackControlProbeResult {
+        return MPVKitBackend.runPlaybackControlProbe()
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:
