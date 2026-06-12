@@ -56,6 +56,21 @@ MPVKitDependencies/ 只服务 MPVKit.xcframework
 Freedom/             只服务后续自由度 libmpv.xcframework
 ```
 
+`3.148` 增加 GitHub Release 下载策略和已安装依赖检查：
+
+```text
+scripts/fetch_mpv_dependencies.sh
+scripts/check_mpv_installed_dependencies.py
+```
+
+MPVKit 依赖包默认来源：
+
+```text
+https://github.com/hf805864818/vbox-ios/releases/download/mpvkit-deps-0.0.1/MPVKit-xcframework.zip
+```
+
+这个地址只写在脚本和文档里，不写入 App Swift 运行代码。App 不在用户设备上下载 framework，依赖只在开发或 CI 构建前下载、解压和检查。
+
 上传的 `MPVKit-xcframework.zip` 外层包含 `MPVKit-binary-bundle.zip` 和 sha256 文件。该 bundle 已确认包含核心依赖：
 
 ```text
@@ -103,6 +118,8 @@ vbox/Libraries/MPV/
 │   └── libmpv.xcframework
 └── README.md
 ```
+
+`MPVKitDependencies/` 和 `Freedom/` 目录会保留 `.gitkeep`，但其中的 `.xcframework` 默认被 `.gitignore` 忽略，避免把大二进制依赖直接提交进 `main`。
 
 `MPVKitDependencies/Libmpv.xcframework` 的模块名是：
 
@@ -156,6 +173,30 @@ MPV    = MPVKit.xcframework
 ## 接入规则
 
 在完整依赖链路验证之前，不要提前把 MPV 相关 framework 加入 Xcode 的 `Link Binary With Libraries` 或 `Embed Frameworks`。
+
+安装 MPVKit 核心依赖：
+
+```bash
+scripts/fetch_mpv_dependencies.sh
+```
+
+该脚本会从当前仓库 GitHub Release 下载 `MPVKit-xcframework.zip`，再调用：
+
+```bash
+scripts/install_mpv_dependencies.sh .mpv-cache/MPVKit-xcframework.zip
+```
+
+如果要临时使用其他地址：
+
+```bash
+MPVKIT_DEPS_URL="https://example.com/MPVKit-xcframework.zip" scripts/fetch_mpv_dependencies.sh
+```
+
+检查已安装依赖：
+
+```bash
+python3 scripts/check_mpv_installed_dependencies.py
+```
 
 真实接入时需要确认：
 
