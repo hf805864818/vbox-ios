@@ -236,6 +236,29 @@ MPVIntegrationStatus.runPlaybackControlProbe()
 
 仍然使用 `vo=null / ao=null`，只验证控制命令和状态读取链路，不创建渲染层、不接正式播放器 UI、不处理切片资源、网盘资源和弹幕。
 
+`3.163` 合并原 `3.163 + 3.164` 的无画面播放链路：
+
+```text
+MPVKitBackend 实例持有 mpv_handle
+后台事件循环采样 start-file / file-loaded / playback-restart / end-file / shutdown
+MPVPlayerEngine 通过 MPVKitBackend 执行 load / play / pause / seek / stop / setRate / setVolume
+设置 → 关于 → MPV状态 → 运行MPV最小播放链路
+```
+
+这一步把一次性探针推进到最小 PlayerEngine 链路，会通过 `PlayerEngineController → MPVPlayerEngine → MPVKitBackend` 执行：
+
+```text
+load 测试媒体
+play
+seek 5
+pause
+play
+stop
+teardown
+```
+
+事件循环会把 `file-loaded` / `playback-restart` 映射成 `ready`，把 `end-file` 映射成 `ended`，并周期性发送 `progress(current:duration:)`。仍然固定 `vo=null / ao=null`，不创建渲染层、不输出画面和声音、不接正式播放器页面、不处理切片资源、网盘资源和弹幕。
+
 MPVKit 依赖包默认来源：
 
 ```text

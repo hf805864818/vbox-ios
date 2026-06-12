@@ -1,3 +1,4 @@
+import Foundation
 import UIKit
 import Darwin
 
@@ -76,7 +77,18 @@ final class MPVKitBackend: MPVBackend {
     private(set) var state = PlayerEngineState()
     var onEvent: ((PlayerEngineEvent) -> Void)?
 
+    #if canImport(Libmpv)
+    private var handle: OpaquePointer?
+    private var eventLoopWorkItem: DispatchWorkItem?
+    private let eventQueue = DispatchQueue(label: "app.vbox.mpvkit.event-loop", qos: .userInitiated)
+    private var isStopping = false
+    #endif
+
     static let defaultLoadfileProbeURL = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+
+    deinit {
+        teardown()
+    }
 
     /// 软探针：仅检查 MPVKit 模块在编译期是否可见。
     /// 不创建 mpv_handle、不触发渲染回调，只用于验证 Link/Embed 是否成功。
@@ -422,6 +434,13 @@ final class MPVKitBackend: MPVBackend {
         }
     }
 
+    private static func getDoubleProperty(handle: OpaquePointer, name: String) -> Double? {
+        guard let rawValue = getStringProperty(handle: handle, name: name) else {
+            return nil
+        }
+        return Double(rawValue)
+    }
+
     private static func propertySnapshot(handle: OpaquePointer) -> String {
         let duration = getStringProperty(handle: handle, name: "duration") ?? "nil"
         let timePosition = getStringProperty(handle: handle, name: "time-pos") ?? "nil"
@@ -496,22 +515,228 @@ final class MPVKitBackend: MPVBackend {
     }
 
     func attach(to view: UIView) {
-        // 第五步只预留后端结构，不创建真实 MPVKit 渲染层。
+        // 3.163 合并版仍保持 vo=null / ao=null，不创建真实 MPVKit 渲染层。
     }
 
     func load(route: PlaybackRoute) {
+        #if canImport(Libmpv)
+        teardown()
+        setlocale(LC_NUMERIC, "C")
+
+        guard let newHandle = mpv_create() else {
+            emitFailure("mpv_create失败")
+            return
+        }
+
+        handle = newHandle
+        isStopping = false
+        Self.configureNullOutput(handle: newHandle)
+
+        let initializeCode = mpv_initialize(newHandle)
+        guard initializeCode >= 0 else {
+            mpv_destroy(newHandle)
+            handle = nil
+            emitFailure("mpv_initialize失败：\(initializeCode)")
+            return
+        }
+
+        state = PlayerEngineState(isBuffering: true)
+        onEvent?(.buffering(true))
+        onEvent?(.log("MPV最小内核加载线路：\(route.title)"))
+        startEventLoop(handle: newHandle)
+
+        let commandCode = Self.sendLoadfileCommand(handle: newHandle, url: route.url.absoluteString)
+        if commandCode < 0 {
+            emitFailure("loadfile命令失败：\(commandCode)")
+        }
+        #else
         let message = MPVIntegrationStatus.disabledReason(for: .mpvKit)
         state.errorMessage = message
         onEvent?(.failed(message))
+        #endif
     }
 
-    func play() {}
-    func pause() {}
-    func stop() {}
-    func seek(to seconds: Double) {}
-    func setRate(_ rate: Double) {}
-    func setVolume(_ volume: Double) {}
+    func play() {
+        #if canImport(Libmpv)
+        guard let handle else { return }
+        let code = Self.setStringProperty(handle: handle, name: "pause", value: "no")
+        if code >= 0 {
+            state.isPlaying = true
+        } else {
+            emitFailure("MPV恢复播放失败：\(code)")
+        }
+        #endif
+    }
+
+    func pause() {
+        #if canImport(Libmpv)
+        guard let handle else { return }
+        let code = Self.setStringProperty(handle: handle, name: "pause", value: "yes")
+        if code >= 0 {
+            state.isPlaying = false
+        } else {
+            emitFailure("MPV暂停失败：\(code)")
+        }
+        #endif
+    }
+
+    func stop() {
+        #if canImport(Libmpv)
+        guard let handle else {
+            state = PlayerEngineState()
+            return
+        }
+
+        _ = Self.sendStopCommand(handle: handle)
+        state.isPlaying = false
+        state.isBuffering = false
+        state.currentTime = 0
+        #else
+        state = PlayerEngineState()
+        #endif
+    }
+
+    func seek(to seconds: Double) {
+        #if canImport(Libmpv)
+        guard let handle else { return }
+        let safeSeconds = max(0, seconds)
+        let code = Self.sendSeekCommand(handle: handle, seconds: "\(safeSeconds)", mode: "absolute")
+        if code < 0 {
+            emitFailure("MPV seek失败：\(code)")
+        }
+        #endif
+    }
+
+    func setRate(_ rate: Double) {
+        #if canImport(Libmpv)
+        guard let handle else { return }
+        let safeRate = min(max(rate, 0.25), 4)
+        let code = Self.setStringProperty(handle: handle, name: "speed", value: "\(safeRate)")
+        if code < 0 {
+            emitFailure("MPV倍速设置失败：\(code)")
+        }
+        #endif
+    }
+
+    func setVolume(_ volume: Double) {
+        #if canImport(Libmpv)
+        guard let handle else { return }
+        let safeVolume = min(max(volume, 0), 1) * 100
+        let code = Self.setStringProperty(handle: handle, name: "volume", value: "\(safeVolume)")
+        if code < 0 {
+            emitFailure("MPV音量设置失败：\(code)")
+        }
+        #endif
+    }
+
     func teardown() {
+        #if canImport(Libmpv)
+        isStopping = true
+        eventLoopWorkItem?.cancel()
+        eventLoopWorkItem = nil
+
+        if let handle {
+            mpv_terminate_destroy(handle)
+            self.handle = nil
+        }
+        #endif
         state = PlayerEngineState()
     }
+
+    #if canImport(Libmpv)
+    private static func sendStopCommand(handle: OpaquePointer) -> Int32 {
+        return "stop".withCString { stopPointer in
+            var command: [UnsafePointer<CChar>?] = [
+                stopPointer,
+                nil
+            ]
+            return command.withUnsafeMutableBufferPointer { buffer in
+                guard let baseAddress = buffer.baseAddress else { return -1 }
+                return mpv_command(handle, baseAddress)
+            }
+        }
+    }
+
+    private func startEventLoop(handle: OpaquePointer) {
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.runEventLoop(handle: handle)
+        }
+        eventLoopWorkItem = workItem
+        eventQueue.async(execute: workItem)
+    }
+
+    private func runEventLoop(handle: OpaquePointer) {
+        var lastProgressEmit = Date.distantPast
+
+        while !isStopping && self.handle == handle {
+            guard let event = mpv_wait_event(handle, 0.1) else {
+                continue
+            }
+
+            let eventName = String(cString: mpv_event_name(event.pointee.event_id))
+            handleEvent(named: eventName, handle: handle)
+
+            if Date().timeIntervalSince(lastProgressEmit) >= 0.5 {
+                updateProgress(handle: handle)
+                lastProgressEmit = Date()
+            }
+
+            if eventName == "shutdown" {
+                break
+            }
+        }
+    }
+
+    private func handleEvent(named eventName: String, handle: OpaquePointer) {
+        switch eventName {
+        case "start-file":
+            state.isBuffering = true
+            onEvent?(.buffering(true))
+        case "file-loaded", "playback-restart":
+            state.isBuffering = false
+            state.isPlaying = true
+            updateProgress(handle: handle)
+            onEvent?(.buffering(false))
+            onEvent?(.ready)
+        case "end-file":
+            state.isPlaying = false
+            state.isBuffering = false
+            updateProgress(handle: handle)
+            onEvent?(.ended)
+        case "shutdown":
+            state.isPlaying = false
+            state.isBuffering = false
+        case "none":
+            break
+        default:
+            break
+        }
+    }
+
+    private func updateProgress(handle: OpaquePointer) {
+        let current = Self.getDoubleProperty(handle: handle, name: "time-pos") ?? state.currentTime
+        let duration = Self.getDoubleProperty(handle: handle, name: "duration") ?? state.duration
+        let safeCurrent = current.isFinite ? max(0, current) : state.currentTime
+        let safeDuration = duration.isFinite ? max(0, duration) : state.duration
+
+        state.currentTime = safeCurrent
+        state.duration = safeDuration
+        onEvent?(.progress(current: safeCurrent, duration: safeDuration))
+    }
+
+    private func emitFailure(_ message: String) {
+        state.isBuffering = false
+        state.isPlaying = false
+        state.errorMessage = message
+        onEvent?(.buffering(false))
+        onEvent?(.failed(message))
+    }
+    #else
+    private func emitFailure(_ message: String) {
+        state.isBuffering = false
+        state.isPlaying = false
+        state.errorMessage = message
+        onEvent?(.failed(message))
+    }
+    #endif
 }

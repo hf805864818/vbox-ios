@@ -231,9 +231,54 @@ loadfile命令已接受
 
 这一步仍不创建渲染层，不接 PlayerEngine 正式播放链路，不处理切片资源、网盘资源和弹幕。
 
+## 3.163 最小 PlayerEngine 链路目标
+
+3.163 合并原计划的事件循环和最小 `MPVPlayerEngine` 接入：
+
+```text
+1. MPVKitBackend 从一次性探针升级为可持有 mpv_handle 的最小后端
+2. 建立后台 MPV 事件循环
+3. 将 start-file / file-loaded / playback-restart / end-file / shutdown 转换为 PlayerEngineEvent
+4. 周期性读取 time-pos / duration 并发送 progress
+5. 实现 load / play / pause / seek / stop / setRate / setVolume / teardown
+6. 设置页增加“运行MPV最小播放链路”
+```
+
+设置页测试链路：
+
+```text
+PlayerEngineController
+→ MPVPlayerEngine
+→ MPVKitBackend
+→ libmpv
+```
+
+测试动作：
+
+```text
+load 测试媒体
+play
+seek 5
+pause
+play
+stop
+teardown
+```
+
+边界不变：
+
+```text
+vo=null / ao=null
+不创建渲染层
+不接正式播放器页面
+不接切片资源
+不接网盘资源
+不接弹幕系统
+```
+
 ## 后续步骤
 
 ```text
-3.163：根据 3.162 真机综合探针结果修正控制命令和属性读取
-3.164：综合探针稳定后接 MPV 事件循环和状态同步，但仍不接正式 UI
+3.164：根据 3.163 真机最小链路结果修正事件循环、生命周期或状态同步
+3.165：最小链路稳定后探索真实音视频输出和渲染层
 ```
