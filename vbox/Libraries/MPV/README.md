@@ -82,6 +82,25 @@ scripts/check_mpv_installed_dependencies.py
 
 缓存命中（本地压缩包 sha256 与远端一致）时跳过重复下载。
 
+`3.150` 合入 MPVKit Link/Embed 自动验证能力：
+
+```text
+scripts/configure_mpvkit_link.rb
+.github/workflows/build-ipa-debug.yml
+```
+
+`main` 的 `project.pbxproj` 不固化 9 个 framework 引用。CI 构建时先下载依赖，再用 Ruby `xcodeproj` gem 临时注入 `MPVKit.xcframework + Libmpv + FFmpeg 7 件套` 的 Link/Embed，archive 完成后丢弃该临时构建环境。
+
+`3.151` 增加 App 内 MPVKit 运行时加载探针：
+
+```text
+MPVKitBackend.runtimeProbeResult
+MPVIntegrationStatus.runtimeProbeSummary
+设置 → 关于 → MPV状态
+```
+
+该探针只检查 `MPVKit.framework/MPVKit` 是否随包存在、是否能被 `dlopen` 动态加载，不创建 `mpv_handle`，不接正式播放 UI。
+
 MPVKit 依赖包默认来源：
 
 ```text

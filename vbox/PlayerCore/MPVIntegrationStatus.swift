@@ -42,6 +42,16 @@ enum MPVIntegrationStatus {
         return MPVKitBackend.moduleProbeResult
     }
 
+    /// 3.151 step。App 内可见的 MPVKit 运行时加载诊断。
+    /// 只做动态库存在性和 dlopen 检查，不启用正式播放后端。
+    static var runtimeProbeSummary: String {
+        return MPVKitBackend.runtimeProbeResult.summary
+    }
+
+    static var isMPVKitRuntimeLoadable: Bool {
+        return MPVKitBackend.runtimeProbeResult.isDynamicallyLoadable
+    }
+
     static func isFrameworkLinked(for backendType: MPVBackendType) -> Bool {
         switch backendType {
         case .automatic:

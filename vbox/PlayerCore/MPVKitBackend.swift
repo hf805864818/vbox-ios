@@ -1,8 +1,23 @@
 import UIKit
+import Darwin
 
 #if canImport(MPVKit)
 import MPVKit
 #endif
+
+/// MPVKit 运行时探针结果。
+/// 只检查动态库是否随包存在、是否能被系统 loader 打开。
+/// 不创建 mpv_handle，不调用播放、渲染、解码 API。
+struct MPVKitRuntimeProbeResult {
+    let moduleStatus: String
+    let bundleStatus: String
+    let dynamicLoadStatus: String
+    let isDynamicallyLoadable: Bool
+
+    var summary: String {
+        return "\(moduleStatus)，\(bundleStatus)，\(dynamicLoadStatus)"
+    }
+}
 
 /// MPVKit 后端占位。
 /// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
@@ -21,6 +36,49 @@ final class MPVKitBackend: MPVBackend {
         #else
         return "MPVKit-missing"
         #endif
+    }
+
+    /// 3.151 step。运行时加载探针。
+    /// 该探针只验证 App 包内 MPVKit.framework/MPVKit 是否可被 dlopen。
+    /// 不创建播放器实例，不进入正式播放链路。
+    static var runtimeProbeResult: MPVKitRuntimeProbeResult {
+        let moduleStatus = moduleProbeResult
+        guard let frameworksURL = Bundle.main.privateFrameworksURL else {
+            return MPVKitRuntimeProbeResult(
+                moduleStatus: moduleStatus,
+                bundleStatus: "Frameworks目录不可用",
+                dynamicLoadStatus: "未尝试加载",
+                isDynamicallyLoadable: false
+            )
+        }
+
+        let binaryURL = frameworksURL.appendingPathComponent("MPVKit.framework/MPVKit")
+        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
+            return MPVKitRuntimeProbeResult(
+                moduleStatus: moduleStatus,
+                bundleStatus: "MPVKit动态库未随包嵌入",
+                dynamicLoadStatus: "未尝试加载",
+                isDynamicallyLoadable: false
+            )
+        }
+
+        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
+            let error = dlerror().map { String(cString: $0) } ?? "未知错误"
+            return MPVKitRuntimeProbeResult(
+                moduleStatus: moduleStatus,
+                bundleStatus: "MPVKit动态库已随包嵌入",
+                dynamicLoadStatus: "动态加载失败：\(error)",
+                isDynamicallyLoadable: false
+            )
+        }
+
+        dlclose(handle)
+        return MPVKitRuntimeProbeResult(
+            moduleStatus: moduleStatus,
+            bundleStatus: "MPVKit动态库已随包嵌入",
+            dynamicLoadStatus: "动态加载成功",
+            isDynamicallyLoadable: true
+        )
     }
 
     static var isAvailable: Bool {
