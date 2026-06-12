@@ -50,6 +50,13 @@ OPTIONAL_STATIC_TARGETS = [
     "Libuchardet",
 ]
 
+MINIMUM_STATIC_TARGETS = [
+    "gmp",
+    "Libass",
+    "Libbluray",
+    "lcms2",
+]
+
 SYSTEM_FRAMEWORKS_FOR_STATIC_LINK = [
     "VideoToolbox.framework",
     "CoreMedia.framework",
@@ -108,12 +115,27 @@ def existing_xcframework_names() -> set[str]:
 
 def print_optional_static_dependency_report() -> None:
     installed = existing_xcframework_names()
+    missing_minimum = [name for name in MINIMUM_STATIC_TARGETS if name not in installed]
+    present_minimum = [name for name in MINIMUM_STATIC_TARGETS if name in installed]
     missing = [name for name in OPTIONAL_STATIC_TARGETS if name not in installed]
     present = [name for name in OPTIONAL_STATIC_TARGETS if name in installed]
 
     print("")
     print("Libmpv 静态链接外部依赖检查（提示项，不影响当前退出码）:")
+    print("最小外部依赖集:")
+    if present_minimum:
+        print("  已安装:")
+        for name in present_minimum:
+            print(f"    - {name}.xcframework")
+    if missing_minimum:
+        print("  仍缺:")
+        for name in missing_minimum:
+            print(f"    - {name}.xcframework")
+    else:
+        print("  最小外部依赖集已安装。")
+
     if present:
+        print("")
         print("已安装外部依赖:")
         for name in present:
             print(f"  - {name}.xcframework")

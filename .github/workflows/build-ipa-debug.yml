@@ -10,6 +10,8 @@ on:
       - 'scripts/fetch_mpv_dependencies.sh'
       - 'scripts/install_mpv_dependencies.sh'
       - 'scripts/check_mpv_installed_dependencies.py'
+      - 'scripts/fetch_mpv_external_dependencies.py'
+      - 'scripts/mpvkit_external_dependencies.json'
       - 'scripts/configure_mpvkit_link.rb'
       - 'vbox.xcodeproj/project.pbxproj'
       - 'vbox/PlayerCore/**'
@@ -41,6 +43,7 @@ jobs:
       - name: 🎬 Fetch MPVKit dependencies
         run: |
           bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+          python3 scripts/fetch_mpv_external_dependencies.py --cache-dir .mpv-cache/external
           python3 scripts/check_mpv_installed_dependencies.py
 
       - name: 🔗 Inject MPVKit Link & Embed (validation only)

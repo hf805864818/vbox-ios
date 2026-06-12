@@ -95,11 +95,30 @@ Metal.framework
 5. 不接正式播放器 UI
 ```
 
+## 3.157 自动安装目标
+
+3.157 新增：
+
+```text
+scripts/mpvkit_external_dependencies.json
+scripts/fetch_mpv_external_dependencies.py
+```
+
+CI 会先安装最小外部依赖集：
+
+```text
+gmp.xcframework
+Libass.xcframework
+Libbluray.xcframework
+lcms2.xcframework
+```
+
+这些依赖来自 MPVKit `Package.swift` 中声明的官方 Release URL。3.157 仍不重新打开 `import Libmpv` 和 `mpv_create`，只验证外部依赖能被下载、解压并放入 `MPVKitDependencies/`。
+
 ## 后续步骤
 
 ```text
-3.157：扩展依赖下载/安装脚本，支持外部静态 binaryTarget
-3.158：补齐依赖包或 Release 下载源
-3.159：重新打开 mpv_create 初始化探针
+3.158：根据新 CI 链接日志判断是否需要第二批外部依赖
+3.159：最小依赖补齐后，尝试重新打开 mpv_create 初始化探针
 3.160：测试 loadfile，但仍不接正式 UI
 ```
