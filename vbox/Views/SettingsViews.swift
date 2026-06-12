@@ -29,6 +29,8 @@ struct SettingsView: View {
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
     @State private var mpvControlProbeSummary = "未运行MPV综合控制探针"
+    @State private var isRunningMPVMinimalPlaybackTest = false
+    @State private var mpvMinimalPlaybackSummary = "未运行MPV最小播放链路测试"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -377,6 +379,10 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(mpvMinimalPlaybackSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button(action: runMPVLoadfileProbe) {
                     HStack {
                         if isRunningMPVLoadfileProbe {
@@ -415,6 +421,25 @@ struct SettingsView: View {
                     .cornerRadius(8)
                 }
                 .disabled(isRunningMPVControlProbe || !MPVIntegrationStatus.isMPVKitInitializationReady)
+                Button(action: runMPVMinimalPlaybackTest) {
+                    HStack {
+                        if isRunningMPVMinimalPlaybackTest {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Image(systemName: "waveform.path.ecg")
+                                .font(.system(size: 13))
+                        }
+                        Text(isRunningMPVMinimalPlaybackTest ? "正在运行MPV最小播放链路" : "运行MPV最小播放链路")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(MPVIntegrationStatus.isMPVKitInitializationReady ? Color.blue.opacity(0.85) : Color.gray)
+                    .cornerRadius(8)
+                }
+                .disabled(isRunningMPVMinimalPlaybackTest || !MPVIntegrationStatus.isMPVKitInitializationReady)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -454,6 +479,55 @@ struct SettingsView: View {
                 isRunningMPVControlProbe = false
             }
         }
+    }
+
+    private func runMPVMinimalPlaybackTest() {
+        guard !isRunningMPVMinimalPlaybackTest else { return }
+        isRunningMPVMinimalPlaybackTest = true
+        mpvMinimalPlaybackSummary = "正在通过PlayerEngine运行load/play/pause/seek/stop..."
+
+        Task { @MainActor in
+            let summary = await runMPVMinimalPlaybackSequence()
+            mpvMinimalPlaybackSummary = summary
+            isRunningMPVMinimalPlaybackTest = false
+        }
+    }
+
+    @MainActor
+    private func runMPVMinimalPlaybackSequence() async -> String {
+        guard let url = URL(string: MPVKitBackend.defaultLoadfileProbeURL) else {
+            return "测试地址无效"
+        }
+
+        let controller = PlayerEngineController(initialEngineType: .mpvKit)
+        let route = PlaybackRoute(type: .direct, url: url, title: "MPV最小播放链路测试")
+        controller.load(route: route, preferredEngine: .mpvKit)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        controller.play()
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        controller.seek(to: 5)
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        controller.pause()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        controller.play()
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+        let snapshot = controller.state
+        let logs = controller.logs.suffix(4).joined(separator: " / ")
+        controller.stop()
+        controller.teardown()
+
+        if let errorMessage = snapshot.errorMessage {
+            return "MPV最小播放链路失败：\(errorMessage)，日志：\(logs)"
+        }
+
+        let current = String(format: "%.1f", snapshot.currentTime)
+        let duration = String(format: "%.1f", snapshot.duration)
+        return "MPV最小播放链路完成：time=\(current)，duration=\(duration)，playing=\(snapshot.isPlaying)，日志：\(logs)"
     }
 
     private func addDriveToken() {
