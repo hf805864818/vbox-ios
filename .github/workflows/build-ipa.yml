@@ -4,6 +4,17 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      mpvkit_source_url:
+        description: "可选：MPVKit.xcframework.zip 直链；不填则自动查找 mpvkit-wrapper-* Release"
+        required: false
+        default: ""
+        type: string
+      mpvkit_release_tag:
+        description: "可选：指定 mpvkit-wrapper-* Release 标签"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build:
@@ -15,6 +26,15 @@ jobs:
 
       - name: 🔧 Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: 🎬 Prepare MPVKit.xcframework
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MPVKIT_SOURCE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.mpvkit_source_url || '' }}
+          MPVKIT_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.mpvkit_release_tag || '' }}
+        run: |
+          chmod +x scripts/mpv/download-mpvkit-framework.sh
+          scripts/mpv/download-mpvkit-framework.sh "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/vbox/Libraries/MPV"
 
       - name: 📖 获取版本号
         id: get_version

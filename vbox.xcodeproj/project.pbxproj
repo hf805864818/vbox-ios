@@ -15,6 +15,10 @@
 		A12015 /* LibMPVBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12015 /* LibMPVBackend.swift */; };
 		A12016 /* MPVBackendFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12016 /* MPVBackendFactory.swift */; };
 		A12017 /* MPVPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12017 /* MPVPlayerEngine.swift */; };
+		A12019 /* MPVKitProperty.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12019 /* MPVKitProperty.swift */; };
+		A12020 /* MPVKitMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12020 /* MPVKitMetalLayer.swift */; };
+		A12021 /* MPVKitRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12021 /* MPVKitRenderView.swift */; };
+		A12022 /* MPVKitPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12022 /* MPVKitPlayerCore.swift */; };
 		A12010 /* VLCPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12010 /* VLCPlayerEngine.swift */; };
 		A12008 /* UnsupportedPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12008 /* UnsupportedPlayerEngine.swift */; };
 		A12009 /* PlayerEngineController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12009 /* PlayerEngineController.swift */; };
@@ -57,6 +61,9 @@
 		A10035 /* BaiduProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11000 /* BaiduProxyClient.swift */; };
 		A10033 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* BaiduWebViewBridge.swift */; };
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
+		A10042 /* MPVKitDebugPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* MPVKitDebugPlayerView.swift */; };
+		A10040 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* MPVKit.xcframework */; };
+		A10041 /* MPVKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B10040 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 
 /* Begin PBXFileReference section */
 		B12018 /* MPVIntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVIntegrationStatus.swift; sourceTree = "<group>"; };
@@ -67,6 +74,10 @@
 		B12015 /* LibMPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibMPVBackend.swift; sourceTree = "<group>"; };
 		B12016 /* MPVBackendFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendFactory.swift; sourceTree = "<group>"; };
 		B12017 /* MPVPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerEngine.swift; sourceTree = "<group>"; };
+		B12019 /* MPVKitProperty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitProperty.swift; sourceTree = "<group>"; };
+		B12020 /* MPVKitMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitMetalLayer.swift; sourceTree = "<group>"; };
+		B12021 /* MPVKitRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderView.swift; sourceTree = "<group>"; };
+		B12022 /* MPVKitPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitPlayerCore.swift; sourceTree = "<group>"; };
 		B12010 /* VLCPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerEngine.swift; sourceTree = "<group>"; };
 		B12008 /* UnsupportedPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedPlayerEngine.swift; sourceTree = "<group>"; };
 		B12009 /* PlayerEngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineController.swift; sourceTree = "<group>"; };
@@ -105,12 +116,14 @@
 		B10033 /* BaiduWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWebViewBridge.swift; sourceTree = "<group>"; };
 		B10034 /* DoubanImageProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanImageProxyServer.swift; sourceTree = "<group>"; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
+		B10041 /* MPVKitDebugPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitDebugPlayerView.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
 		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
+		B10040 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -173,6 +186,7 @@
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
+				B10040 /* MPVKit.xcframework */,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
@@ -191,6 +205,7 @@
 				B10027 /* DoubanHomeView.swift */,
 				B10032 /* CategoryDetailView.swift */,
 				B10031 /* TokenWebView.swift */,
+				B10041 /* MPVKitDebugPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -217,6 +232,10 @@
 				B12016 /* MPVBackendFactory.swift */,
 				B12017 /* MPVPlayerEngine.swift */,
 				B12018 /* MPVIntegrationStatus.swift */,
+				B12019 /* MPVKitProperty.swift */,
+				B12020 /* MPVKitMetalLayer.swift */,
+				B12021 /* MPVKitRenderView.swift */,
+				B12022 /* MPVKitPlayerCore.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -269,6 +288,7 @@
 			buildPhases = (
 				P20001 /* Sources */,
 				P20003 /* Frameworks */,
+				P20004 /* Embed Frameworks */,
 				P20002 /* Resources */,
 			);
 			buildRules = ();
@@ -303,6 +323,10 @@
 				A12016 /* MPVBackendFactory.swift in Sources */,
 				A12017 /* MPVPlayerEngine.swift in Sources */,
 				A12018 /* MPVIntegrationStatus.swift in Sources */,
+				A12019 /* MPVKitProperty.swift in Sources */,
+				A12020 /* MPVKitMetalLayer.swift in Sources */,
+				A12021 /* MPVKitRenderView.swift in Sources */,
+				A12022 /* MPVKitPlayerCore.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
@@ -331,6 +355,7 @@
 				A10033 /* BaiduWebViewBridge.swift in Sources */,
 				A10034 /* DoubanImageProxyServer.swift in Sources */,
 				A10035 /* BaiduProxyClient.swift in Sources */,
+				A10042 /* MPVKitDebugPlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,10 +367,25 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016 /* libquickjs.a in Frameworks */,
+				A10040 /* MPVKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		P20004 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				A10041 /* MPVKit.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		P20002 /* Resources */ = {
@@ -416,6 +456,7 @@
 					CODE_SIGN_STYLE = Automatic;
 					CURRENT_PROJECT_VERSION = 142;
 					GENERATE_INFOPLIST_FILE = YES;
+					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
 					INFOPLIST_KEY_CFBundleDisplayName = vbox;
@@ -445,6 +486,7 @@
 					CODE_SIGN_STYLE = Manual;
 					CURRENT_PROJECT_VERSION = 142;
 					GENERATE_INFOPLIST_FILE = YES;
+					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
 					INFOPLIST_FILE = vbox/Info.plist;
 					INFOPLIST_KEY_CFBundleDisplayName = vbox;

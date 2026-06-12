@@ -5,12 +5,15 @@ import MPVKit
 #endif
 
 /// MPVKit 后端占位。
-/// 后续接入 MPVKit.xcframework 时，只在这个文件里适配 MPVKit API。
+/// 只在这一层适配 MPVKit API，避免 UI/Controller 直接依赖 MPVKit。
 final class MPVKitBackend: MPVBackend {
     let backendType: MPVBackendType = .mpvKit
     let name = "MPV"
     private(set) var state = PlayerEngineState()
     var onEvent: ((PlayerEngineEvent) -> Void)?
+    #if canImport(MPVKit)
+    private let core = MPVKitPlayerCore()
+    #endif
 
     static var isAvailable: Bool {
         #if canImport(MPVKit)
@@ -21,22 +24,85 @@ final class MPVKitBackend: MPVBackend {
     }
 
     func attach(to view: UIView) {
-        // 第五步只预留后端结构，不创建真实 MPVKit 渲染层。
+        #if canImport(MPVKit)
+        bindCore()
+        core.attach(to: view)
+        state = core.state
+        #else
+        state.errorMessage = "未找到 MPVKit.xcframework"
+        onEvent?(.failed("未找到 MPVKit.xcframework"))
+        #endif
     }
 
     func load(route: PlaybackRoute) {
-        let message = "MPVKit 后端已预留，等待接入 MPVKit.xcframework"
+        #if canImport(MPVKit)
+        bindCore()
+        core.load(route: route)
+        state = core.state
+        #else
+        let message = "MPVKit 后端不可用，请确认 vbox/Libraries/MPV/MPVKit.xcframework 已下载并正确链接"
         state.errorMessage = message
         onEvent?(.failed(message))
+        #endif
     }
 
-    func play() {}
-    func pause() {}
-    func stop() {}
-    func seek(to seconds: Double) {}
-    func setRate(_ rate: Double) {}
-    func setVolume(_ volume: Double) {}
+    func play() {
+        #if canImport(MPVKit)
+        core.play()
+        state = core.state
+        #endif
+    }
+
+    func pause() {
+        #if canImport(MPVKit)
+        core.pause()
+        state = core.state
+        #endif
+    }
+
+    func stop() {
+        #if canImport(MPVKit)
+        core.stop()
+        state = core.state
+        #endif
+    }
+
+    func seek(to seconds: Double) {
+        #if canImport(MPVKit)
+        core.seek(to: seconds)
+        state = core.state
+        #endif
+    }
+
+    func setRate(_ rate: Double) {
+        #if canImport(MPVKit)
+        core.setRate(rate)
+        state = core.state
+        #endif
+    }
+
+    func setVolume(_ volume: Double) {
+        #if canImport(MPVKit)
+        core.setVolume(volume)
+        state = core.state
+        #endif
+    }
+
     func teardown() {
+        #if canImport(MPVKit)
+        core.teardown()
+        #endif
         state = PlayerEngineState()
+    }
+
+    private func bindCore() {
+        #if canImport(MPVKit)
+        core.onEvent = { [weak self] event in
+            self?.onEvent?(event)
+        }
+        core.onStateChange = { [weak self] state in
+            self?.state = state
+        }
+        #endif
     }
 }
