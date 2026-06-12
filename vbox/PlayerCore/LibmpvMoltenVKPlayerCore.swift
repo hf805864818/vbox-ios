@@ -328,8 +328,13 @@ final class LibmpvMoltenVKPlayerCore {
             setOption("hwdec", "videotoolbox")
         case .hlsFMP4:
             setOption("cache", "yes")
+            setOption("cache-pause", "no")
+            setOption("cache-pause-initial", "no")
+            setOption("demuxer-cache-wait", "no")
             setOption("cache-secs", "1")
             setOption("demuxer-readahead-secs", "1")
+            setOption("demuxer-max-bytes", "8MiB")
+            setOption("demuxer-max-back-bytes", "1MiB")
             setOption("demuxer-lavf-analyzeduration", "0.5")
             setOption("demuxer-lavf-probesize", "262144")
             setOption("network-timeout", "12")
