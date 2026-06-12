@@ -5,7 +5,10 @@ import Foundation
 /// 在完整链接链路验证前，不主动 link/embed。
 enum MPVIntegrationStatus {
     static let mpvKitExpectedPath = "vbox/Libraries/MPV/MPVKit.xcframework"
-    static let libmpvExpectedPath = "vbox/Libraries/MPV/Dependencies/Libmpv.xcframework"
+    static let mpvKitDependenciesPath = "vbox/Libraries/MPV/MPVKitDependencies"
+    static let mpvKitLibmpvDependencyPath = "vbox/Libraries/MPV/MPVKitDependencies/Libmpv.xcframework"
+    static let freedomLibmpvExpectedPath = "vbox/Libraries/MPV/Freedom/libmpv.xcframework"
+    static let libmpvExpectedPath = freedomLibmpvExpectedPath
 
     static let preferredBackend: MPVBackendType = .mpvKit
     static let freedomBackend: MPVBackendType = .libmpv
@@ -45,7 +48,7 @@ enum MPVIntegrationStatus {
 
     static func disabledReason(for backendType: MPVBackendType) -> String {
         if backendType == .automatic {
-            return "当前构建未启用 MPVKit 或自由度内核。已识别 MPVKit binary bundle 中的 Libmpv 和 FFmpeg 核心组件，但还没有安装到工程并验证完整链接链路。"
+            return "当前构建未启用 MPVKit 或自由度内核。MPVKit 已识别 binary bundle 中的 Libmpv 和 FFmpeg 核心组件，但尚未安装到 MPVKitDependencies 并验证完整链接链路；自由度内核仍只预留 Freedom/libmpv.xcframework 路径。"
         }
 
         return MPVFrameworkManifests.manifest(for: backendType)?.unavailableReason

@@ -86,7 +86,7 @@ def inspect_bundle(bundle_zip: Path, workdir: Path) -> int:
     local_targets = local_zips | local_xcframeworks
     package_targets = read_package_targets(release_dir)
 
-    print("\n本地包含的核心依赖:")
+    print("\n本地包含的 MPVKit 核心运行依赖:")
     for target in sorted(LOCAL_CORE_TARGETS):
         status = "有" if target in local_targets else "缺少"
         print(f"  {status}: {target}")
@@ -97,7 +97,7 @@ def inspect_bundle(bundle_zip: Path, workdir: Path) -> int:
         for target in missing_core:
             print(f"  - {target}")
     else:
-        print("\n核心 Libmpv + FFmpeg 组件齐全。")
+        print("\nMPVKit 所需核心 Libmpv + FFmpeg 组件齐全。")
 
     if package_targets:
         non_gpl_targets = [target for target in package_targets if not target.endswith("-GPL")]
@@ -118,10 +118,11 @@ def inspect_bundle(bundle_zip: Path, workdir: Path) -> int:
 
     print("\n结论:")
     if missing_core:
-        print("  该包不能作为 MPV 核心依赖安装，需要先补齐核心组件。")
+        print("  该包不能作为 MPVKit 核心运行依赖安装，需要先补齐核心组件。")
         return 1
 
-    print("  该包可作为 MPV 核心依赖来源，但不是完整离线 Swift Package 依赖包。")
+    print("  该包可作为 MPVKit 核心运行依赖来源，但不是完整离线 Swift Package 依赖包。")
+    print("  该包不是后续自由度 libmpv.xcframework 的独立内核产物。")
     print("  若走 Swift Package，还需要下载 Package.swift 中未随包携带的 binaryTarget。")
     return 0
 
