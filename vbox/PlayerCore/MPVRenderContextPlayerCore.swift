@@ -273,7 +273,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         let width = max(1, Int32(glView.bounds.width * scale))
         let height = max(1, Int32(glView.bounds.height * scale))
         var flipY: CInt = 1
-        var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: width, h: height, internal_format: Int32(GL_RGBA))
+        var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: width, h: height, internal_format: 0)
         withUnsafeMutablePointer(to: &fbo) { fboPointer in
             withUnsafeMutablePointer(to: &flipY) { flipPointer in
                 var params = [
