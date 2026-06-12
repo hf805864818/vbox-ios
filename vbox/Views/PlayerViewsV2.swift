@@ -257,8 +257,10 @@ class PlayerState: ObservableObject {
     private func shouldPreferMPV(for url: URL?) -> Bool {
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
+        if text.contains("baidu-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
+        if compatibilityHint?.contains("百度原画") == true { return true }
         return false
     }
 
@@ -934,7 +936,13 @@ class PlayerState: ObservableObject {
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
         let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
 
-        if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
+        if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "百度原画本地代理"
+            }
+            log("[Baidu] 自动模式下百度原画本地代理优先使用 MPV-MoltenVK，跳过系统内核 0x0 画面等待")
+        } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
