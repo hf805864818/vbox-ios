@@ -73,6 +73,15 @@ jobs:
           [ -z "$APP" ] && echo "No .app!" && exit 1
           rm -rf "$APP/_CodeSignature" "$APP/archived-expanded-entitlements.xcent" 2>/dev/null
           [ ! -f "$APP/vbox" ] && echo "No vbox!" && exit 1
+          MPVKIT_FRAMEWORK="$APP/Frameworks/MPVKit.framework"
+          if [ -f "$MPVKIT_FRAMEWORK/MPVKit" ] && [ ! -f "$MPVKIT_FRAMEWORK/MPVKitWrapper" ]; then
+            echo "修复 MPVKit install name 文件名不一致：复制 MPVKit -> MPVKitWrapper"
+            cp "$MPVKIT_FRAMEWORK/MPVKit" "$MPVKIT_FRAMEWORK/MPVKitWrapper"
+          fi
+          if [ -d "$MPVKIT_FRAMEWORK" ]; then
+            echo "MPVKit.framework 内容："
+            ls -la "$MPVKIT_FRAMEWORK"
+          fi
           mkdir -p Payload
           cp -R "$APP" Payload/
           zip -r vbox.ipa Payload/
