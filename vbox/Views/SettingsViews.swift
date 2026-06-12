@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var showAuthCenter = false
     @State private var showMPVKitDebugView = false
     @State private var showMPVRenderContextDebugView = false
+    @State private var showLibmpvMoltenVKDebugView = false
     @State private var showPlaybackTestTools = false
     @State private var showMPVAdvancedDiagnostics = false
     @State private var isRunningMPVLoadfileProbe = false
@@ -259,6 +260,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showMPVRenderContextDebugView) {
             MPVRenderContextDebugView()
         }
+        .sheet(isPresented: $showLibmpvMoltenVKDebugView) {
+            LibmpvMoltenVKDebugView()
+        }
         .sheet(isPresented: $showCloudCacheSheet) {
             CloudPlaybackCacheView()
         }
@@ -298,6 +302,7 @@ struct SettingsView: View {
                 showUniversalPlayTestView: $showUniversalPlayTestView,
                 showMPVKitDebugView: $showMPVKitDebugView,
                 showMPVRenderContextDebugView: $showMPVRenderContextDebugView,
+                showLibmpvMoltenVKDebugView: $showLibmpvMoltenVKDebugView,
                 showBaiduTestView: $showBaiduTestView,
                 showMPVAdvancedDiagnostics: $showMPVAdvancedDiagnostics
             )
@@ -770,6 +775,7 @@ struct PlaybackTestToolsView: View {
     @Binding var showUniversalPlayTestView: Bool
     @Binding var showMPVKitDebugView: Bool
     @Binding var showMPVRenderContextDebugView: Bool
+    @Binding var showLibmpvMoltenVKDebugView: Bool
     @Binding var showBaiduTestView: Bool
     @Binding var showMPVAdvancedDiagnostics: Bool
 
@@ -782,6 +788,13 @@ struct PlaybackTestToolsView: View {
                         title: "通用播放测试工具",
                         subtitle: "测试 m3u8 / mp4 / mkv / 网盘解析后的直链",
                         action: { open($showUniversalPlayTestView) }
+                    )
+
+                    toolRow(
+                        icon: "play.tv.fill",
+                        title: "Libmpv-MoltenVK调试",
+                        subtitle: "新增路线：gpu-next + Vulkan + MoltenVK，验证是否绕开OpenGLES偏色",
+                        action: { open($showLibmpvMoltenVKDebugView) }
                     )
 
                     toolRow(
