@@ -350,6 +350,20 @@ struct SettingsView: View {
             HStack {
                 Text("版本").foregroundColor(.black); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("MPV状态").foregroundColor(.black)
+                    Spacer()
+                    Text(MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用")
+                        .foregroundColor(MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .green : .gray)
+                }
+                Text(MPVIntegrationStatus.runtimeProbeSummary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             Button(action: { showUpdateSheet = true }) {
                 HStack {
                     Text("检查更新").foregroundColor(.black); Spacer()

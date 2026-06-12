@@ -1,6 +1,6 @@
 # feature/mpvkit-link-validation
 
-这个分支用来验证 `MPVKit.xcframework` + 8 个核心依赖在 CI 上能否被正确 Link/Embed，并通过 archive 不闪退。
+这个分支用来验证 `MPVKit.xcframework + Libmpv + FFmpeg 7 件套` 在 CI 上能否被正确 Link/Embed，并通过 archive 不闪退。
 **整条链路全脚本化，因为本地无 Xcode。**
 
 ## 3.150 已完成
