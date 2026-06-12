@@ -314,9 +314,39 @@ loadfile 探针
 音频/视频输出只做能力探针，失败结果用于判断下一步渲染层方案
 ```
 
+## 3.165 诊断修正目标
+
+3.164 真机截图确认：
+
+```text
+MPVKit 动态加载成功
+Libmpv-imported
+mpv_create 成功
+mpv_initialize 成功
+loadfile 命令已接受
+HLS 和 MP4 网络播放均能收到 file-loaded
+```
+
+同时发现 3 个诊断误判：
+
+```text
+1. MPVBackendFactory 仍因 isMPVKitFrameworkLinked=false 回落到 MPVUnavailableBackend
+2. 综合控制探针只看早期 loadfile 事件，未把后续 file-loaded/playback-restart 和 duration/time-pos 算作成功
+3. 生命周期压力测试等待过短，未把 start-file/audio-reconfig 等有效事件算作成功
+```
+
+3.165 修正：
+
+```text
+1. 只要 mpv_initialize 探针成功，就允许 MPVKitBackend 进入最小 PlayerEngine 链路
+2. 综合控制成功标准改为：媒体事件或有效 duration/time-pos + pause/resume/speed 成功
+3. seek=-12 不再单独导致综合控制失败，作为后续 seek 时机问题记录
+4. 生命周期压力测试延长等待，并把 start-file/audio-reconfig/file-loaded/playback-restart 算作有效加载观察
+```
+
 ## 后续步骤
 
 ```text
-3.165：根据 3.164 一键诊断结果集中修复事件循环、生命周期、音频或视频输出
-3.166：诊断稳定后再进入普通 URL 真实播放测试页
+3.166：根据 3.165 一键诊断结果修正真实音频/视频输出能力
+3.167：诊断稳定后再进入普通 URL 真实播放测试页
 ```
