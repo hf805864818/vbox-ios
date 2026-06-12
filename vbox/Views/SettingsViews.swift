@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var showAuthCenter = false
     @State private var showMPVKitDebugView = false
     @State private var showMPVRenderContextDebugView = false
+    @State private var showPlaybackTestTools = false
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
@@ -76,6 +77,7 @@ struct SettingsView: View {
             subscriptionSection
             fallbackSection
             cloudDriveSection
+            playbackTestToolsSection
             storageSection
             aboutSection
         }
@@ -219,95 +221,6 @@ struct SettingsView: View {
                     .background(Color.gray.opacity(0.04))
                 }
 
-                // 通用播放测试入口
-                Button(action: { showUniversalPlayTestView = true }) {
-                    HStack {
-                        Image(systemName: "play.rectangle.on.rectangle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "E11D48"))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("通用播放测试工具")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.black)
-                            Text("支持网盘链接、mp4/m3u8、切片资源链接")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.04))
-                }
-
-                Button(action: { showMPVKitDebugView = true }) {
-                    HStack {
-                        Image(systemName: "play.tv.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "E11D48"))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("MPV播放调试")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.black)
-                            Text("验证 MPVKit.xcframework 的真实画面渲染、mp4/m3u8播放")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.04))
-                }
-
-                Button(action: { showMPVRenderContextDebugView = true }) {
-                    HStack {
-                        Image(systemName: "rectangle.on.rectangle.angled")
-                            .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "E11D48"))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("MPV RenderContext调试")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.black)
-                            Text("验证 mpv_render_context + GLKView 渲染路线")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.04))
-                }
-
-                // 百度网盘测试入口
-                Button(action: { showBaiduTestView = true }) {
-                    HStack {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "E11D48"))
-                        Text("百度网盘测试工具")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.black)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.04))
-                }
-
                 Button(action: { showCloudCacheSheet = true }) {
                     HStack {
                         Image(systemName: "externaldrive.badge.icloud")
@@ -350,6 +263,42 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showAuthCenter) {
             CloudAuthCenterView()
+        }
+    }
+
+    private var playbackTestToolsSection: some View {
+        SettingsSection(title: "播放测试") {
+            Button(action: { showPlaybackTestTools = true }) {
+                HStack {
+                    Image(systemName: "play.rectangle.on.rectangle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("播放测试工具")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.black)
+                        Text("统一管理通用播放、MPV、RenderContext、百度网盘测试")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(Color.gray.opacity(0.04))
+            }
+            .padding(16)
+        }
+        .sheet(isPresented: $showPlaybackTestTools) {
+            PlaybackTestToolsView(
+                showUniversalPlayTestView: $showUniversalPlayTestView,
+                showMPVKitDebugView: $showMPVKitDebugView,
+                showMPVRenderContextDebugView: $showMPVRenderContextDebugView,
+                showBaiduTestView: $showBaiduTestView
+            )
         }
     }
 
@@ -832,6 +781,92 @@ struct SettingsSection<Content: View>: View {
             VStack(spacing: 1) { content }
                 .background(RoundedRectangle(cornerRadius: 16).fill(.thinMaterial))
                 .clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+        }
+    }
+}
+
+struct PlaybackTestToolsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var showUniversalPlayTestView: Bool
+    @Binding var showMPVKitDebugView: Bool
+    @Binding var showMPVRenderContextDebugView: Bool
+    @Binding var showBaiduTestView: Bool
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 12) {
+                    toolRow(
+                        icon: "play.rectangle.on.rectangle.fill",
+                        title: "通用播放测试工具",
+                        subtitle: "测试 m3u8 / mp4 / mkv / 网盘解析后的直链",
+                        action: { open($showUniversalPlayTestView) }
+                    )
+
+                    toolRow(
+                        icon: "rectangle.on.rectangle.angled",
+                        title: "MPV RenderContext调试",
+                        subtitle: "当前重点测试入口，适合 HLS 和 MKV",
+                        action: { open($showMPVRenderContextDebugView) }
+                    )
+
+                    toolRow(
+                        icon: "play.tv.fill",
+                        title: "MPV播放调试",
+                        subtitle: "旧路线对比：wid + CAMetalLayer",
+                        action: { open($showMPVKitDebugView) }
+                    )
+
+                    toolRow(
+                        icon: "play.circle.fill",
+                        title: "百度网盘测试工具",
+                        subtitle: "百度网盘解析与播放专项测试",
+                        action: { open($showBaiduTestView) }
+                    )
+                }
+                .padding(16)
+            }
+            .navigationTitle("播放测试工具")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func toolRow(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(Color(hex: "E11D48"))
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+            .padding(16)
+            .background(Color.gray.opacity(0.05))
+            .cornerRadius(14)
+        }
+    }
+
+    private func open(_ binding: Binding<Bool>) {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            binding.wrappedValue = true
         }
     }
 }
