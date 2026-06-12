@@ -13,10 +13,11 @@ struct MPVFrameworkManifest {
     let requiredRuntimeDependencies: [String]
     let currentLinkPolicy: String
     let enableCondition: String
+    let roleDescription: String
 
     var unavailableReason: String {
         let dependencies = requiredRuntimeDependencies.joined(separator: "、")
-        return "\(displayName) 当前只完成依赖识别，尚未启用。需要安装并验证 \(frameworkName)，再确认以下依赖可正常链接：\(dependencies)。"
+        return "\(displayName) 当前只完成依赖识别，尚未启用。\(roleDescription)。需要安装并验证 \(frameworkName)，再确认以下依赖可正常链接：\(dependencies)。"
     }
 
     var shortSummary: String {
@@ -39,24 +40,26 @@ enum MPVFrameworkManifests {
             "Package.swift 中声明的外部 binaryTarget"
         ],
         currentLinkPolicy: "保留 wrapper 和依赖安装脚本，不 Link，不 Embed",
-        enableCondition: "安装核心依赖并补齐 Package.swift 外部 binaryTarget 后，再打开 MPVKitBackend 的启用开关"
+        enableCondition: "安装 MPVKitDependencies 核心依赖并补齐 Package.swift 外部 binaryTarget 后，再打开 MPVKitBackend 的启用开关",
+        roleDescription: "这是标准 MPVKit wrapper 路线，不直接使用 Freedom/libmpv.xcframework"
     )
 
     static let libmpv = MPVFrameworkManifest(
         backendType: .libmpv,
         displayName: "自由度",
-        expectedPath: "vbox/Libraries/MPV/Dependencies/Libmpv.xcframework",
-        moduleName: "Libmpv",
-        frameworkName: "Libmpv.xcframework",
+        expectedPath: "vbox/Libraries/MPV/Freedom/libmpv.xcframework",
+        moduleName: "libmpv",
+        frameworkName: "libmpv.xcframework",
         requiredSlices: ["ios-arm64"],
         recommendedSlices: ["ios-arm64_x86_64-simulator"],
         requiredRuntimeDependencies: [
-            "Libmpv C API",
-            "FFmpeg 组件",
-            "libass/libplacebo/MoltenVK 等 mpv 间接依赖"
+            "自由度 libmpv C API",
+            "自由度内核自带或配套的 FFmpeg 组件",
+            "自由度内核配套的渲染上下文依赖"
         ],
-        currentLinkPolicy: "可从 MPVKit binary bundle 安装核心文件，暂不 Link，不 Embed",
-        enableCondition: "确认 canImport(Libmpv)、链接依赖和渲染上下文后，再启用 LibMPVBackend"
+        currentLinkPolicy: "预留 Freedom/libmpv.xcframework 路径，暂不 Link，不 Embed",
+        enableCondition: "确认自由度 libmpv.xcframework 的模块名、链接依赖和渲染上下文后，再启用 LibMPVBackend",
+        roleDescription: "这是后续自由度独立内核路线，不复用 MPVKitDependencies/Libmpv.xcframework"
     )
 
     static let all: [MPVFrameworkManifest] = [

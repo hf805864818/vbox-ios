@@ -49,6 +49,13 @@ scripts/inspect_mpvkit_bundle.py
 scripts/install_mpv_dependencies.sh
 ```
 
+`3.147` 明确双后端依赖隔离：
+
+```text
+MPVKitDependencies/ 只服务 MPVKit.xcframework
+Freedom/             只服务后续自由度 libmpv.xcframework
+```
+
 上传的 `MPVKit-xcframework.zip` 外层包含 `MPVKit-binary-bundle.zip` 和 sha256 文件。该 bundle 已确认包含核心依赖：
 
 ```text
@@ -78,12 +85,12 @@ gnutls
 
 ## 建议目录
 
-核心依赖安装目标：
+MPVKit 与自由度内核必须分开存放：
 
 ```text
 vbox/Libraries/MPV/
 ├── MPVKit.xcframework
-├── Dependencies/
+├── MPVKitDependencies/
 │   ├── Libmpv.xcframework
 │   ├── Libavcodec.xcframework
 │   ├── Libavdevice.xcframework
@@ -92,10 +99,12 @@ vbox/Libraries/MPV/
 │   ├── Libavutil.xcframework
 │   ├── Libswresample.xcframework
 │   └── Libswscale.xcframework
+├── Freedom/
+│   └── libmpv.xcframework
 └── README.md
 ```
 
-`Libmpv.xcframework` 的模块名是：
+`MPVKitDependencies/Libmpv.xcframework` 的模块名是：
 
 ```swift
 import Libmpv
@@ -107,11 +116,37 @@ import Libmpv
 import libmpv
 ```
 
+`Freedom/libmpv.xcframework` 是后续自由度独立内核占位。它的模块名、大小写和依赖结构必须等真实产物放入后再确认，不能直接假设它等同于 `MPVKitDependencies/Libmpv.xcframework`。
+
+## 双后端隔离规则
+
+```text
+MPVKitBackend
+  使用 MPVKit.xcframework
+  依赖 MPVKitDependencies/ 下的 Libmpv 和 FFmpeg 组件
+  不直接使用 Freedom/libmpv.xcframework
+
+LibMPVBackend
+  预留给 Freedom/libmpv.xcframework
+  不直接复用 MPVKitDependencies/Libmpv.xcframework
+  后续根据真实自由度产物确认模块名和渲染路径
+```
+
+如果两个后端需要同时存在，必须先确认：
+
+```text
+1. 模块名是否冲突
+2. 是否都包含 FFmpeg/libmpv
+3. 是否会产生 duplicate symbols
+4. 是否都需要 Embed & Sign
+5. 是否应通过编译开关隔离到不同构建
+```
+
 ## UI 命名
 
 ```text
 MPV    = MPVKit.xcframework
-自由度 = Libmpv.xcframework
+自由度 = Freedom/libmpv.xcframework
 ```
 
 ## 架构要求
@@ -125,7 +160,7 @@ MPV    = MPVKit.xcframework
 真实接入时需要确认：
 
 ```text
-1. framework 的模块名，尤其是 `Libmpv`
+1. framework 的模块名，尤其是 MPVKit 依赖 `Libmpv` 和自由度 `libmpv` 是否同名
 2. Info.plist 支持的架构 slice
 3. Swift Package binaryTarget 是否能被 GitHub Actions 下载
 4. 手动 Link 时是否需要补齐所有间接依赖
@@ -139,4 +174,4 @@ MPV    = MPVKit.xcframework
 
 ## 冲突提醒
 
-不要随意同时启用多个都内置 FFmpeg/libmpv 的大型 framework。MPVKit wrapper、Libmpv 和 FFmpeg 组件之间要先确认链接关系，避免重复符号或运行时冲突。
+不要随意同时启用多个都内置 FFmpeg/libmpv 的大型 framework。`MPVKitDependencies/` 和 `Freedom/` 两条线之间要先确认链接关系，避免重复符号、模块名冲突或运行时冲突。

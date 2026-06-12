@@ -33,7 +33,7 @@ mode = sys.argv[3] if len(sys.argv) > 3 else ""
 dry_run = mode == "--dry-run"
 
 project_root = Path.cwd()
-target_dir = project_root / "vbox" / "Libraries" / "MPV" / "Dependencies"
+target_dir = project_root / "vbox" / "Libraries" / "MPV" / "MPVKitDependencies"
 core_targets = [
     "Libmpv",
     "Libavcodec",
@@ -75,7 +75,7 @@ if missing:
     raise SystemExit(1)
 
 print(f"安装目标目录: {target_dir}")
-print("将安装核心依赖:")
+print("将安装 MPVKit 运行所需核心依赖:")
 for target in core_targets:
     print(f"  - {target}.xcframework")
 
@@ -110,7 +110,8 @@ for target in core_targets:
 
     shutil.copytree(extracted, destination)
 
-print("MPV 核心依赖已安装。")
-print("注意：脚本只安装 Libmpv 和 FFmpeg 组件，不修改 Xcode Link/Embed。")
+print("MPVKit 核心依赖已安装。")
+print("注意：脚本只安装 MPVKit 运行依赖，不安装后续自由度 libmpv.xcframework。")
+print("注意：脚本不修改 Xcode Link/Embed。")
 print("如果后续走 Swift Package，还需要处理 Package.swift 中未随包携带的 binaryTarget。")
 PY
