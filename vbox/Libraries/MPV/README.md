@@ -63,6 +63,25 @@ scripts/fetch_mpv_dependencies.sh
 scripts/check_mpv_installed_dependencies.py
 ```
 
+`3.149` 增加 CI 验证工作流，把 `fetch → install → check` 闭环搬到 GitHub Actions：
+
+```text
+.github/workflows/mpvkit-deps-check.yml
+```
+
+该工作流只验证 MPVKit 依赖闭环，不构建 Xcode 工程，不修改 Link/Embed。
+触发条件：`workflow_dispatch`，或上述脚本本身发生变更的 `pull_request`。
+同步增强 `scripts/fetch_mpv_dependencies.sh`：
+
+```text
+--cache-dir <dir>     指定缓存目录
+--url <url>           指定下载地址
+--sha256-url <url>    指定 sha256 地址
+--skip-install        只下载与校验，不调用 install
+```
+
+缓存命中（本地压缩包 sha256 与远端一致）时跳过重复下载。
+
 MPVKit 依赖包默认来源：
 
 ```text
