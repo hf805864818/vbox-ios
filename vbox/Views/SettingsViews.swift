@@ -2,6 +2,10 @@ import SwiftUI
 import UIKit
 import CoreImage
 
+extension CloudDriveManager.DriveType: Identifiable {
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
@@ -916,8 +920,12 @@ struct SettingsNavigationRow: View {
 struct CloudAuthCenterView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
+    @StateObject private var authManager = CloudDriveAuthManager.shared
     @State private var showTokenFetcher = false
     @State private var showQuarkNativeQR = false
+    @State private var showUCNativeQR = false
+    @State private var showBaiduNativeQR = false
+    @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
     @State private var driveTokenName = ""
     @State private var driveTokenValue = ""
@@ -928,12 +936,12 @@ struct CloudAuthCenterView: View {
                 VStack(spacing: 16) {
                     baiduAccountCard
                     quarkAccountCard
-                    providerAccountCard(type: .ali, note: "扫码登录待接入，当前保留 Refresh Token 手动兜底")
-                    providerAccountCard(type: .uc, note: "扫码登录待接入，当前保留 Cookie 手动兜底")
-                    providerAccountCard(type: .one15, note: "扫码登录待接入，当前保留账号参数手动兜底")
+                    providerAccountCard(type: .ali, note: "优先使用授权中心保存的 Refresh Token；网页登录作为兜底入口。")
+                    providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
+                    providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     manualTokenFallbackCard
 
-                    Text("后续接入真实扫码登录后，这里会按网盘显示二维码、轮询扫码状态，并自动保存对应 Token。手动粘贴入口会继续保留为高级兜底。")
+                    Text("播放前不会强制检测授权状态；解析失败且像授权失效时才反向标记。手动粘贴入口继续保留为高级兜底。")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                         .multilineTextAlignment(.leading)
@@ -960,6 +968,15 @@ struct CloudAuthCenterView: View {
             .sheet(isPresented: $showQuarkNativeQR) {
                 QuarkNativeQRLoginTestView(cloudDriveManager: cloudDriveManager)
             }
+            .sheet(isPresented: $showUCNativeQR) {
+                NativeCloudQRLoginView(driveType: .uc)
+            }
+            .sheet(isPresented: $showBaiduNativeQR) {
+                NativeCloudQRLoginView(driveType: .baidu)
+            }
+            .sheet(item: $webAuthDriveType) { type in
+                CloudDriveWebAuthView(driveType: type)
+            }
         }
     }
 
@@ -973,9 +990,9 @@ struct CloudAuthCenterView: View {
         return VStack(alignment: .leading, spacing: 14) {
             accountHeader(
                 title: "百度网盘",
-                subtitle: pair == nil ? "未登录" : "已保存百度账号信息",
+                subtitle: authSubtitle(for: .baidu, fallback: pair == nil ? "未登录" : "已保存百度账号信息"),
                 icon: "b.circle.fill",
-                isReady: pair != nil
+                isReady: pair != nil || authManager.isAuthorized(.baidu)
             )
 
             VStack(spacing: 8) {
@@ -987,7 +1004,15 @@ struct CloudAuthCenterView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
 
-            disabledActionButton("扫码登录待接入")
+            HStack(spacing: 10) {
+                Button(action: { showBaiduNativeQR = true }) {
+                    authButtonLabel("扫码授权", icon: "qrcode")
+                }
+                Button(action: { webAuthDriveType = .baidu }) {
+                    authButtonLabel("网页兜底", icon: "globe")
+                }
+            }
+            authDetailLine(for: .baidu, fallback: pair?.web.name ?? "暂无 Token")
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.06)))
@@ -1107,6 +1132,7 @@ struct CloudAuthCenterView: View {
     private func addDriveTokenFromFallback() {
         guard !driveTokenName.isEmpty, !driveTokenValue.isEmpty else { return }
         cloudDriveManager.addToken(type: selectedDriveType, name: driveTokenName, value: driveTokenValue)
+        authManager.saveManualCredential(type: selectedDriveType, name: driveTokenName, value: driveTokenValue)
         driveTokenName = ""
         driveTokenValue = ""
     }
@@ -1121,9 +1147,9 @@ struct CloudAuthCenterView: View {
         return VStack(alignment: .leading, spacing: 10) {
             accountHeader(
                 title: CloudDriveManager.DriveType.quark.displayName,
-                subtitle: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token",
+                subtitle: authSubtitle(for: .quark, fallback: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token"),
                 icon: iconForDriveType(.quark),
-                isReady: !tokens.isEmpty
+                isReady: !tokens.isEmpty || authManager.isAuthorized(.quark)
             )
             Text("支持原生扫码登录，扫码后自动保存 Cookie；也可使用网页登录兜底。")
                 .font(.system(size: 12))
@@ -1141,11 +1167,11 @@ struct CloudAuthCenterView: View {
                     .background(Color(hex: "E11D48"))
                     .cornerRadius(10)
                 }
-                Text(tokens.first?.name ?? "暂无 Token")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Button(action: { webAuthDriveType = .quark }) {
+                    authButtonLabel("网页登录兜底", icon: "globe")
+                }
             }
+            authDetailLine(for: .quark, fallback: tokens.first?.name ?? "暂无 Token")
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
@@ -1156,23 +1182,81 @@ struct CloudAuthCenterView: View {
         return VStack(alignment: .leading, spacing: 10) {
             accountHeader(
                 title: type.displayName,
-                subtitle: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token",
+                subtitle: authSubtitle(for: type, fallback: tokens.isEmpty ? "未登录" : "已保存 \(tokens.count) 个 Token"),
                 icon: iconForDriveType(type),
-                isReady: !tokens.isEmpty
+                isReady: !tokens.isEmpty || authManager.isAuthorized(type)
             )
             Text(note)
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
             HStack(spacing: 10) {
-                disabledActionButton("扫码登录待接入")
-                Text(tokens.first?.name ?? "暂无 Token")
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Button(action: { webAuthDriveType = type }) {
+                    authButtonLabel(type == .one15 ? "网页登录授权" : "网页登录兜底", icon: "globe")
+                }
+                if type == .uc {
+                    Button(action: { showUCNativeQR = true }) {
+                        authButtonLabel("原生扫码", icon: "qrcode")
+                    }
+                } else if type == .ali {
+                    Button(action: { webAuthDriveType = .ali }) {
+                        authButtonLabel("OAuth授权", icon: "qrcode")
+                    }
+                } else {
+                    disabledActionButton("原生扫码待补全")
+                }
             }
+            authDetailLine(for: type, fallback: tokens.first?.name ?? "暂无 Token")
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.04)))
+    }
+
+    private func authSubtitle(for type: CloudDriveManager.DriveType, fallback: String) -> String {
+        if authManager.isAuthorized(type) {
+            return authManager.displayName(for: type)
+        }
+        return fallback
+    }
+
+    private func authDetailLine(for type: CloudDriveManager.DriveType, fallback: String) -> some View {
+        HStack {
+            Text(fallback)
+                .font(.system(size: 12))
+                .foregroundColor(.gray)
+                .lineLimit(1)
+            Spacer()
+            Text(authManager.statusText(for: type))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(authManager.isAuthorized(type) ? .green : .gray)
+            Button(action: {
+                Task { _ = await authManager.validateCredential(for: type) }
+            }) {
+                Text("测试")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color(hex: "E11D48"))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(hex: "E11D48").opacity(0.08))
+                    .cornerRadius(8)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.75))
+        .cornerRadius(10)
+    }
+
+    private func authButtonLabel(_ title: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+        }
+        .foregroundColor(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color(hex: "E11D48"))
+        .cornerRadius(10)
     }
 
     private func accountHeader(title: String, subtitle: String, icon: String, isReady: Bool) -> some View {
@@ -2764,6 +2848,7 @@ struct QuarkNativeQRLoginTestView: View {
         savedCookie = loginResult.cookie
         cookieFields = loginResult.cookies
         let tokenName = loginResult.nickName?.isEmpty == false ? "夸克扫码-\(loginResult.nickName!)" : "夸克扫码登录"
+        CloudDriveAuthManager.shared.saveQuarkLogin(cookie: loginResult.cookie, nickName: loginResult.nickName, avatarURL: loginResult.avatarURL)
         cloudDriveManager.addToken(type: .quark, name: tokenName, value: loginResult.cookie)
         isPolling = false
         statusText = "夸克扫码登录成功"
@@ -2785,5 +2870,262 @@ struct QuarkNativeQRLoginTestView: View {
     private func shortToken(_ text: String) -> String {
         guard text.count > 16 else { return text }
         return "\(text.prefix(8))...\(text.suffix(6))"
+    }
+}
+
+struct NativeCloudQRLoginView: View {
+    @Environment(\.dismiss) private var dismiss
+    let driveType: CloudDriveManager.DriveType
+    @State private var qrImage: UIImage? = nil
+    @State private var statusText = "准备生成二维码"
+    @State private var detailText = ""
+    @State private var errorText = ""
+    @State private var isGenerating = false
+    @State private var isPolling = false
+    @State private var pollCount = 0
+    @State private var ucToken: CloudDriveAuthManager.UCQrLoginToken? = nil
+    @State private var baiduToken: CloudDriveAuthManager.BaiduQrLoginToken? = nil
+    @State private var baiduBDUSSURL: String? = nil
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("\(driveType.displayName) 原生扫码授权")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    qrCard
+                    statusCard
+                    tipCard
+
+                    Button(action: {
+                        Task { await startLoginFlow() }
+                    }) {
+                        Text(isPolling ? "重新生成二维码" : "生成二维码")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(hex: "E11D48"))
+                            .cornerRadius(12)
+                    }
+                    .disabled(isGenerating)
+                }
+                .padding(16)
+            }
+            .background(Color.white)
+            .navigationTitle("扫码授权")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭") { dismiss() }
+                        .foregroundColor(Color(hex: "E11D48"))
+                }
+            }
+        }
+    }
+
+    private var qrCard: some View {
+        VStack(spacing: 12) {
+            if let qrImage {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 220, height: 220)
+                    .padding(12)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if isGenerating {
+                ProgressView()
+                    .frame(width: 220, height: 220)
+            } else {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 88))
+                    .foregroundColor(.gray.opacity(0.45))
+                    .frame(width: 220, height: 220)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.gray.opacity(0.05)))
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(statusText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.black)
+                Spacer()
+                if isPolling {
+                    Text("第 \(pollCount) 次")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+            }
+            if !detailText.isEmpty {
+                Text(detailText)
+                    .font(.system(size: 12))
+                    .foregroundColor(.gray)
+            }
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.05)))
+    }
+
+    private var tipCard: some View {
+        Text(driveType == .baidu ? "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。" : "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。")
+            .font(.system(size: 12))
+            .foregroundColor(.gray)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.08)))
+    }
+
+    @MainActor
+    private func startLoginFlow() async {
+        isGenerating = true
+        isPolling = false
+        pollCount = 0
+        errorText = ""
+        detailText = ""
+        qrImage = nil
+        statusText = "正在生成二维码..."
+
+        do {
+            switch driveType {
+            case .uc:
+                let token = try await CloudDriveAuthManager.shared.ucCreateQrToken()
+                ucToken = token
+                qrImage = makeQRCode(from: token.qrPayload)
+                statusText = "等待 UC 扫码确认"
+                detailText = "每 2 秒轮询一次扫码状态。"
+                isGenerating = false
+                isPolling = true
+                await pollUC(token)
+            case .baidu:
+                let token = try await CloudDriveAuthManager.shared.baiduCreateQrToken()
+                baiduToken = token
+                if let url = URL(string: token.qrURL),
+                   let (data, _) = try? await URLSession.shared.data(from: url),
+                   let image = UIImage(data: data) {
+                    qrImage = image
+                } else {
+                    qrImage = makeQRCode(from: token.qrURL)
+                }
+                statusText = "等待百度扫码确认"
+                detailText = "每 2 秒轮询一次扫码状态。"
+                isGenerating = false
+                isPolling = true
+                await pollBaidu(token)
+            default:
+                throw AuthError.remoteError("暂不支持 \(driveType.displayName) 原生扫码")
+            }
+        } catch {
+            isGenerating = false
+            isPolling = false
+            statusText = "生成二维码失败"
+            errorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func pollUC(_ token: CloudDriveAuthManager.UCQrLoginToken) async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await CloudDriveAuthManager.shared.ucPollQrStatus(token: token)
+                switch result {
+                case .pending:
+                    statusText = "等待 UC 扫码确认"
+                    detailText = "请在手机端确认登录。"
+                case .success(let ticket):
+                    statusText = "已确认，正在换取 Cookie"
+                    try await CloudDriveAuthManager.shared.ucExchangeServiceTicket(ticket)
+                    isPolling = false
+                    statusText = "UC 扫码登录成功"
+                    detailText = "Cookie 已保存到授权中心。"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                isPolling = false
+                statusText = "轮询异常"
+                errorText = error.localizedDescription
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    @MainActor
+    private func pollBaidu(_ token: CloudDriveAuthManager.BaiduQrLoginToken) async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await CloudDriveAuthManager.shared.baiduPollQrStatus(token: token)
+                switch result {
+                case .pending:
+                    statusText = "等待百度扫码"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
+                case .success(let bdussURL):
+                    statusText = "已确认，正在换取 BDUSS"
+                    baiduBDUSSURL = bdussURL
+                    try await CloudDriveAuthManager.shared.baiduExchangeQrLogin(token: token, bdussURL: bdussURL)
+                    isPolling = false
+                    statusText = "百度扫码登录成功"
+                    detailText = "BDUSS/STOKEN/bdstoken 已保存到授权中心。"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                isPolling = false
+                statusText = "轮询异常"
+                errorText = error.localizedDescription
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    private func makeQRCode(from text: String) -> UIImage? {
+        let data = Data(text.utf8)
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }
