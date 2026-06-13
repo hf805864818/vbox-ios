@@ -2998,6 +2998,10 @@ class CloudDriveManager: ObservableObject {
         fileName hintFileName: String? = nil,
         pcsCookie: String = ""
     ) async throws -> PlayResult {
+        baiduLog("[Baidu-MainRoute] ⏸ 主路链已临时关闭，改用 Worker 代理主链路测试：fsId=\(fsId)")
+        recordBaiduRouteDiagnostic(stage: "主路链", status: "已关闭", detail: "临时改用 Worker 代理链路作为主路链", fsId: fsId, fileName: hintFileName)
+        return try await resolveBaiduPlayURL(shareURL: shareURL, bduss: bduss, fsId: fsId, pcsCookie: pcsCookie)
+
         let cacheKey = baiduMainRouteCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
         if let cached = baiduCachedPlayResult(for: cacheKey) {
             baiduLog("[Baidu-MainRoute] ✅ 命中主路链播放缓存：fsId=\(fsId)")
