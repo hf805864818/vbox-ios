@@ -936,7 +936,7 @@ struct CloudAuthCenterView: View {
                 VStack(spacing: 16) {
                     baiduAccountCard
                     quarkAccountCard
-                    providerAccountCard(type: .ali, note: "优先使用授权中心保存的 Refresh Token；网页登录作为兜底入口。")
+                    providerAccountCard(type: .ali, note: "使用 AList 工具页扫码获取 Refresh Token；官方 OAuth 直开接口当前不可用。")
                     providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     manualTokenFallbackCard
@@ -1190,18 +1190,22 @@ struct CloudAuthCenterView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
             HStack(spacing: 10) {
-                Button(action: { webAuthDriveType = type }) {
-                    authButtonLabel(type == .one15 ? "网页登录授权" : "网页登录兜底", icon: "globe")
-                }
-                if type == .uc {
+                if type == .ali {
+                    Button(action: { webAuthDriveType = .ali }) {
+                        authButtonLabel("获取 Refresh Token", icon: "qrcode")
+                    }
+                    disabledActionButton("官方OAuth直开不可用")
+                } else if type == .uc {
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页登录兜底", icon: "globe")
+                    }
                     Button(action: { showUCNativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
                     }
-                } else if type == .ali {
-                    Button(action: { webAuthDriveType = .ali }) {
-                        authButtonLabel("OAuth授权", icon: "qrcode")
-                    }
                 } else {
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel(type == .one15 ? "网页登录授权" : "网页登录兜底", icon: "globe")
+                    }
                     disabledActionButton("原生扫码待补全")
                 }
             }

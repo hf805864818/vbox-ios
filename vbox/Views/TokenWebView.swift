@@ -259,7 +259,9 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
         case .baidu:
             return URL(string: "https://pan.baidu.com/")!
         case .ali:
-            return URL(string: "https://open.aliyundrive.com/oauth/users/authorize?client_id=76917ccccd4441c39457a04f6084fb2f&redirect_uri=https%3A%2F%2Falist.nn.ci%2Ftool%2Faliyundrive%2Fcallback&scope=user%3Abase%2Cfile%3Aall%3Aread%2Cfile%3Aall%3Awrite&state=vbox")!
+            // open.aliyundrive.com/oauth/users/authorize 已不再支持直接 GET 打开。
+            // 改用 AList 官方工具页作为 WebView 兜底入口，由页面完成扫码并展示 refresh_token。
+            return URL(string: "https://alistgo.com/tool/aliyundrive/request.html")!
         case .quark:
             return URL(string: "https://pan.quark.cn/")!
         case .uc:
@@ -341,6 +343,7 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             parent.isLoading = false
+            inspectAliRefreshTokenIfNeeded(webView: webView)
             inspect(webView: webView)
         }
 
@@ -359,6 +362,12 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
 
         private func inspect(webView: WKWebView) {
             guard !saved else { return }
+            if parent.driveType == .ali {
+                DispatchQueue.main.async {
+                    self.parent.statusText = "请在页面扫码授权；出现 refresh_token 后会尝试自动保存，也可复制后手动粘贴。"
+                }
+                return
+            }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self else { return }
                 let filtered = cookies.filter { cookie in
@@ -401,6 +410,38 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
                     }
                 }
             }
+        }
+
+        private func inspectAliRefreshTokenIfNeeded(webView: WKWebView) {
+            guard parent.driveType == .ali, !saved else { return }
+            webView.evaluateJavaScript("document.body ? document.body.innerText : ''") { [weak self] result, _ in
+                guard let self,
+                      let text = result as? String,
+                      let token = self.extractAliRefreshToken(from: text) else { return }
+                DispatchQueue.main.async {
+                    CloudDriveAuthManager.shared.saveManualCredential(type: .ali, name: "阿里网页登录", value: token)
+                    self.saved = true
+                    self.parent.statusText = "已自动保存阿里 refresh_token"
+                    self.parent.onCredentialSaved()
+                }
+            }
+        }
+
+        private func extractAliRefreshToken(from text: String) -> String? {
+            let patterns = [
+                #"refresh_token["'\s:=]+([A-Za-z0-9._\-]+)"#,
+                #"Refresh Token\s*[:：]\s*([A-Za-z0-9._\-]+)"#,
+                #"刷新令牌\s*[:：]\s*([A-Za-z0-9._\-]+)"#
+            ]
+            for pattern in patterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                      let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                      match.numberOfRanges > 1,
+                      let range = Range(match.range(at: 1), in: text) else { continue }
+                let token = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if token.count > 20 { return token }
+            }
+            return nil
         }
 
         private func isEnough(_ cookie: String) -> Bool {
