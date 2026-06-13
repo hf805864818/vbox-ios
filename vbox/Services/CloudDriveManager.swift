@@ -199,6 +199,10 @@ class CloudDriveManager: ObservableObject {
         "\(shareURL)|\(fsId)|\(baiduStableHash(bduss))|\(baiduStableHash(pcsCookie))"
     }
 
+    private func baiduMainRouteCacheKey(shareURL: String, fsId: String, bduss: String, pcsCookie: String) -> String {
+        "main-route-v2|\(baiduPlayCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie))"
+    }
+
     private func baiduFileListCacheKey(shareURL: String, bduss: String) -> String {
         "\(shareURL)|\(baiduStableHash(bduss))"
     }
@@ -284,18 +288,25 @@ class CloudDriveManager: ObservableObject {
 
     func invalidateBaiduPlaybackCache(shareURL: String, fsId: String, bduss: String, pcsCookie: String = "", reason: String = "手动刷新") {
         let cacheKey = baiduPlayCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
+        let mainRouteKey = baiduMainRouteCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
         baiduPlayCacheLock.lock()
         baiduPlayCache.removeValue(forKey: cacheKey)
+        baiduPlayCache.removeValue(forKey: mainRouteKey)
         baiduPlayCacheLock.unlock()
 
         var playCache = baiduLoadPersistedPlayCache()
         playCache.removeValue(forKey: cacheKey)
+        playCache.removeValue(forKey: mainRouteKey)
         if let data = try? JSONEncoder().encode(playCache) {
             defaults.set(data, forKey: baiduPersistedPlayCacheKey)
         }
 
         var iboxCache = baiduLoadPersistedIBoxPlayItemCache()
-        if let item = iboxCache[cacheKey] {
+        for key in [cacheKey, mainRouteKey] {
+            guard let item = iboxCache[key] else {
+                invalidateUnifiedCloudPlayItem(provider: .baidu, sourceKey: key, reason: "invalidated")
+                continue
+            }
             let invalidatedItem = BaiduIBoxPlayItem(
                 shareURL: item.shareURL,
                 fsId: item.fsId,
@@ -311,13 +322,11 @@ class CloudDriveManager: ObservableObject {
                 lastUsedAt: item.lastUsedAt,
                 source: "\(item.source)-invalidated"
             )
-            iboxCache[cacheKey] = invalidatedItem
-            if let data = try? JSONEncoder().encode(iboxCache) {
-                defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
-            }
-            mirrorBaiduIBoxPlayItemToUnified(invalidatedItem, sourceKey: cacheKey)
-        } else {
-            invalidateUnifiedCloudPlayItem(provider: .baidu, sourceKey: cacheKey, reason: "invalidated")
+            iboxCache[key] = invalidatedItem
+            mirrorBaiduIBoxPlayItemToUnified(invalidatedItem, sourceKey: key)
+        }
+        if let data = try? JSONEncoder().encode(iboxCache) {
+            defaults.set(data, forKey: baiduIBoxPlayItemCacheKey)
         }
 
         baiduLog("[Baidu-Cache] 已清理播放缓存并保留 path：fsId=\(fsId), reason=\(reason)")
@@ -2598,6 +2607,126 @@ class CloudDriveManager: ObservableObject {
             recordBaiduRouteDiagnostic(stage: "Worker取链", status: "失败", detail: "指定文件 Worker 播放失败：\(error.localizedDescription)", fsId: fsId)
             throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
         }
+    }
+
+    /// 百度网盘主播放链路 v2：
+    /// 独立于原 Worker 播放链路，按“PlayItem 缓存 -> path 刷新 -> 本机转存 -> mediainfo/locatedownload”的顺序取原画。
+    /// 调用方应在此链路失败后再回落到原 resolveBaiduPlayURL，避免影响旧链路稳定性。
+    func resolveBaiduPlayURLViaMainRoute(
+        shareURL: String,
+        bduss: String,
+        fsId: String,
+        fileName hintFileName: String? = nil,
+        pcsCookie: String = ""
+    ) async throws -> PlayResult {
+        let cacheKey = baiduMainRouteCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
+        if let cached = baiduCachedPlayResult(for: cacheKey) {
+            baiduLog("[Baidu-MainRoute] ✅ 命中主路链播放缓存：fsId=\(fsId)")
+            recordBaiduRouteDiagnostic(stage: "主路链缓存", status: "命中", detail: "命中主路链 dlink 缓存", fsId: fsId, fileName: hintFileName)
+            return cached
+        }
+
+        let parsed = parseBaiduToken(bduss)
+        let webCookie = parsed.cookie
+        let parsedPcs = parseBaiduToken(pcsCookie)
+        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
+
+        if let itemResult = try? await baiduResolveViaIBoxPlayItem(
+            cacheKey: cacheKey,
+            shareURL: shareURL,
+            fsId: fsId,
+            fileName: hintFileName,
+            cookie: webCookie,
+            pcsCookie: pcs
+        ) {
+            let result = PlayResult(
+                url: itemResult.url,
+                headers: itemResult.headers,
+                driveType: .baidu,
+                source: "baidu-main-playitem"
+            )
+            baiduStorePlayResult(result, for: cacheKey)
+            return result
+        }
+
+        baiduLog("[Baidu-MainRoute] 开始独立主路链：fsId=\(fsId), file=\(hintFileName ?? "未知")")
+        recordBaiduRouteDiagnostic(stage: "主路链", status: "开始", detail: "准备按本机转存 + mediainfo 获取原画", fsId: fsId, fileName: hintFileName)
+
+        let pwd = extractBaiduPwd(from: shareURL)
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
+        let selected = context.files.first { $0.fsId == fsId }
+            ?? context.files.first { $0.fsId.trimmingCharacters(in: .whitespacesAndNewlines) == fsId.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let selected else {
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "文件未找到", detail: "分享列表未找到目标 fsId，pwd=\((pwd ?? "").isEmpty ? "无" : "有")", fsId: fsId, fileName: hintFileName)
+            throw DriveError.noPlayURL("主路链未找到目标文件")
+        }
+
+        let mergedCookie = baiduMergeCookieStrings([context.cookie, webCookie, pcs])
+        guard !mergedCookie.isEmpty else {
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "Cookie缺失", detail: "无法合并 BDUSS/PCS Cookie", fsId: fsId, fileName: selected.name)
+            throw DriveError.noPlayURL("主路链缺少百度 Cookie")
+        }
+
+        try await baiduEnsureVboxFolderLocal(cookie: mergedCookie)
+        let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
+        let filePath: String
+        let sourcePrefix: String
+        if let existingPath {
+            filePath = existingPath
+            sourcePrefix = "main-existing"
+            baiduLog("[Baidu-MainRoute] ✅ /vbox 命中已转存文件：\(filePath)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "path命中", detail: "命中 /vbox 已转存文件：\(filePath)", fsId: fsId, fileName: selected.name)
+        } else {
+            filePath = try await baiduTransferFileOnDevice(
+                shareid: context.shareid,
+                shareUk: context.shareUk,
+                fsId: selected.fsId,
+                fileName: selected.name,
+                cookie: mergedCookie
+            )
+            sourcePrefix = "main-transfer"
+            baiduLog("[Baidu-MainRoute] ✅ 本机转存完成：\(filePath)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "转存成功", detail: "已转存到：\(filePath)", fsId: fsId, fileName: selected.name)
+        }
+
+        let rawResult: PlayResult
+        let source: String
+        do {
+            rawResult = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie)
+            source = "\(sourcePrefix)-mediainfo"
+        } catch {
+            baiduLog("[Baidu-MainRoute] ⚠️ mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "mediainfo失败", detail: "尝试 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
+            rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie)
+            source = "\(sourcePrefix)-locatedownload"
+        }
+
+        let result = PlayResult(
+            url: rawResult.url,
+            headers: rawResult.headers,
+            driveType: .baidu,
+            source: source
+        )
+        let playItem = BaiduIBoxPlayItem(
+            shareURL: shareURL,
+            fsId: fsId,
+            fileName: selected.name,
+            path: filePath,
+            dlinkURL: result.url,
+            headers: result.headers,
+            dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+            compatibilityHint: baiduCompatibilityHint(fileName: selected.name),
+            preferredEngine: baiduPreferredEngine(fileName: selected.name),
+            preparedAt: Date(),
+            updatedAt: Date(),
+            lastUsedAt: Date(),
+            source: source
+        )
+        baiduStoreIBoxPlayItem(playItem, for: cacheKey)
+        baiduStorePlayResult(result, for: cacheKey)
+        recordBaiduRouteDiagnostic(stage: "主路链", status: "成功", detail: "source=\(source)，engine=\(playItem.preferredEngine)", fsId: fsId, fileName: selected.name)
+        baiduLog("[Baidu-MainRoute] ✅ 主路链原画地址获取成功：source=\(source), engine=\(playItem.preferredEngine)")
+        return result
     }
 
     @discardableResult
