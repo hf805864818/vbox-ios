@@ -883,6 +883,30 @@ class PlayerState: ObservableObject {
                 finalURLString = url
                 log("[PlayerV2] ⚠️ 夸克本地代理创建失败，回退直连")
             }
+        } else if isAliPlaybackURL(url) {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "ali") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 阿里云盘走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 阿里云盘本地代理创建失败，回退直连")
+            }
+        } else if isUCPlaybackURL(url) {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "uc") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] UC网盘走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ UC本地代理创建失败，回退直连")
+            }
+        } else if is115PlaybackURL(url) {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "115") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 115网盘走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 115本地代理创建失败，回退直连")
+            }
         } else {
             finalURLString = url
         }
@@ -897,6 +921,8 @@ class PlayerState: ObservableObject {
         let isBaiduLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("baidu-stream")
         let isQuarkLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-stream")
         let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
+        let isCloudLocalProxy = urlObj.host == "127.0.0.1"
+            && (urlObj.path.contains("ali-stream") || urlObj.path.contains("uc-stream") || urlObj.path.contains("115-stream"))
 
         if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
             await MainActor.run {
@@ -969,6 +995,9 @@ class PlayerState: ObservableObject {
                         self.log("[Baidu] ⚠️ 百度PCS流返回403，准备刷新直链后重试一次")
                         self.retryCurrentBaiduPlaybackAfterForbidden()
                         return
+                    }
+                    if isCloudLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
+                        self.log("[PlayerV2] ⚠️ 网盘本地代理返回403，建议重新进入播放刷新直链")
                     }
                     if isQuarkLocalProxy && self.isHTTPForbidden(errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[Quark] ⚠️ 夸克本地代理返回403，后续需要重新刷新 download_url")
@@ -1120,6 +1149,34 @@ class PlayerState: ObservableObject {
             "www.quark.cn"
         ]
         return !excluded.contains(host)
+    }
+
+    private func isAliPlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        if host.contains("aliyundrive.com") || host.contains("alipan.com") || host.contains("aliyunpds.com") {
+            return true
+        }
+        return host.hasSuffix(".aliyuncs.com") || host.contains("aliyun")
+    }
+
+    private func isUCPlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        if host == "uc.cn" || host.hasSuffix(".uc.cn") {
+            let excluded: Set<String> = ["drive.uc.cn", "pc-api.uc.cn", "www.uc.cn"]
+            return !excluded.contains(host)
+        }
+        return host.contains("ucdl") || host.contains("ucloud")
+    }
+
+    private func is115PlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        return host == "115.com"
+            || host.hasSuffix(".115.com")
+            || host.contains("115cdn.com")
+            || host.contains("anxia.com")
     }
 
     private func isUnsupportedMediaError(_ error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {

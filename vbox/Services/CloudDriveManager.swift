@@ -40,7 +40,7 @@ class CloudDriveManager: ObservableObject {
             case .ali: return "Refresh Token"
             case .quark: return "Cookie"
             case .baidu: return "完整 Cookie / BDUSS|STOKEN"
-            case .one15: return "CID"
+            case .one15: return "完整 Cookie / CID"
             case .uc: return "Cookie"
             }
         }
@@ -835,23 +835,42 @@ class CloudDriveManager: ObservableObject {
     // MARK: - 阿里云盘
 
     func resolveAliPlayURL(shareURL: String, refreshToken: String) async throws -> PlayResult {
+        print("[Ali] 开始解析: \(shareURL)")
         let tokenResult = try await aliRefreshAccessToken(refreshToken: refreshToken)
         let accessToken = tokenResult.accessToken
 
-        let shareId = extractAliShareId(from: shareURL)
-        let shareToken = try await aliGetShareToken(shareId: shareId, token: accessToken)
-        let fileId = try await aliGetShareFileList(shareId: shareId, shareToken: shareToken, token: accessToken)
+        let shareInfo = extractAliShareInfo(from: shareURL)
+        guard !shareInfo.shareId.isEmpty else { throw DriveError.invalidShareURL }
 
-        let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: fileId, token: accessToken)
+        let shareToken = try await aliGetShareToken(
+            shareId: shareInfo.shareId,
+            sharePwd: shareInfo.sharePwd,
+            token: accessToken
+        )
+        let file = try await aliFirstPlayableFile(
+            shareId: shareInfo.shareId,
+            parentFileId: "root",
+            shareToken: shareToken,
+            token: accessToken
+        )
+        print("[Ali] 选中资源：\(file.name), fileId=\(file.fileId)")
 
-        guard let playURL = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList?.first?.url else {
+        let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: file.fileId, shareToken: shareToken, token: accessToken)
+        let taskList = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList ?? []
+        let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
+        let selectedURL = qualityOrder.compactMap { quality in
+            taskList.first { ($0.templateId ?? "").uppercased().contains(quality) }?.url
+        }.first ?? taskList.first(where: { ($0.url ?? "").isEmpty == false })?.url
+
+        guard let playURL = selectedURL, !playURL.isEmpty else {
             throw DriveError.noPlayURL("阿里: 未获取到转码播放地址")
         }
 
         return PlayResult(
             url: playURL,
-            headers: ["Authorization": accessToken, "Referer": "https://www.aliyundrive.com/"],
-            driveType: .ali
+            headers: aliPlaybackHeaders(accessToken: accessToken, shareToken: shareToken),
+            driveType: .ali,
+            source: "share-token-preview"
         )
     }
 
@@ -869,29 +888,44 @@ class CloudDriveManager: ObservableObject {
         return try JSONDecoder().decode(AliTokenResponse.self, from: data)
     }
 
-    private func aliGetShareToken(shareId: String, token: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v3/share_file/get_share_token")!)
+    private func aliGetShareToken(shareId: String, sharePwd: String?, token: String) async throws -> String {
+        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/v2/share_link/get_share_token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "Authorization")
-        let body: [String: Any] = ["share_id": shareId]
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        var body: [String: Any] = ["share_id": shareId]
+        if let sharePwd, !sharePwd.isEmpty { body["share_pwd"] = sharePwd }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = json["code"] as? String,
+           code != "OK" {
+            let message = json["message"] as? String ?? code
+            throw DriveError.noPlayURL("阿里分享 token 获取失败：\(message)")
+        }
         let result = try JSONDecoder().decode(AliShareTokenResponse.self, from: data)
         return result.shareToken
     }
 
-    private func aliGetShareFileList(shareId: String, shareToken: String, token: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v2/file/get_share_link_file_list")!)
+    private struct AliShareFile {
+        let fileId: String
+        let name: String
+        let type: String
+        let category: String
+    }
+
+    private func aliGetShareFileList(shareId: String, parentFileId: String, shareToken: String, token: String) async throws -> [AliShareFile] {
+        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v3/file/list")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
         let body: [String: Any] = [
             "share_id": shareId,
-            "share_token": shareToken,
-            "parent_file_id": "root",
-            "limit": 20,
+            "parent_file_id": parentFileId,
+            "limit": 100,
             "order_by": "name",
             "order_direction": "ASC"
         ]
@@ -916,29 +950,53 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("阿里: 分享为空或已失效")
         }
 
-        guard let first = items.first else {
-            print("[Ali] ❌ 文件列表为空数组")
-            throw DriveError.noPlayURL("阿里: 分享中没有文件")
+        return items.compactMap { item in
+            let fileId = item["file_id"] as? String ?? ""
+            let name = item["name"] as? String ?? item["file_name"] as? String ?? ""
+            let type = item["type"] as? String ?? ""
+            let category = item["category"] as? String ?? ""
+            guard !fileId.isEmpty, !name.isEmpty else { return nil }
+            return AliShareFile(fileId: fileId, name: name, type: type, category: category)
         }
-
-        if let fid = first["file_id"] as? String {
-            print("[Ali] ✅ 获取到file_id: \(fid)")
-            return fid
-        } else if let fid = first["file_id"] as? Int {
-            print("[Ali] ✅ 获取到file_id(Int): \(fid)")
-            return String(fid)
-        }
-
-        print("[Ali] ❌ 无法从文件项中提取file_id")
-        throw DriveError.noPlayURL("阿里: 无法获取文件ID")
     }
 
-    private func aliGetVideoPreviewPlayInfo(fileId: String, token: String) async throws -> AliVideoPreviewResponse {
+    private func aliFirstPlayableFile(shareId: String, parentFileId: String, shareToken: String, token: String) async throws -> AliShareFile {
+        let files = try await aliGetShareFileList(
+            shareId: shareId,
+            parentFileId: parentFileId,
+            shareToken: shareToken,
+            token: token
+        )
+        if let playable = files.first(where: { aliIsPlayable(file: $0) }) {
+            return playable
+        }
+        for folder in files where folder.type.lowercased() == "folder" {
+            if let found = try? await aliFirstPlayableFile(
+                shareId: shareId,
+                parentFileId: folder.fileId,
+                shareToken: shareToken,
+                token: token
+            ) {
+                return found
+            }
+        }
+        throw DriveError.noPlayURL("阿里: 分享内未找到可播放视频")
+    }
+
+    private func aliIsPlayable(file: AliShareFile) -> Bool {
+        if file.category.lowercased() == "video" { return true }
+        let lower = file.name.lowercased()
+        return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "m4v"].contains { lower.hasSuffix(".\($0)") }
+    }
+
+    private func aliGetVideoPreviewPlayInfo(fileId: String, shareToken: String, token: String) async throws -> AliVideoPreviewResponse {
         let url = URL(string: "https://api.aliyundrive.com/adrive/v2/file/get_video_preview_play_info")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
         let body: [String: Any] = [
             "file_id": fileId,
             "category": "live_transcoding"
@@ -987,13 +1045,33 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
-    private func extractAliShareId(from url: String) -> String {
-        let pattern = #"/s/([^/?]+)"#
-        if let range = url.range(of: pattern, options: .regularExpression) {
-            let matched = String(url[range])
-            return matched.replacingOccurrences(of: "/s/", with: "")
+    private func extractAliShareInfo(from url: String) -> (shareId: String, sharePwd: String?) {
+        var shareId = ""
+        var sharePwd: String? = nil
+        if let range = url.range(of: #"/s/([^/?#]+)"#, options: .regularExpression) {
+            shareId = String(url[range]).replacingOccurrences(of: "/s/", with: "")
+        } else {
+            shareId = url.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return url
+        let queryItems = URLComponents(string: url)?.queryItems ?? []
+        sharePwd = queryItems.first(where: { ["pwd", "password", "share_pwd"].contains($0.name.lowercased()) })?.value
+        if sharePwd == nil, let range = url.range(of: #"(提取码|密码)[:：\s]*([A-Za-z0-9]{4,8})"#, options: .regularExpression) {
+            let matched = String(url[range])
+            sharePwd = matched.components(separatedBy: CharacterSet(charactersIn: ":： ")).last
+        }
+        return (shareId, sharePwd)
+    }
+
+    private func aliPlaybackHeaders(accessToken: String, shareToken: String) -> [String: String] {
+        [
+            "Authorization": "Bearer \(accessToken)",
+            "x-share-token": shareToken,
+            "Referer": "https://www.aliyundrive.com/",
+            "Origin": "https://www.aliyundrive.com",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 AliApp(AYSD/6.0.0) Mobile/15E148",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity"
+        ]
     }
 
     // MARK: - 夸克网盘
@@ -3775,17 +3853,26 @@ class CloudDriveManager: ObservableObject {
     // MARK: - 115 网盘
 
     func resolve115PlayURL(shareURL: String, cid: String) async throws -> PlayResult {
+        print("[115] 开始解析: \(shareURL)")
+        let cookie = normalize115Cookie(cid)
         let (shareCode, receiveCode) = try await extract115ShareCode(from: shareURL)
 
-        let snapResult = try await one15Snap(shareCode: shareCode, receiveCode: receiveCode, cid: cid)
+        let snapResult = try await one15FirstPlayableFile(
+            shareCode: shareCode,
+            receiveCode: receiveCode,
+            cid: "0",
+            cookie: cookie
+        )
 
-        guard let fileId = snapResult.fileId else { throw DriveError.noPlayURL("115: snap未返回文件ID") }
-        let downloadURL = try await one15GetDownloadURL(fileId: fileId, cid: cid)
+        guard let pickCode = snapResult.pickCode else { throw DriveError.noPlayURL("115: snap 未返回 pick_code") }
+        print("[115] 选中资源：\(snapResult.fileName ?? "未知文件"), pickCode=\(pickCode)")
+        let downloadURL = try await one15GetDownloadURL(pickCode: pickCode, cookie: cookie)
 
         return PlayResult(
             url: downloadURL,
-            headers: ["Cookie": "CID=\(cid)", "User-Agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"],
-            driveType: .one15
+            headers: one15PlaybackHeaders(cookie: cookie),
+            driveType: .one15,
+            source: "share-snap-downurl"
         )
     }
 
@@ -3793,11 +3880,14 @@ class CloudDriveManager: ObservableObject {
         var shareCode = ""
         var receiveCode = ""
 
-        if let range = url.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
+        if let range = url.range(of: #"/s/([^/?#]+)"#, options: .regularExpression) {
             shareCode = String(url[range]).replacingOccurrences(of: "/s/", with: "")
         }
-        if let range = url.range(of: #"password=([^&]+)"#, options: .regularExpression) {
-            receiveCode = String(url[range]).replacingOccurrences(of: "password=", with: "")
+        let queryItems = URLComponents(string: url)?.queryItems ?? []
+        receiveCode = queryItems.first(where: { ["password", "pwd", "passcode"].contains($0.name.lowercased()) })?.value ?? ""
+        if receiveCode.isEmpty, let range = url.range(of: #"(提取码|访问码|密码)[:：\s]*([A-Za-z0-9]{4,8})"#, options: .regularExpression) {
+            let matched = String(url[range])
+            receiveCode = matched.components(separatedBy: CharacterSet(charactersIn: ":： ")).last ?? ""
         }
 
         guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
@@ -3805,110 +3895,277 @@ class CloudDriveManager: ObservableObject {
     }
 
     private struct One15SnapResult {
-        let fileId: String?
+        let pickCode: String?
+        let cid: String?
         let fileName: String?
+        let isDir: Bool
     }
 
-    private func one15Snap(shareCode: String, receiveCode: String, cid: String) async throws -> One15SnapResult {
+    private func one15FirstPlayableFile(shareCode: String, receiveCode: String, cid: String, cookie: String) async throws -> One15SnapResult {
+        let list = try await one15Snap(shareCode: shareCode, receiveCode: receiveCode, cid: cid, cookie: cookie)
+        if let playable = list.first(where: { !$0.isDir && one15IsPlayableFileName($0.fileName ?? "") }) {
+            return playable
+        }
+        for dir in list where dir.isDir {
+            guard let nextCid = dir.cid, !nextCid.isEmpty else { continue }
+            if let found = try? await one15FirstPlayableFile(shareCode: shareCode, receiveCode: receiveCode, cid: nextCid, cookie: cookie) {
+                return found
+            }
+        }
+        throw DriveError.noPlayURL("115: 分享内未找到可播放视频")
+    }
+
+    private func one15Snap(shareCode: String, receiveCode: String, cid: String, cookie: String) async throws -> [One15SnapResult] {
         var components = URLComponents(string: "https://webapi.115.com/share/snap")!
         components.queryItems = [
             URLQueryItem(name: "share_code", value: shareCode),
             URLQueryItem(name: "receive_code", value: receiveCode),
-            URLQueryItem(name: "cid", value: "0"),
+            URLQueryItem(name: "cid", value: cid),
             URLQueryItem(name: "offset", value: "0"),
-            URLQueryItem(name: "limit", value: "20")
+            URLQueryItem(name: "limit", value: "100")
         ]
 
         var request = URLRequest(url: components.url!)
-        request.setValue("CID=\(cid)", forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let state = json["state"] as? Bool, state == true,
-              let dataDict = json["data"] as? [String: Any] else {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
+        if let state = json["state"] as? Bool, state == false {
+            let message = json["error"] as? String ?? json["message"] as? String ?? "115 snap 失败"
+            throw DriveError.noPlayURL("115: \(message)")
+        }
+        guard let dataDict = json["data"] as? [String: Any] else { throw DriveError.invalidResponse }
 
-        var fileId: String?
-        if let list = dataDict["list"] as? [[String: Any]], let first = list.first {
-            fileId = String(describing: first["file_id"] ?? first["id"] ?? "")
-        } else if let pickCode = dataDict["pick_code"] as? String {
-            fileId = pickCode
+        let rawList = (dataDict["list"] as? [[String: Any]])
+            ?? (dataDict["data"] as? [[String: Any]])
+            ?? []
+        let result = rawList.compactMap { item -> One15SnapResult? in
+            let name = item["n"] as? String
+                ?? item["file_name"] as? String
+                ?? item["name"] as? String
+            let pick = item["pc"] as? String
+                ?? item["pick_code"] as? String
+                ?? item["pickcode"] as? String
+            let itemCid = item["cid"] as? String
+                ?? item["fid"] as? String
+                ?? item["id"] as? String
+                ?? (item["cid"] as? Int).map { String($0) }
+            let isDir: Bool
+            if let boolValue = item["is_dir"] as? Bool {
+                isDir = boolValue
+            } else if let fc = item["fc"] as? String, !fc.isEmpty {
+                isDir = true
+            } else if let category = item["file_category"] as? String {
+                isDir = category == "0"
+            } else {
+                isDir = false
+            }
+            guard name != nil || pick != nil || itemCid != nil else { return nil }
+            return One15SnapResult(pickCode: pick, cid: itemCid, fileName: name, isDir: isDir)
+        }
+        if !result.isEmpty {
+            return result
         }
 
-        return One15SnapResult(fileId: fileId, fileName: dataDict["file_name"] as? String)
+        if let pickCode = (dataDict["pick_code"] as? String) ?? (dataDict["pickcode"] as? String) {
+            return [One15SnapResult(pickCode: pickCode, cid: dataDict["cid"] as? String, fileName: dataDict["file_name"] as? String, isDir: false)]
+        }
+
+        throw DriveError.noPlayURL("115: 分享列表为空")
     }
 
-    private func one15GetDownloadURL(fileId: String, cid: String) async throws -> String {
+    private func one15GetDownloadURL(pickCode: String, cookie: String) async throws -> String {
         var components = URLComponents(string: "https://proapi.115.com/app/chrome/downurl")!
-        components.queryItems = [URLQueryItem(name: "pickcode", value: fileId)]
+        components.queryItems = [URLQueryItem(name: "pickcode", value: pickCode)]
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
-        request.setValue("CID=\(cid)", forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let state = json["state"] as? Bool, state == true else {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
+        }
+        if let state = json["state"] as? Bool, state == false {
+            let message = json["error"] as? String ?? json["message"] as? String ?? "115 downurl 失败"
+            throw DriveError.noPlayURL("115: \(message)")
         }
 
         if let dataObj = json["data"] as? [String: Any] {
             for (_, value) in dataObj {
                 if let fileInfo = value as? [String: Any],
-                   let url = fileInfo["url"] as? String {
+                   let url = one15ExtractURL(from: fileInfo) {
                     return url
                 }
             }
         }
+        if let url = one15ExtractURL(from: json) { return url }
 
         throw DriveError.noPlayURL("115: 未获取到下载地址")
+    }
+
+    private func one15ExtractURL(from value: Any) -> String? {
+        if let text = value as? String, text.hasPrefix("http") {
+            return text
+        }
+        if let dict = value as? [String: Any] {
+            for key in ["url", "download_url", "dlink"] {
+                if let text = dict[key] as? String, text.hasPrefix("http") { return text }
+                if let nested = dict[key], let url = one15ExtractURL(from: nested) { return url }
+            }
+            for item in dict.values {
+                if let url = one15ExtractURL(from: item) { return url }
+            }
+        } else if let array = value as? [Any] {
+            for item in array {
+                if let url = one15ExtractURL(from: item) { return url }
+            }
+        }
+        return nil
+    }
+
+    private func normalize115Cookie(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("cookie:") {
+            return String(trimmed.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if trimmed.contains("=") {
+            return trimmed
+        }
+        return "CID=\(trimmed)"
+    }
+
+    private func one15PlaybackHeaders(cookie: String) -> [String: String] {
+        [
+            "Cookie": cookie,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36",
+            "Referer": "https://115.com/",
+            "Origin": "https://115.com",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity"
+        ]
+    }
+
+    private func one15IsPlayableFileName(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "m4v"].contains { lower.hasSuffix(".\($0)") }
     }
 
     // MARK: - UC 网盘
 
     func resolveUCPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
-        let shareId = extractUCShareId(from: shareURL)
+        print("[UC] 开始解析: \(shareURL)")
+        let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
+        guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
 
-        let folderId = try await ucEnsureFolder(cookie: cookie)
+        var authCookie = cookie
+        let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
+        authCookie = folder.cookie
+        let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+        let sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie)
+        print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
 
-        let fileIds = try await ucSaveShare(shareId: shareId, folderId: folderId, cookie: cookie)
-
+        let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
-        let playURL = try await ucGetPlayURL(fileId: fileId, cookie: cookie)
 
-        scheduleCleanup(drive: .uc, fileIds: fileIds, token: cookie, delay: 180)
+        var transcodeURL = ""
+        do {
+            transcodeURL = try await ucGetPlayURL(fileId: fileId, cookie: authCookie)
+        } catch {
+            print("[UC] ⚠️ v2/play 失败，继续尝试 download_url：\(error.localizedDescription)")
+        }
+        let download = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
+        let playURL = download.isEmpty ? transcodeURL : download
+        guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url 和转码地址均为空") }
 
+        scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
+
+        let headers = ucPlaybackHeaders(cookie: authCookie)
         return PlayResult(
             url: playURL,
-            headers: ["Cookie": cookie, "Referer": "https://drive.uc.cn/", "User-Agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"],
-            driveType: .uc
+            headers: headers,
+            driveType: .uc,
+            source: download.isEmpty ? "v2-play" : "download_url",
+            fallbackURL: (!download.isEmpty && !transcodeURL.isEmpty) ? transcodeURL : nil,
+            fallbackHeaders: (!download.isEmpty && !transcodeURL.isEmpty) ? headers : nil,
+            fallbackSource: (!download.isEmpty && !transcodeURL.isEmpty) ? "v2-play-m3u8" : nil
         )
     }
 
-    private func extractUCShareId(from url: String) -> String {
-        if let range = url.range(of: #"/s/([^/?]+)"#, options: .regularExpression) {
-            return String(url[range]).replacingOccurrences(of: "/s/", with: "")
-        }
-        return url
+    private struct UCShareFile {
+        let fid: String
+        let fileName: String
+        let shareFidToken: String
+        let pdirFid: String
+        let isDir: Bool
     }
 
-    private func ucSaveShare(shareId: String, folderId: String, cookie: String) async throws -> [String] {
-        let shareToken = try await ucGetShareToken(shareId: shareId, cookie: cookie)
+    private func ucExtractShareInfo(from url: String) -> (pwdId: String, passcode: String) {
+        var pwdId = ""
+        if let range = url.range(of: #"/s/([^/?#]+)"#, options: .regularExpression) {
+            pwdId = String(url[range]).replacingOccurrences(of: "/s/", with: "")
+        } else {
+            pwdId = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let queryItems = URLComponents(string: url)?.queryItems ?? []
+        let passcode = queryItems.first(where: { ["pwd", "passcode", "password"].contains($0.name.lowercased()) })?.value ?? ""
+        return (pwdId, passcode)
+    }
 
-        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/save")!)
-        request.httpMethod = "POST"
+    private func ucAPIURL(_ path: String, extra: [URLQueryItem] = []) -> URL {
+        var components = URLComponents(string: "https://pc-api.uc.cn\(path)")!
+        components.queryItems = [
+            URLQueryItem(name: "pr", value: "UCBrowser"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "ve", value: "1.8.5")
+        ] + extra
+        return components.url!
+    }
+
+    private func ucSetCommonHeaders(_ request: inout URLRequest, cookie: String, referer: String = "https://drive.uc.cn/") {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch", forHTTPHeaderField: "User-Agent")
+    }
 
-        var body: [String: Any] = [
-            "share_id": shareId,
-            "to_pdir_fid": folderId
+    private func ucShareReferer(pwdId: String) -> String {
+        "https://drive.uc.cn/s/\(pwdId)"
+    }
+
+    private func ucPlaybackHeaders(cookie: String) -> [String: String] {
+        [
+            "Cookie": cookie,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch",
+            "Referer": "https://drive.uc.cn/",
+            "Origin": "https://drive.uc.cn",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity"
         ]
-        if !shareToken.isEmpty { body["share_token"] = shareToken }
+    }
+
+    private func ucSaveShare(pwdId: String, stoken: String, file: UCShareFile, folderId: String, cookie: String) async throws -> [String] {
+        let url = ucAPIURL("/1/clouddrive/share/sharepage/save", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        ucSetCommonHeaders(&request, cookie: cookie, referer: ucShareReferer(pwdId: pwdId))
+        let body: [String: Any] = [
+            "fid_list": [file.fid],
+            "fid_token_list": [file.shareFidToken],
+            "to_pdir_fid": folderId,
+            "pwd_id": pwdId,
+            "stoken": stoken,
+            "pdir_fid": file.pdirFid,
+            "scene": "link"
+        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
@@ -3931,102 +4188,202 @@ class CloudDriveManager: ObservableObject {
         }
 
         if let dataObj = json["data"] as? [String: Any] {
-            if let list = dataObj["list"] as? [[String: Any]], let first = list.first {
-                if let fid = first["fid"] as? String { return [fid] }
-                else if let fid = first["fid"] as? Int { return [String(fid)] }
-                else if let fileId = first["file_id"] as? String { return [fileId] }
-                else if let fileId = first["file_id"] as? Int { return [String(fileId)] }
-            }
+            let taskResp = dataObj["task_resp"] as? [String: Any]
+            let taskData = taskResp?["data"] as? [String: Any]
+            let saveAs = taskData?["save_as"] as? [String: Any]
+            if let ids = saveAs?["save_as_top_fids"] as? [String], !ids.isEmpty { return ids }
+            if let ids = saveAs?["save_as_select_top_fids"] as? [String], !ids.isEmpty { return ids }
             if let fileIds = dataObj["file_ids"] as? [String] { return fileIds }
             if let fileIds = dataObj["file_ids"] as? [Int] { return fileIds.map { String($0) } }
+            if let list = dataObj["list"] as? [[String: Any]], !list.isEmpty {
+                let ids = list.compactMap { $0["fid"] as? String ?? $0["file_id"] as? String }
+                if !ids.isEmpty { return ids }
+            }
         }
 
-        return [shareId]
+        let recursiveIds = quarkExtractSavedFileIds(from: json, excluding: file.fid)
+        if !recursiveIds.isEmpty { return recursiveIds }
+
+        throw DriveError.noPlayURL("UC 转存成功但未返回已转存 fid")
     }
 
-    private func ucGetShareToken(shareId: String, cookie: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/share/sharepage/token")!)
+    private func ucGetShareToken(pwdId: String, passcode: String, cookie: String) async throws -> String {
+        let url = ucAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        ucSetCommonHeaders(&request, cookie: cookie, referer: ucShareReferer(pwdId: pwdId))
 
-        let body: [String: Any] = ["share_id": shareId]
+        let body: [String: Any] = ["pwd_id": pwdId, "passcode": passcode]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let stoken = dataObj["stoken"] as? String else {
-            return ""
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("UC 分享 token 获取失败：\(message)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let stoken = dataObj["stoken"] as? String,
+              !stoken.isEmpty else {
+            throw DriveError.noPlayURL("UC 未返回 stoken")
         }
         return stoken
     }
 
     private func ucEnsureFolder(cookie: String) async throws -> String {
-        let listURL = URL(string: "https://drive.uc.cn/1/clouddrive/file/sort")!
+        (try await ucEnsureFolderWithCookie(cookie: cookie)).folderId
+    }
+
+    private func ucEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
+        let listURL = ucAPIURL("/1/clouddrive/file/sort")
         var req = URLRequest(url: listURL)
         req.httpMethod = "POST"
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let body: [String: Any] = ["pdir_fid": "", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
+        ucSetCommonHeaders(&req, cookie: cookie)
+        let body: [String: Any] = ["pdir_fid": "0", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        if let (data, _) = try? await session.data(for: req),
+        if let (data, response) = try? await session.data(for: req),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let list = json["data"] as? [String: Any],
            let files = list["list"] as? [[String: Any]] {
+            let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
             for f in files {
-                if let name = f["file_name"] as? String, name == "vbox播放",
-                   let fid = f["fid"] as? String { return fid }
+                if let name = f["file_name"] as? String, name == "vbox",
+                   let fid = f["fid"] as? String { return (fid, mergedCookie) }
             }
         }
-        let createURL = URL(string: "https://drive.uc.cn/1/clouddrive/file")!
+        let createURL = ucAPIURL("/1/clouddrive/file")
         var createReq = URLRequest(url: createURL)
         createReq.httpMethod = "POST"
-        createReq.setValue(cookie, forHTTPHeaderField: "Cookie")
-        createReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        createReq.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let createBody: [String: Any] = ["pdir_fid": "", "file_name": "vbox播放", "dir": true, "dir_path": ""]
+        ucSetCommonHeaders(&createReq, cookie: cookie)
+        let createBody: [String: Any] = ["pdir_fid": "0", "file_name": "vbox", "dir": true, "dir_path": ""]
         createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
-        if let (createData, _) = try? await session.data(for: createReq),
+        if let (createData, response) = try? await session.data(for: createReq),
            let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
            let d = createJson["data"] as? [String: Any],
-           let fid = d["fid"] as? String { return fid }
-        return ""
+           let fid = d["fid"] as? String {
+            return (fid, quarkMergeSetCookie(from: response, into: cookie))
+        }
+        return ("0", cookie)
     }
 
     private func ucDeleteFiles(fileIds: [String], cookie: String) async {
         guard !fileIds.isEmpty else { return }
-        let url = URL(string: "https://drive.uc.cn/1/clouddrive/file/trash")!
+        let url = ucAPIURL("/1/clouddrive/file/delete")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let body: [String: Any] = ["file_ids": fileIds, "trash": true]
+        ucSetCommonHeaders(&req, cookie: cookie)
+        let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let _ = try? await session.data(for: req)
         print("[CloudDrive] ✅ UC 已删除 \(fileIds.count) 个转存文件")
     }
 
-    private func ucGetPlayURL(fileId: String, cookie: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://drive.uc.cn/1/clouddrive/file/v2/play")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+    private func ucFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> UCShareFile {
+        let files = try await ucGetShareDetail(pwdId: pwdId, stoken: stoken, pdirFid: pdirFid, cookie: cookie)
+        if let playable = files.first(where: { !$0.isDir && quarkIsPlayableFileName($0.fileName) }) {
+            return playable
+        }
+        for dir in files where dir.isDir {
+            if let found = try? await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: dir.fid, cookie: cookie) {
+                return found
+            }
+        }
+        throw DriveError.noPlayURL("UC 分享内未找到可播放视频")
+    }
 
-        let body: [String: Any] = ["file_id": fileId]
+    private func ucGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> [UCShareFile] {
+        let url = ucAPIURL("/1/clouddrive/share/sharepage/detail", extra: [
+            URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
+            URLQueryItem(name: "_fetch_banner", value: "1"),
+            URLQueryItem(name: "_fetch_total", value: "1"),
+            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_size", value: "100"),
+            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+            URLQueryItem(name: "pdir_fid", value: pdirFid),
+            URLQueryItem(name: "pwd_id", value: pwdId),
+            URLQueryItem(name: "stoken", value: stoken)
+        ])
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        ucSetCommonHeaders(&request, cookie: cookie, referer: ucShareReferer(pwdId: pwdId))
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("UC 文件列表失败：\(message)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["list"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("UC 文件列表为空")
+        }
+        return list.compactMap { item in
+            let fid = item["fid"] as? String ?? ""
+            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+            let token = item["share_fid_token"] as? String ?? item["fid_token"] as? String ?? ""
+            let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
+            guard !fid.isEmpty, !name.isEmpty else { return nil }
+            return UCShareFile(fid: fid, fileName: name, shareFidToken: token, pdirFid: pdirFid, isDir: isDir)
+        }
+    }
+
+    private func ucGetPlayURL(fileId: String, cookie: String) async throws -> String {
+        var request = URLRequest(url: ucAPIURL("/1/clouddrive/file/v2/play"))
+        request.httpMethod = "POST"
+        ucSetCommonHeaders(&request, cookie: cookie)
+
+        let body: [String: Any] = [
+            "fid": fileId,
+            "resolutions": "normal,low,high,super,2k,4k",
+            "supports": "fmp4,m3u8"
+        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let playURL = dataObj["play_url"] as? String else {
-            throw DriveError.noPlayURL("UC: 未返回播放地址")
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
         }
-        return playURL
+        if let dataObj = json["data"] as? [String: Any],
+           let videos = dataObj["video_list"] as? [[String: Any]] {
+            for item in videos {
+                guard (item["accessable"] as? Bool) != false,
+                      let info = item["video_info"] as? [String: Any],
+                      let url = info["url"] as? String,
+                      !url.isEmpty else { continue }
+                return url
+            }
+        }
+        if let dataObj = json["data"] as? [String: Any],
+           let playURL = dataObj["play_url"] as? String,
+           !playURL.isEmpty {
+            return playURL
+        }
+        if let playURL = json["play_url"] as? String, !playURL.isEmpty { return playURL }
+        throw DriveError.noPlayURL("UC: 未返回播放地址")
+    }
+
+    private func ucGetDownloadURL(fileId: String, cookie: String) async throws -> String {
+        var request = URLRequest(url: ucAPIURL("/1/clouddrive/file/download"))
+        request.httpMethod = "POST"
+        ucSetCommonHeaders(&request, cookie: cookie)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["fids": [fileId]])
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("UC download_url 获取失败：\(message)")
+        }
+        if let list = json["data"] as? [[String: Any]],
+           let first = list.first,
+           let url = first["download_url"] as? String {
+            return url
+        }
+        return ""
     }
 
     // MARK: - 统一解析入口
