@@ -1,0 +1,774 @@
+import Foundation
+import Combine
+import WebKit
+
+enum CloudDriveAuthType: String, Codable {
+    case manual
+    case qr
+    case webView
+    case oauth
+}
+
+enum CloudDriveAuthState: String, Codable {
+    case notAuthorized
+    case valid
+    case expiringSoon
+    case expired
+    case invalid
+    case unknown
+
+    var displayText: String {
+        switch self {
+        case .notAuthorized: return "未授权"
+        case .valid: return "正常"
+        case .expiringSoon: return "即将过期"
+        case .expired: return "已过期"
+        case .invalid: return "授权失效"
+        case .unknown: return "未检测"
+        }
+    }
+}
+
+struct CloudDriveCredential: Codable, Identifiable {
+    var id: String { driveType }
+    let driveType: String
+    var authType: CloudDriveAuthType
+    var accessToken: String?
+    var refreshToken: String?
+    var cookie: String?
+    var driveId: String?
+    var userId: String?
+    var userName: String?
+    var avatar: String?
+    var expiresAt: Date?
+    var updatedAt: Date
+    var lastCheckedAt: Date?
+    var state: CloudDriveAuthState
+    var statusMessage: String?
+    var extra: [String: String]
+
+    var displayName: String {
+        if let userName, !userName.isEmpty { return userName }
+        switch driveType {
+        case CloudDriveManager.DriveType.ali.rawValue: return "已授权账号"
+        case CloudDriveManager.DriveType.quark.rawValue: return "已授权账号"
+        case CloudDriveManager.DriveType.baidu.rawValue: return "已授权账号"
+        case CloudDriveManager.DriveType.one15.rawValue: return "已授权账号"
+        case CloudDriveManager.DriveType.uc.rawValue: return "已授权账号"
+        default: return "已授权账号"
+        }
+    }
+
+    var primarySecret: String? {
+        if let refreshToken, !refreshToken.isEmpty { return refreshToken }
+        if let cookie, !cookie.isEmpty { return cookie }
+        if let accessToken, !accessToken.isEmpty { return accessToken }
+        return nil
+    }
+}
+
+final class CloudDriveAuthManager: ObservableObject {
+    static let shared = CloudDriveAuthManager()
+
+    @Published private(set) var credentials: [String: CloudDriveCredential] = [:]
+
+    private let defaults = UserDefaults.standard
+    private let storageKey = "cloud_drive_credentials_v1"
+    private let session: URLSession
+    private let aliOAuthClientId = "76917ccccd4441c39457a04f6084fb2f"
+    private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
+
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        session = URLSession(configuration: config)
+        load()
+        syncLegacyTokensIfNeeded()
+    }
+
+    // MARK: - 阿里 OAuth
+
+    func exchangeAliOAuthCode(_ code: String) async throws {
+        var request = URLRequest(url: URL(string: "https://openapi.aliyundrive.com/oauth/access_token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "client_id": aliOAuthClientId,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": aliOAuthRedirectURI
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AuthError.invalidResponse("阿里 OAuth 返回无法解析")
+        }
+        if let code = json["code"] as? String, code != "OK" {
+            throw AuthError.remoteError(json["message"] as? String ?? code)
+        }
+
+        let refreshToken = json["refresh_token"] as? String
+        let accessToken = json["access_token"] as? String
+        let expiresIn = (json["expires_in"] as? Double) ?? Double(json["expires_in"] as? Int ?? 0)
+        let driveId = json["default_drive_id"] as? String
+            ?? json["drive_id"] as? String
+            ?? json["resource_drive_id"] as? String
+        let userName = json["user_name"] as? String
+            ?? json["nick_name"] as? String
+            ?? json["name"] as? String
+
+        guard let refreshToken, !refreshToken.isEmpty else {
+            throw AuthError.remoteError("阿里 OAuth 未返回 refresh_token")
+        }
+
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.ali.rawValue,
+            authType: .oauth,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            cookie: nil,
+            driveId: driveId,
+            userId: json["user_id"] as? String,
+            userName: userName,
+            avatar: json["avatar"] as? String,
+            expiresAt: expiresIn > 0 ? Date(timeIntervalSinceNow: expiresIn) : nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "阿里 OAuth 授权成功",
+            extra: json.compactMapValues { value in
+                if let text = value as? String { return text }
+                if let number = value as? NSNumber { return number.stringValue }
+                return nil
+            }
+        )
+        saveCredential(credential)
+    }
+
+    func refreshAliAccessTokenIfNeeded() async throws -> CloudDriveCredential {
+        guard var credential = credential(for: .ali),
+              let refreshToken = credential.refreshToken,
+              !refreshToken.isEmpty else {
+            throw AuthError.notAuthorized("阿里云盘未授权")
+        }
+        if let expiresAt = credential.expiresAt,
+           expiresAt.timeIntervalSinceNow > 5 * 60,
+           credential.accessToken?.isEmpty == false {
+            return credential
+        }
+
+        var request = URLRequest(url: URL(string: "https://auth.aliyundrive.com/v2/account/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken
+        ])
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AuthError.invalidResponse("阿里刷新 token 返回无法解析")
+        }
+        if let code = json["code"] as? String {
+            markInvalid(.ali, reason: json["message"] as? String ?? code)
+            throw AuthError.remoteError(json["message"] as? String ?? code)
+        }
+        credential.accessToken = json["access_token"] as? String ?? credential.accessToken
+        credential.refreshToken = json["refresh_token"] as? String ?? credential.refreshToken
+        credential.driveId = json["default_drive_id"] as? String ?? json["drive_id"] as? String ?? credential.driveId
+        let expiresIn = (json["expires_in"] as? Double) ?? Double(json["expires_in"] as? Int ?? 0)
+        if expiresIn > 0 { credential.expiresAt = Date(timeIntervalSinceNow: expiresIn) }
+        credential.state = .valid
+        credential.statusMessage = "阿里 token 已刷新"
+        credential.lastCheckedAt = Date()
+        credential.updatedAt = Date()
+        saveCredential(credential)
+        return credential
+    }
+
+    // MARK: - UC 原生扫码
+
+    struct UCQrLoginToken {
+        let token: String
+        let clientId: String
+        let pollClientId: String
+        let qrPayload: String
+    }
+
+    enum UCQrPollResult {
+        case pending
+        case success(serviceTicket: String)
+        case expired
+        case failed(message: String)
+    }
+
+    func ucCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> UCQrLoginToken {
+        var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        guard let token = extractString(json, keys: ["token", "qrcode_token"]) ?? extractNestedString(json, path: ["data", "members", "token"]) else {
+            throw AuthError.invalidResponse("UC 未返回二维码 token")
+        }
+        return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
+    }
+
+    func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
+        var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: token.pollClientId),
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased()),
+            URLQueryItem(name: "token", value: token.token)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        let status = json["status"] as? Int ?? json["code"] as? Int ?? -1
+        if status == 2000000 || status == 0 {
+            if let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
+                ?? extractString(json, keys: ["service_ticket", "ticket"]) {
+                return .success(serviceTicket: ticket)
+            }
+            return .failed(message: "UC 未返回 service_ticket")
+        }
+        if status == 50004001 { return .pending }
+        if [50004002, 50004003, 50004004].contains(status) { return .expired }
+        return .failed(message: json["message"] as? String ?? "UC 轮询状态码 \(status)")
+    }
+
+    func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
+        var components = URLComponents(string: "https://drive.uc.cn/account/info")!
+        components.queryItems = [
+            URLQueryItem(name: "st", value: serviceTicket),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "platform", value: "pc")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieAcceptPolicy = .always
+        config.httpShouldSetCookies = true
+        let oneShot = URLSession(configuration: config)
+        defer { oneShot.finishTasksAndInvalidate() }
+
+        let (data, response) = try await oneShot.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AuthError.remoteError("UC account/info HTTP 失败")
+        }
+        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
+        guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
+
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
+            ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.uc.rawValue,
+            authType: .qr,
+            accessToken: nil,
+            refreshToken: nil,
+            cookie: cookie,
+            driveId: nil,
+            userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
+            userName: userName,
+            avatar: extractNestedString(json ?? [:], path: ["data", "avatar"]) ?? extractString(json ?? [:], keys: ["avatar"]),
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "UC 扫码登录成功",
+            extra: [:]
+        )
+        saveCredential(credential)
+    }
+
+    // MARK: - 百度原生扫码
+
+    struct BaiduQrLoginToken {
+        let sign: String
+        let channelId: String
+        let qrURL: String
+    }
+
+    enum BaiduQrPollResult {
+        case pending
+        case scanned
+        case success(bdussURL: String?)
+        case expired
+        case failed(message: String)
+    }
+
+    func baiduCreateQrToken() async throws -> BaiduQrLoginToken {
+        var components = URLComponents(string: "https://passport.baidu.com/v2/api/getqrcode")!
+        components.queryItems = [
+            URLQueryItem(name: "lp", value: "pc"),
+            URLQueryItem(name: "qrloginfrom", value: "pc"),
+            URLQueryItem(name: "gid", value: UUID().uuidString.replacingOccurrences(of: "-", with: "")),
+            URLQueryItem(name: "apiver", value: "v3"),
+            URLQueryItem(name: "tt", value: timestampMS())
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        let sign = extractString(json, keys: ["sign"]) ?? extractNestedString(json, path: ["data", "sign"]) ?? ""
+        let channelId = extractString(json, keys: ["channel_id"]) ?? extractNestedString(json, path: ["data", "channel_id"]) ?? sign
+        let imgurl = extractString(json, keys: ["imgurl"]) ?? extractNestedString(json, path: ["data", "imgurl"]) ?? ""
+        guard !sign.isEmpty, !imgurl.isEmpty else {
+            throw AuthError.invalidResponse("百度未返回二维码 sign/imgurl")
+        }
+        let qrURL = imgurl.hasPrefix("http") ? imgurl : "https://\(imgurl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))"
+        return BaiduQrLoginToken(sign: sign, channelId: channelId, qrURL: qrURL)
+    }
+
+    func baiduPollQrStatus(token: BaiduQrLoginToken) async throws -> BaiduQrPollResult {
+        var components = URLComponents(string: "https://passport.baidu.com/channel/unicast")!
+        components.queryItems = [
+            URLQueryItem(name: "channel_id", value: token.channelId),
+            URLQueryItem(name: "tpl", value: "netdisk"),
+            URLQueryItem(name: "apiver", value: "v3"),
+            URLQueryItem(name: "tt", value: timestampMS())
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        let errno = json["errno"] as? Int ?? -1
+        if errno == 1 || errno == 2 { return .pending }
+        if errno == 0 {
+            var payload: [String: Any] = json
+            if let raw = json["channel_v"] as? String,
+               let rawData = raw.data(using: .utf8),
+               let nested = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any] {
+                payload = nested
+            }
+            let status = payload["status"] as? Int ?? -1
+            if status == 0 || status == 1 { return .scanned }
+            if status == 2 || payload["bduss"] != nil || payload["v"] != nil {
+                return .success(bdussURL: payload["v"] as? String)
+            }
+            return .pending
+        }
+        if errno == 3 || errno == 4 { return .expired }
+        return .failed(message: json["errmsg"] as? String ?? "百度轮询 errno=\(errno)")
+    }
+
+    func baiduExchangeQrLogin(token: BaiduQrLoginToken, bdussURL: String?) async throws {
+        var components = URLComponents(string: "https://passport.baidu.com/v3/login/main/qrbdusslogin")!
+        components.queryItems = [
+            URLQueryItem(name: "v", value: timestampMS()),
+            URLQueryItem(name: "bduss", value: token.sign),
+            URLQueryItem(name: "u", value: "https://pan.baidu.com/disk/main"),
+            URLQueryItem(name: "loginVersion", value: "v4"),
+            URLQueryItem(name: "qrcode", value: "1"),
+            URLQueryItem(name: "tpl", value: "netdisk")
+        ]
+        if let bdussURL, !bdussURL.isEmpty {
+            components.queryItems?.append(URLQueryItem(name: "url", value: bdussURL))
+        }
+        var request = URLRequest(url: components.url!)
+        request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieAcceptPolicy = .always
+        config.httpShouldSetCookies = true
+        let oneShot = URLSession(configuration: config)
+        defer { oneShot.finishTasksAndInvalidate() }
+        let (_, response) = try await oneShot.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AuthError.invalidResponse("百度登录无响应") }
+        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.baidu.com")!)
+        guard cookie.lowercased().contains("bduss=") else {
+            throw AuthError.invalidResponse("百度扫码未返回 BDUSS")
+        }
+        let vars = try? await baiduFetchTemplateVariables(cookie: cookie)
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.baidu.rawValue,
+            authType: .qr,
+            accessToken: nil,
+            refreshToken: nil,
+            cookie: cookie,
+            driveId: nil,
+            userId: vars?["uk"],
+            userName: vars?["username"] ?? "百度扫码账号",
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "百度扫码登录成功",
+            extra: vars ?? [:]
+        )
+        saveCredential(credential)
+    }
+
+    // MARK: - 授权有效性测试
+
+    @discardableResult
+    func validateCredential(for driveType: CloudDriveManager.DriveType) async -> Bool {
+        guard let credential = credential(for: driveType) else { return false }
+        do {
+            switch driveType {
+            case .ali:
+                _ = try await refreshAliAccessTokenIfNeeded()
+            case .one15:
+                try await validateCookie(url: "https://webapi.115.com/files?cid=0&limit=1", cookie: credential.cookie ?? "", referer: "https://115.com/")
+            case .quark:
+                try await validateCookie(url: "https://drive-pc.quark.cn/1/clouddrive/member?pr=ucpro&fr=pc&sys=darwin&ve=3.19.0", cookie: credential.cookie ?? "", referer: "https://pan.quark.cn/")
+            case .uc:
+                try await validateCookie(url: "https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc", cookie: credential.cookie ?? "", referer: "https://drive.uc.cn/")
+            case .baidu:
+                _ = try await baiduFetchTemplateVariables(cookie: credential.cookie ?? "")
+            }
+            markValid(driveType, message: "授权检测正常")
+            return true
+        } catch {
+            markInvalid(driveType, reason: error.localizedDescription)
+            return false
+        }
+    }
+
+    func credential(for driveType: CloudDriveManager.DriveType) -> CloudDriveCredential? {
+        credentials[driveType.rawValue]
+    }
+
+    func displayName(for driveType: CloudDriveManager.DriveType) -> String {
+        credential(for: driveType)?.displayName ?? "未授权"
+    }
+
+    func statusText(for driveType: CloudDriveManager.DriveType) -> String {
+        guard let credential = credential(for: driveType) else { return CloudDriveAuthState.notAuthorized.displayText }
+        if let expiresAt = credential.expiresAt {
+            if expiresAt < Date() { return CloudDriveAuthState.expired.displayText }
+            if expiresAt.timeIntervalSinceNow < 30 * 60 { return CloudDriveAuthState.expiringSoon.displayText }
+        }
+        if let checked = credential.lastCheckedAt {
+            return "\(credential.state.displayText) · \(Self.shortTime(checked))检测"
+        }
+        return credential.state.displayText
+    }
+
+    func isAuthorized(_ driveType: CloudDriveManager.DriveType) -> Bool {
+        guard let credential = credential(for: driveType) else { return false }
+        return credential.state != .invalid && credential.primarySecret?.isEmpty == false
+    }
+
+    func saveCredential(_ credential: CloudDriveCredential, syncLegacyToken: Bool = true) {
+        credentials[credential.driveType] = credential
+        persist()
+
+        guard syncLegacyToken,
+              let driveType = CloudDriveManager.DriveType(rawValue: credential.driveType),
+              let value = credential.primarySecret,
+              !value.isEmpty else { return }
+
+        let tokenName = credential.userName?.isEmpty == false
+            ? "\(driveType.displayName)-\(credential.userName!)"
+            : "\(driveType.displayName)-\(credential.authType.rawValue)"
+        CloudDriveManager.shared.addOrReplaceToken(type: driveType, name: tokenName, value: value)
+    }
+
+    func saveManualCredential(type: CloudDriveManager.DriveType, name: String, value: String) {
+        let normalized = normalizedSecret(type: type, value: value)
+        var credential = CloudDriveCredential(
+            driveType: type.rawValue,
+            authType: .manual,
+            accessToken: type == .ali ? normalized : nil,
+            refreshToken: type == .ali ? normalized : nil,
+            cookie: type == .ali ? nil : normalized,
+            driveId: nil,
+            userId: nil,
+            userName: name.isEmpty ? nil : name,
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: nil,
+            state: .unknown,
+            statusMessage: nil,
+            extra: [:]
+        )
+        if type == .baidu {
+            credential.cookie = normalized
+            credential.refreshToken = nil
+            credential.accessToken = nil
+        }
+        saveCredential(credential, syncLegacyToken: false)
+    }
+
+    func markInvalid(_ driveType: CloudDriveManager.DriveType, reason: String) {
+        guard var credential = credentials[driveType.rawValue] else { return }
+        credential.state = .invalid
+        credential.statusMessage = reason
+        credential.lastCheckedAt = Date()
+        credential.updatedAt = Date()
+        credentials[driveType.rawValue] = credential
+        persist()
+    }
+
+    func markValid(_ driveType: CloudDriveManager.DriveType, message: String? = nil) {
+        guard var credential = credentials[driveType.rawValue] else { return }
+        credential.state = .valid
+        credential.statusMessage = message
+        credential.lastCheckedAt = Date()
+        credential.updatedAt = Date()
+        credentials[driveType.rawValue] = credential
+        persist()
+    }
+
+    func removeCredential(for driveType: CloudDriveManager.DriveType) {
+        credentials.removeValue(forKey: driveType.rawValue)
+        persist()
+    }
+
+    func bestTokenValue(for driveType: CloudDriveManager.DriveType) -> String? {
+        credential(for: driveType)?.primarySecret
+    }
+
+    func saveQuarkLogin(cookie: String, nickName: String?, avatarURL: String?) {
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.quark.rawValue,
+            authType: .qr,
+            accessToken: nil,
+            refreshToken: nil,
+            cookie: cookie,
+            driveId: nil,
+            userId: nil,
+            userName: nickName,
+            avatar: avatarURL,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "夸克扫码登录成功",
+            extra: [:]
+        )
+        saveCredential(credential)
+    }
+
+    func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) {
+        let credential = CloudDriveCredential(
+            driveType: type.rawValue,
+            authType: .webView,
+            accessToken: nil,
+            refreshToken: type == .ali ? cookie : nil,
+            cookie: type == .ali ? nil : cookie,
+            driveId: nil,
+            userId: nil,
+            userName: userName,
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: nil,
+            state: .unknown,
+            statusMessage: "WebView 已保存授权",
+            extra: [:]
+        )
+        saveCredential(credential)
+    }
+
+    nonisolated static func cookieString(from cookies: [HTTPCookie]) -> String {
+        cookies
+            .filter { !$0.name.isEmpty && !$0.value.isEmpty }
+            .map { "\($0.name)=\($0.value)" }
+            .joined(separator: "; ")
+    }
+
+    private func normalizedSecret(type: CloudDriveManager.DriveType, value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch type {
+        case .one15:
+            if trimmed.lowercased().hasPrefix("cookie:") {
+                return String(trimmed.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if trimmed.contains("=") { return trimmed }
+            return "CID=\(trimmed)"
+        default:
+            return trimmed
+        }
+    }
+
+    private var ucUserAgent: String {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch"
+    }
+
+    private var baiduUserAgent: String {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    }
+
+    private func ucQRCodePayload(token: String, clientId: String) -> String {
+        var components = URLComponents(string: "https://su.uc.cn/4_eMHBJ")!
+        components.queryItems = [
+            URLQueryItem(name: "token", value: token),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ssb", value: "weblogin"),
+            URLQueryItem(name: "uc_param_str", value: ""),
+            URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
+        ]
+        return components.url?.absoluteString ?? "https://su.uc.cn/4_eMHBJ?token=\(token)&client_id=\(clientId)&ssb=weblogin"
+    }
+
+    private func timestampMS() -> String {
+        String(Int(Date().timeIntervalSince1970 * 1000))
+    }
+
+    private func parseJSON(_ data: Data) throws -> [String: Any] {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AuthError.invalidResponse("返回不是 JSON 对象")
+        }
+        return json
+    }
+
+    private func extractString(_ json: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = json[key] as? String, !value.isEmpty { return value }
+            if let value = json[key] as? NSNumber { return value.stringValue }
+        }
+        return nil
+    }
+
+    private func extractNestedString(_ json: [String: Any], path: [String]) -> String? {
+        var current: Any = json
+        for key in path {
+            guard let dict = current as? [String: Any], let next = dict[key] else { return nil }
+            current = next
+        }
+        if let value = current as? String, !value.isEmpty { return value }
+        if let value = current as? NSNumber { return value.stringValue }
+        return nil
+    }
+
+    private func collectCookies(from http: HTTPURLResponse, storage: HTTPCookieStorage?, url: URL) -> String {
+        var cookieDict: [String: String] = [:]
+        var headers: [String: String] = [:]
+        for (key, value) in http.allHeaderFields { headers["\(key)"] = "\(value)" }
+        for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
+            cookieDict[cookie.name] = cookie.value
+        }
+        if let cookies = storage?.cookies(for: url) {
+            for cookie in cookies { cookieDict[cookie.name] = cookie.value }
+        }
+        if let raw = http.allHeaderFields["Set-Cookie"] as? String {
+            for piece in raw.components(separatedBy: ", ") {
+                guard let kv = piece.components(separatedBy: ";").first,
+                      let eq = kv.firstIndex(of: "=") else { continue }
+                let key = String(kv[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(kv[kv.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !key.isEmpty, !value.isEmpty { cookieDict[key] = value }
+            }
+        }
+        return cookieDict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    private func baiduFetchTemplateVariables(cookie: String) async throws -> [String: String] {
+        guard !cookie.isEmpty else { throw AuthError.notAuthorized("百度 Cookie 为空") }
+        var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
+        components.queryItems = [
+            URLQueryItem(name: "clienttype", value: "0"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "fields", value: "[\"bdstoken\",\"token\",\"uk\",\"username\",\"servertime\"]")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        let (data, _) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        if let errno = json["errno"] as? Int, errno != 0 {
+            throw AuthError.remoteError("百度登录态异常 errno=\(errno)")
+        }
+        let result = (json["result"] as? [String: Any]) ?? json
+        var output: [String: String] = [:]
+        for key in ["bdstoken", "token", "uk", "username", "servertime"] {
+            if let value = result[key] as? String { output[key] = value }
+            if let value = result[key] as? NSNumber { output[key] = value.stringValue }
+        }
+        guard output["bdstoken"] != nil || output["uk"] != nil else {
+            throw AuthError.invalidResponse("百度未返回 bdstoken/uk")
+        }
+        return output
+    }
+
+    private func validateCookie(url: String, cookie: String, referer: String) async throws {
+        guard !cookie.isEmpty else { throw AuthError.notAuthorized("Cookie 为空") }
+        var request = URLRequest(url: URL(string: url)!)
+        request.httpMethod = url.contains("/file/sort") ? "POST" : "GET"
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        if request.httpMethod == "POST" {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["pdir_fid": "0", "page": 1, "size": 1])
+        }
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+            throw AuthError.remoteError("HTTP \(http.statusCode)")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let state = json["state"] as? Bool, state == false {
+                throw AuthError.remoteError(json["error"] as? String ?? json["message"] as? String ?? "Cookie 无效")
+            }
+            if let code = json["code"] as? Int, code == 401 || code == 403 || code == 40001 {
+                throw AuthError.remoteError(json["message"] as? String ?? "Cookie 无效 code=\(code)")
+            }
+        }
+    }
+
+    private func load() {
+        guard let data = defaults.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([String: CloudDriveCredential].self, from: data) else {
+            credentials = [:]
+            return
+        }
+        credentials = decoded
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(credentials) else { return }
+        defaults.set(data, forKey: storageKey)
+    }
+
+    private func syncLegacyTokensIfNeeded() {
+        for token in CloudDriveManager.shared.savedTokens {
+            guard let type = CloudDriveManager.DriveType(rawValue: token.type),
+                  credentials[type.rawValue] == nil else { continue }
+            saveManualCredential(type: type, name: token.name, value: token.value)
+        }
+    }
+
+    private static func shortTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+enum AuthError: LocalizedError {
+    case invalidResponse(String)
+    case remoteError(String)
+    case notAuthorized(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse(let message): return message
+        case .remoteError(let message): return message
+        case .notAuthorized(let message): return message
+        }
+    }
+}

@@ -225,7 +225,11 @@ final class DoubanImageProxyServer {
         }
 
         let pathAndQuery = String(parts[1])
-        if pathAndQuery.hasPrefix("/baidu-stream") || pathAndQuery.hasPrefix("/quark-stream") {
+        if pathAndQuery.hasPrefix("/baidu-stream")
+            || pathAndQuery.hasPrefix("/quark-stream")
+            || pathAndQuery.hasPrefix("/ali-stream")
+            || pathAndQuery.hasPrefix("/uc-stream")
+            || pathAndQuery.hasPrefix("/115-stream") {
             routeStream(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }
@@ -345,6 +349,39 @@ final class DoubanImageProxyServer {
                 request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
             }
             // identity 避免上游返回 gzip 后被中间层错误处理；分片直链本身就是字节流，不需要再压缩。
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        } else if item.provider == "ali" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 AliApp(AYSD/6.0.0) Mobile/15E148", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://www.aliyundrive.com", forHTTPHeaderField: "Origin")
+            }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        } else if item.provider == "uc" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+            }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        } else if item.provider == "115" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://115.com", forHTTPHeaderField: "Origin")
+            }
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
@@ -738,6 +775,9 @@ final class DoubanImageProxyServer {
         return host.contains("baidupcs.com")
             || host == "d.pcs.baidu.com"
             || isQuarkPlaybackHost(host)
+            || isAliPlaybackHost(host)
+            || isUCPlaybackHost(host)
+            || is115PlaybackHost(host)
     }
 
     private func isAllowedQuarkM3U8URL(_ rawURL: String) -> Bool {
@@ -779,6 +819,35 @@ final class DoubanImageProxyServer {
             return true
         }
         return false
+    }
+
+    private func isAliPlaybackHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower.contains("aliyundrive.com") || lower.contains("alipan.com") || lower.contains("aliyunpds.com") {
+            return true
+        }
+        return lower.hasSuffix(".aliyuncs.com") || lower.contains("aliyun")
+    }
+
+    private func isUCPlaybackHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower == "uc.cn" || lower.hasSuffix(".uc.cn") {
+            let excluded: Set<String> = [
+                "drive.uc.cn",
+                "pc-api.uc.cn",
+                "www.uc.cn"
+            ]
+            return !excluded.contains(lower)
+        }
+        return lower.contains("ucdl") || lower.contains("ucloud")
+    }
+
+    private func is115PlaybackHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        return lower == "115.com"
+            || lower.hasSuffix(".115.com")
+            || lower.contains("115cdn.com")
+            || lower.contains("anxia.com")
     }
 
     private func cleanupExpiredStreams() {

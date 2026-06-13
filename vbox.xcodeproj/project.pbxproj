@@ -67,6 +67,7 @@
 		A10036 /* MPVKitDebugPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MPVKitDebugPlayerView.swift */; };
 		A10037 /* MPVRenderContextDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MPVRenderContextDebugView.swift */; };
 		A10038 /* LibmpvMoltenVKDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* LibmpvMoltenVKDebugView.swift */; };
+		A10136 /* CloudDriveAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10136 /* CloudDriveAuthManager.swift */; };
 
 /* Begin PBXFileReference section */
 		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
@@ -125,6 +126,7 @@
 		B10036 /* MPVKitDebugPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitDebugPlayerView.swift; sourceTree = "<group>"; };
 		B10037 /* MPVRenderContextDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextDebugView.swift; sourceTree = "<group>"; };
 		B10038 /* LibmpvMoltenVKDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibmpvMoltenVKDebugView.swift; sourceTree = "<group>"; };
+		B10136 /* CloudDriveAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveAuthManager.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
@@ -184,6 +186,7 @@
 				B10033 /* BaiduWebViewBridge.swift */,
 				B10034 /* DoubanImageProxyServer.swift */,
 				B11000 /* BaiduProxyClient.swift */,
+				B10136 /* CloudDriveAuthManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -373,6 +376,7 @@
 				A10036 /* MPVKitDebugPlayerView.swift in Sources */,
 				A10037 /* MPVRenderContextDebugView.swift in Sources */,
 				A10038 /* LibmpvMoltenVKDebugView.swift in Sources */,
+				A10136 /* CloudDriveAuthManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -456,7 +460,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_IDENTITY = "Apple Development";
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 191;
+					CURRENT_PROJECT_VERSION = 192;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV", "$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -469,7 +473,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.191;
+					MARKETING_VERSION = 3.192;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
@@ -486,7 +490,7 @@
 					ASSETCATALOG_COMPILER_APPICON_NAME = "";
 					CODE_SIGN_IDENTITY = "";
 					CODE_SIGN_STYLE = Manual;
-					CURRENT_PROJECT_VERSION = 191;
+					CURRENT_PROJECT_VERSION = 192;
 					GENERATE_INFOPLIST_FILE = YES;
 					FRAMEWORK_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries/MPV", "$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies");
 					HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
@@ -499,7 +503,7 @@
 					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 					LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
 					LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/vbox/Libraries");
-					MARKETING_VERSION = 3.191;
+					MARKETING_VERSION = 3.192;
 					OTHER_LDFLAGS = ("-lquickjs", "-lobjc", "-framework", "Foundation");
 					PRODUCT_BUNDLE_IDENTIFIER = com.vbox.iosplayer;
 					PRODUCT_NAME = "$(TARGET_NAME)";
