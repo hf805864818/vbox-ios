@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 
 struct DriveToken: Codable {
     let type: String
@@ -52,6 +53,8 @@ class CloudDriveManager: ObservableObject {
     private let baiduPersistedPlayItemCacheKey = "baidu_play_item_cache_v1"
     private let baiduIBoxPlayItemCacheKey = "baidu_ibox_play_item_cache_v1"
     private let baiduFileListCacheKey = "baidu_file_list_cache_v1"
+    private let baiduShareContextCacheKey = "baidu_share_context_cache_v1"
+    private let baiduVerifyCooldownKey = "baidu_verify_cooldown_v1"
     private let unifiedCloudPlayItemCacheKey = "cloud_play_item_cache_v1"
     private let baiduRouteDiagnosticsKey = "baidu_route_diagnostics_v1"
     private struct BaiduPlayCacheItem {
@@ -88,6 +91,17 @@ class CloudDriveManager: ObservableObject {
     }
     private struct BaiduFileListCacheItem: Codable {
         let files: [BaiduFileItem]
+        let expiresAt: Date
+    }
+    private struct BaiduShareContext: Codable {
+        let shareURL: String
+        let surl: String
+        let pwd: String?
+        let shareid: String
+        let shareUk: String
+        let cookie: String
+        let files: [BaiduFileItem]
+        let source: String
         let expiresAt: Date
     }
     struct BaiduPlaybackCacheSummary {
@@ -207,6 +221,10 @@ class CloudDriveManager: ObservableObject {
         "\(shareURL)|\(baiduStableHash(bduss))"
     }
 
+    private func baiduShareContextKey(shareURL: String, cookie: String) -> String {
+        "\(shareURL)|\(baiduStableHash(cookie))"
+    }
+
     private func baiduCachedPlayResult(for key: String) -> PlayResult? {
         baiduPlayCacheLock.lock()
         if let item = baiduPlayCache[key] {
@@ -248,6 +266,93 @@ class CloudDriveManager: ObservableObject {
             cache = cache.filter { $0.value.expiresAt > now }
         }
         baiduSavePersistedFileListCache(cache)
+    }
+
+    private func baiduCachedShareContext(for key: String) -> BaiduShareContext? {
+        var cache = baiduLoadPersistedShareContextCache()
+        guard let context = cache[key] else { return nil }
+        if context.expiresAt > Date(), !context.shareid.isEmpty, !context.shareUk.isEmpty, !context.files.isEmpty {
+            return context
+        }
+        cache.removeValue(forKey: key)
+        baiduSavePersistedShareContextCache(cache)
+        return nil
+    }
+
+    private func baiduStoreShareContext(
+        shareURL: String,
+        surl: String,
+        pwd: String?,
+        shareid: String,
+        shareUk: String,
+        cookie: String,
+        files: [BaiduFileItem],
+        source: String,
+        key: String,
+        ttl: TimeInterval = 8 * 60 * 60
+    ) {
+        guard !shareid.isEmpty, !shareUk.isEmpty, !files.isEmpty else { return }
+        var cache = baiduLoadPersistedShareContextCache()
+        cache[key] = BaiduShareContext(
+            shareURL: shareURL,
+            surl: surl,
+            pwd: pwd,
+            shareid: shareid,
+            shareUk: shareUk,
+            cookie: cookie,
+            files: files,
+            source: source,
+            expiresAt: Date().addingTimeInterval(ttl)
+        )
+        if cache.count > 60 {
+            let now = Date()
+            cache = cache.filter { $0.value.expiresAt > now }
+        }
+        baiduSavePersistedShareContextCache(cache)
+    }
+
+    private func baiduLoadPersistedShareContextCache() -> [String: BaiduShareContext] {
+        guard let data = defaults.data(forKey: baiduShareContextCacheKey),
+              let cache = try? JSONDecoder().decode([String: BaiduShareContext].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func baiduSavePersistedShareContextCache(_ cache: [String: BaiduShareContext]) {
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: baiduShareContextCacheKey)
+        }
+    }
+
+    private func baiduVerifyCooldownCache() -> [String: Date] {
+        guard let data = defaults.data(forKey: baiduVerifyCooldownKey),
+              let cache = try? JSONDecoder().decode([String: Date].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func baiduIsVerifyCoolingDown(_ key: String) -> Bool {
+        var cache = baiduVerifyCooldownCache()
+        let now = Date()
+        cache = cache.filter { $0.value > now }
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: baiduVerifyCooldownKey)
+        }
+        return (cache[key] ?? .distantPast) > now
+    }
+
+    private func baiduMarkVerifyCooldown(_ key: String, seconds: TimeInterval = 10 * 60) {
+        var cache = baiduVerifyCooldownCache()
+        cache[key] = Date().addingTimeInterval(seconds)
+        if cache.count > 60 {
+            let now = Date()
+            cache = cache.filter { $0.value > now }
+        }
+        if let data = try? JSONEncoder().encode(cache) {
+            defaults.set(data, forKey: baiduVerifyCooldownKey)
+        }
     }
 
     private func baiduLoadPersistedFileListCache() -> [String: BaiduFileListCacheItem] {
@@ -536,7 +641,9 @@ class CloudDriveManager: ObservableObject {
             baiduPersistedPlayCacheKey,
             baiduPersistedPlayItemCacheKey,
             baiduIBoxPlayItemCacheKey,
-            baiduFileListCacheKey
+            baiduFileListCacheKey,
+            baiduShareContextCacheKey,
+            baiduVerifyCooldownKey
         ].reduce(0) { total, key in
             total + (defaults.data(forKey: key)?.count ?? 0)
         }
@@ -570,6 +677,14 @@ class CloudDriveManager: ObservableObject {
 
         var fileLists = baiduLoadPersistedFileListCache().filter { $0.value.expiresAt > now }
         baiduSavePersistedFileListCache(fileLists)
+
+        let shareContexts = baiduLoadPersistedShareContextCache().filter { $0.value.expiresAt > now }
+        baiduSavePersistedShareContextCache(shareContexts)
+
+        let verifyCooldowns = baiduVerifyCooldownCache().filter { $0.value > now }
+        if let data = try? JSONEncoder().encode(verifyCooldowns) {
+            defaults.set(data, forKey: baiduVerifyCooldownKey)
+        }
 
         var iBoxItems = baiduLoadPersistedIBoxPlayItemCache()
         for (key, item) in iBoxItems {
@@ -613,6 +728,8 @@ class CloudDriveManager: ObservableObject {
         defaults.removeObject(forKey: baiduPersistedPlayItemCacheKey)
         defaults.removeObject(forKey: baiduIBoxPlayItemCacheKey)
         defaults.removeObject(forKey: baiduFileListCacheKey)
+        defaults.removeObject(forKey: baiduShareContextCacheKey)
+        defaults.removeObject(forKey: baiduVerifyCooldownKey)
         clearUnifiedCloudPlayItems(provider: .baidu)
 
         baiduLog("[Baidu-Cache] 已清空全部百度播放缓存")
@@ -1804,18 +1921,20 @@ class CloudDriveManager: ObservableObject {
             return cached
         }
 
-        if let files = try? await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie) {
-            baiduStoreFileList(files, for: cacheKey)
-            recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker成功", detail: "Worker 返回 \(files.count) 个文件")
-            return files
+        do {
+            let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+            baiduStoreFileList(context.files, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机成功", detail: "本机直连解析返回 \(context.files.count) 个文件")
+            return context.files
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ 本机文件列表解析失败，才回退旧 Worker 列表兜底：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机失败", detail: "本机解析失败，回退旧 Worker 列表兜底：\(error.localizedDescription)")
         }
 
-        baiduLog("[Baidu-Worker] ⚠️ 文件列表代理失败，回退直连解析")
-        recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker失败", detail: "文件列表代理失败，回退本机直连解析")
-        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
-        baiduStoreFileList(context.files, for: cacheKey)
-        recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机成功", detail: "本机解析返回 \(context.files.count) 个文件")
-        return context.files
+        let files = try await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie)
+        baiduStoreFileList(files, for: cacheKey)
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "旧Worker兜底成功", detail: "旧 Worker 返回 \(files.count) 个文件")
+        return files
     }
 
     func resolveBaiduPlayURL(shareURL: String, bduss: String, pcsCookie: String = "") async throws -> PlayResult {
@@ -2321,7 +2440,7 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+    private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String, source: String = "local-mediainfo") async throws -> PlayResult {
         let deviceId = baiduStableDeviceId()
         var components = URLComponents(string: "https://pan.baidu.com/api/mediainfo")!
         components.queryItems = [
@@ -2361,7 +2480,7 @@ class CloudDriveManager: ObservableObject {
         if let dlink, !dlink.isEmpty {
             let errno = json["errno"] as? Int ?? 0
             baiduLog("[Baidu-DLNA] ✅ mediainfo 返回 dlink：errno=\(errno), url=\(dlink.prefix(80))...")
-            return baiduPlayResult(url: dlink, cookie: cookie)
+            return baiduPlayResult(url: dlink, cookie: cookie, source: source)
         }
 
         let errno = json["errno"] as? Int ?? -1
@@ -2370,7 +2489,7 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("百度 DLNA 未返回 dlink：\(msg)")
     }
 
-    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String, source: String = "local-locatedownload") async throws -> PlayResult {
         let deviceId = baiduStableDeviceId()
         var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
         components.queryItems = [
@@ -2434,10 +2553,10 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-LocalPCS] ✅ 本机取链成功：\(locatedURL.prefix(80))...")
-        return baiduPlayResult(url: locatedURL, cookie: cookie)
+        return baiduPlayResult(url: locatedURL, cookie: cookie, source: source)
     }
 
-    private func baiduPlayResult(url: String, cookie: String) -> PlayResult {
+    private func baiduPlayResult(url: String, cookie: String, source: String? = nil) -> PlayResult {
         PlayResult(
             url: url,
             headers: [
@@ -2448,8 +2567,167 @@ class CloudDriveManager: ObservableObject {
                 "Origin": "https://pan.baidu.com",
                 "X-Device-ID": baiduStableDeviceId()
             ],
-            driveType: .baidu
+            driveType: .baidu,
+            source: source
         )
+    }
+
+    private func baiduResolveShareDLNADlink(
+        context: (shareid: String, shareUk: String, surl: String, cookie: String, files: [BaiduFileItem]),
+        fsId: String,
+        cookie: String,
+        pcsCookie: String
+    ) async throws -> PlayResult {
+        let mergedCookie = baiduMergeCookieStrings([context.cookie, cookie, pcsCookie])
+        let deviceId = baiduStableDeviceId()
+        let time = String(Int(Date().timeIntervalSince1970 * 1000))
+        let sekey = baiduCookieValue(mergedCookie, named: "randsk") ?? baiduCookieValue(mergedCookie, named: "BDCLND") ?? ""
+        let randUID = baiduCookieValue(mergedCookie, named: "BAIDUID") ?? context.shareUk
+        let bduss = baiduCookieValue(mergedCookie, named: "BDUSS") ?? ""
+        let rand = baiduShareDLNARand(bduss: bduss, uid: randUID, time: time, deviceId: deviceId)
+
+        var components = URLComponents(string: "https://pan.baidu.com/share/list")!
+        components.queryItems = [
+            URLQueryItem(name: "shareid", value: context.shareid),
+            URLQueryItem(name: "uk", value: context.shareUk),
+            URLQueryItem(name: "fid", value: fsId),
+            URLQueryItem(name: "sekey", value: sekey.removingPercentEncoding ?? sekey),
+            URLQueryItem(name: "origin", value: "dlna"),
+            URLQueryItem(name: "devuid", value: deviceId),
+            URLQueryItem(name: "clienttype", value: "1"),
+            URLQueryItem(name: "channel", value: "android_12_zhao_bd-netdisk_1024266h"),
+            URLQueryItem(name: "version", value: "11.30.2"),
+            URLQueryItem(name: "time", value: time),
+            URLQueryItem(name: "rand", value: rand)
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 18
+        request.setValue(mergedCookie, forHTTPHeaderField: "Cookie")
+        request.setValue("netdisk;P2SP;2.2.91.136;android-android;", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+
+        baiduLog("[Baidu-MainRoute] 尝试 App-DLNA 分享原画：shareid=\(context.shareid), uk=\(context.shareUk), fsId=\(fsId)")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            throw DriveError.noPlayURL("分享 App-DLNA HTTP \(status)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("分享 App-DLNA 返回非 JSON")
+        }
+
+        let list = json["list"] as? [[String: Any]]
+        let dlink = list?.first?["dlink"] as? String
+            ?? (json["dlink"] as? String)
+            ?? ((json["info"] as? [String: Any])?["dlink"] as? String)
+        guard let dlink, !dlink.isEmpty else {
+            let errno = json["errno"] as? Int ?? -1
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            throw DriveError.noPlayURL("分享 App-DLNA 未返回 dlink：\(msg)")
+        }
+
+        return baiduPlayResult(url: dlink, cookie: mergedCookie, source: "main-share-dlna")
+    }
+
+    private func baiduResolveStreamingM3U8(
+        context: (shareid: String, shareUk: String, surl: String, cookie: String, files: [BaiduFileItem]),
+        fsId: String
+    ) async throws -> PlayResult {
+        let tpl = try await baiduGetShareTplConfig(surl: context.surl, cookie: context.cookie)
+
+        var components = URLComponents(string: "https://pan.baidu.com/share/streaming")!
+        components.queryItems = [
+            URLQueryItem(name: "uk", value: context.shareUk),
+            URLQueryItem(name: "fid", value: fsId),
+            URLQueryItem(name: "sign", value: tpl.sign),
+            URLQueryItem(name: "timestamp", value: tpl.timestamp),
+            URLQueryItem(name: "shareid", value: context.shareid),
+            URLQueryItem(name: "type", value: "M3U8_AUTO_1080")
+        ]
+
+        let headers = [
+            "Cookie": context.cookie,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+            "Referer": "https://pan.baidu.com/"
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 18
+        headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+
+        baiduLog("[Baidu-MainRoute] 尝试 share/streaming M3U8：fsId=\(fsId)")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            throw DriveError.noPlayURL("百度 M3U8 HTTP \(status)")
+        }
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("http") {
+            return PlayResult(url: text.trimmingCharacters(in: .whitespacesAndNewlines), headers: headers, driveType: .baidu, source: "main-streaming-m3u8")
+        }
+        if text.contains("#EXTM3U") {
+            return PlayResult(url: components.url!.absoluteString, headers: headers, driveType: .baidu, source: "main-streaming-m3u8")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let dataObj = json["data"] as? [String: Any]
+            let url = json["url"] as? String
+                ?? json["m3u8"] as? String
+                ?? json["play_url"] as? String
+                ?? dataObj?["url"] as? String
+                ?? dataObj?["m3u8"] as? String
+                ?? dataObj?["play_url"] as? String
+            if let url, !url.isEmpty {
+                return PlayResult(url: url.hasPrefix("//") ? "https:\(url)" : url, headers: headers, driveType: .baidu, source: "main-streaming-m3u8")
+            }
+            let errno = json["errno"] as? Int ?? -1
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            throw DriveError.noPlayURL("百度 M3U8 未返回地址：\(msg)")
+        }
+        throw DriveError.noPlayURL("百度 M3U8 响应不可识别")
+    }
+
+    private func baiduGetShareTplConfig(surl: String, cookie: String) async throws -> (sign: String, timestamp: String) {
+        var components = URLComponents(string: "https://pan.baidu.com/share/tplconfig")!
+        components.queryItems = [
+            URLQueryItem(name: "surl", value: surl),
+            URLQueryItem(name: "fields", value: "cfrom_id,Espace_info,card_info,sign,timestamp")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 15
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("tplconfig HTTP \(status)")
+        }
+        let dataObj = json["data"] as? [String: Any]
+        let sign = dataObj?["sign"] as? String ?? json["sign"] as? String ?? ""
+        let timestamp = (dataObj?["timestamp"] as? String)
+            ?? (dataObj?["timestamp"] as? NSNumber)?.stringValue
+            ?? (json["timestamp"] as? String)
+            ?? (json["timestamp"] as? NSNumber)?.stringValue
+            ?? ""
+        guard !sign.isEmpty, !timestamp.isEmpty else {
+            throw DriveError.noPlayURL("tplconfig 未返回 sign/timestamp")
+        }
+        return (sign, timestamp)
+    }
+
+    private func baiduShareDLNARand(bduss: String, uid: String, time: String, deviceId: String) -> String {
+        let salt = "ebrcUYiuxaZv2XGu7KIYKxUrqfnOfpDF\(time)\(deviceId)11.30.2ae5821440fab5e1a61a025f014bd8972"
+        return baiduSHA1(baiduSHA1(bduss) + uid + salt)
+    }
+
+    private func baiduSHA1(_ value: String) -> String {
+        let digest = Insecure.SHA1.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func baiduInferOwnFilePath(workerURL: String, workerPath: String?, fileName: String?) -> String? {
@@ -2650,7 +2928,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-MainRoute] 开始独立主路链：fsId=\(fsId), file=\(hintFileName ?? "未知")")
-        recordBaiduRouteDiagnostic(stage: "主路链", status: "开始", detail: "准备按本机转存 + mediainfo 获取原画", fsId: fsId, fileName: hintFileName)
+        recordBaiduRouteDiagnostic(stage: "主路链", status: "开始", detail: "本机直连：App-DLNA 分享原画优先，转存原画其次，M3U8兜底", fsId: fsId, fileName: hintFileName)
 
         let pwd = extractBaiduPwd(from: shareURL)
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
@@ -2667,66 +2945,91 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("主路链缺少百度 Cookie")
         }
 
-        try await baiduEnsureVboxFolderLocal(cookie: mergedCookie)
-        let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
-        let filePath: String
-        let sourcePrefix: String
-        if let existingPath {
-            filePath = existingPath
-            sourcePrefix = "main-existing"
-            baiduLog("[Baidu-MainRoute] ✅ /vbox 命中已转存文件：\(filePath)")
-            recordBaiduRouteDiagnostic(stage: "主路链", status: "path命中", detail: "命中 /vbox 已转存文件：\(filePath)", fsId: fsId, fileName: selected.name)
-        } else {
-            filePath = try await baiduTransferFileOnDevice(
-                shareid: context.shareid,
-                shareUk: context.shareUk,
-                fsId: selected.fsId,
-                fileName: selected.name,
-                cookie: mergedCookie
-            )
-            sourcePrefix = "main-transfer"
-            baiduLog("[Baidu-MainRoute] ✅ 本机转存完成：\(filePath)")
-            recordBaiduRouteDiagnostic(stage: "主路链", status: "转存成功", detail: "已转存到：\(filePath)", fsId: fsId, fileName: selected.name)
-        }
-
-        let rawResult: PlayResult
-        let source: String
         do {
-            rawResult = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie)
-            source = "\(sourcePrefix)-mediainfo"
+            let shareResult = try await baiduResolveShareDLNADlink(
+                context: context,
+                fsId: selected.fsId,
+                cookie: mergedCookie,
+                pcsCookie: pcs
+            )
+            baiduStorePlayResult(shareResult, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "分享原画成功", detail: "share/list origin=dlna 返回原画 dlink", fsId: fsId, fileName: selected.name)
+            baiduLog("[Baidu-MainRoute] ✅ App-DLNA 分享原画地址获取成功")
+            return shareResult
         } catch {
-            baiduLog("[Baidu-MainRoute] ⚠️ mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)")
-            recordBaiduRouteDiagnostic(stage: "主路链", status: "mediainfo失败", detail: "尝试 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
-            rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie)
-            source = "\(sourcePrefix)-locatedownload"
+            baiduLog("[Baidu-MainRoute] ⚠️ App-DLNA 分享原画失败，继续转存原画：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "分享原画失败", detail: error.localizedDescription, fsId: fsId, fileName: selected.name)
         }
 
-        let result = PlayResult(
-            url: rawResult.url,
-            headers: rawResult.headers,
-            driveType: .baidu,
-            source: source
-        )
-        let playItem = BaiduIBoxPlayItem(
-            shareURL: shareURL,
-            fsId: fsId,
-            fileName: selected.name,
-            path: filePath,
-            dlinkURL: result.url,
-            headers: result.headers,
-            dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
-            compatibilityHint: baiduCompatibilityHint(fileName: selected.name),
-            preferredEngine: baiduPreferredEngine(fileName: selected.name),
-            preparedAt: Date(),
-            updatedAt: Date(),
-            lastUsedAt: Date(),
-            source: source
-        )
-        baiduStoreIBoxPlayItem(playItem, for: cacheKey)
-        baiduStorePlayResult(result, for: cacheKey)
-        recordBaiduRouteDiagnostic(stage: "主路链", status: "成功", detail: "source=\(source)，engine=\(playItem.preferredEngine)", fsId: fsId, fileName: selected.name)
-        baiduLog("[Baidu-MainRoute] ✅ 主路链原画地址获取成功：source=\(source), engine=\(playItem.preferredEngine)")
-        return result
+        do {
+            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie)
+            let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
+            let filePath: String
+            let sourcePrefix: String
+            if let existingPath {
+                filePath = existingPath
+                sourcePrefix = "main-existing"
+                baiduLog("[Baidu-MainRoute] ✅ /vbox 命中已转存文件：\(filePath)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "path命中", detail: "命中 /vbox 已转存文件：\(filePath)", fsId: fsId, fileName: selected.name)
+            } else {
+                filePath = try await baiduTransferFileOnDevice(
+                    shareid: context.shareid,
+                    shareUk: context.shareUk,
+                    fsId: selected.fsId,
+                    fileName: selected.name,
+                    cookie: mergedCookie
+                )
+                sourcePrefix = "main-transfer"
+                baiduLog("[Baidu-MainRoute] ✅ 本机转存完成：\(filePath)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "转存成功", detail: "已转存到：\(filePath)", fsId: fsId, fileName: selected.name)
+            }
+
+            let rawResult: PlayResult
+            let source: String
+            do {
+                rawResult = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo")
+                source = "\(sourcePrefix)-mediainfo"
+            } catch {
+                baiduLog("[Baidu-MainRoute] ⚠️ mediainfo 失败，尝试 locatedownload：\(error.localizedDescription)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "mediainfo失败", detail: "尝试 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
+                rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-locatedownload")
+                source = "\(sourcePrefix)-locatedownload"
+            }
+
+            let result = PlayResult(
+                url: rawResult.url,
+                headers: rawResult.headers,
+                driveType: .baidu,
+                source: source
+            )
+            let playItem = BaiduIBoxPlayItem(
+                shareURL: shareURL,
+                fsId: fsId,
+                fileName: selected.name,
+                path: filePath,
+                dlinkURL: result.url,
+                headers: result.headers,
+                dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+                compatibilityHint: baiduCompatibilityHint(fileName: selected.name),
+                preferredEngine: baiduPreferredEngine(fileName: selected.name),
+                preparedAt: Date(),
+                updatedAt: Date(),
+                lastUsedAt: Date(),
+                source: source
+            )
+            baiduStoreIBoxPlayItem(playItem, for: cacheKey)
+            baiduStorePlayResult(result, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "成功", detail: "source=\(source)，engine=\(playItem.preferredEngine)", fsId: fsId, fileName: selected.name)
+            baiduLog("[Baidu-MainRoute] ✅ 主路链原画地址获取成功：source=\(source), engine=\(playItem.preferredEngine)")
+            return result
+        } catch {
+            baiduLog("[Baidu-MainRoute] ⚠️ 转存原画失败，尝试 M3U8：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "转存原画失败", detail: "尝试 share/streaming M3U8：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
+            let m3u8Result = try await baiduResolveStreamingM3U8(context: context, fsId: selected.fsId)
+            baiduStorePlayResult(m3u8Result, for: cacheKey, ttl: 2 * 60 * 60)
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "M3U8成功", detail: "share/streaming 返回转码流兜底", fsId: fsId, fileName: selected.name)
+            return m3u8Result
+        }
     }
 
     @discardableResult
@@ -2759,6 +3062,14 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu] 检测到提取码: \(pwd!)")
         } else {
             pwd = nil
+        }
+
+        let contextKey = baiduShareContextKey(shareURL: shareURL, cookie: cookie)
+        let verifyCooldownKey = "\(contextKey)|\(surl)|\(pwd ?? "")"
+        if let cached = baiduCachedShareContext(for: contextKey) {
+            baiduLog("[Baidu-ShareContext] ✅ 命中分享上下文缓存：source=\(cached.source), files=\(cached.files.count)")
+            recordBaiduRouteDiagnostic(stage: "分享上下文", status: "缓存命中", detail: "命中 ShareContext：source=\(cached.source), files=\(cached.files.count)")
+            return (cached.shareid, cached.shareUk, cached.surl, cached.cookie, cached.files)
         }
 
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -2824,7 +3135,13 @@ class CloudDriveManager: ObservableObject {
             var randsk = ""
             var verifyRetryCount = 0
             var verifyOK = false
+            if baiduIsVerifyCoolingDown(verifyCooldownKey) {
+                baiduLog("[Baidu] ⚠️ /share/verify 处于 errno=105 冷却期，跳过重复校验，改用本机 HTML/WAP 策略")
+            }
             verifyLoop: while verifyRetryCount < 3 {
+                if baiduIsVerifyCoolingDown(verifyCooldownKey) {
+                    break verifyLoop
+                }
                 let (vData, _) = try await BaiduWebViewBridge.shared.request(
                     url: verifyURLString,
                     method: "POST",
@@ -2853,8 +3170,10 @@ class CloudDriveManager: ObservableObject {
                 else if errno == -9 { throw DriveError.noPlayURL("百度网盘：提取码错误") }
                 else if errno == 4 { throw DriveError.noPlayURL("百度网盘：需要图形验证码") }
                 else if errno == 105 {
-                    baiduLog("[Baidu] ⚠️ 本机提取码校验触发风控(errno=105)，快速回退 Worker")
-                    throw DriveError.noPlayURL("百度本机校验触发风控")
+                    baiduLog("[Baidu] ⚠️ 本机提取码校验触发风控(errno=105)，进入冷却并继续本机替代解析")
+                    baiduMarkVerifyCooldown(verifyCooldownKey)
+                    recordBaiduRouteDiagnostic(stage: "分享验证", status: "errno=105冷却", detail: "本机 verify 风控，10分钟内不重复校验")
+                    break verifyLoop
                 } else {
                     let em = vJson["errmsg"] as? String ?? "errno=\(errno)"
                     baiduLog("[Baidu] ❌ 验证失败：\(em)")
@@ -2982,6 +3301,17 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("百度网盘：未从分享页提取到文件 ID")
         }
 
+        baiduStoreShareContext(
+            shareURL: shareURL,
+            surl: surl,
+            pwd: pwd,
+            shareid: shareid,
+            shareUk: shareUk,
+            cookie: currentCookie,
+            files: files,
+            source: "local-direct",
+            key: contextKey
+        )
         baiduLog("[Baidu] ✅ shareid=\(shareid), shareUk=\(shareUk), 文件=\(files[0].name)")
         return (shareid, shareUk, surl, currentCookie, files)
     }
@@ -3015,26 +3345,6 @@ class CloudDriveManager: ObservableObject {
 
     private func baiduBypassVerify(shareid: String, uk: String, surl: String, cookie: String) async throws -> (fsId: String, name: String) {
         baiduLog("[Baidu-Bypass] 尝试绕过验证...")
-
-        let shareURL = "https://pan.baidu.com/s/\(surl)"
-        
-        do {
-            let response = try await BaiduProxyClient.shared.parseShareLink(
-                url: shareURL,
-                pwd: "",
-                cookie: cookie
-            )
-            if let success = response["success"] as? Bool, success,
-               let data = response["data"] as? [String: Any],
-               let files = data["files"] as? [[String: Any]], !files.isEmpty,
-               let fsId = files[0]["fs_id"] as? String, !fsId.isEmpty,
-               let fileName = files[0]["server_filename"] as? String {
-                baiduLog("[Baidu-Bypass] ✅ Cloudflare Worker 代理成功")
-                return (fsId, fileName)
-            }
-        } catch {
-            baiduLog("[Baidu-Bypass] ⚠️ Cloudflare Worker 代理失败: \(error.localizedDescription)")
-        }
 
         let userAgents = [
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",

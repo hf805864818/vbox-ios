@@ -566,6 +566,15 @@ class PlayerState: ObservableObject {
             if !reason.contains("刷新") && !reason.contains("重试") {
                 baiduStreamRetryCount = 0
             }
+            let source = result.source ?? "未知路链"
+            log("[Baidu] 第\(episodeNo)集命中路链：\(source)")
+            if source.contains("m3u8") || result.url.lowercased().contains(".m3u8") || result.url.contains("/share/streaming") {
+                await MainActor.run {
+                    playbackEngineMode = .system
+                    compatibilityHint = nil
+                }
+                log("[Baidu] M3U8 兜底路链使用系统 HLS 内核")
+            }
             let streamHeaders = mergedBaiduStreamHeaders(result.headers)
             await playDriveVideo(url: result.url, headers: streamHeaders)
         } catch let error as DriveError {
