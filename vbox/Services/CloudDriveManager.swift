@@ -781,7 +781,10 @@ class CloudDriveManager: ObservableObject {
         if type == .baidu {
             // 百度仍保持 Web Cookie + PCS Cookie 的双 Token 设计。
             // 授权中心扫码/WebView 回写的是 Web Cookie，不能误删现有 PCS 高速播放 Cookie。
-            savedTokens.removeAll { $0.type == type.rawValue && !isBaiduPCSToken($0) }
+            guard isBaiduAccountWebCookie(value) else {
+                return
+            }
+            savedTokens.removeAll { $0.type == type.rawValue && isBaiduAccountWebToken($0) }
         } else {
             savedTokens.removeAll { $0.type == type.rawValue }
         }
@@ -846,12 +849,23 @@ class CloudDriveManager: ObservableObject {
         return value.contains("panpsc=") || value.contains("ptoken_bfess=") || value.contains("ndut_fmt=") || value.contains("nd_ftid=")
     }
 
+    private func isBaiduAccountWebCookie(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        return lower.contains("bduss=") || lower.contains("stoken=")
+    }
+
+    private func isBaiduAccountWebToken(_ token: DriveToken) -> Bool {
+        !isBaiduPCSToken(token) && isBaiduAccountWebCookie(token.value)
+    }
+
     func baiduTokenPair() -> (web: DriveToken, pcs: DriveToken?)? {
         let list = tokens(for: .baidu)
         guard !list.isEmpty else { return nil }
 
         let pcs = list.first(where: { isBaiduPCSToken($0) })
-        let web = list.first(where: { !isBaiduPCSToken($0) }) ?? list[0]
+        let web = list.first(where: { isBaiduAccountWebToken($0) })
+            ?? list.first(where: { !isBaiduPCSToken($0) })
+            ?? list[0]
         return (web, pcs)
     }
 
@@ -2051,6 +2065,20 @@ class CloudDriveManager: ObservableObject {
             .firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
            let range = Range(match.range(at: 1), in: shareURL) {
             return String(shareURL[range])
+        }
+        let patterns = [
+            #"提取码[:：\s]*([A-Za-z0-9]{4,8})"#,
+            #"密码[:：\s]*([A-Za-z0-9]{4,8})"#,
+            #"码[:：\s]*([A-Za-z0-9]{4,8})"#,
+            #"[?&]pwd=([^&\s#]+)"#,
+            #"[?&]password=([^&\s#]+)"#
+        ]
+        for pattern in patterns {
+            if let match = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+                .firstMatch(in: shareURL, range: NSRange(shareURL.startIndex..., in: shareURL)),
+               let range = Range(match.range(at: 1), in: shareURL) {
+                return String(shareURL[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
         return nil
     }

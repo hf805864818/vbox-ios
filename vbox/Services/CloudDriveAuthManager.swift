@@ -466,6 +466,9 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func isAuthorized(_ driveType: CloudDriveManager.DriveType) -> Bool {
         guard let credential = credential(for: driveType) else { return false }
+        if driveType == .baidu, let cookie = credential.cookie {
+            return credential.state != .invalid && isBaiduAccountCookie(cookie)
+        }
         return credential.state != .invalid && credential.primarySecret?.isEmpty == false
     }
 
@@ -477,6 +480,10 @@ final class CloudDriveAuthManager: ObservableObject {
               let driveType = CloudDriveManager.DriveType(rawValue: credential.driveType),
               let value = credential.primarySecret,
               !value.isEmpty else { return }
+
+        if driveType == .baidu, !isBaiduAccountCookie(value) {
+            return
+        }
 
         let tokenName = credential.userName?.isEmpty == false
             ? "\(driveType.displayName)-\(credential.userName!)"
@@ -537,7 +544,11 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func bestTokenValue(for driveType: CloudDriveManager.DriveType) -> String? {
-        credential(for: driveType)?.primarySecret
+        guard let value = credential(for: driveType)?.primarySecret else { return nil }
+        if driveType == .baidu, !isBaiduAccountCookie(value) {
+            return nil
+        }
+        return value
     }
 
     func saveQuarkLogin(cookie: String, nickName: String?, avatarURL: String?) {
@@ -562,6 +573,17 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) {
+        if type == .baidu, !isBaiduAccountCookie(cookie) {
+            var credential = credentials[type.rawValue]
+            credential?.statusMessage = "已捕获百度分享验证 Cookie，未覆盖账号 Cookie"
+            credential?.lastCheckedAt = Date()
+            credential?.updatedAt = Date()
+            if let credential {
+                credentials[type.rawValue] = credential
+                persist()
+            }
+            return
+        }
         let credential = CloudDriveCredential(
             driveType: type.rawValue,
             authType: .webView,
@@ -601,6 +623,11 @@ final class CloudDriveAuthManager: ObservableObject {
         default:
             return trimmed
         }
+    }
+
+    private func isBaiduAccountCookie(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        return lower.contains("bduss=") || lower.contains("stoken=")
     }
 
     private var ucUserAgent: String {
