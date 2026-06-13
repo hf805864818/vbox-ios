@@ -778,7 +778,13 @@ class CloudDriveManager: ObservableObject {
     }
 
     func addOrReplaceToken(type: DriveType, name: String, value: String) {
-        savedTokens.removeAll { $0.type == type.rawValue }
+        if type == .baidu {
+            // 百度仍保持 Web Cookie + PCS Cookie 的双 Token 设计。
+            // 授权中心扫码/WebView 回写的是 Web Cookie，不能误删现有 PCS 高速播放 Cookie。
+            savedTokens.removeAll { $0.type == type.rawValue && !isBaiduPCSToken($0) }
+        } else {
+            savedTokens.removeAll { $0.type == type.rawValue }
+        }
         savedTokens.append(DriveToken(type: type.rawValue, name: name, value: value))
         saveTokens()
     }
