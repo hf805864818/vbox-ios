@@ -763,6 +763,15 @@ class CloudDriveManager: ObservableObject {
         savedTokens.removeAll { $0.type == type.rawValue && $0.name == name }
         savedTokens.append(DriveToken(type: type.rawValue, name: name, value: value))
         saveTokens()
+        Task { @MainActor in
+            CloudDriveAuthManager.shared.saveManualCredential(type: type, name: name, value: value)
+        }
+    }
+
+    func addOrReplaceToken(type: DriveType, name: String, value: String) {
+        savedTokens.removeAll { $0.type == type.rawValue }
+        savedTokens.append(DriveToken(type: type.rawValue, name: name, value: value))
+        saveTokens()
     }
 
     func removeToken(at index: Int) {
@@ -802,7 +811,15 @@ class CloudDriveManager: ObservableObject {
     }
 
     func tokens(for type: DriveType) -> [DriveToken] {
-        savedTokens.filter { $0.type == type.rawValue }
+        var tokens = savedTokens.filter { $0.type == type.rawValue }
+        if let value = CloudDriveAuthManager.shared.bestTokenValue(for: type), !value.isEmpty {
+            let credential = CloudDriveAuthManager.shared.credential(for: type)
+            let name = credential?.userName?.isEmpty == false ? credential!.userName! : "授权中心"
+            if !tokens.contains(where: { $0.value == value }) {
+                tokens.insert(DriveToken(type: type.rawValue, name: name, value: value), at: 0)
+            }
+        }
+        return tokens
     }
 
     private func isBaiduPCSToken(_ token: DriveToken) -> Bool {
@@ -4436,6 +4453,9 @@ class CloudDriveManager: ObservableObject {
             } catch {
                 lastError = error
                 print("[CloudDrive] ⚠️ \(driveType.displayName) Token \"\(token.name)\" 失败: \(error.localizedDescription)")
+                if isLikelyAuthInvalid(error) {
+                    CloudDriveAuthManager.shared.markInvalid(driveType, reason: error.localizedDescription)
+                }
                 continue
             }
         }
@@ -4443,6 +4463,22 @@ class CloudDriveManager: ObservableObject {
         let count = tokens.count
         print("[CloudDrive] ❌ 所有 \(count) 个 \(driveType.displayName) Token 均失败")
         throw lastError ?? DriveError.tokenNotConfigured(driveType.displayName)
+    }
+
+    private func isLikelyAuthInvalid(_ error: Error) -> Bool {
+        let text = String(describing: error).lowercased()
+        return text.contains("401")
+            || text.contains("403")
+            || text.contains("未登录")
+            || text.contains("登录")
+            || text.contains("cookie")
+            || text.contains("token")
+            || text.contains("access_token")
+            || text.contains("refresh_token")
+            || text.contains("授权")
+            || text.contains("失效")
+            || text.contains("invalid")
+            || text.contains("expired")
     }
 }
 
