@@ -2143,6 +2143,23 @@ class CloudDriveManager: ObservableObject {
         webCookie: String,
         pcsCookie: String
     ) async throws -> PlayResult {
+        let prepared = try await baiduResolveOnDevicePlayItem(
+            shareURL: shareURL,
+            pwd: pwd,
+            fsId: fsId,
+            webCookie: webCookie,
+            pcsCookie: pcsCookie
+        )
+        return prepared.result
+    }
+
+    private func baiduResolveOnDevicePlayItem(
+        shareURL: String,
+        pwd: String?,
+        fsId: String,
+        webCookie: String,
+        pcsCookie: String
+    ) async throws -> (result: PlayResult, path: String, fileName: String, cookie: String) {
         baiduLog("[Baidu-Local] 本机播放链路开始：fsId=\(fsId), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递")")
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
         let selected = context.files.first { $0.fsId == fsId }
@@ -2171,11 +2188,257 @@ class CloudDriveManager: ObservableObject {
         }
 
         do {
-            return try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie)
+            let result = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "new-local-transfer-mediainfo")
+            return (result, filePath, selected.name, mergedCookie)
         } catch {
             baiduLog("[Baidu-DLNA] ⚠️ 本机 mediainfo 失败，兜底 locatedownload：\(error.localizedDescription)")
-            return try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie)
+            let result = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "new-local-transfer-locatedownload")
+            return (result, filePath, selected.name, mergedCookie)
         }
+    }
+
+    private func baiduResolveViaNewIndependentRoute(
+        shareURL: String,
+        pwd: String?,
+        fsId: String,
+        fileName: String?,
+        cookie: String,
+        pcsCookie: String,
+        cacheKey: String
+    ) async throws -> PlayResult {
+        baiduLog("[Baidu-NewRoute] 启动独立百度播放路链：fsId=\(fsId)")
+        recordBaiduRouteDiagnostic(stage: "新百度路链", status: "开始", detail: "优先本机转存/原画，失败后才回旧 Worker", fsId: fsId, fileName: fileName)
+
+        do {
+            let prepared = try await baiduResolveOnDevicePlayItem(
+                shareURL: shareURL,
+                pwd: pwd,
+                fsId: fsId,
+                webCookie: cookie,
+                pcsCookie: pcsCookie
+            )
+            let finalFileName = prepared.fileName.isEmpty ? (fileName ?? prepared.path.split(separator: "/").last.map(String.init) ?? "") : prepared.fileName
+            baiduStoreIBoxPlayItem(
+                BaiduIBoxPlayItem(
+                    shareURL: shareURL,
+                    fsId: fsId,
+                    fileName: finalFileName,
+                    path: prepared.path,
+                    dlinkURL: prepared.result.url,
+                    headers: prepared.result.headers,
+                    dlinkExpiresAt: Date().addingTimeInterval(6 * 60 * 60),
+                    compatibilityHint: baiduCompatibilityHint(fileName: finalFileName),
+                    preferredEngine: baiduPreferredEngine(fileName: finalFileName),
+                    preparedAt: Date(),
+                    updatedAt: Date(),
+                    lastUsedAt: Date(),
+                    source: prepared.result.source ?? "new-local-transfer"
+                ),
+                for: cacheKey
+            )
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "本机原画成功", detail: "转存/path 刷新得到原画 dlink：\(prepared.path)", fsId: fsId, fileName: finalFileName)
+            baiduStorePlayResult(prepared.result, for: cacheKey)
+            return prepared.result
+        } catch {
+            baiduLog("[Baidu-NewRoute] ⚠️ 本机转存原画失败，继续尝试分享 App-DLNA：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "本机原画失败", detail: error.localizedDescription, fsId: fsId, fileName: fileName)
+        }
+
+        do {
+            let result = try await baiduResolveShareDLNADlink(
+                shareURL: shareURL,
+                pwd: pwd,
+                fsId: fsId,
+                cookie: cookie,
+                pcsCookie: pcsCookie
+            )
+            baiduStorePlayResult(result, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "分享原画成功", detail: "share/list origin=dlna 返回 dlink", fsId: fsId, fileName: fileName)
+            return result
+        } catch {
+            baiduLog("[Baidu-NewRoute] ⚠️ 分享 App-DLNA 原画失败，继续尝试 M3U8：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "分享原画失败", detail: error.localizedDescription, fsId: fsId, fileName: fileName)
+        }
+
+        do {
+            let result = try await baiduResolveStreamingM3U8(
+                shareURL: shareURL,
+                pwd: pwd,
+                fsId: fsId,
+                cookie: cookie
+            )
+            baiduStorePlayResult(result, for: cacheKey, ttl: 2 * 60 * 60)
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "M3U8成功", detail: "share/streaming 返回转码流兜底", fsId: fsId, fileName: fileName)
+            return result
+        } catch {
+            baiduLog("[Baidu-NewRoute] ❌ 独立路链全部失败，将交给旧 Worker 兜底：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "新百度路链", status: "失败转旧路链", detail: error.localizedDescription, fsId: fsId, fileName: fileName)
+            throw error
+        }
+    }
+
+    private func baiduResolveShareDLNADlink(
+        shareURL: String,
+        pwd: String?,
+        fsId: String,
+        cookie: String,
+        pcsCookie: String
+    ) async throws -> PlayResult {
+        let mergedCookie = baiduMergeCookieStrings([cookie, pcsCookie])
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: mergedCookie, returnAll: true)
+        let finalCookie = baiduMergeCookieStrings([context.cookie, mergedCookie])
+        let deviceId = baiduStableDeviceId()
+        let time = String(Int(Date().timeIntervalSince1970 * 1000))
+        let sekey = baiduCookieValue(finalCookie, named: "randsk") ?? baiduCookieValue(finalCookie, named: "BDCLND") ?? ""
+        let randUID = baiduCookieValue(finalCookie, named: "BAIDUID") ?? context.shareUk
+        let bduss = baiduCookieValue(finalCookie, named: "BDUSS") ?? ""
+        let rand = baiduShareDLNARand(bduss: bduss, uid: randUID, time: time, deviceId: deviceId)
+
+        var components = URLComponents(string: "https://pan.baidu.com/share/list")!
+        components.queryItems = [
+            URLQueryItem(name: "shareid", value: context.shareid),
+            URLQueryItem(name: "uk", value: context.shareUk),
+            URLQueryItem(name: "fid", value: fsId),
+            URLQueryItem(name: "sekey", value: sekey.removingPercentEncoding ?? sekey),
+            URLQueryItem(name: "origin", value: "dlna"),
+            URLQueryItem(name: "devuid", value: deviceId),
+            URLQueryItem(name: "clienttype", value: "1"),
+            URLQueryItem(name: "channel", value: "android_12_zhao_bd-netdisk_1024266h"),
+            URLQueryItem(name: "version", value: "11.30.2"),
+            URLQueryItem(name: "time", value: time),
+            URLQueryItem(name: "rand", value: rand)
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 18
+        request.setValue(finalCookie, forHTTPHeaderField: "Cookie")
+        request.setValue("netdisk;P2SP;2.2.91.136;android-android;", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+
+        baiduLog("[Baidu-NewRoute] 尝试分享 App-DLNA 原画：shareid=\(context.shareid), uk=\(context.shareUk), fsId=\(fsId)")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            throw DriveError.noPlayURL("分享 App-DLNA HTTP \(status)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("分享 App-DLNA 返回非 JSON")
+        }
+
+        let list = json["list"] as? [[String: Any]]
+        let dlink = list?.first?["dlink"] as? String
+            ?? (json["dlink"] as? String)
+            ?? ((json["info"] as? [String: Any])?["dlink"] as? String)
+        guard let dlink, !dlink.isEmpty else {
+            let errno = json["errno"] as? Int ?? -1
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            throw DriveError.noPlayURL("分享 App-DLNA 未返回 dlink：\(msg)")
+        }
+
+        return baiduPlayResult(url: dlink, cookie: finalCookie, source: "new-share-dlna")
+    }
+
+    private func baiduResolveStreamingM3U8(
+        shareURL: String,
+        pwd: String?,
+        fsId: String,
+        cookie: String
+    ) async throws -> PlayResult {
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+        let tpl = try await baiduGetShareTplConfig(shareURL: shareURL, surl: context.surl, cookie: context.cookie)
+
+        var components = URLComponents(string: "https://pan.baidu.com/share/streaming")!
+        components.queryItems = [
+            URLQueryItem(name: "uk", value: context.shareUk),
+            URLQueryItem(name: "fid", value: fsId),
+            URLQueryItem(name: "sign", value: tpl.sign),
+            URLQueryItem(name: "timestamp", value: tpl.timestamp),
+            URLQueryItem(name: "shareid", value: context.shareid),
+            URLQueryItem(name: "type", value: "M3U8_AUTO_1080")
+        ]
+
+        let headers = [
+            "Cookie": context.cookie,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+            "Referer": "https://pan.baidu.com/"
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 18
+        headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+
+        baiduLog("[Baidu-NewRoute] 尝试 share/streaming M3U8：fsId=\(fsId)")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else {
+            throw DriveError.noPlayURL("百度 M3U8 HTTP \(status)")
+        }
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("http") {
+            return PlayResult(url: text.trimmingCharacters(in: .whitespacesAndNewlines), headers: headers, driveType: .baidu, source: "new-streaming-m3u8")
+        }
+        if text.contains("#EXTM3U") {
+            return PlayResult(url: components.url!.absoluteString, headers: headers, driveType: .baidu, source: "new-streaming-m3u8")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let dataObj = json["data"] as? [String: Any]
+            let url = json["url"] as? String
+                ?? json["m3u8"] as? String
+                ?? json["play_url"] as? String
+                ?? dataObj?["url"] as? String
+                ?? dataObj?["m3u8"] as? String
+                ?? dataObj?["play_url"] as? String
+            if let url, !url.isEmpty {
+                return PlayResult(url: url.hasPrefix("//") ? "https:\(url)" : url, headers: headers, driveType: .baidu, source: "new-streaming-m3u8")
+            }
+            let errno = json["errno"] as? Int ?? -1
+            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            throw DriveError.noPlayURL("百度 M3U8 未返回地址：\(msg)")
+        }
+        throw DriveError.noPlayURL("百度 M3U8 响应不可识别")
+    }
+
+    private func baiduGetShareTplConfig(shareURL: String, surl: String, cookie: String) async throws -> (sign: String, timestamp: String) {
+        var components = URLComponents(string: "https://pan.baidu.com/share/tplconfig")!
+        components.queryItems = [
+            URLQueryItem(name: "surl", value: surl),
+            URLQueryItem(name: "fields", value: "cfrom_id,Espace_info,card_info,sign,timestamp")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 15
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("tplconfig HTTP \(status)")
+        }
+        let dataObj = json["data"] as? [String: Any]
+        let sign = dataObj?["sign"] as? String ?? json["sign"] as? String ?? ""
+        let timestamp = (dataObj?["timestamp"] as? String)
+            ?? (dataObj?["timestamp"] as? NSNumber)?.stringValue
+            ?? (json["timestamp"] as? String)
+            ?? (json["timestamp"] as? NSNumber)?.stringValue
+            ?? ""
+        guard !sign.isEmpty, !timestamp.isEmpty else {
+            throw DriveError.noPlayURL("tplconfig 未返回 sign/timestamp")
+        }
+        return (sign, timestamp)
+    }
+
+    private func baiduShareDLNARand(bduss: String, uid: String, time: String, deviceId: String) -> String {
+        let salt = "ebrcUYiuxaZv2XGu7KIYKxUrqfnOfpDF\(time)\(deviceId)11.30.2ae5821440fab5e1a61a025f014bd8972"
+        return baiduSHA1(baiduSHA1(bduss) + uid + salt)
+    }
+
+    private func baiduSHA1(_ value: String) -> String {
+        let digest = Insecure.SHA1.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func baiduEnsureVboxFolderLocal(cookie: String) async throws {
@@ -2312,7 +2575,7 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+    private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String, source: String = "local-mediainfo") async throws -> PlayResult {
         let deviceId = baiduStableDeviceId()
         var components = URLComponents(string: "https://pan.baidu.com/api/mediainfo")!
         components.queryItems = [
@@ -2352,7 +2615,7 @@ class CloudDriveManager: ObservableObject {
         if let dlink, !dlink.isEmpty {
             let errno = json["errno"] as? Int ?? 0
             baiduLog("[Baidu-DLNA] ✅ mediainfo 返回 dlink：errno=\(errno), url=\(dlink.prefix(80))...")
-            return baiduPlayResult(url: dlink, cookie: cookie)
+            return baiduPlayResult(url: dlink, cookie: cookie, source: source)
         }
 
         let errno = json["errno"] as? Int ?? -1
@@ -2361,7 +2624,7 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("百度 DLNA 未返回 dlink：\(msg)")
     }
 
-    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String) async throws -> PlayResult {
+    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String, source: String = "local-locatedownload") async throws -> PlayResult {
         let deviceId = baiduStableDeviceId()
         var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
         components.queryItems = [
@@ -2425,10 +2688,10 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-LocalPCS] ✅ 本机取链成功：\(locatedURL.prefix(80))...")
-        return baiduPlayResult(url: locatedURL, cookie: cookie)
+        return baiduPlayResult(url: locatedURL, cookie: cookie, source: source)
     }
 
-    private func baiduPlayResult(url: String, cookie: String) -> PlayResult {
+    private func baiduPlayResult(url: String, cookie: String, source: String? = nil) -> PlayResult {
         PlayResult(
             url: url,
             headers: [
@@ -2439,7 +2702,8 @@ class CloudDriveManager: ObservableObject {
                 "Origin": "https://pan.baidu.com",
                 "X-Device-ID": baiduStableDeviceId()
             ],
-            driveType: .baidu
+            driveType: .baidu,
+            source: source
         )
     }
 
@@ -2590,13 +2854,29 @@ class CloudDriveManager: ObservableObject {
         }
 
         do {
+            return try await baiduResolveViaNewIndependentRoute(
+                shareURL: shareURL,
+                pwd: pwdForWorker,
+                fsId: fsId,
+                fileName: baiduCachedPlayItem(for: cacheKey)?.fileName,
+                cookie: cookie,
+                pcsCookie: pcs,
+                cacheKey: cacheKey
+            )
+        } catch {
+            baiduLog("[Baidu-NewRoute] ⚠️ 新百度路链失败，使用旧 Worker 路链兜底：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "旧Worker兜底", status: "开始", detail: "新路链失败后进入旧 Worker：\(error.localizedDescription)", fsId: fsId)
+        }
+
+        do {
             let result = try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, fsId: fsId, cookie: cookie, pcsCookie: pcs, cacheKey: cacheKey)
             baiduStorePlayResult(result, for: cacheKey)
+            recordBaiduRouteDiagnostic(stage: "旧Worker兜底", status: "成功", detail: "旧 Worker 路链返回播放地址", fsId: fsId)
             return result
         } catch {
             baiduLog("[Baidu-Worker] ❌ 指定文件播放代理失败：\(error.localizedDescription)")
-            recordBaiduRouteDiagnostic(stage: "Worker取链", status: "失败", detail: "指定文件 Worker 播放失败：\(error.localizedDescription)", fsId: fsId)
-            throw DriveError.noPlayURL("Worker 代理播放失败：\(error.localizedDescription)")
+            recordBaiduRouteDiagnostic(stage: "旧Worker兜底", status: "失败", detail: "指定文件 Worker 播放失败：\(error.localizedDescription)", fsId: fsId)
+            throw DriveError.noPlayURL("新百度路链与旧 Worker 兜底均失败：\(error.localizedDescription)")
         }
     }
 
