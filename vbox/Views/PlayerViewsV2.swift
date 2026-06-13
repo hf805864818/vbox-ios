@@ -521,7 +521,7 @@ class PlayerState: ObservableObject {
         reason: String
     ) async {
         let episodeNo = index + 1
-        log("[Baidu] ②\(reason)第\(episodeNo)集：\(file.name)，转存→获取播放地址...")
+        log("[Baidu] ②\(reason)第\(episodeNo)集：\(file.name)，主路链→原有链路兜底...")
         await MainActor.run {
             currentEpisodeIndex = index
             if let video = currentVideo {
@@ -543,13 +543,26 @@ class PlayerState: ObservableObject {
 
         do {
             let resolveStart = Date()
-            let result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
-                shareURL: shareURL,
-                bduss: bduss,
-                fsId: file.fsId,
-                pcsCookie: pcsCookie
-            )
-            log("[Baidu] ✅ 第\(episodeNo)集播放地址获取成功，耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
+            let result: PlayResult
+            do {
+                result = try await CloudDriveManager.shared.resolveBaiduPlayURLViaMainRoute(
+                    shareURL: shareURL,
+                    bduss: bduss,
+                    fsId: file.fsId,
+                    fileName: file.name,
+                    pcsCookie: pcsCookie
+                )
+                log("[Baidu-MainRoute] ✅ 第\(episodeNo)集主路链播放地址获取成功，耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
+            } catch {
+                log("[Baidu-MainRoute] ⚠️ 第\(episodeNo)集主路链失败，回落原百度播放链路：\(error.localizedDescription)")
+                result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
+                    shareURL: shareURL,
+                    bduss: bduss,
+                    fsId: file.fsId,
+                    pcsCookie: pcsCookie
+                )
+                log("[Baidu-Fallback] ✅ 第\(episodeNo)集原百度播放链路获取成功，累计耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
+            }
             if !reason.contains("刷新") && !reason.contains("重试") {
                 baiduStreamRetryCount = 0
             }
@@ -671,17 +684,18 @@ class PlayerState: ObservableObject {
         baiduPrefetchTask?.cancel()
         baiduPrefetchTask = Task { [weak self] in
             guard let self else { return }
-            self.log("[Baidu-iBox] 开始准备下一集 PlayItem：第\(nextIndex + 1)集 \(nextFile.name)")
+            self.log("[Baidu-MainRoute] 开始预取下一集主路链 PlayItem：第\(nextIndex + 1)集 \(nextFile.name)")
             do {
-                _ = try await CloudDriveManager.shared.prepareBaiduIBoxPlayItem(
+                _ = try await CloudDriveManager.shared.resolveBaiduPlayURLViaMainRoute(
                     shareURL: shareURL,
                     bduss: bduss,
                     fsId: nextFile.fsId,
+                    fileName: nextFile.name,
                     pcsCookie: pcsCookie
                 )
-                self.log("[Baidu-iBox] ✅ 第\(nextIndex + 1)集 PlayItem 已准备")
+                self.log("[Baidu-MainRoute] ✅ 第\(nextIndex + 1)集主路链 PlayItem 已准备")
             } catch {
-                self.log("[Baidu-iBox] ⚠️ 第\(nextIndex + 1)集 PlayItem 准备失败：\(error.localizedDescription)")
+                self.log("[Baidu-MainRoute] ⚠️ 第\(nextIndex + 1)集主路链预取失败，保留原链路兜底：\(error.localizedDescription)")
             }
             await MainActor.run {
                 self.baiduPrefetchingIds.remove(nextFile.fsId)
