@@ -41,12 +41,22 @@ class BaiduProxyClient {
         // 1. 序列化 Body
         let bodyData = try JSONSerialization.data(withJSONObject: params)
         let bodyString = String(data: bodyData, encoding: .utf8) ?? ""
+        
+        // 打印请求参数用于调试
+        print("[BaiduProxy] >> POST \(path)")
+        print("[BaiduProxy] >> 请求参数：\(bodyString.prefix(200))")
+        if let cookiePreview = params["cookie"] as? String {
+            let preview = cookiePreview.prefix(50)
+            print("[BaiduProxy] >> Cookie 预览：\(preview)...(长度:\(cookiePreview.count))")
+        }
 
         // 2. 生成签名
         let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
         let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let message = path + timestamp + nonce + bodyString
         let signature = self.hmacSHA256(message: message, key: secret)
+        
+        print("[BaiduProxy] >> 签名：\(signature.prefix(16))...")
 
         // 3. 构造请求
         var request = URLRequest(url: URL(string: baseURL + path)!)
@@ -61,11 +71,59 @@ class BaiduProxyClient {
 
         // 4. 发送请求
         let (data, response) = try await URLSession.shared.data(for: request)
+        
+        // 打印原始响应用于调试
+        if let respStr = String(data: data, encoding: .utf8) {
+            print("[BaiduProxy] << 原始响应 (\(respStr.count) 字符)：\(respStr.prefix(500))")
+        }
+        
         guard let httpResp = response as? HTTPURLResponse else {
+            print("[BaiduProxy]  无效的响应类型")
             throw NSError(domain: "BaiduProxy", code: -1, userInfo: [
                 NSLocalizedDescriptionKey: "无效的响应"
             ])
         }
+        
+        print("[BaiduProxy] << HTTP 状态码: \(httpResp.statusCode)")
+
+        guard httpResp.statusCode == 200 else {
+            let errText = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? String {
+                print("[BaiduProxy]  HTTP 错误：\(error)")
+                throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
+                    NSLocalizedDescriptionKey: error
+                ])
+            }
+            print("[BaiduProxy]  HTTP \(httpResp.statusCode)：\(errText)")
+            throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: "HTTP \(httpResp.statusCode): \(errText)"
+            ])
+        }
+
+        // 5. 解析 JSON
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("[BaiduProxy]  无效的 JSON 响应")
+            throw NSError(domain: "BaiduProxy", code: -2, userInfo: [
+                NSLocalizedDescriptionKey: "无效的 JSON 响应"
+            ])
+        }
+        
+        if let respStr = String(data: try JSONSerialization.data(withJSONObject: json), encoding: .utf8) {
+            print("[BaiduProxy] << JSON 响应：\(respStr.prefix(300))")
+        }
+
+        return json
+    }
+        
+        guard let httpResp = response as? HTTPURLResponse else {
+            print("[BaiduProxy] ❌ 无效的响应类型")
+            throw NSError(domain: "BaiduProxy", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "无效的响应"
+            ])
+        }
+        
+        print("[BaiduProxy] << HTTP 状态码: \(httpResp.statusCode)")
 
         guard httpResp.statusCode == 200 else {
             let errText = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
