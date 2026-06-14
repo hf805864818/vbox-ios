@@ -2136,6 +2136,29 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
+    private func baiduWorkerNeedsLocalVerify(_ response: [String: Any], error: String = "") -> Bool {
+        if let needLocal = response["need_local_verify"] as? Bool, needLocal { return true }
+        if let code = response["code"] as? String, code == "BAIDU_NEED_LOCAL_VERIFY" { return true }
+        let message = [
+            error,
+            response["error"] as? String ?? "",
+            response["message"] as? String ?? ""
+        ].joined(separator: " ")
+        return message.contains("验证接口非 JSON")
+            || message.contains("404 Not Found")
+            || message.contains("提取码验证失败")
+    }
+
+    private func baiduLocalVerifyCookie(shareURL: String, cookie: String) async throws -> (cookie: String, files: [BaiduFileItem]) {
+        baiduLog("[Baidu-LocalVerify] Worker 提取码验证失败，切换 App 本机验证...")
+        recordBaiduRouteDiagnostic(stage: "分享验证", status: "本机验证", detail: "Worker share/verify 失败，使用 App 本机 WebViewBridge 兜底")
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
+        let mergedCookie = baiduMergeCookieStrings([context.cookie, cookie])
+        baiduLog("[Baidu-LocalVerify] ✅ 本机验证完成，文件=\(context.files.count)，Cookie=\(mergedCookie.isEmpty ? "无" : "已合并")")
+        recordBaiduRouteDiagnostic(stage: "分享验证", status: "本机成功", detail: "本机验证成功，文件=\(context.files.count)")
+        return (mergedCookie.isEmpty ? context.cookie : mergedCookie, context.files)
+    }
+
     /// 通过 Cloudflare Worker 代理解析文件列表，避免直连百度分享页提取码验证卡死
     private func baiduGetFileListViaWorker(shareURL: String, pwd: String?, cookie: String) async throws -> [BaiduFileItem] {
         baiduLog("[Baidu-Worker] 代理解析文件列表... Cookie=\(cookie.isEmpty ? "无" : "已传递")")
@@ -2155,6 +2178,14 @@ class CloudDriveManager: ObservableObject {
         guard let success = response["success"] as? Bool, success else {
             let err = response["error"] as? String ?? "未知错误"
             baiduLog("[Baidu-Worker]  文件列表解析失败：\(err)")
+
+            if baiduWorkerNeedsLocalVerify(response, error: err) {
+                let local = try await baiduLocalVerifyCookie(shareURL: shareURL, cookie: cookie)
+                if !local.files.isEmpty {
+                    baiduLog("[Baidu-Worker] ✅ 本机验证兜底返回文件列表：\(local.files.count) 个")
+                    return local.files
+                }
+            }
             
             // 针对 errno=-62 提供更友好的错误提示
             if err.contains("errno=-62") || err.contains("errno=-9") {
@@ -2202,19 +2233,41 @@ class CloudDriveManager: ObservableObject {
     private func baiduResolveViaWorker(shareURL: String, pwd: String?, fsId: String? = nil, cookie: String = "", pcsCookie: String = "", cacheKey: String? = nil) async throws -> PlayResult {
         baiduLog("[Baidu-Worker] 调用 Cloudflare Worker 代理... fsId=\((fsId ?? "").isEmpty ? "自动" : fsId!), pwd=\((pwd ?? "").isEmpty ? "无" : "已传递"), WebCookie=\(cookie.isEmpty ? "无" : "已传递"), PCSCookie=\(pcsCookie.isEmpty ? "无" : "已传递")")
 
-        let response = try await BaiduProxyClient.shared.getPlayURL(
+        var workerCookie = cookie
+        var response = try await BaiduProxyClient.shared.getPlayURL(
             shareURL: shareURL,
             pwd: pwd ?? "",
             fsId: fsId ?? "",
-            cookie: cookie,
+            cookie: workerCookie,
             pcsCookie: pcsCookie
         )
         baiduLog("[Baidu-Worker] 收到播放响应，字段：\(response.keys.sorted().joined(separator: ","))")
 
-        guard let success = response["success"] as? Bool, success else {
+        if !(response["success"] as? Bool == true) {
             let err = response["error"] as? String ?? "未知错误"
             baiduLog("[Baidu-Worker] ❌ 失败：\(err)")
-            throw DriveError.noPlayURL("Worker 代理：\(err)")
+
+            if baiduWorkerNeedsLocalVerify(response, error: err) {
+                let local = try await baiduLocalVerifyCookie(shareURL: shareURL, cookie: workerCookie)
+                workerCookie = local.cookie
+                baiduLog("[Baidu-Worker] 🔁 本机验证成功，携带合并 Cookie 重试 Worker 播放取链")
+                response = try await BaiduProxyClient.shared.getPlayURL(
+                    shareURL: shareURL,
+                    pwd: pwd ?? "",
+                    fsId: fsId ?? "",
+                    cookie: workerCookie,
+                    pcsCookie: pcsCookie
+                )
+                if let retrySuccess = response["success"] as? Bool, retrySuccess {
+                    baiduLog("[Baidu-Worker] ✅ 本机验证后 Worker 重试成功")
+                } else {
+                    let retryErr = response["error"] as? String ?? err
+                    baiduLog("[Baidu-Worker] ❌ 本机验证后 Worker 仍失败：\(retryErr)")
+                    throw DriveError.noPlayURL("Worker 代理：\(retryErr)")
+                }
+            } else {
+                throw DriveError.noPlayURL("Worker 代理：\(err)")
+            }
         }
 
         let data = (response["data"] as? [String: Any]) ?? response
@@ -2285,7 +2338,7 @@ class CloudDriveManager: ObservableObject {
             workerURL: playURL,
             workerPath: workerPath,
             fileName: workerFileName,
-            webCookie: cookie,
+            webCookie: workerCookie,
             pcsCookie: pcsCookie,
             workerHeaders: headers
         ) {
@@ -3327,19 +3380,24 @@ class CloudDriveManager: ObservableObject {
 
             baiduLog("[Baidu] 从初始HTML提取: shareid=\(vidShareid), uk=\(vidUk), fsId=\(vidFsId), file=\(vidFileName)")
 
-            let verifyURLString = "https://pan.baidu.com/share/verify?surl=\(surl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0"
-            let verifyBodyString = "pwd=\(pwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0"
+            let encodedPwd = pwd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? pwd
+            let verifyBodyString = "pwd=\(encodedPwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0"
+            let shortSurl = surl.hasPrefix("1") ? String(surl.dropFirst()) : surl
+            var verifySurlCandidates = [shortSurl].filter { !$0.isEmpty }
+            if surl != shortSurl, !surl.isEmpty {
+                verifySurlCandidates.append(surl)
+            }
 
             var randsk = ""
-            var verifyRetryCount = 0
             var verifyOK = false
             if baiduIsVerifyCoolingDown(verifyCooldownKey) {
                 baiduLog("[Baidu] ⚠️ /share/verify 处于 errno=105 冷却期，跳过重复校验，改用本机 HTML/WAP 策略")
             }
-            verifyLoop: while verifyRetryCount < 3 {
+            verifyLoop: for verifySurl in verifySurlCandidates {
                 if baiduIsVerifyCoolingDown(verifyCooldownKey) {
                     break verifyLoop
                 }
+                let verifyURLString = "https://pan.baidu.com/share/verify?surl=\(verifySurl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0"
                 let (vData, _) = try await BaiduWebViewBridge.shared.request(
                     url: verifyURLString,
                     method: "POST",
@@ -3349,17 +3407,17 @@ class CloudDriveManager: ObservableObject {
                         "User-Agent": ua,
                         "X-Requested-With": "XMLHttpRequest",
                         "Origin": "https://pan.baidu.com",
-                        "Referer": "https://pan.baidu.com/s/1\(surl)",
+                        "Referer": "https://pan.baidu.com/s/\(surl)",
                     ],
                     body: verifyBodyString,
                     timeout: 15
                 )
-                baiduLog("[Baidu-WK] 验证响应：\(String(data: vData, encoding: .utf8) ?? "nil")")
+                baiduLog("[Baidu-WK] 验证响应(surl=\(verifySurl))：\(String(data: vData, encoding: .utf8) ?? "nil")")
 
                 guard let vJson = try? JSONSerialization.jsonObject(with: vData) as? [String: Any],
                       let errno = vJson["errno"] as? Int else {
-                    baiduLog("[Baidu] ❌ 验证响应解析失败")
-                    throw DriveError.invalidResponse
+                    baiduLog("[Baidu] ⚠️ 验证响应解析失败，尝试下一个 surl 格式")
+                    continue verifyLoop
                 }
 
                 if let r = vJson["randsk"] as? String { randsk = r }
@@ -3383,6 +3441,7 @@ class CloudDriveManager: ObservableObject {
                 baiduLog("[Baidu] ✅ 提取码验证成功")
                 if !randsk.isEmpty {
                     currentCookie += "; randsk=\(randsk)"
+                    currentCookie += "; BDCLND=\(randsk)"
                     baiduLog("[Baidu] 已提取 randsk")
                 }
                 let (data2, _) = try await BaiduWebViewBridge.shared.request(
