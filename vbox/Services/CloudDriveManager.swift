@@ -906,18 +906,19 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func isBaiduAccountWebToken(_ token: DriveToken) -> Bool {
-        !isBaiduPCSToken(token) && isBaiduAccountWebCookie(token.value)
+        isBaiduAccountWebCookie(token.value)
     }
 
     func baiduTokenPair() -> (web: DriveToken, pcs: DriveToken?)? {
         let list = tokens(for: .baidu)
         guard !list.isEmpty else { return nil }
 
-        let pcs = list.first(where: { isBaiduPCSToken($0) })
         guard let web = list.first(where: { isBaiduAccountWebToken($0) }) else {
             baiduLog("[Baidu-Token] ❌ 缺少百度 Web Cookie：需要 BDUSS/STOKEN，不能用 PCS Cookie 替代")
             return nil
         }
+        let pcs = list.first(where: { isBaiduPCSToken($0) && $0.value != web.value })
+            ?? list.first(where: { isBaiduPCSToken($0) })
         return (web, pcs)
     }
 
