@@ -833,6 +833,11 @@ class CloudDriveManager: ObservableObject {
 
     func tokens(for type: DriveType) -> [DriveToken] {
         var tokens = savedTokens.filter { $0.type == type.rawValue }
+        if type == .baidu {
+            tokens = tokens.filter { token in
+                isBaiduPCSToken(token) || isBaiduAccountWebToken(token)
+            }
+        }
         if let value = CloudDriveAuthManager.shared.bestTokenValue(for: type), !value.isEmpty {
             let credential = CloudDriveAuthManager.shared.credential(for: type)
             let name = credential?.userName?.isEmpty == false ? credential!.userName! : "授权中心"
@@ -847,6 +852,17 @@ class CloudDriveManager: ObservableObject {
             }
         }
         return tokens
+    }
+
+    func cleanupInvalidBaiduTokens() {
+        let before = savedTokens.count
+        savedTokens.removeAll { token in
+            guard token.type == DriveType.baidu.rawValue else { return false }
+            return !isBaiduPCSToken(token) && !isBaiduAccountWebToken(token)
+        }
+        if savedTokens.count != before {
+            saveTokens()
+        }
     }
 
     private func isBaiduPCSToken(_ token: DriveToken) -> Bool {
