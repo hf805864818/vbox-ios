@@ -384,7 +384,11 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
                     return
                 }
                 DispatchQueue.main.async {
-                    CloudDriveAuthManager.shared.saveWebViewCookie(type: self.parent.driveType, cookie: cookieString)
+                    let didSave = CloudDriveAuthManager.shared.saveWebViewCookie(type: self.parent.driveType, cookie: cookieString)
+                    guard didSave else {
+                        self.parent.statusText = "\(self.parent.driveType.displayName) 已登录页面，但未捕获到可播放所需的 BDUSS/STOKEN"
+                        return
+                    }
                     self.saved = true
                     self.parent.statusText = "已保存 \(self.parent.driveType.displayName) 授权"
                     self.parent.onCredentialSaved()
@@ -448,7 +452,7 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
             let lower = cookie.lowercased()
             switch parent.driveType {
             case .baidu:
-                return lower.contains("bduss=") || lower.contains("stoken=") || lower.contains("bdclnd=")
+                return lower.contains("bduss=") || lower.contains("stoken=")
             case .ali:
                 return lower.contains("token") || lower.contains("login") || lower.contains("aliyun")
             case .quark:

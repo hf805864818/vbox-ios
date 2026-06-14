@@ -371,7 +371,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func baiduExchangeQrLogin(token: BaiduQrLoginToken, bdussURL: String?) async throws {
         var components = URLComponents(string: "https://passport.baidu.com/v3/login/main/qrbdusslogin")!
-        let bdussParam = bdussURL?.isEmpty == false ? bdussURL! : token.sign
+        let bdussParam = normalizeBaiduQrBDUSSParam(bdussURL) ?? token.sign
         components.queryItems = [
             URLQueryItem(name: "v", value: timestampMS()),
             URLQueryItem(name: "bduss", value: bdussParam),
@@ -392,7 +392,7 @@ final class CloudDriveAuthManager: ObservableObject {
         let (_, response) = try await oneShot.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AuthError.invalidResponse("百度登录无响应") }
         let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.baidu.com")!)
-        guard cookie.lowercased().contains("bduss=") else {
+        guard isBaiduAccountCookie(cookie) else {
             throw AuthError.invalidResponse("百度扫码未返回 BDUSS")
         }
         let vars = try? await baiduFetchTemplateVariables(cookie: cookie)
@@ -570,7 +570,8 @@ final class CloudDriveAuthManager: ObservableObject {
         saveCredential(credential)
     }
 
-    func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) {
+    @discardableResult
+    func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) -> Bool {
         if type == .baidu, !isBaiduAccountCookie(cookie) {
             var credential = credentials[type.rawValue]
             credential?.statusMessage = "已捕获百度分享验证 Cookie，未覆盖账号 Cookie"
@@ -580,7 +581,7 @@ final class CloudDriveAuthManager: ObservableObject {
                 credentials[type.rawValue] = credential
                 persist()
             }
-            return
+            return false
         }
         let credential = CloudDriveCredential(
             driveType: type.rawValue,
@@ -600,6 +601,7 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: [:]
         )
         saveCredential(credential)
+        return true
     }
 
     nonisolated static func cookieString(from cookies: [HTTPCookie]) -> String {
@@ -688,6 +690,11 @@ final class CloudDriveAuthManager: ObservableObject {
         if let cookies = storage?.cookies(for: url) {
             for cookie in cookies { cookieDict[cookie.name] = cookie.value }
         }
+        if url.host?.contains("baidu.com") == true, let cookies = storage?.cookies {
+            for cookie in cookies where cookie.domain.contains("baidu.com") {
+                cookieDict[cookie.name] = cookie.value
+            }
+        }
         if let raw = http.allHeaderFields["Set-Cookie"] as? String {
             for piece in raw.components(separatedBy: ", ") {
                 guard let kv = piece.components(separatedBy: ";").first,
@@ -698,6 +705,23 @@ final class CloudDriveAuthManager: ObservableObject {
             }
         }
         return cookieDict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    private func normalizeBaiduQrBDUSSParam(_ raw: String?) -> String? {
+        guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        value = value.removingPercentEncoding ?? value
+        if let url = URL(string: value),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let bduss = components.queryItems?.first(where: { $0.name.lowercased() == "bduss" })?.value,
+           !bduss.isEmpty {
+            return bduss
+        }
+        if let match = try? NSRegularExpression(pattern: #"(?:^|[?&])bduss=([^&\s]+)"#, options: [.caseInsensitive])
+            .firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+           let range = Range(match.range(at: 1), in: value) {
+            return String(value[range])
+        }
+        return value
     }
 
     private func baiduFetchTemplateVariables(cookie: String) async throws -> [String: String] {
