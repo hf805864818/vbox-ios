@@ -69,6 +69,12 @@ class BaiduProxyClient {
 
         guard httpResp.statusCode == 200 else {
             let errText = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? String {
+                throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
+                    NSLocalizedDescriptionKey: error
+                ])
+            }
             throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
                 NSLocalizedDescriptionKey: "HTTP \(httpResp.statusCode): \(errText)"
             ])
