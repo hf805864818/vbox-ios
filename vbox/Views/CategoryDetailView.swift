@@ -38,7 +38,7 @@ struct CategoryDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .refreshable { loadData() }
         .navigationTitle(categoryName)
         .navigationBarTitleDisplayMode(.large)

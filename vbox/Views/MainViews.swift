@@ -90,6 +90,7 @@ extension View {
 // 毛玻璃底部导航栏
 struct GlassBottomTabBar: View {
     @Binding var selectedTab: Int
+    @EnvironmentObject private var settings: AppSettings
 
     private let tabs: [(icon: String, iconFilled: String, title: String)] = [
         ("house", "house.fill", "首页"),
@@ -110,16 +111,12 @@ struct GlassBottomTabBar: View {
                     VStack(spacing: 1) {
                         Image(systemName: selectedTab == index ? tabs[index].iconFilled : tabs[index].icon)
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(selectedTab == index ? Color.blue : Color.gray)
+                            .foregroundColor(selectedTab == index ? activeColor : inactiveColor)
                             .frame(height: 22)
 
                         Text(tabs[index].title)
                             .font(.system(size: 10, weight: selectedTab == index ? .semibold : .regular))
-                            .foregroundColor(
-                                selectedTab == index
-                                    ? Color.blue
-                                    : Color.gray
-                            )
+                            .foregroundColor(selectedTab == index ? activeColor : inactiveColor)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -132,15 +129,37 @@ struct GlassBottomTabBar: View {
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
-                .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(0.86)))
+                .background(Capsule().fill(tabBarBaseColor))
                 .overlay(
                     Capsule()
-                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                        .stroke(tabBarStrokeColor, lineWidth: 1)
                 )
         )
         .clipShape(Capsule())
         .padding(.horizontal, 36)
         .padding(.bottom, 8)
+    }
+
+    private var activeColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color.blue
+    }
+
+    private var inactiveColor: Color {
+        if settings.usesLiquidSkin { return Color.white.opacity(0.72) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondaryLabel) }
+        return Color.gray
+    }
+
+    private var tabBarBaseColor: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.34) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemBackground).opacity(0.62) }
+        return Color(uiColor: .systemBackground).opacity(0.86)
+    }
+
+    private var tabBarStrokeColor: Color {
+        settings.usesVisualSkin ? Color.white.opacity(0.28) : Color.gray.opacity(0.2)
     }
 }
 
@@ -244,7 +263,7 @@ struct HomeView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .refreshable { await loadData(force: true) }
         .onAppear {
             guard !Self.hasHomeCache else {
@@ -727,7 +746,7 @@ struct SearchView: View {
                 }
             }
         }
-        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onChange(of: settings.searchRequestId) { _ in
             runTriggeredSearch()
         }
@@ -783,7 +802,7 @@ struct SearchView: View {
                         }
                     }
                     .padding(.bottom, 16)
-                    .background(Color(uiColor: .systemBackground))
+                    .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
                 }
                 
                 // 豆瓣栏目标签
@@ -818,7 +837,7 @@ struct SearchView: View {
                             }
                         }
                     }
-                    .background(Color(uiColor: .systemBackground))
+                    .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
                 }
                 
                 // 豆瓣数据列表
@@ -857,7 +876,7 @@ struct SearchView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
     }
     
     private func performSearch() {
@@ -1081,6 +1100,7 @@ struct SearchHistoryDeleteButton: View {
 
 struct SearchResultsView: View {
     let results: [VodItem]
+    @EnvironmentObject private var settings: AppSettings
     @State private var selectedSource: String? = nil
     @State private var selectedVideo: VodItem? = nil
     private var grouped: [(source: String, videos: [VodItem])] {
@@ -1119,8 +1139,8 @@ struct SearchResultsView: View {
                             .padding(.horizontal, 6)
                         }
                         .frame(width: min(108, max(98, geometry.size.width * 0.23)))
-                        .background(Color(uiColor: .systemBackground))
-                        Divider().background(Color.gray.opacity(0.3))
+                        .background(searchPanelBackground)
+                        Divider().background(settings.usesVisualSkin ? Color.white.opacity(0.22) : Color.gray.opacity(0.3))
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 12) {
                                 ForEach(currentVideos) { item in
@@ -1129,7 +1149,7 @@ struct SearchResultsView: View {
                             }
                             .padding(12)
                         }
-                        .background(Color(uiColor: .systemBackground))
+                        .background(searchPanelBackground)
                     }
                 }
                 .fullScreenCover(item: $selectedVideo) { video in
@@ -1140,7 +1160,11 @@ struct SearchResultsView: View {
         }
     }
     private func singleColumnList(_ items: [VodItem]) -> some View {
-        ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video) }
+        ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.background(searchPanelBackground).fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video) }
+    }
+
+    private var searchPanelBackground: Color {
+        settings.usesVisualSkin ? Color.black.opacity(settings.usesLiquidSkin ? 0.18 : 0.08) : Color(uiColor: .systemBackground)
     }
 }
 
@@ -1171,7 +1195,7 @@ struct SourceNameLabel: View {
 
             Text(cleanName)
                 .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ? .white : .black)
+                .foregroundColor(isSelected ? .white : .primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.78)
                 .multilineTextAlignment(.leading)
@@ -1181,13 +1205,21 @@ struct SourceNameLabel: View {
 
 struct SearchResultRow: View {
     let video: VodItem
+    @EnvironmentObject private var settings: AppSettings
+
     var body: some View {
         HStack(spacing: 12) {
             AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { PlainTagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
             Spacer()
             Image(systemName: "play.circle.fill").font(.system(size: 30)).foregroundColor(Color(hex: "E11D48"))
-        }.padding(10).background(Color.gray.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 10))
+        }.padding(10).background(rowBackground).clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var rowBackground: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.28) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemGroupedBackground).opacity(0.58) }
+        return Color.gray.opacity(0.05)
     }
 }
 
@@ -1370,6 +1402,7 @@ struct DoubanSkeletonCardItem: View {
 
 // MARK: - 分类视图
 struct CategoryView: View {
+    @EnvironmentObject private var settings: AppSettings
     private let categories = [
         (name: "电影", icon: "film.fill", type: "movie"),
         (name: "电视剧", icon: "tv.fill", type: "tv"),
@@ -1405,7 +1438,7 @@ struct CategoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .sheet(isPresented: $showCategorySheet) {
             if let category = selectedCategory {
                 CategoryDetailView(categoryType: category.type, categoryName: category.name)
@@ -1419,6 +1452,7 @@ struct CategoryCard: View {
     let name: String
     let icon: String
     let onTap: () -> Void
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         Button(action: onTap) {
@@ -1449,7 +1483,7 @@ struct CategoryCard: View {
             .padding(.vertical, 20)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.black.opacity(0.2))
+                    .fill(cardBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -1468,10 +1502,18 @@ struct CategoryCard: View {
         }
         .buttonStyle(PlainButtonStyle())
     }
+
+    private var cardBackground: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.30) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemGroupedBackground).opacity(0.62) }
+        return Color(uiColor: .secondarySystemGroupedBackground).opacity(0.8)
+    }
 }
 
 // MARK: - 个人中心视图
 struct ProfileView: View {
+    @EnvironmentObject private var settings: AppSettings
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
@@ -1499,7 +1541,7 @@ struct ProfileView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
     }
 }
 

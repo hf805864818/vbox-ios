@@ -5,6 +5,7 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
     case dark
     case light
     case liquid
+    case frosted
 
     var id: String { rawValue }
 
@@ -13,6 +14,7 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
         case .dark: return "黑暗模式"
         case .light: return "浅色模式"
         case .liquid: return "液态模式"
+        case .frosted: return "磨砂模式"
         }
     }
 
@@ -21,6 +23,7 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
         case .dark: return "全局深色界面"
         case .light: return "保持当前浅色风格"
         case .liquid: return "流动渐变与毛玻璃"
+        case .frosted: return "全局磨砂玻璃质感"
         }
     }
 
@@ -29,13 +32,15 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
         case .dark: return "moon.fill"
         case .light: return "sun.max.fill"
         case .liquid: return "drop.fill"
+        case .frosted: return "sparkles"
         }
     }
 
-    var preferredColorScheme: ColorScheme {
+    var preferredColorScheme: ColorScheme? {
         switch self {
         case .dark, .liquid: return .dark
         case .light: return .light
+        case .frosted: return nil
         }
     }
 }
@@ -68,12 +73,21 @@ class AppSettings: ObservableObject {
     }
 
     var preferredColorScheme: ColorScheme? {
-        guard skinMode != .liquid else { return .dark }
+        if skinMode == .liquid { return .dark }
+        if skinMode == .frosted { return nil }
         return skinFollowsSystem ? nil : skinMode.preferredColorScheme
     }
 
     var usesLiquidSkin: Bool {
         skinMode == .liquid
+    }
+
+    var usesFrostedSkin: Bool {
+        skinMode == .frosted
+    }
+
+    var usesVisualSkin: Bool {
+        skinMode == .liquid || skinMode == .frosted
     }
 
     func selectSkin(_ mode: AppSkinMode) {

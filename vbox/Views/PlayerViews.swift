@@ -106,6 +106,9 @@ struct VideoDetailView: View {
             if settings.usesLiquidSkin {
                 AppLiquidBackground()
                     .ignoresSafeArea()
+            } else if settings.usesFrostedSkin {
+                AppFrostedBackground()
+                    .ignoresSafeArea()
             } else {
                 Color(uiColor: .systemBackground)
                     .ignoresSafeArea()
@@ -177,7 +180,7 @@ struct VideoDetailView: View {
                                                 Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
                                             }
                                             .padding(10)
-                                            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesLiquidSkin ? 0.42 : 0.8))
+                                            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesVisualSkin ? 0.48 : 0.8))
                                             .cornerRadius(8)
                                         }.buttonStyle(PlainButtonStyle())
                                     }
@@ -215,13 +218,13 @@ struct VideoDetailView: View {
                     .padding(20)
                     .padding(.bottom, 100)
                     .background(
-                        settings.usesLiquidSkin
-                        ? Color(uiColor: .systemBackground).opacity(0.16)
+                        settings.usesVisualSkin
+                        ? Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.16 : 0.42)
                         : Color(uiColor: .systemBackground)
                     )
                 }
             }
-            .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+            .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
             .ignoresSafeArea()
             // 普通视频 → 新版播放器
             .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }

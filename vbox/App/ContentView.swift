@@ -35,6 +35,9 @@ struct ContentView: View {
             if settings.usesLiquidSkin {
                 AppLiquidBackground()
                     .ignoresSafeArea()
+            } else if settings.usesFrostedSkin {
+                AppFrostedBackground()
+                    .ignoresSafeArea()
             } else {
                 Color(uiColor: .systemBackground)
                     .ignoresSafeArea()
@@ -50,7 +53,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+                .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
                 // 悬浮式底部导航栏
@@ -65,11 +68,11 @@ struct ContentView: View {
                                 VStack(spacing: 1) {
                                     Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
                                         .font(.system(size: 18, weight: .semibold))
-                                        .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
+                                        .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
 
                                     Text(tab.rawValue)
                                         .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
-                                        .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
+                                        .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 3)
@@ -83,10 +86,10 @@ struct ContentView: View {
                     .background(
                         Capsule()
                             .fill(.ultraThinMaterial)
-                            .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.42 : 0.9)))
+                            .background(Capsule().fill(tabBarBaseColor))
                             .overlay(
                                 Capsule()
-                                    .stroke(Color(uiColor: .systemGray4).opacity(settings.usesLiquidSkin ? 0.7 : 1), lineWidth: 1)
+                                    .stroke(tabBarStrokeColor, lineWidth: 1)
                             )
                     )
                     .clipShape(Capsule())
@@ -96,7 +99,7 @@ struct ContentView: View {
         }
         .environmentObject(settings)
         .preferredColorScheme(settings.preferredColorScheme)
-        .tint(settings.usesLiquidSkin ? Color(hex: "7C3AED") : Color(hex: "E11D48"))
+        .tint(activeTabColor)
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { selectedTab = .search }
         }
@@ -118,6 +121,30 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
+    }
+
+    private var activeTabColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color(hex: "E11D48")
+    }
+
+    private var inactiveTabColor: Color {
+        if settings.usesLiquidSkin { return Color.white.opacity(0.72) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondaryLabel) }
+        return Color(uiColor: .systemGray2)
+    }
+
+    private var tabBarBaseColor: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.34) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemBackground).opacity(0.62) }
+        return Color(uiColor: .systemBackground).opacity(0.9)
+    }
+
+    private var tabBarStrokeColor: Color {
+        if settings.usesLiquidSkin { return Color.white.opacity(0.22) }
+        if settings.usesFrostedSkin { return Color.white.opacity(0.34) }
+        return Color(uiColor: .systemGray4)
     }
 }
 
@@ -156,5 +183,37 @@ struct AppLiquidBackground: View {
         }
         .animation(.easeInOut(duration: 7).repeatForever(autoreverses: true), value: phase)
         .onAppear { phase = true }
+    }
+}
+
+struct AppFrostedBackground: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(uiColor: .systemBackground),
+                    Color(hex: "EEF2FF").opacity(0.55),
+                    Color(hex: "FDF2F8").opacity(0.45)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color(hex: "60A5FA").opacity(0.22))
+                .frame(width: 280, height: 280)
+                .blur(radius: 74)
+                .offset(x: -120, y: -190)
+
+            Circle()
+                .fill(Color(hex: "C084FC").opacity(0.18))
+                .frame(width: 320, height: 320)
+                .blur(radius: 86)
+                .offset(x: 150, y: 220)
+
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .opacity(0.72)
+        }
     }
 }
