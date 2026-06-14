@@ -2145,10 +2145,25 @@ class CloudDriveManager: ObservableObject {
             pwd: pwd ?? "",
             cookie: cookie
         )
+        
+        // 打印完整的 Worker 响应用于调试
+        baiduLog("[Baidu-Worker] 收到响应，所有字段：\(response.keys.sorted().joined(separator: ", "))")
+        if let respStr = String(data: try JSONSerialization.data(withJSONObject: response), encoding: .utf8) {
+            baiduLog("[Baidu-Worker] 响应内容：\(respStr.prefix(500))")
+        }
 
         guard let success = response["success"] as? Bool, success else {
             let err = response["error"] as? String ?? "未知错误"
-            baiduLog("[Baidu-Worker] ❌ 文件列表解析失败：\(err)")
+            baiduLog("[Baidu-Worker]  文件列表解析失败：\(err)")
+            
+            // 针对 errno=-62 提供更友好的错误提示
+            if err.contains("errno=-62") || err.contains("errno=-9") {
+                let hint = err.contains("errno=-62") 
+                    ? " (Cookie 可能已失效或风控，请重新扫码登录)" 
+                    : " (提取码错误)"
+                throw DriveError.noPlayURL("Worker 代理解析失败：\(err)\(hint)")
+            }
+            
             throw DriveError.noPlayURL("Worker 代理解析失败：\(err)")
         }
 
