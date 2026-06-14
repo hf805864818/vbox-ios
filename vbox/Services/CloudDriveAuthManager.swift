@@ -384,14 +384,16 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
 
+        let cookieCollector = RedirectCookieCollector()
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.httpShouldSetCookies = true
-        let oneShot = URLSession(configuration: config)
+        let oneShot = URLSession(configuration: config, delegate: cookieCollector, delegateQueue: nil)
         defer { oneShot.finishTasksAndInvalidate() }
         let (_, response) = try await oneShot.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AuthError.invalidResponse("百度登录无响应") }
-        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.baidu.com")!)
+        let responseCookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.baidu.com")!)
+        let cookie = mergeCookieStrings([cookieCollector.cookieString(), responseCookie])
         guard isBaiduAccountCookie(cookie) else {
             throw AuthError.invalidResponse("百度扫码未返回 BDUSS")
         }
@@ -414,6 +416,7 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: vars ?? [:]
         )
         saveCredential(credential)
+        CloudDriveManager.shared.cleanupInvalidBaiduTokens()
     }
 
     // MARK: - 授权有效性测试
@@ -601,6 +604,9 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: [:]
         )
         saveCredential(credential)
+        if type == .baidu {
+            CloudDriveManager.shared.cleanupInvalidBaiduTokens()
+        }
         return true
     }
 
@@ -707,6 +713,20 @@ final class CloudDriveAuthManager: ObservableObject {
         return cookieDict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }
 
+    private func mergeCookieStrings(_ values: [String]) -> String {
+        var dict: [String: String] = [:]
+        for value in values {
+            for piece in value.components(separatedBy: ";") {
+                let kv = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let eq = kv.firstIndex(of: "=") else { continue }
+                let key = String(kv[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let val = String(kv[kv.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !key.isEmpty, !val.isEmpty { dict[key] = val }
+            }
+        }
+        return dict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
+
     private func normalizeBaiduQrBDUSSParam(_ raw: String?) -> String? {
         guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         value = value.removingPercentEncoding ?? value
@@ -805,6 +825,43 @@ final class CloudDriveAuthManager: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
+    }
+}
+
+private final class RedirectCookieCollector: NSObject, URLSessionTaskDelegate {
+    private var cookies: [String: HTTPCookie] = [:]
+    private let lock = NSLock()
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        collect(from: response, url: response.url ?? request.url)
+        completionHandler(request)
+    }
+
+    func cookieString() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return CloudDriveAuthManager.cookieString(from: Array(cookies.values))
+    }
+
+    private func collect(from response: HTTPURLResponse, url: URL?) {
+        guard let url else { return }
+        var headers: [String: String] = [:]
+        for (key, value) in response.allHeaderFields {
+            headers["\(key)"] = "\(value)"
+        }
+        let parsed = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
+        guard !parsed.isEmpty else { return }
+        lock.lock()
+        for cookie in parsed {
+            cookies[cookie.name] = cookie
+        }
+        lock.unlock()
     }
 }
 
