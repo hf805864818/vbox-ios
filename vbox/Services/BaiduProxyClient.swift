@@ -115,38 +115,6 @@ class BaiduProxyClient {
 
         return json
     }
-        
-        guard let httpResp = response as? HTTPURLResponse else {
-            print("[BaiduProxy] ❌ 无效的响应类型")
-            throw NSError(domain: "BaiduProxy", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: "无效的响应"
-            ])
-        }
-        
-        print("[BaiduProxy] << HTTP 状态码: \(httpResp.statusCode)")
-
-        guard httpResp.statusCode == 200 else {
-            let errText = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = json["error"] as? String {
-                throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
-                    NSLocalizedDescriptionKey: error
-                ])
-            }
-            throw NSError(domain: "BaiduProxy", code: httpResp.statusCode, userInfo: [
-                NSLocalizedDescriptionKey: "HTTP \(httpResp.statusCode): \(errText)"
-            ])
-        }
-
-        // 5. 解析 JSON
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw NSError(domain: "BaiduProxy", code: -2, userInfo: [
-                NSLocalizedDescriptionKey: "无效的 JSON 响应"
-            ])
-        }
-
-        return json
-    }
 
     // HMAC-SHA256 签名
     private func hmacSHA256(message: String, key: String) -> String {
