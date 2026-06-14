@@ -463,11 +463,14 @@ final class CloudDriveAuthManager: ObservableObject {
         ]
         
         // 并发请求端点，加速 Cookie 获取
-        await withTaskGroup(of: (String, URLResponse?, Data?).self) { group in
+        let requestCookie = collectedCookie
+        let capturedCookie = await withTaskGroup(of: (String, URLResponse?, Data?).self, returning: String?.self) { group in
             for (urlString, ua, referer, body) in pcsEndpoints {
                 group.addTask {
                     guard let url = URL(string: urlString) else { return (urlString, nil, nil) }
                     var request = URLRequest(url: url)
+                    request.setValue(requestCookie, forHTTPHeaderField: "Cookie")
+                    request.setValue(ua, forHTTPHeaderField: "User-Agent")
                     request.setValue("*/*", forHTTPHeaderField: "Accept")
                     if let ref = referer {
                         request.setValue(ref, forHTTPHeaderField: "Referer")
@@ -505,46 +508,10 @@ final class CloudDriveAuthManager: ObservableObject {
                 
                 print("[Baidu-PCS] 🔄 \(urlString) 收集到 \(baiduCookieNames(in: collectedCookie).count) 个 cookie，继续...")
             }
+            return nil
         }
-
-        print("[Baidu-PCS] ❌ 未捕获 PCS Cookie")
-        print("[Baidu-PCS] 💡 建议：在浏览器中打开 pan.baidu.com 并下载任意文件，然后复制完整 Cookie")
-        return nil
-    }
-            if let bodyData = body {
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = bodyData.data(using: .utf8)
-            }
-
-            do {
-                let (_, response) = try await pcsSession.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    print("[Baidu-PCS] ❌ \(urlString) 返回无效响应")
-                    baiduMarkVerifyCooldown(urlString, seconds: 30)
-                    continue
-                }
-                
-                if http.statusCode >= 400 {
-                    print("[Baidu-PCS] ️ \(urlString) HTTP \(http.statusCode)")
-                    baiduMarkVerifyCooldown(urlString, seconds: 30)
-                    continue
-                }
-                
-                guard let url = URL(string: urlString) else { continue }
-                let responseCookie = collectCookies(from: http, storage: storage, url: url)
-                let storageCookie = CloudDriveAuthManager.cookieString(from: storage.cookies ?? [])
-                collectedCookie = baiduMergeCookieStrings([collectedCookie, responseCookie, storageCookie])
-                
-                if let pcsCookie = baiduExtractPCSCookie(from: collectedCookie) {
-                    print("[Baidu-PCS] ✅ \(urlString) 成功捕获 PCS Cookie 字段：\(baiduCookieNames(in: pcsCookie).joined(separator: ","))")
-                    return pcsCookie
-                }
-                
-                print("[Baidu-PCS] 🔄 \(urlString) 收集到 \(baiduCookieNames(in: collectedCookie).count) 个 cookie，继续...")
-            } catch {
-                print("[Baidu-PCS] ❌ \(urlString) 请求失败：\(error.localizedDescription)")
-                baiduMarkVerifyCooldown(urlString, seconds: 60)
-            }
+        if let capturedCookie {
+            return capturedCookie
         }
 
         print("[Baidu-PCS] ❌ 未捕获 PCS Cookie")
@@ -571,74 +538,6 @@ final class CloudDriveAuthManager: ObservableObject {
             return [:]
         }
         return cache
-    }
-        if var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable") {
-            components.queryItems = [
-                URLQueryItem(name: "clienttype", value: "0"),
-                URLQueryItem(name: "app_id", value: "250528"),
-                URLQueryItem(name: "web", value: "1"),
-                URLQueryItem(name: "fields", value: #"["username","uk","bdstoken"]"#)
-            ]
-            if let url = components.url {
-                requests.append((url, baiduUserAgent, "https://pan.baidu.com/disk/main"))
-            }
-        }
-        if var components = URLComponents(string: "https://pan.baidu.com/api/mediainfo") {
-            components.queryItems = [
-                URLQueryItem(name: "clienttype", value: "80"),
-                URLQueryItem(name: "origin", value: "dlna"),
-                URLQueryItem(name: "path", value: "/"),
-                URLQueryItem(name: "type", value: "M3U8_FLV_264_480")
-            ]
-            if let url = components.url {
-                requests.append((url, baiduPCSUserAgent, "https://pan.baidu.com/"))
-            }
-        }
-        if var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file") {
-            components.queryItems = [
-                URLQueryItem(name: "app_id", value: "250528"),
-                URLQueryItem(name: "method", value: "locatedownload"),
-                URLQueryItem(name: "check_blue", value: "1"),
-                URLQueryItem(name: "path", value: "/"),
-                URLQueryItem(name: "version", value: "2.2.101.236"),
-                URLQueryItem(name: "clienttype", value: "17"),
-                URLQueryItem(name: "time", value: String(Int(Date().timeIntervalSince1970))),
-                URLQueryItem(name: "rand", value: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
-            ]
-            if let url = components.url {
-                requests.append((url, baiduPCSUserAgent, "https://pan.baidu.com/"))
-            }
-        }
-
-        var collectedCookie = normalizedWebCookie
-        for spec in requests {
-            var request = URLRequest(url: spec.url)
-            request.httpMethod = "GET"
-            request.setValue(collectedCookie, forHTTPHeaderField: "Cookie")
-            request.setValue(spec.userAgent, forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-            if let referer = spec.referer {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-                request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-            }
-
-            do {
-                let (_, response) = try await pcsSession.data(for: request)
-                guard let http = response as? HTTPURLResponse else { continue }
-                let responseCookie = collectCookies(from: http, storage: storage, url: spec.url)
-                let storageCookie = CloudDriveAuthManager.cookieString(from: storage.cookies ?? [])
-                collectedCookie = mergeCookieStrings([collectedCookie, responseCookie, storageCookie])
-                if let pcsCookie = extractBaiduPCSCookie(from: collectedCookie) {
-                    print("[Baidu-PCS] 已捕获 PCS Cookie 字段：\(baiduCookieNames(in: pcsCookie).joined(separator: ","))")
-                    return pcsCookie
-                }
-            } catch {
-                print("[Baidu-PCS] 请求 \(spec.url.host ?? "unknown") 捕获 PCS Cookie 失败：\(error.localizedDescription)")
-            }
-        }
-
-        print("[Baidu-PCS] 未捕获 PCS Cookie，已保留 Web Cookie")
-        return nil
     }
 
     // MARK: - 授权有效性测试
