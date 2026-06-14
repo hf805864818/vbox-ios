@@ -780,11 +780,14 @@ class CloudDriveManager: ObservableObject {
     func addOrReplaceToken(type: DriveType, name: String, value: String) {
         if type == .baidu {
             // 百度仍保持 Web Cookie + PCS Cookie 的双 Token 设计。
-            // 授权中心扫码/WebView 回写的是 Web Cookie，不能误删现有 PCS 高速播放 Cookie。
+            // 授权中心扫码/WebView 回写的是 Web Cookie，不能误删/覆盖原有手动账号 Cookie 或 PCS 高速播放 Cookie。
             guard isBaiduAccountWebCookie(value) else {
                 return
             }
-            savedTokens.removeAll { $0.type == type.rawValue && isBaiduAccountWebToken($0) }
+            if savedTokens.contains(where: { $0.type == type.rawValue && $0.value == value }) {
+                return
+            }
+            savedTokens.removeAll { $0.type == type.rawValue && $0.name == name }
         } else {
             savedTokens.removeAll { $0.type == type.rawValue }
         }
@@ -834,7 +837,13 @@ class CloudDriveManager: ObservableObject {
             let credential = CloudDriveAuthManager.shared.credential(for: type)
             let name = credential?.userName?.isEmpty == false ? credential!.userName! : "授权中心"
             if !tokens.contains(where: { $0.value == value }) {
-                tokens.insert(DriveToken(type: type.rawValue, name: name, value: value), at: 0)
+                let authToken = DriveToken(type: type.rawValue, name: name, value: value)
+                if type == .baidu {
+                    // 百度 Worker 链路优先保持旧手动 Token 顺序，授权中心账号只作为兜底，避免改变原本可用 Worker Cookie。
+                    tokens.append(authToken)
+                } else {
+                    tokens.insert(authToken, at: 0)
+                }
             }
         }
         return tokens
