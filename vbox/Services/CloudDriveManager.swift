@@ -795,6 +795,28 @@ class CloudDriveManager: ObservableObject {
         saveTokens()
     }
 
+    @discardableResult
+    func addOrReplaceBaiduPCSToken(name: String, value: String) -> Bool {
+        let normalized = value
+            .replacingOccurrences(of: "\n", with: "; ")
+            .replacingOccurrences(of: "\r", with: "; ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isBaiduPCSCookie(normalized) else {
+            baiduLog("[Baidu-Token] ⚠️ PCS Cookie 未包含 PANPSC/ptoken_bfess/ndut_fmt/nd_ftid，跳过保存")
+            return false
+        }
+
+        savedTokens.removeAll { token in
+            guard token.type == DriveType.baidu.rawValue else { return false }
+            if token.name == name || token.value == normalized { return true }
+            return isBaiduPCSToken(token) && token.name.hasPrefix("百度PCS-扫码")
+        }
+        savedTokens.append(DriveToken(type: DriveType.baidu.rawValue, name: name, value: normalized))
+        saveTokens()
+        baiduLog("[Baidu-Token] ✅ 已保存百度 PCS 高速 Cookie：\(name)")
+        return true
+    }
+
     func removeToken(at index: Int) {
         guard index >= 0, index < savedTokens.count else { return }
         savedTokens.remove(at: index)
@@ -867,11 +889,15 @@ class CloudDriveManager: ObservableObject {
 
     private func isBaiduPCSToken(_ token: DriveToken) -> Bool {
         let name = token.name.lowercased()
-        let value = token.value.lowercased()
         if name.contains("pcs") || name.contains("下载") || name.contains("直链") || name.contains("locatedownload") {
             return true
         }
-        return value.contains("panpsc=") || value.contains("ptoken_bfess=") || value.contains("ndut_fmt=") || value.contains("nd_ftid=")
+        return isBaiduPCSCookie(token.value)
+    }
+
+    private func isBaiduPCSCookie(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        return lower.contains("panpsc=") || lower.contains("ptoken=") || lower.contains("ptoken_bfess=") || lower.contains("ndut_fmt=") || lower.contains("nd_ftid=")
     }
 
     private func isBaiduAccountWebCookie(_ value: String) -> Bool {

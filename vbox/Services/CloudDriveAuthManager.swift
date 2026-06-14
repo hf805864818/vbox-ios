@@ -398,7 +398,7 @@ final class CloudDriveAuthManager: ObservableObject {
             throw AuthError.invalidResponse("百度扫码未返回 BDUSS")
         }
         let vars = try? await baiduFetchTemplateVariables(cookie: cookie)
-        let credential = CloudDriveCredential(
+        var credential = CloudDriveCredential(
             driveType: CloudDriveManager.DriveType.baidu.rawValue,
             authType: .qr,
             accessToken: nil,
@@ -416,7 +416,108 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: vars ?? [:]
         )
         saveCredential(credential)
+
+        if let pcsCookie = await baiduFetchPCSCookie(webCookie: cookie),
+           CloudDriveManager.shared.addOrReplaceBaiduPCSToken(name: "百度PCS-扫码登录", value: pcsCookie) {
+            credential.statusMessage = "百度扫码登录成功，PCS Cookie 已获取"
+            credential.extra["pcs_cookie_status"] = "captured"
+            credential.extra["pcs_cookie_fields"] = baiduCookieNames(in: pcsCookie).joined(separator: ",")
+            saveCredential(credential, syncLegacyToken: false)
+        } else {
+            credential.statusMessage = "百度扫码登录成功，未捕获 PCS Cookie"
+            credential.extra["pcs_cookie_status"] = "missing"
+            saveCredential(credential, syncLegacyToken: false)
+        }
         CloudDriveManager.shared.cleanupInvalidBaiduTokens()
+    }
+
+    private func baiduFetchPCSCookie(webCookie: String) async -> String? {
+        let normalizedWebCookie = mergeCookieStrings([webCookie])
+        guard isBaiduAccountCookie(normalizedWebCookie) else { return nil }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 20
+        config.httpCookieAcceptPolicy = .always
+        config.httpShouldSetCookies = true
+        let storage = config.httpCookieStorage ?? HTTPCookieStorage.shared
+        config.httpCookieStorage = storage
+        seedBaiduCookies(normalizedWebCookie, into: storage)
+
+        let pcsSession = URLSession(configuration: config)
+        defer { pcsSession.finishTasksAndInvalidate() }
+
+        var requests: [(url: URL, userAgent: String, referer: String?)] = []
+        if let url = URL(string: "https://pan.baidu.com/disk/main") {
+            requests.append((url, baiduUserAgent, "https://pan.baidu.com/"))
+        }
+        if var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable") {
+            components.queryItems = [
+                URLQueryItem(name: "clienttype", value: "0"),
+                URLQueryItem(name: "app_id", value: "250528"),
+                URLQueryItem(name: "web", value: "1"),
+                URLQueryItem(name: "fields", value: #"["username","uk","bdstoken"]"#)
+            ]
+            if let url = components.url {
+                requests.append((url, baiduUserAgent, "https://pan.baidu.com/disk/main"))
+            }
+        }
+        if var components = URLComponents(string: "https://pan.baidu.com/api/mediainfo") {
+            components.queryItems = [
+                URLQueryItem(name: "clienttype", value: "80"),
+                URLQueryItem(name: "origin", value: "dlna"),
+                URLQueryItem(name: "path", value: "/"),
+                URLQueryItem(name: "type", value: "M3U8_FLV_264_480")
+            ]
+            if let url = components.url {
+                requests.append((url, baiduPCSUserAgent, "https://pan.baidu.com/"))
+            }
+        }
+        if var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file") {
+            components.queryItems = [
+                URLQueryItem(name: "app_id", value: "250528"),
+                URLQueryItem(name: "method", value: "locatedownload"),
+                URLQueryItem(name: "check_blue", value: "1"),
+                URLQueryItem(name: "path", value: "/"),
+                URLQueryItem(name: "version", value: "2.2.101.236"),
+                URLQueryItem(name: "clienttype", value: "17"),
+                URLQueryItem(name: "time", value: String(Int(Date().timeIntervalSince1970))),
+                URLQueryItem(name: "rand", value: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
+            ]
+            if let url = components.url {
+                requests.append((url, baiduPCSUserAgent, "https://pan.baidu.com/"))
+            }
+        }
+
+        var collectedCookie = normalizedWebCookie
+        for spec in requests {
+            var request = URLRequest(url: spec.url)
+            request.httpMethod = "GET"
+            request.setValue(collectedCookie, forHTTPHeaderField: "Cookie")
+            request.setValue(spec.userAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
+            if let referer = spec.referer {
+                request.setValue(referer, forHTTPHeaderField: "Referer")
+                request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+            }
+
+            do {
+                let (_, response) = try await pcsSession.data(for: request)
+                guard let http = response as? HTTPURLResponse else { continue }
+                let responseCookie = collectCookies(from: http, storage: storage, url: spec.url)
+                let storageCookie = CloudDriveAuthManager.cookieString(from: storage.cookies ?? [])
+                collectedCookie = mergeCookieStrings([collectedCookie, responseCookie, storageCookie])
+                if let pcsCookie = extractBaiduPCSCookie(from: collectedCookie) {
+                    print("[Baidu-PCS] 已捕获 PCS Cookie 字段：\(baiduCookieNames(in: pcsCookie).joined(separator: ","))")
+                    return pcsCookie
+                }
+            } catch {
+                print("[Baidu-PCS] 请求 \(spec.url.host ?? "unknown") 捕获 PCS Cookie 失败：\(error.localizedDescription)")
+            }
+        }
+
+        print("[Baidu-PCS] 未捕获 PCS Cookie，已保留 Web Cookie")
+        return nil
     }
 
     // MARK: - 授权有效性测试
@@ -642,6 +743,58 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private var baiduUserAgent: String {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    }
+
+    private var baiduPCSUserAgent: String {
+        "netdisk;1.4.2;22021211RC;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
+    }
+
+    private func seedBaiduCookies(_ cookie: String, into storage: HTTPCookieStorage) {
+        let domains = [".baidu.com", "pan.baidu.com", "passport.baidu.com", "d.pcs.baidu.com"]
+        for domain in domains {
+            for piece in cookie.components(separatedBy: ";") {
+                let kv = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let eq = kv.firstIndex(of: "=") else { continue }
+                let name = String(kv[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(kv[kv.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, !value.isEmpty else { continue }
+                guard let httpCookie = HTTPCookie(properties: [
+                    .domain: domain,
+                    .path: "/",
+                    .name: name,
+                    .value: value,
+                    .secure: "TRUE",
+                    .expires: Date(timeIntervalSinceNow: 30 * 24 * 3600)
+                ]) else { continue }
+                storage.setCookie(httpCookie)
+            }
+        }
+    }
+
+    private func extractBaiduPCSCookie(from cookie: String) -> String? {
+        let pcsNames = Set(["panpsc", "ptoken", "ptoken_bfess", "ndut_fmt", "nd_ftid"])
+        var fields: [String] = []
+        var used = Set<String>()
+        for piece in cookie.components(separatedBy: ";") {
+            let kv = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = kv.firstIndex(of: "=") else { continue }
+            let name = String(kv[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(kv[kv.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = name.lowercased()
+            guard !name.isEmpty, !value.isEmpty, pcsNames.contains(lower), !used.contains(lower) else { continue }
+            used.insert(lower)
+            fields.append("\(name)=\(value)")
+        }
+        return fields.isEmpty ? nil : fields.joined(separator: "; ")
+    }
+
+    private func baiduCookieNames(in cookie: String) -> [String] {
+        cookie.components(separatedBy: ";").compactMap { piece in
+            let kv = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = kv.firstIndex(of: "=") else { return nil }
+            let name = String(kv[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? nil : name
+        }
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {

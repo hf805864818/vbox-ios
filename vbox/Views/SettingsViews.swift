@@ -3098,7 +3098,7 @@ struct NativeCloudQRLoginView: View {
                     try await CloudDriveAuthManager.shared.baiduExchangeQrLogin(token: token, bdussURL: bdussURL)
                     isPolling = false
                     statusText = "百度扫码登录成功"
-                    detailText = "BDUSS/STOKEN/bdstoken 已保存到授权中心。"
+                    detailText = "BDUSS/STOKEN 已保存；已自动尝试捕获并保存 PCS 高速 Cookie。"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
                     return
                 case .expired:
