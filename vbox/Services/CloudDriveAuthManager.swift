@@ -74,6 +74,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let storageKey = "cloud_drive_credentials_v1"
+    private let baiduVerifyCooldownKey = "baidu_verify_cooldowns_v1"
     private let session: URLSession
     private let aliOAuthClientId = "76917ccccd4441c39457a04f6084fb2f"
     private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
@@ -490,7 +491,7 @@ final class CloudDriveAuthManager: ObservableObject {
             }
             
             for await (urlString, response, data) in group {
-                guard let data, let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                guard data != nil, let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     print("[Baidu-PCS] ⚠️ \(urlString) 未返回有效数据")
                     continue
                 }
