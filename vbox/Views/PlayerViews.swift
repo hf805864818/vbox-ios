@@ -5,6 +5,7 @@ import AVFoundation
 // MARK: - 视频详情视图
 struct VideoDetailView: View {
     let video: VodItem
+    @EnvironmentObject private var settings: AppSettings
     @State private var showPlayer = false
     @State private var isFavorite = false
     @State private var panLinks: [(url: String, name: String)] = []
@@ -102,6 +103,14 @@ struct VideoDetailView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            if settings.usesLiquidSkin {
+                AppLiquidBackground()
+                    .ignoresSafeArea()
+            } else {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+            }
+
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     // 封面
@@ -125,7 +134,7 @@ struct VideoDetailView: View {
 
                     // 信息区
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.black)
+                        Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.primary)
                         HStack(spacing: 12) {
                             TagLabel(text: displayVideo.vodRemarks ?? "")
                             TagLabel(text: displayVideo.vodYear ?? "")
@@ -139,8 +148,8 @@ struct VideoDetailView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
-                            Text(displayVideo.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.gray).lineSpacing(4)
+                            Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
+                            Text(displayVideo.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
                         }
 
                         // 网盘资源展示
@@ -163,10 +172,13 @@ struct VideoDetailView: View {
                                         Button(action: { playPanLink(link) }) {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
-                                                Text(link.name).font(.system(size: 13)).foregroundColor(.black)
+                                                Text(link.name).font(.system(size: 13)).foregroundColor(.primary)
                                                 Spacer()
                                                 Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
-                                            }.padding(10).background(Color.gray.opacity(0.08)).cornerRadius(8)
+                                            }
+                                            .padding(10)
+                                            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesLiquidSkin ? 0.42 : 0.8))
+                                            .cornerRadius(8)
                                         }.buttonStyle(PlainButtonStyle())
                                     }
                                 }
@@ -175,7 +187,7 @@ struct VideoDetailView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("剧集列表").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
+                                Text("剧集列表").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
                                 Spacer()
                                 if isLoadingDetail {
                                     ProgressView().scaleEffect(0.8)
@@ -199,10 +211,17 @@ struct VideoDetailView: View {
                                 )
                             }
                         }.padding(.top, 8)
-                    }.padding(20).padding(.bottom, 100)
+                    }
+                    .padding(20)
+                    .padding(.bottom, 100)
+                    .background(
+                        settings.usesLiquidSkin
+                        ? Color(uiColor: .systemBackground).opacity(0.16)
+                        : Color(uiColor: .systemBackground)
+                    )
                 }
             }
-            .background(Color.white)
+            .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
             .ignoresSafeArea()
             // 普通视频 → 新版播放器
             .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
@@ -223,8 +242,10 @@ struct VideoDetailView: View {
 struct TagLabel: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.gray)
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.secondary)
             .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
+            .clipShape(Capsule())
     }
 }
 
@@ -234,7 +255,7 @@ struct ActionButton: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 22)).foregroundStyle(LinearGradient(colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")], startPoint: .top, endPoint: .bottom))
-                Text(title).font(.system(size: 12)).foregroundColor(.black)
+                Text(title).font(.system(size: 12)).foregroundColor(.primary)
             }.frame(maxWidth: .infinity)
         }.buttonStyle(PlainButtonStyle())
     }
@@ -262,10 +283,13 @@ struct EpisodeGridView: View {
                         Text(episode.name).font(.system(size: 13, weight: ep == selectedEpisode ? .semibold : .medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
-                            .foregroundColor(ep == selectedEpisode ? .white : .black)
+                            .foregroundColor(ep == selectedEpisode ? .white : .primary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color.gray.opacity(0.1)))
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(ep == selectedEpisode ? Color(hex: "E11D48") : Color(uiColor: .secondarySystemGroupedBackground).opacity(0.8))
+                            )
                     }.buttonStyle(PlainButtonStyle())
                 }
             }

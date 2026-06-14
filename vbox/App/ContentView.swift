@@ -31,59 +31,72 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // 页面内容区域，全屏无遮挡
-            Group {
-                switch selectedTab {
-                case .home: HomeView()
-                case .search: SearchView()
-                case .settings: SettingsView()
-                }
+        ZStack {
+            if settings.usesLiquidSkin {
+                AppLiquidBackground()
+                    .ignoresSafeArea()
+            } else {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-            
-            // 悬浮式底部导航栏
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    ForEach(Tab.allCases, id: \.self) { tab in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedTab = tab
-                            }
-                        } label: {
-                            VStack(spacing: 1) {
-                                Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
-                                
-                                Text(tab.rawValue)
-                                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
-                                    .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 3)
-                        }
-                        .buttonStyle(.plain)
+
+            ZStack(alignment: .bottom) {
+                // 页面内容区域，全屏无遮挡
+                Group {
+                    switch selectedTab {
+                    case .home: HomeView()
+                    case .search: SearchView()
+                    case .settings: SettingsView()
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 5)
-                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-                .background(
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(0.9)))
-                        .overlay(
-                            Capsule()
-                                .stroke(Color(uiColor: .systemGray4), lineWidth: 1)
-                        )
-                )
-                .clipShape(Capsule())
-                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+
+                // 悬浮式底部导航栏
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        ForEach(Tab.allCases, id: \.self) { tab in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedTab = tab
+                                }
+                            } label: {
+                                VStack(spacing: 1) {
+                                    Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
+
+                                    Text(tab.rawValue)
+                                        .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
+                                        .foregroundColor(selectedTab == tab ? .blue : Color(uiColor: .systemGray2))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 3)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.42 : 0.9)))
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(uiColor: .systemGray4).opacity(settings.usesLiquidSkin ? 0.7 : 1), lineWidth: 1)
+                            )
+                    )
+                    .clipShape(Capsule())
+                    .padding(.bottom, 8)
+                }
             }
         }
         .environmentObject(settings)
+        .preferredColorScheme(settings.preferredColorScheme)
+        .tint(settings.usesLiquidSkin ? Color(hex: "7C3AED") : Color(hex: "E11D48"))
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { selectedTab = .search }
         }
@@ -105,5 +118,43 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
+    }
+}
+
+struct AppLiquidBackground: View {
+    @State private var phase = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hex: "050816"),
+                    Color(hex: "111827"),
+                    Color(hex: "1E1B4B")
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color(hex: "22D3EE").opacity(0.34))
+                .frame(width: 320, height: 320)
+                .blur(radius: 70)
+                .offset(x: phase ? 130 : -120, y: phase ? -240 : -160)
+
+            Circle()
+                .fill(Color(hex: "A855F7").opacity(0.42))
+                .frame(width: 360, height: 360)
+                .blur(radius: 80)
+                .offset(x: phase ? -150 : 140, y: phase ? 120 : 260)
+
+            Circle()
+                .fill(Color(hex: "F43F5E").opacity(0.24))
+                .frame(width: 260, height: 260)
+                .blur(radius: 70)
+                .offset(x: phase ? 90 : -80, y: phase ? 320 : 140)
+        }
+        .animation(.easeInOut(duration: 7).repeatForever(autoreverses: true), value: phase)
+        .onAppear { phase = true }
     }
 }

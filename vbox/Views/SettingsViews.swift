@@ -7,6 +7,7 @@ extension CloudDriveManager.DriveType: Identifiable {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
     @StateObject private var spiderManager = SpiderManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var autoPlayNext = true
@@ -60,7 +61,7 @@ struct SettingsView: View {
                 settingsContent
             }
         }
-        .background(Color.white)
+        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
         .alert("清除缓存", isPresented: $showCacheAlert) {
             Button("取消", role: .cancel) {}
             Button("确定", role: .destructive) {}
@@ -72,13 +73,14 @@ struct SettingsView: View {
     private var titleBar: some View {
         Text("设置")
             .font(.system(size: 22, weight: .bold))
-            .foregroundColor(.black)
+            .foregroundColor(.primary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, 16)
     }
 
     private var settingsContent: some View {
         VStack(spacing: 20) {
+            skinSettingsSection
             playbackSettingsSection
             subscriptionSection
             fallbackSection
@@ -88,6 +90,45 @@ struct SettingsView: View {
             aboutSection
         }
         .padding(.horizontal, 16)
+    }
+
+    private var skinSettingsSection: some View {
+        SettingsSection(title: "皮肤") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    ForEach(AppSkinMode.allCases) { mode in
+                        SkinModeButton(
+                            mode: mode,
+                            isSelected: settings.skinMode == mode,
+                            action: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    settings.selectSkin(mode)
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Toggle(isOn: $settings.skinFollowsSystem) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("黑暗/浅色跟随手机外观")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        Text("开启后黑暗模式和浅色模式会随系统外观切换；液态模式始终需要手动点击切换。")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .disabled(settings.skinMode == .liquid)
+                .opacity(settings.skinMode == .liquid ? 0.55 : 1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesLiquidSkin ? 0.36 : 1))
+            )
+        }
     }
 
     private var playbackSettingsSection: some View {
@@ -108,7 +149,7 @@ struct SettingsView: View {
                         .foregroundColor(Color(hex: "E11D48"))
                     Text("启用兜底切片资源")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Spacer()
                     Toggle("", isOn: $spiderManager.fallbackEnabled)
                         .labelsHidden()
@@ -123,7 +164,7 @@ struct SettingsView: View {
                             .foregroundColor(Color(hex: "E11D48"))
                         Text("管理自定义切片源")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                         Spacer()
                         Text("\(spiderManager.customFallbackSites.count) 个")
                             .font(.system(size: 13))
@@ -144,7 +185,7 @@ struct SettingsView: View {
                             .foregroundColor(Color(hex: "E11D48"))
                         Text("管理自定义解析器")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                         Spacer()
                         Text("\(spiderManager.customParsers.count) 个")
                             .font(.system(size: 13))
@@ -176,7 +217,7 @@ struct SettingsView: View {
                         .foregroundColor(Color(hex: "E11D48"))
                     Text("管理订阅源")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Spacer()
                     if SpiderManager.shared.subManager.configURLs.isEmpty {
                         Text("未配置")
@@ -212,7 +253,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("网盘账号授权中心")
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.black)
+                                .foregroundColor(.primary)
                             Text("百度双 Token 状态，扫码登录框架预留")
                                 .font(.system(size: 11))
                                 .foregroundColor(.gray)
@@ -235,7 +276,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("网盘播放缓存管理")
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.black)
+                                .foregroundColor(.primary)
                             Text("百度已接入，夸克/阿里/UC/115 预留")
                                 .font(.system(size: 11))
                                 .foregroundColor(.gray)
@@ -285,7 +326,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("播放测试工具")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                         Text("统一管理通用播放、MPV、RenderContext、百度网盘测试")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
@@ -322,7 +363,7 @@ struct SettingsView: View {
                 .foregroundColor(Color(hex: "E11D48")).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
-                    .font(.system(size: 14, weight: .medium)).foregroundColor(.black)
+                    .font(.system(size: 14, weight: .medium)).foregroundColor(.primary)
                 Text(token.name).font(.system(size: 11)).foregroundColor(.gray).lineLimit(1)
             }
             Spacer()
@@ -383,11 +424,11 @@ struct SettingsView: View {
     private var aboutSection: some View {
         SettingsSection(title: "关于") {
             HStack {
-                Text("版本").foregroundColor(.black); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
+                Text("版本").foregroundColor(.primary); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
             Button(action: { showUpdateSheet = true }) {
                 HStack {
-                    Text("检查更新").foregroundColor(.black); Spacer()
+                    Text("检查更新").foregroundColor(.primary); Spacer()
                     if isChecking { ProgressView().scaleEffect(0.8) }
                     else { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.gray) }
                 }.padding(.horizontal, 16).padding(.vertical, 12)
@@ -400,7 +441,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("MPV状态").foregroundColor(.black)
+                        Text("MPV状态").foregroundColor(.primary)
                         Spacer()
                         Text(MPVIntegrationStatus.isMPVKitInitializationReady ? "可初始化" : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? "已加载" : "未启用"))
                             .foregroundColor(MPVIntegrationStatus.isMPVKitInitializationReady ? .green : (MPVIntegrationStatus.isMPVKitRuntimeLoadable ? .orange : .gray))
@@ -765,12 +806,70 @@ struct SettingsSection<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(.gray)
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(.secondary)
                 .padding(.horizontal, 20).padding(.top, 8)
             VStack(spacing: 1) { content }
                 .background(RoundedRectangle(cornerRadius: 16).fill(.thinMaterial))
                 .clipShape(RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
         }
+    }
+}
+
+struct SkinModeButton: View {
+    let mode: AppSkinMode
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: mode.icon)
+                    .font(.system(size: 18, weight: .semibold))
+                Text(mode.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Text(mode.subtitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(isSelected ? .white.opacity(0.82) : .secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundColor(isSelected ? .white : .primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(isSelected ? selectedGradient : inactiveBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(isSelected ? Color(uiColor: .systemBackground).opacity(0.45) : Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var selectedGradient: LinearGradient {
+        switch mode {
+        case .dark:
+            return LinearGradient(colors: [Color(hex: "111827"), Color(hex: "374151")], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .light:
+            return LinearGradient(colors: [Color(hex: "F59E0B"), Color(hex: "FDE68A")], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .liquid:
+            return LinearGradient(colors: [Color(hex: "06B6D4"), Color(hex: "7C3AED"), Color(hex: "EC4899")], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    private var inactiveBackground: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(uiColor: .secondarySystemGroupedBackground).opacity(0.95),
+                Color(uiColor: .tertiarySystemGroupedBackground).opacity(0.9)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
@@ -851,7 +950,7 @@ struct PlaybackTestToolsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Text(subtitle)
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
@@ -885,12 +984,12 @@ struct SettingsToggleRow: View {
     }
     var body: some View {
         HStack(spacing: 12) {
-            Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(.black)
+            Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(.primary)
             Spacer()
             Toggle("", isOn: isOn).labelsHidden()
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
-        .background(Color.gray.opacity(0.04))
+        .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
     }
 }
 
@@ -904,14 +1003,14 @@ struct SettingsNavigationRow: View {
             HStack(spacing: 12) {
                 Image(systemName: icon).font(.system(size: 18)).foregroundColor(Color(hex: "E11D48")).frame(width: 28)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(.black)
-                    if !subtitle.isEmpty { Text(subtitle).font(.system(size: 13)).foregroundColor(.gray) }
+                    Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(.primary)
+                    if !subtitle.isEmpty { Text(subtitle).font(.system(size: 13)).foregroundColor(.secondary) }
                 }
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 14)).foregroundColor(.gray)
+                Image(systemName: "chevron.right").font(.system(size: 14)).foregroundColor(.secondary)
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(Color.gray.opacity(0.04))
+            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -949,7 +1048,7 @@ struct CloudAuthCenterView: View {
                 }
                 .padding(16)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("网盘账号授权")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1028,7 +1127,7 @@ struct CloudAuthCenterView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("复制粘贴 Token 兜底")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Text("用于查看、网页登录获取、手动粘贴各网盘 Token")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
@@ -1044,7 +1143,7 @@ struct CloudAuthCenterView: View {
                             .foregroundColor(.gray)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
-                            .background(Color.white.opacity(0.85))
+                            .background(Color(uiColor: .systemBackground).opacity(0.85))
                             .cornerRadius(10)
                     } else {
                         ForEach(Array(cloudDriveManager.savedTokens.enumerated()), id: \.offset) { index, token in
@@ -1110,7 +1209,7 @@ struct CloudAuthCenterView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(CloudDriveManager.DriveType(rawValue: token.type)?.displayName ?? token.type)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Text(token.name)
                     .font(.system(size: 11))
                     .foregroundColor(.gray)
@@ -1125,7 +1224,7 @@ struct CloudAuthCenterView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(Color.white.opacity(0.85))
+        .background(Color(uiColor: .systemBackground).opacity(0.85))
         .cornerRadius(10)
     }
 
@@ -1246,7 +1345,7 @@ struct CloudAuthCenterView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.75))
+        .background(Color(uiColor: .systemBackground).opacity(0.75))
         .cornerRadius(10)
     }
 
@@ -1272,7 +1371,7 @@ struct CloudAuthCenterView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Text(subtitle)
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
@@ -1292,7 +1391,7 @@ struct CloudAuthCenterView: View {
         HStack {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
             Spacer()
             Image(systemName: isReady ? "checkmark.circle.fill" : "exclamationmark.circle")
                 .font(.system(size: 13))
@@ -1302,7 +1401,7 @@ struct CloudAuthCenterView: View {
                 .foregroundColor(isReady ? .green : .orange)
         }
         .padding(10)
-        .background(Color.white.opacity(0.85))
+        .background(Color(uiColor: .systemBackground).opacity(0.85))
         .cornerRadius(10)
     }
 
@@ -1363,7 +1462,7 @@ struct CloudPlaybackCacheView: View {
                 }
                 .padding(16)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("网盘播放缓存")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1392,7 +1491,7 @@ struct CloudPlaybackCacheView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("百度网盘")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Text("已接入 PlayItem / iBox / 文件列表缓存")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
@@ -1465,7 +1564,7 @@ struct CloudPlaybackCacheView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("百度路链诊断")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                     Text("显示最近文件列表、iBox、path、Worker、本机取链状态")
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
@@ -1485,7 +1584,7 @@ struct CloudPlaybackCacheView: View {
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
-                    .background(Color.white.opacity(0.85))
+                    .background(Color(uiColor: .systemBackground).opacity(0.85))
                     .cornerRadius(10)
             } else {
                 VStack(spacing: 8) {
@@ -1504,7 +1603,7 @@ struct CloudPlaybackCacheView: View {
             HStack {
                 Text(item.stage)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Text(item.status)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(statusColor(item.status))
@@ -1529,7 +1628,7 @@ struct CloudPlaybackCacheView: View {
             }
         }
         .padding(10)
-        .background(Color.white.opacity(0.85))
+        .background(Color(uiColor: .systemBackground).opacity(0.85))
         .cornerRadius(10)
     }
 
@@ -1543,7 +1642,7 @@ struct CloudPlaybackCacheView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(type.displayName)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Text(note)
                     .font(.system(size: 12))
                     .foregroundColor(.gray)
@@ -1571,14 +1670,14 @@ struct CloudPlaybackCacheView: View {
                 .foregroundColor(.gray)
             Text(value)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
             Text(detail)
                 .font(.system(size: 11))
                 .foregroundColor(.gray)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(Color.white.opacity(0.85))
+        .background(Color(uiColor: .systemBackground).opacity(0.85))
         .cornerRadius(10)
     }
 
@@ -1628,12 +1727,12 @@ struct SubscribeConfigView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
-                Text("订阅配置").font(.system(size: 22, weight: .bold)).foregroundColor(.black).padding(.top, 16)
+                Text("订阅配置").font(.system(size: 22, weight: .bold)).foregroundColor(.primary).padding(.top, 16)
 
                 VStack(spacing: 16) {
-                    Text("添加新订阅源").font(.system(size: 18, weight: .semibold)).foregroundColor(.black).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("添加新订阅源").font(.system(size: 18, weight: .semibold)).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("订阅地址").font(.system(size: 13, weight: .medium)).foregroundColor(.black)
+                        Text("订阅地址").font(.system(size: 13, weight: .medium)).foregroundColor(.primary)
                         TextField("URL", text: $subscribeURL)
                             .textFieldStyle(RoundedBorderTextFieldStyle()).font(.system(size: 13))
                             .autocapitalization(.none).disableAutocorrection(true)
@@ -1654,7 +1753,7 @@ struct SubscribeConfigView: View {
                 if !subManager.configURLs.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("已订阅源 (点击切换激活，左滑删除)")
-                            .font(.system(size: 16, weight: .semibold)).foregroundColor(.black).padding(.horizontal, 4)
+                            .font(.system(size: 16, weight: .semibold)).foregroundColor(.primary).padding(.horizontal, 4)
                         
                         ForEach(Array(subManager.configURLs.enumerated()), id: \.offset) { index, url in
                             SubscriptionRow(
@@ -1675,7 +1774,7 @@ struct SubscribeConfigView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
         .navigationTitle("").navigationBarHidden(true)
         .alert("添加成功", isPresented: $showSuccessAlert) { Button("确定", role: .cancel) {} }
         message: { Text("订阅源已添加并加载") }
@@ -1771,14 +1870,14 @@ struct FallbackConfigView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("内置兜底源")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                             .padding(.horizontal, 4)
                         
                         ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { index, site in
                             HStack {
                                 Text(site.name)
                                     .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.black)
+                                    .foregroundColor(.primary)
                                 Spacer()
                                 Text("内置")
                                     .font(.system(size: 10))
@@ -1801,7 +1900,7 @@ struct FallbackConfigView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("自定义兜底源")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.black)
+                                .foregroundColor(.primary)
                                 .padding(.horizontal, 4)
                             
                             ForEach(Array(spiderManager.customFallbackSites.enumerated()), id: \.offset) { index, site in
@@ -1809,7 +1908,7 @@ struct FallbackConfigView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(site.name)
                                             .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(.black)
+                                            .foregroundColor(.primary)
                                         Text(site.api)
                                             .font(.system(size: 11))
                                             .foregroundColor(.gray)
@@ -1838,7 +1937,7 @@ struct FallbackConfigView: View {
                     VStack(spacing: 16) {
                         Text("添加自定义切片源")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         
                         VStack(alignment: .leading, spacing: 8) {
@@ -1882,7 +1981,7 @@ struct FallbackConfigView: View {
                 }
                 .padding(.vertical, 20)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("切片资源管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1931,7 +2030,7 @@ struct ParserConfigView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("自定义解析器")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.black)
+                                .foregroundColor(.primary)
                                 .padding(.horizontal, 4)
                             
                             ForEach(Array(spiderManager.customParsers.enumerated()), id: \.offset) { index, parser in
@@ -1939,7 +2038,7 @@ struct ParserConfigView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(parser.name)
                                             .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(.black)
+                                            .foregroundColor(.primary)
                                         Text(parser.url)
                                             .font(.system(size: 11))
                                             .foregroundColor(.gray)
@@ -1983,7 +2082,7 @@ struct ParserConfigView: View {
                     VStack(spacing: 16) {
                         Text("添加自定义解析器")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
+                            .foregroundColor(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         
                         VStack(alignment: .leading, spacing: 8) {
@@ -2026,7 +2125,7 @@ struct ParserConfigView: View {
                 }
                 .padding(.vertical, 20)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("解析器管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2110,7 +2209,7 @@ struct BaiduTestView: View {
                     .disabled(isTesting || shareURL.isEmpty || bduss.isEmpty)
                 }
                 .padding(16)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
             }
             .background(Color(hex: "F8FAFC"))
             .navigationTitle("百度网盘测试")
@@ -2139,13 +2238,13 @@ struct BaiduTestView: View {
                 InfoRow(icon: "play.circle", text: "点击测试后会直接跳转到播放页面")
             }
             .padding(12)
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .cornerRadius(12)
             
             TextField("分享链接，如：https://pan.baidu.com/s/1xxx?pwd=ab12", text: $shareURL)
                 .font(.system(size: 13))
                 .padding(12)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
                 .cornerRadius(10)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
@@ -2153,7 +2252,7 @@ struct BaiduTestView: View {
             TextField("完整 Cookie / BDUSS|STOKEN", text: $bduss)
                 .font(.system(size: 13))
                 .padding(12)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
                 .cornerRadius(10)
                 .autocapitalization(.none)
         }
@@ -2201,7 +2300,7 @@ struct BaiduTestView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
         .cornerRadius(12)
     }
     
@@ -2357,7 +2456,7 @@ struct UniversalPlayTestView: View {
                     .disabled(!canStart)
                 }
                 .padding(16)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
             }
             .background(Color(hex: "F8FAFC"))
             .navigationTitle("通用播放测试")
@@ -2397,7 +2496,7 @@ struct UniversalPlayTestView: View {
                 InfoRow(icon: "externaldrive", text: "m3u8 是主要测试方向，MKV 可走 MPV RenderContext 单独验证")
             }
             .padding(12)
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .cornerRadius(12)
         }
     }
@@ -2411,14 +2510,14 @@ struct UniversalPlayTestView: View {
             TextField("显示名称（可选）", text: $displayName)
                 .font(.system(size: 13))
                 .padding(12)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
                 .cornerRadius(10)
 
             TextEditor(text: $resourceURL)
                 .font(.system(size: 13))
                 .frame(minHeight: 110)
                 .padding(8)
-                .background(Color.white)
+                .background(Color(uiColor: .systemBackground))
                 .cornerRadius(10)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
@@ -2436,7 +2535,7 @@ struct UniversalPlayTestView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(10)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                     .cornerRadius(8)
 
                 TextField("Referer", text: $testReferer)
@@ -2444,7 +2543,7 @@ struct UniversalPlayTestView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(10)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                     .cornerRadius(8)
 
                 TextField("Cookie", text: $testCookie)
@@ -2452,7 +2551,7 @@ struct UniversalPlayTestView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(10)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                     .cornerRadius(8)
             }
 
@@ -2598,7 +2697,7 @@ struct QuarkNativeQRLoginTestView: View {
                 }
                 .padding(16)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("夸克原生扫码测试")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2619,7 +2718,7 @@ struct QuarkNativeQRLoginTestView: View {
                     .foregroundColor(Color(hex: "E11D48"))
                 Text(statusText)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Spacer()
                 if isGenerating || isPolling {
                     ProgressView().scaleEffect(0.85)
@@ -2647,7 +2746,7 @@ struct QuarkNativeQRLoginTestView: View {
                     .scaledToFit()
                     .frame(width: 230, height: 230)
                     .padding(14)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else {
@@ -2716,7 +2815,7 @@ struct QuarkNativeQRLoginTestView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("结果")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
 
             resultRow("轮询次数", "\(pollCount)")
             if !serviceTicket.isEmpty {
@@ -2744,7 +2843,7 @@ struct QuarkNativeQRLoginTestView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("测试说明")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
             Text("请用手机夸克 App 扫描二维码并确认登录。该接口属于抓包得到的私有接口，后续仍保留网页登录和手动 Cookie 作为兜底。")
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
@@ -2762,7 +2861,7 @@ struct QuarkNativeQRLoginTestView: View {
             Spacer()
             Text(value)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -2897,7 +2996,7 @@ struct NativeCloudQRLoginView: View {
                 VStack(spacing: 16) {
                     Text("\(driveType.displayName) 原生扫码授权")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     qrCard
@@ -2919,7 +3018,7 @@ struct NativeCloudQRLoginView: View {
                 }
                 .padding(16)
             }
-            .background(Color.white)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("扫码授权")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2940,7 +3039,7 @@ struct NativeCloudQRLoginView: View {
                     .scaledToFit()
                     .frame(width: 220, height: 220)
                     .padding(12)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if isGenerating {
@@ -2963,7 +3062,7 @@ struct NativeCloudQRLoginView: View {
             HStack {
                 Text(statusText)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
                 Spacer()
                 if isPolling {
                     Text("第 \(pollCount) 次")
