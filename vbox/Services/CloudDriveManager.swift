@@ -872,9 +872,10 @@ class CloudDriveManager: ObservableObject {
         guard !list.isEmpty else { return nil }
 
         let pcs = list.first(where: { isBaiduPCSToken($0) })
-        let web = list.first(where: { isBaiduAccountWebToken($0) })
-            ?? list.first(where: { !isBaiduPCSToken($0) })
-            ?? list[0]
+        guard let web = list.first(where: { isBaiduAccountWebToken($0) }) else {
+            baiduLog("[Baidu-Token] ❌ 缺少百度 Web Cookie：需要 BDUSS/STOKEN，不能用 PCS Cookie 替代")
+            return nil
+        }
         return (web, pcs)
     }
 
