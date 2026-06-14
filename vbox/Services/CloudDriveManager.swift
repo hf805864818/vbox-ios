@@ -2036,19 +2036,11 @@ class CloudDriveManager: ObservableObject {
             return cached
         }
 
-        do {
-            let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
-            baiduStoreFileList(context.files, for: cacheKey)
-            recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机成功", detail: "本机直连解析返回 \(context.files.count) 个文件")
-            return context.files
-        } catch {
-            baiduLog("[Baidu-Local] ⚠️ 本机文件列表解析失败，才回退旧 Worker 列表兜底：\(error.localizedDescription)")
-            recordBaiduRouteDiagnostic(stage: "文件列表", status: "本机失败", detail: "本机解析失败，回退旧 Worker 列表兜底：\(error.localizedDescription)")
-        }
-
+        baiduLog("[Baidu-Local] ⏸ 文件列表本机/Bypass 路链已临时关闭，直走 Worker 列表解析")
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker测试", detail: "本机/Bypass 文件列表解析临时关闭，直走 Worker")
         let files = try await baiduGetFileListViaWorker(shareURL: shareURL, pwd: extractBaiduPwd(from: shareURL), cookie: cookie)
         baiduStoreFileList(files, for: cacheKey)
-        recordBaiduRouteDiagnostic(stage: "文件列表", status: "旧Worker兜底成功", detail: "旧 Worker 返回 \(files.count) 个文件")
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "Worker成功", detail: "Worker 返回 \(files.count) 个文件")
         return files
     }
 
