@@ -38,7 +38,7 @@ struct CategoryDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.white)
+        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
         .refreshable { loadData() }
         .navigationTitle(categoryName)
         .navigationBarTitleDisplayMode(.large)
@@ -231,7 +231,7 @@ struct GridSubjectCard: View {
             
             Text(subject.title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
                 .lineLimit(1)
             
             if let year = subject.year {

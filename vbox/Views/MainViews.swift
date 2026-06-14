@@ -132,7 +132,7 @@ struct GlassBottomTabBar: View {
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
-                .background(Capsule().fill(Color.white.opacity(0.86)))
+                .background(Capsule().fill(Color(uiColor: .systemBackground).opacity(0.86)))
                 .overlay(
                     Capsule()
                         .stroke(Color.gray.opacity(0.2), lineWidth: 1)
@@ -244,7 +244,7 @@ struct HomeView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color.white)
+        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
         .refreshable { await loadData(force: true) }
         .onAppear {
             guard !Self.hasHomeCache else {
@@ -328,7 +328,7 @@ struct SearchBarHeader: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
                         LinearGradient(
-                            colors: [Color.white.opacity(0.2), Color.white.opacity(0.05)],
+                            colors: [Color(uiColor: .systemBackground).opacity(0.2), Color(uiColor: .systemBackground).opacity(0.05)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
@@ -382,7 +382,7 @@ struct FeaturedCarousel: View {
             HStack(spacing: 8) {
                 ForEach(0..<min(5, videos.count), id: \.self) { index in
                     Circle()
-                        .fill(currentIndex == index ? Color(hex: "E11D48") : Color.white.opacity(0.3))
+                        .fill(currentIndex == index ? Color(hex: "E11D48") : Color(uiColor: .systemBackground).opacity(0.3))
                         .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
                         .animation(.spring(response: 0.3), value: currentIndex)
                 }
@@ -483,8 +483,8 @@ struct FeaturedCard: View {
                 .stroke(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.15),
-                            Color.white.opacity(0.0)
+                            Color(uiColor: .systemBackground).opacity(0.15),
+                            Color(uiColor: .systemBackground).opacity(0.0)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -590,8 +590,8 @@ struct VideoCard: View {
                     .stroke(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.1),
-                                Color.white.opacity(0.0)
+                                Color(uiColor: .systemBackground).opacity(0.1),
+                                Color(uiColor: .systemBackground).opacity(0.0)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -616,7 +616,7 @@ struct SectionHeader: View {
         HStack {
             Label(title, systemImage: icon)
                 .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
 
             Spacer()
 
@@ -727,7 +727,7 @@ struct SearchView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onChange(of: settings.searchRequestId) { _ in
             runTriggeredSearch()
         }
@@ -758,7 +758,7 @@ struct SearchView: View {
                                 .foregroundColor(Color(hex: "E11D48"))
                             Text("搜索历史")
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.black)
+                                .foregroundColor(.primary)
                             Spacer()
                             Button("清空") {
                                 searchHistory = []
@@ -783,7 +783,7 @@ struct SearchView: View {
                         }
                     }
                     .padding(.bottom, 16)
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                 }
                 
                 // 豆瓣栏目标签
@@ -818,7 +818,7 @@ struct SearchView: View {
                             }
                         }
                     }
-                    .background(Color.white)
+                    .background(Color(uiColor: .systemBackground))
                 }
                 
                 // 豆瓣数据列表
@@ -857,7 +857,7 @@ struct SearchView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
     }
     
     private func performSearch() {
@@ -989,13 +989,13 @@ struct SearchBar: View {
         HStack(spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundColor(Color.gray)
-                TextField("搜索视频、剧集...", text: $searchText).foregroundColor(.black).onSubmit { performSearch() }
+                TextField("搜索视频、剧集...", text: $searchText).foregroundColor(.primary).onSubmit { performSearch() }
                 if !searchText.isEmpty {
                     Button(action: { searchText = ""; isSearching = false }) { Image(systemName: "xmark.circle.fill").foregroundColor(Color.gray) }
                 }
             }.padding(.horizontal, 14).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.gray.opacity(0.1))).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.gray.opacity(0.3), lineWidth: 1))
             if isSearching { Button("取消") { searchText = ""; isSearching = false; UIApplication.shared.endEditing() }.foregroundColor(Color(hex: "E11D48")) }
-        }.padding(.horizontal, 16).padding(.vertical, 12).background(Color.white)
+        }.padding(.horizontal, 16).padding(.vertical, 12).background(Color(uiColor: .systemBackground))
     }
     private func performSearch() { guard !searchText.isEmpty else { return }; onSearch?() }
 }
@@ -1008,15 +1008,15 @@ struct SearchSuggestionsView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack { Image(systemName: "flame.fill").foregroundColor(Color(hex: "E11D48")); Text("热门搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.black) }
+                    HStack { Image(systemName: "flame.fill").foregroundColor(Color(hex: "E11D48")); Text("热门搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary) }
                     FlowLayout(spacing: 10) { ForEach(hotSearches, id: \.self) { kw in KeywordButton(keyword: kw, onSelect: onSelect) } }
                 }.padding(.horizontal, 16)
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack { Image(systemName: "clock.fill").foregroundColor(Color(hex: "E11D48")); Text("最近搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.black) }
+                    HStack { Image(systemName: "clock.fill").foregroundColor(Color(hex: "E11D48")); Text("最近搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary) }
                     ForEach(recentSearches, id: \.self) { kw in RecentSearchRow(keyword: kw, onSelect: onSelect) }
                 }.padding(.horizontal, 16)
             }.padding(.vertical, 20)
-        }.background(Color.white)
+        }.background(Color(uiColor: .systemBackground))
     }
 }
 
@@ -1024,7 +1024,7 @@ struct KeywordButton: View {
     let keyword: String
     var onSelect: (String) -> Void = { _ in }
     var body: some View {
-        Button(action: { onSelect(keyword) }) { Text(keyword).font(.system(size: 14)).foregroundColor(.black).padding(.horizontal, 16).padding(.vertical, 8).background(Capsule().fill(Color.gray.opacity(0.1))).overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1)) }.buttonStyle(PlainButtonStyle())
+        Button(action: { onSelect(keyword) }) { Text(keyword).font(.system(size: 14)).foregroundColor(.primary).padding(.horizontal, 16).padding(.vertical, 8).background(Capsule().fill(Color.gray.opacity(0.1))).overlay(Capsule().stroke(Color.gray.opacity(0.3), lineWidth: 1)) }.buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -1034,7 +1034,7 @@ struct RecentSearchRow: View {
     var body: some View {
         Button(action: { onSelect(keyword) }) {
         HStack {
-            Text(keyword).font(.system(size: 15)).foregroundColor(.black)
+            Text(keyword).font(.system(size: 15)).foregroundColor(.primary)
             Spacer()
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
@@ -1057,7 +1057,7 @@ struct SearchHistoryChip: View {
                     .foregroundColor(Color(hex: "E11D48"))
                 Text(keyword)
                     .font(.system(size: 13))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -1119,7 +1119,7 @@ struct SearchResultsView: View {
                             .padding(.horizontal, 6)
                         }
                         .frame(width: min(108, max(98, geometry.size.width * 0.23)))
-                        .background(Color.white)
+                        .background(Color(uiColor: .systemBackground))
                         Divider().background(Color.gray.opacity(0.3))
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 12) {
@@ -1129,7 +1129,7 @@ struct SearchResultsView: View {
                             }
                             .padding(12)
                         }
-                        .background(Color.white)
+                        .background(Color(uiColor: .systemBackground))
                     }
                 }
                 .fullScreenCover(item: $selectedVideo) { video in
@@ -1184,7 +1184,7 @@ struct SearchResultRow: View {
     var body: some View {
         HStack(spacing: 12) {
             AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.black).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { PlainTagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
+            VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { PlainTagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; Spacer() }
             Spacer()
             Image(systemName: "play.circle.fill").font(.system(size: 30)).foregroundColor(Color(hex: "E11D48"))
         }.padding(10).background(Color.gray.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 10))
@@ -1227,7 +1227,7 @@ struct SearchDoubanCardItem: View {
                     Text(subject.title)
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
-                        .foregroundColor(.black)
+                        .foregroundColor(.primary)
 
                     if let rating = subject.rating, let value = rating.value {
                         HStack(spacing: 4) {
@@ -1405,7 +1405,7 @@ struct CategoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $showCategorySheet) {
             if let category = selectedCategory {
                 CategoryDetailView(categoryType: category.type, categoryName: category.name)
@@ -1456,8 +1456,8 @@ struct CategoryCard: View {
                     .stroke(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.1),
-                                Color.white.opacity(0.0)
+                                Color(uiColor: .systemBackground).opacity(0.1),
+                                Color(uiColor: .systemBackground).opacity(0.0)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -1499,7 +1499,7 @@ struct ProfileView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
     }
 }
 
@@ -1528,8 +1528,8 @@ struct UserInfoSection: View {
                     .stroke(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0.0)
+                                Color(uiColor: .systemBackground).opacity(0.2),
+                                Color(uiColor: .systemBackground).opacity(0.0)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -1648,7 +1648,7 @@ struct SiteRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(site.name).font(.system(size: 14, weight: .medium)).foregroundColor(.black)
+                Text(site.name).font(.system(size: 14, weight: .medium)).foregroundColor(.primary)
                 Text(site.key).font(.system(size: 11)).foregroundColor(.gray)
             }
             Spacer()

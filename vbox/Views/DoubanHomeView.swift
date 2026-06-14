@@ -45,7 +45,7 @@ struct DoubanHomeView: View {
             }
             .padding(.bottom, 100)
         }
-        .background(Color.white)
+        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onAppear { Task { await loadData() } }
         .onReceive(timer) { _ in
             guard !bannerSubjects.isEmpty else { return }
@@ -303,7 +303,7 @@ struct CategoryTilesView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.white)
+        .background(Color(uiColor: .systemBackground))
         .sheet(isPresented: $showCategorySheet) {
             if let category = selectedCategory {
                 CategoryDetailView(categoryType: category.type, categoryName: category.name)
@@ -323,7 +323,7 @@ struct CategoryTile: View {
                 Text(icon).font(.system(size: 28))
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.black)
+                    .foregroundColor(.primary)
             }
             .frame(width: 80, height: 70)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
@@ -423,7 +423,7 @@ struct SubjectCard: View {
             
             Text(subject.title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.black)
+                .foregroundColor(.primary)
                 .lineLimit(1)
                 .frame(width: 120, alignment: .leading)
         }
