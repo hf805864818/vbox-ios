@@ -359,10 +359,10 @@ final class CloudDriveAuthManager: ObservableObject {
                 payload = nested
             }
             let status = payload["status"] as? Int ?? -1
-            if status == 0 || status == 1 { return .scanned }
             if status == 2 || payload["bduss"] != nil || payload["v"] != nil {
-                return .success(bdussURL: payload["v"] as? String)
+                return .success(bdussURL: payload["bduss"] as? String ?? payload["v"] as? String)
             }
+            if status == 0 || status == 1 { return .scanned }
             return .pending
         }
         if errno == 3 || errno == 4 { return .expired }
@@ -371,17 +371,15 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func baiduExchangeQrLogin(token: BaiduQrLoginToken, bdussURL: String?) async throws {
         var components = URLComponents(string: "https://passport.baidu.com/v3/login/main/qrbdusslogin")!
+        let bdussParam = bdussURL?.isEmpty == false ? bdussURL! : token.sign
         components.queryItems = [
             URLQueryItem(name: "v", value: timestampMS()),
-            URLQueryItem(name: "bduss", value: token.sign),
+            URLQueryItem(name: "bduss", value: bdussParam),
             URLQueryItem(name: "u", value: "https://pan.baidu.com/disk/main"),
             URLQueryItem(name: "loginVersion", value: "v4"),
             URLQueryItem(name: "qrcode", value: "1"),
             URLQueryItem(name: "tpl", value: "netdisk")
         ]
-        if let bdussURL, !bdussURL.isEmpty {
-            components.queryItems?.append(URLQueryItem(name: "url", value: bdussURL))
-        }
         var request = URLRequest(url: components.url!)
         request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")

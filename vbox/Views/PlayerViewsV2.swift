@@ -941,7 +941,7 @@ class PlayerState: ObservableObject {
         if driveType == .baidu {
             guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
                 await MainActor.run {
-                    loadError = "未配置百度网盘 Token"
+                    loadError = "缺少百度 Web Cookie：需要 BDUSS/STOKEN，PCS Cookie 不能替代"
                     isLoading = false
                 }
                 return
