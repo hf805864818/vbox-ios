@@ -2078,6 +2078,14 @@ class CloudDriveManager: ObservableObject {
         return ("BDUSS=\(bduss)", bduss)
     }
 
+    private func normalizeBaiduPCSCookie(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: "; ")
+            .replacingOccurrences(of: "\r", with: "; ")
+            .replacingOccurrences(of: #"\s*;\s*"#, with: "; ", options: .regularExpression)
+            .replacingOccurrences(of: #";+\s*$"#, with: "", options: .regularExpression)
+    }
+
     func baiduGetFileList(shareURL: String, bduss: String) async throws -> [BaiduFileItem] {
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
@@ -2963,8 +2971,7 @@ class CloudDriveManager: ObservableObject {
         let pwdForWorker = pwd ?? extractBaiduPwd(from: shareURL)
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
-        let parsedPcs = parseBaiduToken(pcsCookie)
-        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
+        let pcs = normalizeBaiduPCSCookie(pcsCookie)
 
         do {
             return try await baiduResolveViaWorker(shareURL: shareURL, pwd: pwdForWorker, cookie: cookie, pcsCookie: pcs)
@@ -2989,8 +2996,7 @@ class CloudDriveManager: ObservableObject {
         let pwdForWorker = extractBaiduPwd(from: shareURL)
         let parsed = parseBaiduToken(bduss)
         let cookie = parsed.cookie
-        let parsedPcs = parseBaiduToken(pcsCookie)
-        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
+        let pcs = normalizeBaiduPCSCookie(pcsCookie)
 
         if let iboxResult = try? await baiduResolveViaIBoxPlayItem(
             cacheKey: cacheKey,
@@ -3084,8 +3090,7 @@ class CloudDriveManager: ObservableObject {
 
         let parsed = parseBaiduToken(bduss)
         let webCookie = parsed.cookie
-        let parsedPcs = parseBaiduToken(pcsCookie)
-        let pcs = pcsCookie.isEmpty ? "" : parsedPcs.cookie
+        let pcs = normalizeBaiduPCSCookie(pcsCookie)
 
         if let itemResult = try? await baiduResolveViaIBoxPlayItem(
             cacheKey: cacheKey,
