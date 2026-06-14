@@ -61,7 +61,7 @@ struct SettingsView: View {
                 settingsContent
             }
         }
-        .background(settings.usesLiquidSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .alert("清除缓存", isPresented: $showCacheAlert) {
             Button("取消", role: .cancel) {}
             Button("确定", role: .destructive) {}
@@ -95,7 +95,7 @@ struct SettingsView: View {
     private var skinSettingsSection: some View {
         SettingsSection(title: "皮肤") {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     ForEach(AppSkinMode.allCases) { mode in
                         SkinModeButton(
                             mode: mode,
@@ -114,19 +114,19 @@ struct SettingsView: View {
                         Text("黑暗/浅色跟随手机外观")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.primary)
-                        Text("开启后黑暗模式和浅色模式会随系统外观切换；液态模式始终需要手动点击切换。")
+                        Text("开启后黑暗模式和浅色模式会随系统外观切换；液态模式和磨砂模式始终需要手动点击切换。")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
                 }
-                .disabled(settings.skinMode == .liquid)
-                .opacity(settings.skinMode == .liquid ? 0.55 : 1)
+                .disabled(settings.skinMode == .liquid || settings.skinMode == .frosted)
+                .opacity((settings.skinMode == .liquid || settings.skinMode == .frosted) ? 0.55 : 1)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesLiquidSkin ? 0.36 : 1))
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesVisualSkin ? 0.42 : 1))
             )
         }
     }
@@ -830,11 +830,11 @@ struct SkinModeButton: View {
                     .lineLimit(1)
                 Text(mode.subtitle)
                     .font(.system(size: 10))
-                    .foregroundColor(isSelected ? .white.opacity(0.82) : .secondary)
+                    .foregroundColor(isSelected ? selectedSubtitleColor : .secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundColor(isSelected ? .white : .primary)
+            .foregroundColor(isSelected ? selectedTextColor : .primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.horizontal, 8)
@@ -850,6 +850,20 @@ struct SkinModeButton: View {
         .buttonStyle(.plain)
     }
 
+    private var selectedTextColor: Color {
+        switch mode {
+        case .light, .frosted: return Color(hex: "111827")
+        case .dark, .liquid: return .white
+        }
+    }
+
+    private var selectedSubtitleColor: Color {
+        switch mode {
+        case .light, .frosted: return Color(hex: "111827").opacity(0.72)
+        case .dark, .liquid: return .white.opacity(0.82)
+        }
+    }
+
     private var selectedGradient: LinearGradient {
         switch mode {
         case .dark:
@@ -858,6 +872,8 @@ struct SkinModeButton: View {
             return LinearGradient(colors: [Color(hex: "F59E0B"), Color(hex: "FDE68A")], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .liquid:
             return LinearGradient(colors: [Color(hex: "06B6D4"), Color(hex: "7C3AED"), Color(hex: "EC4899")], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .frosted:
+            return LinearGradient(colors: [Color(hex: "93C5FD"), Color(hex: "C4B5FD"), Color(hex: "FBCFE8")], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 
