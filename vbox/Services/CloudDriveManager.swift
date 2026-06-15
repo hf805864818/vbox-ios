@@ -3110,7 +3110,6 @@ class CloudDriveManager: ObservableObject {
 
             baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?shorturl=\(shortSurl)")
             let encodedRandsk = queryEncoded(randskForList)
-            let randskQuery = encodedRandsk.isEmpty ? "" : "&sekey=\(encodedRandsk)"
             let encodedShortSurl = queryEncoded(shortSurl)
             let encodedFullSurl = queryEncoded(surl)
             let encodedBdstoken = queryEncoded(bdstoken)
@@ -3118,13 +3117,15 @@ class CloudDriveManager: ObservableObject {
             let bdstokenQuery = encodedBdstoken.isEmpty ? "" : "&bdstoken=\(encodedBdstoken)"
             let signQuery = encodedSign.isEmpty ? "" : "&sign=\(encodedSign)"
             let timestampQuery = shareTimestamp.isEmpty ? "" : "&timestamp=\(shareTimestamp)"
-            // iBox 实测：share/list 用 web=1（不是 5）；shorturl 必须**不带**前导 1（即 shortSurl）；需要 sekey=randsk；bdstoken 必填
-            let listCommon = "root=1&web=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(bdstokenQuery)\(signQuery)\(timestampQuery)\(randskQuery)"
-            let listQueries = [
-                "https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)",
-                "https://pan.baidu.com/share/list?shorturl=\(encodedFullSurl)&\(listCommon)",
-                "https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)"
-            ]
+            // iBox/网页 share/list 核心参数固定 web=1；BDCLND 已在 Cookie 中，sekey/randsk 根据百度返回形态做等价兜底。
+            let shareAuthQueries = encodedRandsk.isEmpty ? [""] : ["&sekey=\(encodedRandsk)", "&randsk=\(encodedRandsk)", ""]
+            var listQueries: [String] = []
+            for authQuery in shareAuthQueries {
+                let listCommon = "root=1&web=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(bdstokenQuery)\(signQuery)\(timestampQuery)\(authQuery)"
+                listQueries.append("https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)")
+                listQueries.append("https://pan.baidu.com/share/list?shorturl=\(encodedFullSurl)&\(listCommon)")
+                listQueries.append("https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)")
+            }
             var lastListError = ""
             for listURL in listQueries {
                 guard let listURLObject = URL(string: listURL) else { continue }
@@ -3132,7 +3133,8 @@ class CloudDriveManager: ObservableObject {
                 listRequest.timeoutInterval = 18
                 listRequest.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
                 listRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
-                listRequest.setValue(initURL, forHTTPHeaderField: "Referer")
+                // share/list 是桌面分享页发起的 AJAX，请求上下文必须使用 /s/1xxx 作为 Referer。
+                listRequest.setValue(desktopShareURL, forHTTPHeaderField: "Referer")
                 listRequest.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
                 listRequest.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
                 listRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
@@ -3148,6 +3150,7 @@ class CloudDriveManager: ObservableObject {
                 let errno = listJSON["errno"] as? Int ?? 0
                 if errno != 0 {
                     lastListError = baiduErrorMessage(errno: errno, fallback: listJSON["errmsg"] as? String ?? listJSON["show_msg"] as? String)
+                    baiduLog("[Baidu-iBoxRoute] share/list 失败：errno=\(errno), msg=\(lastListError), hasBDCLND=\(iBoxCookie.lowercased().contains("bdclnd=")), hasSTOKEN=\(iBoxCookie.lowercased().contains("stoken=")), url=\(listURL)")
                     continue
                 }
                 let listFiles = deepFiles(listJSON)
