@@ -117,6 +117,17 @@ struct VideoPlayerViewV2: View {
 
 // MARK: - 播放器状态管理
 class PlayerState: ObservableObject {
+    /// 弹幕预设颜色表
+    static let presetColors: [Int: Int] = [
+        0: 16777215, // 原始颜色（不使用）
+        1: 16777215, // 白色 #FFFFFF
+        2: 16776960, // 黄色 #FFFF00
+        3: 65280,    // 绿色 #00FF00
+        4: 255,      // 蓝色 #0000FF
+        5: 16711680, // 红色 #FF0000
+        6: 16761035  // 粉色 #FF69B4
+    ]
+
     enum PlaybackEngineMode: String {
         case system = "系统内核"
         case compatibility = "兼容内核"
@@ -166,6 +177,7 @@ class PlayerState: ObservableObject {
     @Published var danmakuFontSize: CGFloat = 16
     @Published var danmakuArea: Double = 1.0       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
     @Published var danmakuSpeed: Double = 1.0       // 弹幕滚动速度倍率 0.5/0.75/1.0/1.5/2.0
+    @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
@@ -480,7 +492,7 @@ class PlayerState: ObservableObject {
                 content: item.content,
                 time: max(time, item.time),
                 lane: abs(item.id) % maxLanes,
-                color: item.color,
+                color: danmakuColorMode == 0 ? item.color : Self.presetColors[danmakuColorMode] ?? item.color,
                 duration: duration
             )
         }
@@ -2580,7 +2592,8 @@ struct PlayerControlsView: View {
                     opacity: $playerState.danmakuOpacity,
                     fontSize: $playerState.danmakuFontSize,
                     area: $playerState.danmakuArea,
-                    speed: $playerState.danmakuSpeed
+                    speed: $playerState.danmakuSpeed,
+                    colorMode: $playerState.danmakuColorMode
                 )
             }
         )
@@ -2894,6 +2907,7 @@ struct DanmakuSettingsViewV2: View {
     @Binding var fontSize: CGFloat
     @Binding var area: Double
     @Binding var speed: Double
+    @Binding var colorMode: Int
 
     @Environment(\.dismiss) private var dismiss
 
@@ -2901,6 +2915,8 @@ struct DanmakuSettingsViewV2: View {
     private let areaValues: [Double] = [0.25, 0.5, 0.75, 1.0]
     private let speedLabels = ["0.5x 慢", "0.75x", "1.0x 正常", "1.5x", "2.0x 快"]
     private let speedValues: [Double] = [0.5, 0.75, 1.0, 1.5, 2.0]
+    private let colorLabels = ["原始", "白色", "黄色", "绿色", "蓝色", "红色", "粉色"]
+    private let colorValues: [Int] = [0, 1, 2, 3, 4, 5, 6]
 
     var body: some View {
         NavigationView {
@@ -2930,6 +2946,15 @@ struct DanmakuSettingsViewV2: View {
                     Picker("显示速度", selection: $speed) {
                         ForEach(Array(speedValues.enumerated()), id: \.offset) { idx, val in
                             Text(speedLabels[idx]).tag(val)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("弹幕颜色") {
+                    Picker("颜色", selection: $colorMode) {
+                        ForEach(Array(colorValues.enumerated()), id: \.offset) { idx, val in
+                            Text(colorLabels[idx]).tag(val)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -3246,6 +3271,7 @@ struct DanmakuSettingsPanelV2: View {
     @Binding var fontSize: CGFloat
     @Binding var area: Double
     @Binding var speed: Double
+    @Binding var colorMode: Int
 
     private let areaOptions: [(Double, String)] = [
         (0.25, "25%"),
@@ -3259,6 +3285,15 @@ struct DanmakuSettingsPanelV2: View {
         (1.0, "1.0x 正常"),
         (1.5, "1.5x"),
         (2.0, "2.0x 快")
+    ]
+    private let colorOptions: [(mode: Int, color: Int, label: String)] = [
+        (0, 16777215, "原始"),
+        (1, 16777215, "白色"),
+        (2, 16776960, "黄色"),
+        (3, 65280,    "绿色"),
+        (4, 255,      "蓝色"),
+        (5, 16711680, "红色"),
+        (6, 16761035, "粉色")
     ]
 
     var body: some View {
@@ -3367,6 +3402,57 @@ struct DanmakuSettingsPanelV2: View {
                                         RoundedRectangle(cornerRadius: 6)
                                             .fill(speed == option.0 ? Color(hex: "00BEFF") : Color.white.opacity(0.15))
                                     )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("弹幕颜色")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+
+                    HStack(spacing: 12) {
+                        ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
+                            Button {
+                                colorMode = option.mode
+                            } label: {
+                                Circle()
+                                    .fill(Color(hexRGB: option.color))
+                                    .frame(width: 32, height: 32)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(colorMode == option.mode ? Color(hex: "00BEFF") : Color.white.opacity(0.3), lineWidth: colorMode == option.mode ? 3 : 1)
+                                    )
+                                    .overlay(
+                                        Group {
+                                            if colorMode == option.mode {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            }
+                                        }
+                                    )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+
+                    HStack(spacing: 0) {
+                        ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
+                            Button {
+                                colorMode = option.mode
+                            } label: {
+                                Text(option.label)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(colorMode == option.mode ? .white : .white.opacity(0.5))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 4)
                             }
                         }
                     }
