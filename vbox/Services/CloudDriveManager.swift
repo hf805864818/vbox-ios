@@ -2588,16 +2588,21 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduMergeCookieStrings(_ cookies: [String]) -> String {
+        let ignoredAttributes: Set<String> = ["expires", "path", "domain", "max-age", "secure", "httponly", "samesite"]
         var keys: [String] = []
         var values: [String: (name: String, value: String)] = [:]
         for cookie in cookies where !cookie.isEmpty {
-            for part in cookie.replacingOccurrences(of: "\n", with: ";").split(separator: ";") {
+            let normalized = cookie
+                .replacingOccurrences(of: #",\s*([A-Za-z_][A-Za-z0-9_\-]*)="#, with: ";\n$1=", options: .regularExpression)
+                .replacingOccurrences(of: "\n", with: ";")
+            for part in normalized.split(separator: ";") {
                 let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let eq = item.firstIndex(of: "=") else { continue }
                 let name = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty, !value.isEmpty else { continue }
                 let key = name.lowercased()
+                guard !ignoredAttributes.contains(key) else { continue }
                 if values[key] == nil { keys.append(key) }
                 values[key] = (name, value)
             }
@@ -3083,14 +3088,16 @@ class CloudDriveManager: ObservableObject {
                 var allowed = CharacterSet.urlQueryAllowed
                 allowed.remove(charactersIn: "&+=?#")
                 let encodedPwd = pwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? pwd
-                let verifyURL = "https://pan.baidu.com/share/verify?surl=\(shortSurl)&t=\(Int(Date().timeIntervalSince1970 * 1000))&channel=chunlei&web=1&app_id=250528&clienttype=0&bdstoken="
+                let verifyURL = "https://pan.baidu.com/share/verify?t=\(Int(Date().timeIntervalSince1970 * 1000))&surl=\(shortSurl)&channel=chunlei&web=1&app_id=250528&bdstoken=&clienttype=0"
                 let verifyBody = "pwd=\(encodedPwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0&bdstoken="
                 guard let verifyURLObject = URL(string: verifyURL) else { throw DriveError.invalidShareURL }
                 var verifyRequest = URLRequest(url: verifyURLObject)
                 verifyRequest.httpMethod = "POST"
                 verifyRequest.timeoutInterval = 18
                 verifyRequest.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-                verifyRequest.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
+                // iBox 抓包：share/verify 的 Cookie 为空。这里不能带 BDUSS/STOKEN，否则拿到的 BDCLND 会绑定到登录态上下文，
+                // 后续 root-shorturl 匿名 share/list 仍可能不认，返回 errno=2。
+                verifyRequest.setValue("", forHTTPHeaderField: "Cookie")
                 verifyRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
                 verifyRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
                 verifyRequest.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
