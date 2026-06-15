@@ -1266,6 +1266,15 @@ class CloudDriveManager: ObservableObject {
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
+
+        // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
+        if let taskId = quarkLastSaveTaskId {
+            try await quarkPollTask(taskId: taskId, cookie: authCookie)
+        }
+        // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
+        if let memberType = await quarkGetMemberInfo(cookie: authCookie) {
+            print("[Quark] 当前会员: \(memberType)，SVIP可使用原画download_url")
+        }
         // 抓包里的实际播放主链路是：先调 v2/play 刷新 Video-Auth，再用 file/download 的 download_url 走 Range 播放。
         // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
         var transcodeURL = ""
@@ -1617,6 +1626,71 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
+    /// 夸克转存任务ID，用于轮询任务状态
+    private var quarkLastSaveTaskId: String?
+
+    /// 轮询夸克转存任务状态，等待文件落盘（对齐iBox抓包：GET /1/clouddrive/task）
+    private func quarkPollTask(taskId: String, cookie: String, maxRetries: Int = 10, interval: TimeInterval = 1.0) async throws {
+        print("[Quark] ⏳ 轮询转存任务状态: \(taskId)")
+        for i in 0..<maxRetries {
+            let url = quarkAPIURL("/1/clouddrive/task", extra: [
+                URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
+                URLQueryItem(name: "task_id", value: taskId),
+                URLQueryItem(name: "retry_index", value: "0")
+            ])
+            var req = URLRequest(url: url)
+            req.httpMethod = "GET"
+            req.timeoutInterval = 10
+            quarkSetCommonHeaders(&req, cookie: cookie)
+
+            let (data, _) = try await session.data(for: req)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let d = json["data"] as? [String: Any] {
+                let status = d["status"] as? Int ?? -1
+                let finish = d["finish"] as? Bool ?? false
+                if finish || status == 2 {
+                    print("[Quark] ✅ 转存任务完成: status=\(status), finish=\(finish)")
+                    return
+                }
+                if status == 3 || status == -1 {
+                    print("[Quark] ⚠️ 转存任务异常: status=\(status)，继续尝试播放")
+                    return
+                }
+            }
+            if i < maxRetries - 1 {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+        print("[Quark] ⚠️ 转存任务轮询超时，继续尝试播放")
+    }
+
+    /// 获取夸克会员信息（对齐iBox抓包：GET /1/clouddrive/member）
+    private func quarkGetMemberInfo(cookie: String) async -> String? {
+        let url = quarkAPIURL("/1/clouddrive/member", extra: [
+            URLQueryItem(name: "fetch_subscribe", value: "true"),
+            URLQueryItem(name: "fetch_identity", value: "true"),
+            URLQueryItem(name: "_ch", value: "home"),
+            URLQueryItem(name: "ve", value: "3.19.0")
+        ])
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 10
+        quarkSetCommonHeaders(&req, cookie: cookie)
+
+        do {
+            let (data, _) = try await session.data(for: req)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let d = json["data"] as? [String: Any] {
+                let memberType = d["member_type"] as? String ?? "normal"
+                print("[Quark] 会员类型: \(memberType)")
+                return memberType
+            }
+        } catch {
+            print("[Quark] 获取会员信息失败: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
     private func quarkDeleteFiles(fileIds: [String], cookie: String) async {
         guard !fileIds.isEmpty else { return }
         let url = quarkAPIURL("/1/clouddrive/file/delete")
@@ -1625,8 +1699,50 @@ class CloudDriveManager: ObservableObject {
         quarkSetCommonHeaders(&req, cookie: cookie)
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        let _ = try? await session.data(for: req)
+        let (data, _) = try? await session.data(for: req)
         print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
+
+        // 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
+        if let data = data,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let taskId = json["task_id"] as? String {
+            // 等待删除任务完成
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // 查询回收站找到对应的记录
+            let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
+                URLQueryItem(name: "_page", value: "1"),
+                URLQueryItem(name: "_size", value: "100"),
+                URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
+            ])
+            var recycleReq = URLRequest(url: recycleURL)
+            recycleReq.httpMethod = "GET"
+            recycleReq.timeoutInterval = 10
+            quarkSetCommonHeaders(&recycleReq, cookie: cookie)
+
+            if let (recycleData, _) = try? await session.data(for: recycleReq),
+               let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
+               let list = recycleJSON["data"] as? [[String: Any]] {
+                // 找到刚删除的文件记录
+                let recordIds = list.compactMap { item -> String? in
+                    // record_id 格式: "taskId-fid-时间-recycleV2"
+                    let recordId = item["record_id"] as? String ?? ""
+                    if recordId.contains(taskId) || fileIds.contains(where: { recordId.contains($0) }) {
+                        return recordId
+                    }
+                    return nil
+                }
+                if !recordIds.isEmpty {
+                    let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
+                    var removeReq = URLRequest(url: removeURL)
+                    removeReq.httpMethod = "POST"
+                    quarkSetCommonHeaders(&removeReq, cookie: cookie)
+                    let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
+                    removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
+                    let _ = try? await session.data(for: removeReq)
+                    print("[CloudDrive] ✅ 夸克已彻底清理回收站 \(recordIds.count) 条记录")
+                }
+            }
+        }
     }
 
     private func quarkFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> QuarkShareFile {
@@ -1731,6 +1847,11 @@ class CloudDriveManager: ObservableObject {
         }
 
         if let d = json["data"] as? [String: Any] {
+            // 保存task_id用于后续轮询
+            if let taskId = d["task_id"] as? String {
+                quarkLastSaveTaskId = taskId
+                print("[Quark] 转存任务ID: \(taskId)")
+            }
             let taskResp = d["task_resp"] as? [String: Any]
             let taskData = taskResp?["data"] as? [String: Any]
             let saveAs = taskData?["save_as"] as? [String: Any]
