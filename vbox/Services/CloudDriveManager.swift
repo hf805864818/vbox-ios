@@ -2880,8 +2880,12 @@ class CloudDriveManager: ObservableObject {
                 return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
             }
 
-            func cookieForShareList(_ cookie: String) -> String {
-                let dropNames: Set<String> = ["stoken", "stoken_bfess", "ptoken", "ptoken_bfess", "passid", "ubi_bfess", "randsk"]
+            func cookieForShareList(_ cookie: String, includeAccount: Bool) -> String {
+                var dropNames: Set<String> = ["stoken", "stoken_bfess", "ptoken", "ptoken_bfess", "passid", "ubi_bfess", "randsk"]
+                if !includeAccount {
+                    // iBox 抓包：root-shorturl 阶段不能带 BDUSS，只带 BAIDUID/PANPSC/BDCLND 这一类分享态 Cookie。
+                    dropNames.formUnion(["bduss", "bduss_bfess"])
+                }
                 return cookie
                     .split(separator: ";")
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -3146,11 +3150,12 @@ class CloudDriveManager: ObservableObject {
             let encodedShortSurl = queryEncoded(shortSurl)
             var lastListError = ""
 
-            func requestShareList(_ listURL: String, source: String) async throws -> [String: Any]? {
+            func requestShareList(_ listURL: String, source: String, includeAccountCookie: Bool) async throws -> [String: Any]? {
                 guard let listURLObject = URL(string: listURL) else { return nil }
                 var listRequest = URLRequest(url: listURLObject)
                 listRequest.timeoutInterval = 18
-                listRequest.setValue(cookieForShareList(iBoxCookie), forHTTPHeaderField: "Cookie")
+                let shareCookie = cookieForShareList(iBoxCookie, includeAccount: includeAccountCookie)
+                listRequest.setValue(shareCookie, forHTTPHeaderField: "Cookie")
                 listRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
                 listRequest.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
                 listRequest.setValue("*/*", forHTTPHeaderField: "Accept")
@@ -3167,7 +3172,7 @@ class CloudDriveManager: ObservableObject {
                 let errno = listJSON["errno"] as? Int ?? 0
                 if errno != 0 {
                     lastListError = baiduErrorMessage(errno: errno, fallback: listJSON["errmsg"] as? String ?? listJSON["show_msg"] as? String)
-                    baiduLog("[Baidu-iBoxRoute] share/list(\(source)) 失败：errno=\(errno), msg=\(lastListError), hasBDCLND=\(iBoxCookie.lowercased().contains("bdclnd=")), shareCookieHasSTOKEN=\(cookieForShareList(iBoxCookie).lowercased().contains("stoken=")), url=\(listURL)")
+                    baiduLog("[Baidu-iBoxRoute] share/list(\(source)) 失败：errno=\(errno), msg=\(lastListError), hasBDCLND=\(shareCookie.lowercased().contains("bdclnd=")), shareCookieHasBDUSS=\(shareCookie.lowercased().contains("bduss=")), shareCookieHasSTOKEN=\(shareCookie.lowercased().contains("stoken=")), url=\(listURL)")
                     return nil
                 }
                 return listJSON
@@ -3175,7 +3180,7 @@ class CloudDriveManager: ObservableObject {
 
             let rootURL = "https://pan.baidu.com/share/list?web=5&app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&num=20&order=time&page=1&root=1&shorturl=\(encodedShortSurl)&showempty=0&view_mode=1&web=1"
             var dirsToLoad: [String] = []
-            if let rootJSON = try await requestShareList(rootURL, source: "root-shorturl") {
+            if let rootJSON = try await requestShareList(rootURL, source: "root-shorturl", includeAccountCookie: false) {
                 let root = (rootJSON["data"] as? [String: Any]) ?? rootJSON
                 let rootShareid = stringValue(root["share_id"]).isEmpty ? stringValue(root["shareid"]) : stringValue(root["share_id"])
                 let rootUk = stringValue(root["uk"]).isEmpty ? stringValue(root["share_uk"]) : stringValue(root["uk"])
@@ -3202,7 +3207,7 @@ class CloudDriveManager: ObservableObject {
                     seenDirs.insert(dir)
                     let dirEncoded = iBoxQueryEncoded(dir, keepSlash: true)
                     let dirURL = "https://pan.baidu.com/share/list?app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&dir=\(dirEncoded)&is_from_web=true&num=100&order=other&page=1&sekey=\(encodedRandsk)&shareid=\(queryEncoded(shareid))&showempty=0&uk=\(queryEncoded(shareUk))&view_mode=1&web=1"
-                    if let dirJSON = try await requestShareList(dirURL, source: "dir") {
+                    if let dirJSON = try await requestShareList(dirURL, source: "dir", includeAccountCookie: true) {
                         let root = (dirJSON["data"] as? [String: Any]) ?? dirJSON
                         if let rawList = root["list"] as? [[String: Any]] {
                             let dirFiles = parsePlayableFiles(rawList)
