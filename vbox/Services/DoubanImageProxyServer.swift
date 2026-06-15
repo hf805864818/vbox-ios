@@ -1236,7 +1236,9 @@ private final class BaiduStreamSegmentCache {
         let currentByte = max(0, min(Int64(currentTime * bytesPerSecond), total - 1))
         let segmentSize = total >= 1_073_741_824 ? largeSegmentBytes : defaultSegmentBytes
         let start = (currentByte / segmentSize) * segmentSize
-        let target = min(total - 1, currentByte + Int64(600 * bytesPerSecond))
+        // 预加载时长从600秒(10分钟)优化为60秒，减少带宽和内存占用
+        let preloadSeconds: Double = 60
+        let target = min(total - 1, currentByte + Int64(preloadSeconds * bytesPerSecond))
 
         fetchPreloadSegment(
             id: id,
@@ -1244,7 +1246,7 @@ private final class BaiduStreamSegmentCache {
             target: target,
             total: total,
             segmentSize: segmentSize,
-            maxSegments: 96,
+            maxSegments: 12,
             requestBuilder: requestBuilder
         )
     }
