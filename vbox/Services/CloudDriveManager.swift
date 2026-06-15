@@ -2266,6 +2266,11 @@ class CloudDriveManager: ObservableObject {
     /// 必须使用登录态 bdstoken，不能复用分享页 yunData 里的 bdstoken；
     /// 否则百度会判定为越权，统一返回 errno=-6 path:""。
     private func baiduFetchUserBdstokenLocal(cookie: String) async -> String? {
+        if let saved = CloudDriveAuthManager.shared.credential(for: .baidu)?.extra["bdstoken"], !saved.isEmpty {
+            baiduLog("[Baidu-Local] ✅ 使用授权中心保存的登录态 bdstoken：\(saved.prefix(6))…")
+            return saved
+        }
+
         var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
         components.queryItems = [
             URLQueryItem(name: "clienttype", value: "0"),
@@ -2280,12 +2285,13 @@ class CloudDriveManager: ObservableObject {
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue("https://pan.baidu.com/disk/home", forHTTPHeaderField: "Referer")
         if let (data, _) = try? await session.data(for: request),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let result = json["result"] as? [String: Any],
-           let token = result["bdstoken"] as? String,
-           !token.isEmpty {
-            baiduLog("[Baidu-Local] ✅ 取得登录态 bdstoken：\(token.prefix(6))…")
-            return token
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let errno = json["errno"] as? Int ?? 0
+            if let token = baiduDeepString(json, keys: ["bdstoken"]), !token.isEmpty {
+                baiduLog("[Baidu-Local] ✅ 取得登录态 bdstoken：\(token.prefix(6))…")
+                return token
+            }
+            baiduLog("[Baidu-Local] ⚠️ gettemplatevariable 未返回 bdstoken：errno=\(errno), keys=\(json.keys.sorted().joined(separator: ","))")
         }
         // 回退：直接抓 disk/home 页面里的 bdstoken
         var pageRequest = URLRequest(url: URL(string: "https://pan.baidu.com/disk/home")!)
@@ -2308,6 +2314,30 @@ class CloudDriveManager: ObservableObject {
             }
         }
         baiduLog("[Baidu-Local] ⚠️ 未能抓到登录态 bdstoken，回退使用分享页 bdstoken")
+        return nil
+    }
+
+    private func baiduDeepString(_ value: Any, keys: Set<String>) -> String? {
+        if let dict = value as? [String: Any] {
+            for (key, raw) in dict where keys.contains(key.lowercased()) {
+                if let text = raw as? String, !text.isEmpty { return text }
+                if let number = raw as? NSNumber { return number.stringValue }
+            }
+            for raw in dict.values {
+                if let found = baiduDeepString(raw, keys: keys), !found.isEmpty { return found }
+                if let text = raw as? String,
+                   let data = text.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data),
+                   let found = baiduDeepString(json, keys: keys),
+                   !found.isEmpty {
+                    return found
+                }
+            }
+        } else if let array = value as? [Any] {
+            for raw in array {
+                if let found = baiduDeepString(raw, keys: keys), !found.isEmpty { return found }
+            }
+        }
         return nil
     }
 
