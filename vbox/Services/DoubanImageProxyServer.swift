@@ -13,7 +13,7 @@ final class DoubanImageProxyServer {
     private let cache = NSCache<NSString, NSData>()
     private var listener: NWListener?
     private var streamItems: [String: StreamItem] = [:]
-    private let baiduStreamCache = BaiduStreamSegmentCache()
+    let baiduStreamCache = BaiduStreamSegmentCache()
     private(set) var port: UInt16 = 18080
 
     private struct StreamItem {
