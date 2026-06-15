@@ -3347,6 +3347,8 @@ class CloudDriveManager: ObservableObject {
                 throw DriveError.noPlayURL(message)
             }
             try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
+            // 异步清理超过2小时的旧转存文件，不阻塞播放流程
+            baiduCleanupOldTransferFiles(cookie: pureAccountCookie)
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
             let sourcePrefix: String
@@ -3946,6 +3948,72 @@ class CloudDriveManager: ObservableObject {
         req.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: req)
         print("[CloudDrive] ✅ 百度已删除转存文件")
+    }
+
+    /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
+    private func baiduCleanupOldTransferFiles(cookie: String) {
+        Task {
+            do {
+                let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
+                // 列出 /vbox/ 目录
+                let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
+                let listURL = URL(string: "https://pan.baidu.com/api/list")!
+                var components = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
+                components.queryItems = [
+                    URLQueryItem(name: "bdstoken", value: ""),
+                    URLQueryItem(name: "channel", value: "chunlei"),
+                    URLQueryItem(name: "web", value: "1"),
+                    URLQueryItem(name: "app_id", value: "250528"),
+                    URLQueryItem(name: "clienttype", value: "0")
+                ]
+                var req = URLRequest(url: components.url!)
+                req.httpMethod = "POST"
+                req.timeoutInterval = 12
+                req.setValue(cookie, forHTTPHeaderField: "Cookie")
+                req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                req.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=1".data(using: .utf8)
+
+                let (data, _) = try await session.data(for: req)
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let errno = json["errno"] as? Int, errno == 0,
+                      let root = json["data"] as? [String: Any],
+                      let list = root["list"] as? [[String: Any]] else {
+                    return
+                }
+
+                // 找出超过2小时的文件
+                let oldFiles: [[String: Any]] = list.filter { item in
+                    let ctime = item["ctime"] as? Int ?? 0
+                    let mtime = item["mtime"] as? Int ?? 0
+                    let timestamp = max(ctime, mtime)
+                    guard timestamp > 0 else { return false }
+                    let fileDate = Date(timeIntervalSince1970: Double(timestamp))
+                    return fileDate < cutoff
+                }
+
+                guard !oldFiles.isEmpty else { return }
+
+                // 批量删除
+                let paths = oldFiles.compactMap { $0["path"] as? String }
+                let encodedList = try? JSONSerialization.data(withJSONObject: paths)
+                let fileListStr = String(data: encodedList ?? Data(), encoding: .utf8) ?? "[]"
+
+                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+                var delReq = URLRequest(url: deleteURL)
+                delReq.httpMethod = "POST"
+                delReq.timeoutInterval = 12
+                delReq.setValue(cookie, forHTTPHeaderField: "Cookie")
+                delReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+                delReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                delReq.httpBody = "filelist=\(fileListStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileListStr)".data(using: .utf8)
+
+                let (_, _) = try await session.data(for: delReq)
+                baiduLog("[Baidu-Cleanup] ✅ 已清理 \(oldFiles.count) 个超过2小时的旧转存文件")
+            } catch {
+                baiduLog("[Baidu-Cleanup] ⚠️ 清理旧转存文件失败（不影响播放）：\(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - 115 网盘

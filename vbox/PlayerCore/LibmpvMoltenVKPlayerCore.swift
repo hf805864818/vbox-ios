@@ -48,6 +48,7 @@ final class LibmpvMoltenVKPlayerCore {
         case hlsFMP4 = "MoltenVK HLS-fMP4兼容"
         case mp4 = "MoltenVK普通文件"
         case mkvLarge = "MoltenVK MKV大文件"
+        case httpStream = "MoltenVK HTTP流媒体"
         case generic = "MoltenVK通用"
     }
 
@@ -377,6 +378,18 @@ final class LibmpvMoltenVKPlayerCore {
             setOption("cache", "yes")
             setOption("network-timeout", "15")
             setOption("hwdec", "videotoolbox")
+        case .httpStream:
+            // 百度/夸克等网盘HTTP流媒体专用：seek后快速恢复播放
+            setOption("cache", "yes")
+            setOption("cache-secs", "10")
+            setOption("demuxer-readahead-secs", "5")
+            setOption("demuxer-max-bytes", "64MiB")
+            setOption("demuxer-max-back-bytes", "8MiB")
+            setOption("cache-pause", "no")
+            setOption("cache-pause-initial", "no")
+            setOption("demuxer-cache-wait", "no")
+            setOption("network-timeout", "15")
+            setOption("hwdec", "videotoolbox")
         case .mp4, .generic:
             setOption("cache", "yes")
             setOption("cache-secs", "3")
@@ -389,7 +402,10 @@ final class LibmpvMoltenVKPlayerCore {
     }
 
     private func inferredProfile(for url: URL) -> PlaybackProfile {
+        let text = url.absoluteString.lowercased()
         let ext = url.pathExtension.lowercased()
+        // 百度/夸克网盘HTTP流媒体（通过本地代理的baidu-stream/quark-stream）
+        if text.contains("baidu-stream") || text.contains("quark-stream") { return .httpStream }
         if ext == "m3u8" { return .hlsFast }
         if ext == "mkv" { return .mkvLarge }
         if ext == "mp4" || ext == "m4v" || ext == "mov" { return .mp4 }
