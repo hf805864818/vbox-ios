@@ -443,9 +443,20 @@ final class CloudDriveAuthManager: ObservableObject {
         defer { oneShot.finishTasksAndInvalidate() }
 
         var collected = normalizedCookie
+        // 扫码完成后强制访问下列五条「只读、不改账号、不写网盘」的端点，
+        // 让百度服务端通过 Set-Cookie 把 BFESS 系列字段补齐：
+        //   1. www.baidu.com         → BAIDUID / BAIDUID_BFESS / BDORZ / PSTM
+        //   2. passport.baidu.com    → STOKEN_BFESS / BDUSS_BFESS / HOSUPPORT
+        //   3. pan.baidu.com/disk/main           → 网盘域本地化 cookie
+        //   4. pan.baidu.com/api/gettemplatevariable → bdstoken / uk
+        //   5. pan.baidu.com/api/getuinfo        → 用户基础信息附带 cookie
+        // 全部 GET、单次串行、失败静默回退，不会改账号资料、不会触发风控、不会动网盘文件。
         let endpoints = [
+            "https://www.baidu.com/",
+            "https://passport.baidu.com/center",
             "https://pan.baidu.com/disk/main",
-            "https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]"
+            "https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]",
+            "https://pan.baidu.com/api/getuinfo?clienttype=0&app_id=250528&web=1"
         ]
 
         for urlString in endpoints {
@@ -466,6 +477,8 @@ final class CloudDriveAuthManager: ObservableObject {
             }
         }
 
+        // 只打字段名，不打 cookie 值；用于诊断 BFESS 是否补齐。
+        print("ℹ️ 百度扫码 Cookie 补全后字段：\(baiduCookieNames(in: collected).joined(separator: ","))")
         return collected
     }
     

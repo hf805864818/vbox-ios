@@ -897,9 +897,22 @@ class CloudDriveManager: ObservableObject {
 
     func cleanupInvalidBaiduTokens() {
         let before = savedTokens.count
+        // 治理隐患 1：先按形式合法过滤；同时把「与授权中心 credential.cookie 不一致的旧账号 cookie」也清掉。
+        // 这样能避免历史扫码留下的、形式合法但已过期的 BDUSS+STOKEN 仍被 baiduTokenPair 当作候选。
+        let authoritativeCookie = CloudDriveAuthManager.shared.credential(for: .baidu)?.cookie
         savedTokens.removeAll { token in
             guard token.type == DriveType.baidu.rawValue else { return false }
-            return !isBaiduPCSToken(token) && !isBaiduAccountWebToken(token)
+            if !isBaiduPCSToken(token) && !isBaiduAccountWebToken(token) {
+                return true
+            }
+            // 仅对「账号 cookie」做唯一性约束；PCS cookie 不参与 BDUSS/STOKEN 比对。
+            if isBaiduAccountWebToken(token),
+               let authoritativeCookie,
+               isBaiduAccountWebCookie(authoritativeCookie),
+               token.value != authoritativeCookie {
+                return true
+            }
+            return false
         }
         if savedTokens.count != before {
             saveTokens()
@@ -948,8 +961,17 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu-Token] ❌ 缺少百度 Web Cookie：需要同时包含 BDUSS 和 STOKEN，不能用 PCS Cookie 替代")
             return nil
         }
-        let pcs = list.first(where: { isBaiduPCSToken($0) && $0.value != web.value })
-            ?? list.first(where: { isBaiduPCSToken($0) })
+        // 治理隐患 2：PCS Cookie 仅采用授权中心 credential.extra 中保存的最新值，
+        // 不再回退到 legacy savedTokens，避免历史粘贴/旧扫码留下的过期 PCS 被带入 share/transfer。
+        let pcs: DriveToken?
+        if let credential = CloudDriveAuthManager.shared.credential(for: .baidu),
+           let pcsValue = credential.extra["pcs_cookie"], !pcsValue.isEmpty,
+           isBaiduPCSCookie(pcsValue) {
+            let pcsName = "授权中心-PCS"
+            pcs = DriveToken(type: DriveType.baidu.rawValue, name: pcsName, value: pcsValue)
+        } else {
+            pcs = nil
+        }
         return (web, pcs)
     }
 
@@ -2822,6 +2844,25 @@ class CloudDriveManager: ObservableObject {
         }.joined(separator: "; ")
     }
 
+    /// 治理隐患 3：私域接口（gettemplatevariable / api/create / filemanager / api/list）
+    /// 只允许携带账号态 Cookie；从入参 cookie 中剔除分享态字段（BDCLND / BDCLND_BFESS 等），
+    /// 避免历史合并产物把分享态混入用户网盘私域请求，导致 errno=-6/-9。
+    private func baiduPureAccountCookie(_ cookie: String) -> String {
+        guard !cookie.isEmpty else { return cookie }
+        let dropList: Set<String> = [
+            "bdclnd", "bdclnd_bfess",
+            "share_pwd", "share_pwd_bfess"
+        ]
+        let merged = baiduMergeCookieStrings([cookie])
+        let parts = merged.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+        let filtered: [String] = parts.compactMap { item in
+            guard let eq = item.firstIndex(of: "=") else { return nil }
+            let name = item[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+            return dropList.contains(name) ? nil : item
+        }
+        return filtered.joined(separator: "; ")
+    }
+
     private func baiduStableDeviceId() -> String {
         let key = "baidu_local_pcs_device_id"
         if let id = defaults.string(forKey: key), !id.isEmpty {
@@ -2910,6 +2951,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
+        let pureAccountCookie = baiduPureAccountCookie(accountCookie)
         let mergedCookie = baiduMergeCookieStrings([context.cookie, accountCookie])
         guard !mergedCookie.isEmpty else {
             recordBaiduRouteDiagnostic(stage: "主路链", status: "Cookie缺失", detail: "无法合并 BDUSS/STOKEN Cookie", fsId: fsId, fileName: selected.name)
@@ -2919,9 +2961,9 @@ class CloudDriveManager: ObservableObject {
         do {
             // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
             // 创建目录/列用户网盘目录只能用账号 Cookie；share/transfer 再使用账号 Cookie + BDCLND 的混合 Cookie。
-            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: accountCookie) ?? context.bdstoken
-            try await baiduEnsureVboxFolderLocal(cookie: accountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/home")
-            let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: accountCookie)
+            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: pureAccountCookie) ?? context.bdstoken
+            try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/home")
+            let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
             let sourcePrefix: String
             if let existingPath {
@@ -2938,7 +2980,7 @@ class CloudDriveManager: ObservableObject {
                     fsId: selected.fsId,
                     fileName: selected.name,
                     cookie: mergedCookie,
-                    accountCookie: accountCookie,
+                    accountCookie: pureAccountCookie,
                     referer: shareURL
                 )
                 sourcePrefix = "main-transfer"
