@@ -399,6 +399,7 @@ final class CloudDriveAuthManager: ObservableObject {
         guard isBaiduAccountCookie(cookie) else {
             throw AuthError.invalidResponse("百度扫码未返回完整 BDUSS/STOKEN")
         }
+        print("✅ 百度扫码 Cookie 字段：\(baiduCookieNames(in: cookie).joined(separator: ","))")
         let vars = try? await baiduFetchTemplateVariables(cookie: cookie)
         var credential = CloudDriveCredential(
             driveType: CloudDriveManager.DriveType.baidu.rawValue,
@@ -820,10 +821,10 @@ final class CloudDriveAuthManager: ObservableObject {
                 guard let lowerKey = key as? String, lowerKey.lowercased() == "set-cookie" else { continue }
                 if let cookieValues = value as? [String] {
                     for cookieValue in cookieValues {
-                        processSingleSetCookie(cookieValue, into: &cookieDict, for: url)
+                        processSetCookieHeader(cookieValue, into: &cookieDict, for: url)
                     }
                 } else if let singleValue = value as? String {
-                    processSingleSetCookie(singleValue, into: &cookieDict, for: url)
+                    processSetCookieHeader(singleValue, into: &cookieDict, for: url)
                 }
             }
         } else {
@@ -833,7 +834,7 @@ final class CloudDriveAuthManager: ObservableObject {
                 }
             }
             if let raw = http.allHeaderFields["Set-Cookie"] as? String {
-                processSingleSetCookie(raw, into: &cookieDict, for: url)
+                processSetCookieHeader(raw, into: &cookieDict, for: url)
             }
         }
         
@@ -855,6 +856,36 @@ final class CloudDriveAuthManager: ObservableObject {
         return cookieDict.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }
     
+    private func processSetCookieHeader(_ header: String, into dict: inout [String: String], for url: URL) {
+        for cookieHeader in splitSetCookieHeader(header) {
+            processSingleSetCookie(cookieHeader, into: &dict, for: url)
+        }
+    }
+
+    private func splitSetCookieHeader(_ header: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var index = header.startIndex
+        while index < header.endIndex {
+            let ch = header[index]
+            if ch == "," {
+                let nextIndex = header.index(after: index)
+                let rest = header[nextIndex...]
+                if rest.range(of: #"^\s*[A-Za-z0-9_\-]+="#, options: .regularExpression) != nil {
+                    parts.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+                    current = ""
+                    index = nextIndex
+                    continue
+                }
+            }
+            current.append(ch)
+            index = header.index(after: index)
+        }
+        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty { parts.append(tail) }
+        return parts
+    }
+
     // 解析单个 Set-Cookie header 的辅助方法，正确处理包含逗号的时间格式
     private func processSingleSetCookie(_ cookieHeader: String, into dict: inout [String: String], for url: URL) {
         let components = cookieHeader.components(separatedBy: "; ")
