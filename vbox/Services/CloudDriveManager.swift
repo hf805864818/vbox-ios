@@ -2319,7 +2319,7 @@ class CloudDriveManager: ObservableObject {
         request.timeoutInterval = 12
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://pan.baidu.com/disk/home", forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.baidu.com/disk/main", forHTTPHeaderField: "Referer")
         if let (data, _) = try? await session.data(for: request),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             let errno = json["errno"] as? Int ?? 0
@@ -2327,30 +2327,61 @@ class CloudDriveManager: ObservableObject {
                 baiduLog("[Baidu-Local] ✅ 取得登录态 bdstoken：\(token.prefix(6))…")
                 return token
             }
-            baiduLog("[Baidu-Local] ⚠️ gettemplatevariable 未返回 bdstoken：errno=\(errno), keys=\(json.keys.sorted().joined(separator: ","))")
+            baiduLog("[Baidu-Local] ⚠️ gettemplatevariable 未返回 bdstoken：errno=\(errno), keys=\(json.keys.sorted().joined(separator: ",")), \(baiduJSONStructureSummary(json["result"], label: "result"))")
         }
-        // 回退：直接抓 disk/home 页面里的 bdstoken
-        var pageRequest = URLRequest(url: URL(string: "https://pan.baidu.com/disk/home")!)
+        // 回退：直接抓 iBox 登录目标页 disk/main 页面里的用户态 bdstoken
+        var pageRequest = URLRequest(url: URL(string: "https://pan.baidu.com/disk/main")!)
         pageRequest.timeoutInterval = 12
         pageRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
         pageRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         if let (data, _) = try? await session.data(for: pageRequest),
            let html = String(data: data, encoding: .utf8) {
-            for pattern in ["\"bdstoken\":\"([0-9a-fA-F]+)\"", "bdstoken=\"([0-9a-fA-F]+)\""] {
-                if let regex = try? NSRegularExpression(pattern: pattern),
-                   let m = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                   m.numberOfRanges >= 2,
-                   let r = Range(m.range(at: 1), in: html) {
-                    let token = String(html[r])
-                    if !token.isEmpty {
-                        baiduLog("[Baidu-Local] ✅ 从 disk/home 抓到 bdstoken：\(token.prefix(6))…")
-                        return token
-                    }
-                }
+            if let token = baiduExtractBdstokenFromHTML(html), !token.isEmpty {
+                baiduLog("[Baidu-Local] ✅ 从 disk/main 抓到 bdstoken：\(token.prefix(6))…")
+                return token
+            }
+            baiduLog("[Baidu-Local] ⚠️ disk/main 未解析到 bdstoken：htmlSize=\(html.count)")
+        }
+        baiduLog("[Baidu-Local] ⚠️ 未能抓到登录态 bdstoken")
+        return nil
+    }
+
+    private func baiduExtractBdstokenFromHTML(_ html: String) -> String? {
+        let patterns = [
+            #"["']bdstoken["']\s*:\s*["']([^"']+)["']"#,
+            #"bdstoken\s*=\s*["']([^"']+)["']"#,
+            #"bdstoken=([A-Za-z0-9_\-%.]+)"#
+        ]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               match.numberOfRanges >= 2,
+               let range = Range(match.range(at: 1), in: html) {
+                let token = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !token.isEmpty { return token.removingPercentEncoding ?? token }
             }
         }
-        baiduLog("[Baidu-Local] ⚠️ 未能抓到登录态 bdstoken，回退使用分享页 bdstoken")
         return nil
+    }
+
+    private func baiduJSONStructureSummary(_ value: Any?, label: String) -> String {
+        guard let value else { return "\(label)=nil" }
+        if let dict = value as? [String: Any] {
+            return "\(label)Type=dict,\(label)Keys=\(dict.keys.sorted().joined(separator: ","))"
+        }
+        if let array = value as? [Any] {
+            let firstType: String
+            if let first = array.first {
+                firstType = String(describing: Swift.type(of: first))
+            } else {
+                firstType = "empty"
+            }
+            return "\(label)Type=array,\(label)Count=\(array.count),first=\(firstType)"
+        }
+        if let text = value as? String {
+            return "\(label)Type=string,\(label)Length=\(text.count)"
+        }
+        return "\(label)Type=\(String(describing: Swift.type(of: value)))"
     }
 
     private func baiduDeepString(_ value: Any, keys: Set<String>) -> String? {
@@ -2961,8 +2992,14 @@ class CloudDriveManager: ObservableObject {
         do {
             // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
             // 创建目录/列用户网盘目录只能用账号 Cookie；share/transfer 再使用账号 Cookie + BDCLND 的混合 Cookie。
-            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: pureAccountCookie) ?? context.bdstoken
-            try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/home")
+            guard let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: pureAccountCookie),
+                  !userBdstoken.isEmpty else {
+                let message = "百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录"
+                baiduLog("[Baidu-Local] ❌ \(message)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "缺少用户态bdstoken", detail: message, fsId: fsId, fileName: selected.name)
+                throw DriveError.noPlayURL(message)
+            }
+            try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
             let sourcePrefix: String
