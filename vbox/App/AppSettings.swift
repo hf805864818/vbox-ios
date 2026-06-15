@@ -91,6 +91,9 @@ class AppSettings: ObservableObject {
     }
 
     func selectSkin(_ mode: AppSkinMode) {
+        if mode == .dark || mode == .light {
+            skinFollowsSystem = false
+        }
         skinMode = mode
     }
 
