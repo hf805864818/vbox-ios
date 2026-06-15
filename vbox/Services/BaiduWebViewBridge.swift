@@ -83,6 +83,36 @@ class BaiduWebViewBridge: NSObject {
         }
     }
 
+    /// 清理 WKWebView 中残留的百度 Cookie。切换百度账号后如果不清理，WebView 可能继续带旧账号
+    /// BDUSS/STOKEN，导致抓到的 bdstoken 与当前扫码账号不匹配，私域接口返回 errno=-6。
+    func clearBaiduCookies() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                let store = WKWebsiteDataStore.default().httpCookieStore
+                store.getAllCookies { cookies in
+                    let targets = cookies.filter { cookie in
+                        let domain = cookie.domain.lowercased()
+                        return domain.contains("baidu.com") || domain.contains("pcs.baidu.com")
+                    }
+                    guard !targets.isEmpty else {
+                        continuation.resume()
+                        return
+                    }
+                    let group = DispatchGroup()
+                    for cookie in targets {
+                        group.enter()
+                        store.delete(cookie) {
+                            group.leave()
+                        }
+                    }
+                    group.notify(queue: .main) {
+                        continuation.resume()
+                    }
+                }
+            }
+        }
+    }
+
     /// 读取 WebView CookieJar 中的百度 Cookie。
     func currentCookieString() async -> String {
         await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
@@ -99,7 +129,10 @@ class BaiduWebViewBridge: NSObject {
     }
 
     /// 使用真实 WebView 导航加载页面，并从 HTML/JS/CookieJar 中提取 bdstoken。
-    func loadPanPageForBdstoken(cookie: String, timeout: TimeInterval = 18) async throws -> (html: String, cookie: String, bdstoken: String?) {
+    func loadPanPageForBdstoken(cookie: String, timeout: TimeInterval = 18, resetCookies: Bool = true) async throws -> (html: String, cookie: String, bdstoken: String?) {
+        if resetCookies {
+            await clearBaiduCookies()
+        }
         await seedCookies(cookie)
         try await load(url: "https://pan.baidu.com/disk/main", timeout: timeout)
         let html = try await evaluateString("""

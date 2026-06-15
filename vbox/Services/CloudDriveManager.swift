@@ -2498,10 +2498,61 @@ class CloudDriveManager: ObservableObject {
             }
             baiduLog("[Baidu-Local] ⚠️ api/create \(folder) 响应：\(lastResponse)")
             try await baiduCreateFolderByFileManager(path: folder, cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA)
+            if lastResponse.contains(#""errno":-6"#) || lastResponse.contains(#""errno": -6"#) {
+                let ok = await baiduCreateFolderViaWebView(path: folder, cookie: cookie, bdstoken: bdstoken)
+                if ok {
+                    baiduLog("[Baidu-Local] ✅ WebView XHR create \(folder) 成功或已存在")
+                }
+            }
         }
 
-        guard try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA) else {
+        let canListByURLSession = try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA)
+        let canList = canListByURLSession || await baiduCanListTransferDirViaWebView(cookie: cookie, bdstoken: bdstoken)
+        guard canList else {
             throw DriveError.noPlayURL("百度 vbox 转存目录创建失败：\(lastResponse)")
+        }
+    }
+
+    private func baiduCreateFolderViaWebView(path: String, cookie: String, bdstoken: String) async -> Bool {
+        do {
+            let page = try await BaiduWebViewBridge.shared.loadPanPageForBdstoken(cookie: cookie, timeout: 12, resetCookies: true)
+            let effectiveBdstoken = page.bdstoken ?? bdstoken
+            var components = URLComponents(string: "https://pan.baidu.com/api/create")!
+            components.queryItems = [
+                URLQueryItem(name: "a", value: "commit"),
+                URLQueryItem(name: "bdstoken", value: effectiveBdstoken),
+                URLQueryItem(name: "channel", value: "chunlei"),
+                URLQueryItem(name: "web", value: "1"),
+                URLQueryItem(name: "app_id", value: "250528"),
+                URLQueryItem(name: "clienttype", value: "0")
+            ]
+            let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encodedBlockList = "[]".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "%5B%5D"
+            let body = "path=\(encodedPath)&size=0&isdir=1&block_list=\(encodedBlockList)&method=post"
+            let result = try await BaiduWebViewBridge.shared.request(
+                url: components.url!.absoluteString,
+                method: "POST",
+                headers: [
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Requested-With": "XMLHttpRequest"
+                ],
+                body: body,
+                timeout: 12
+            )
+            let preview = String(data: result.data.prefix(220), encoding: .utf8) ?? ""
+            guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any],
+                  let errno = json["errno"] as? Int else {
+                baiduLog("[Baidu-Local] ⚠️ WebView XHR create \(path) 返回不可解析：\(preview)")
+                return false
+            }
+            if errno == 0 || errno == -8 {
+                return true
+            }
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR create \(path) 响应：\(preview)")
+            return false
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR create \(path) 异常：\(error.localizedDescription)")
+            return false
         }
     }
 
@@ -2570,7 +2621,64 @@ class CloudDriveManager: ObservableObject {
         return false
     }
 
+    private func baiduCanListTransferDirViaWebView(cookie: String, bdstoken: String) async -> Bool {
+        do {
+            let page = try await BaiduWebViewBridge.shared.loadPanPageForBdstoken(cookie: cookie, timeout: 12, resetCookies: false)
+            let effectiveBdstoken = page.bdstoken ?? bdstoken
+            var components = URLComponents(string: "https://pan.baidu.com/api/list")!
+            components.queryItems = [
+                URLQueryItem(name: "dir", value: Self.baiduIBoxTransferDir),
+                URLQueryItem(name: "order", value: "time"),
+                URLQueryItem(name: "desc", value: "1"),
+                URLQueryItem(name: "num", value: "1"),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "bdstoken", value: effectiveBdstoken),
+                URLQueryItem(name: "channel", value: "chunlei"),
+                URLQueryItem(name: "web", value: "1"),
+                URLQueryItem(name: "app_id", value: "250528"),
+                URLQueryItem(name: "clienttype", value: "0")
+            ]
+            let result = try await BaiduWebViewBridge.shared.request(url: components.url!.absoluteString, timeout: 12)
+            guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+                return false
+            }
+            let errno = json["errno"] as? Int ?? 0
+            if errno == 0 {
+                baiduLog("[Baidu-Local] ✅ WebView XHR vbox 转存目录可访问：\(Self.baiduIBoxTransferDir)")
+                return true
+            }
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR vbox 转存目录不可访问：errno=\(errno)")
+            return false
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR vbox 目录检查异常：\(error.localizedDescription)")
+            return false
+        }
+    }
+
     private func baiduFindExistingVboxPath(fileName: String, cookie: String) async throws -> String? {
+        func matchedPath(from json: [String: Any]) -> String? {
+            let root = (json["data"] as? [String: Any]) ?? json
+            let list = root["list"] as? [[String: Any]]
+                ?? root["file_list"] as? [[String: Any]]
+                ?? root["records"] as? [[String: Any]]
+                ?? []
+            let normalizedTarget = fileName.split(separator: "/").last.map(String.init) ?? fileName
+            let targetBase = (normalizedTarget as NSString).deletingPathExtension
+            let targetExt = (normalizedTarget as NSString).pathExtension
+            for item in list {
+                let name = item["server_filename"] as? String
+                    ?? item["filename"] as? String
+                    ?? item["name"] as? String
+                    ?? ""
+                let nameBase = (name as NSString).deletingPathExtension
+                let nameExt = (name as NSString).pathExtension
+                if name == normalizedTarget || (!targetBase.isEmpty && nameBase.hasPrefix(targetBase) && (targetExt.isEmpty || nameExt == targetExt)) {
+                    return item["path"] as? String ?? "\(Self.baiduIBoxTransferDir)/\(normalizedTarget)"
+                }
+            }
+            return nil
+        }
+
         var components = URLComponents(string: "https://pan.baidu.com/api/list")!
         components.queryItems = [
             URLQueryItem(name: "bdstoken", value: ""),
@@ -2590,29 +2698,74 @@ class CloudDriveManager: ObservableObject {
 
         let (data, _) = try await session.data(for: request)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+            return await baiduFindExistingVboxPathViaWebView(fileName: fileName, cookie: cookie)
         }
 
-        let root = (json["data"] as? [String: Any]) ?? json
-        let list = root["list"] as? [[String: Any]]
-            ?? root["file_list"] as? [[String: Any]]
-            ?? root["records"] as? [[String: Any]]
-            ?? []
-        let normalizedTarget = fileName.split(separator: "/").last.map(String.init) ?? fileName
-        let targetBase = (normalizedTarget as NSString).deletingPathExtension
-        let targetExt = (normalizedTarget as NSString).pathExtension
-        for item in list {
-            let name = item["server_filename"] as? String
-                ?? item["filename"] as? String
-                ?? item["name"] as? String
-                ?? ""
-            let nameBase = (name as NSString).deletingPathExtension
-            let nameExt = (name as NSString).pathExtension
-            if name == normalizedTarget || (!targetBase.isEmpty && nameBase.hasPrefix(targetBase) && (targetExt.isEmpty || nameExt == targetExt)) {
-                return item["path"] as? String ?? "\(Self.baiduIBoxTransferDir)/\(normalizedTarget)"
-            }
+        let errno = json["errno"] as? Int ?? 0
+        if errno != 0 {
+            baiduLog("[Baidu-Local] ⚠️ URLSession 查找 /vbox 文件失败：errno=\(errno)，改用 WebView XHR")
+            return await baiduFindExistingVboxPathViaWebView(fileName: fileName, cookie: cookie)
         }
-        return nil
+        if let path = matchedPath(from: json) {
+            return path
+        }
+        return await baiduFindExistingVboxPathViaWebView(fileName: fileName, cookie: cookie)
+    }
+
+    private func baiduFindExistingVboxPathViaWebView(fileName: String, cookie: String) async -> String? {
+        do {
+            _ = try await BaiduWebViewBridge.shared.loadPanPageForBdstoken(cookie: cookie, timeout: 12, resetCookies: false)
+            var components = URLComponents(string: "https://pan.baidu.com/api/list")!
+            components.queryItems = [
+                URLQueryItem(name: "bdstoken", value: ""),
+                URLQueryItem(name: "channel", value: "chunlei"),
+                URLQueryItem(name: "web", value: "1"),
+                URLQueryItem(name: "app_id", value: "250528"),
+                URLQueryItem(name: "clienttype", value: "0")
+            ]
+            let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
+            let body = "dir=\(encodedDir)&order=time&desc=1&num=200&page=1"
+            let result = try await BaiduWebViewBridge.shared.request(
+                url: components.url!.absoluteString,
+                method: "POST",
+                headers: ["Content-Type": "application/x-www-form-urlencoded"],
+                body: body,
+                timeout: 12
+            )
+            guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+                return nil
+            }
+            let errno = json["errno"] as? Int ?? 0
+            if errno != 0 {
+                baiduLog("[Baidu-Local] ⚠️ WebView XHR 查找 /vbox 文件失败：errno=\(errno)")
+                return nil
+            }
+            let root = (json["data"] as? [String: Any]) ?? json
+            let list = root["list"] as? [[String: Any]]
+                ?? root["file_list"] as? [[String: Any]]
+                ?? root["records"] as? [[String: Any]]
+                ?? []
+            let normalizedTarget = fileName.split(separator: "/").last.map(String.init) ?? fileName
+            let targetBase = (normalizedTarget as NSString).deletingPathExtension
+            let targetExt = (normalizedTarget as NSString).pathExtension
+            for item in list {
+                let name = item["server_filename"] as? String
+                    ?? item["filename"] as? String
+                    ?? item["name"] as? String
+                    ?? ""
+                let nameBase = (name as NSString).deletingPathExtension
+                let nameExt = (name as NSString).pathExtension
+                if name == normalizedTarget || (!targetBase.isEmpty && nameBase.hasPrefix(targetBase) && (targetExt.isEmpty || nameExt == targetExt)) {
+                    let path = item["path"] as? String ?? "\(Self.baiduIBoxTransferDir)/\(normalizedTarget)"
+                    baiduLog("[Baidu-Local] ✅ WebView XHR 查到 /vbox 文件：\(path)")
+                    return path
+                }
+            }
+            return nil
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR 查找 /vbox 文件异常：\(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func baiduWaitForTransferredPath(fileName: String, cookie: String, preferredPath: String? = nil) async throws -> String {
@@ -2685,12 +2838,22 @@ class CloudDriveManager: ObservableObject {
         let transferPath = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
         // 恢复 3.232 已验证可播放行为：fsidlist 必须 URL 编码，并使用百度异步转存队列。
         let encodedFsidList = "[\(fsId)]".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "%5B\(fsId)%5D"
-        request.httpBody = "fsidlist=\(encodedFsidList)&path=\(transferPath)&async=1&ondup=newcopy".data(using: .utf8)
+        let transferBody = "fsidlist=\(encodedFsidList)&path=\(transferPath)&async=1&ondup=newcopy"
+        request.httpBody = transferBody.data(using: .utf8)
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard status == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if let path = try? await baiduTransferFileViaWebView(
+                transferURL: transferURL,
+                transferCookie: transferCookie,
+                transferBody: transferBody,
+                fileName: fileName,
+                accountCookie: accountCookie
+            ) {
+                return path
+            }
             throw DriveError.noPlayURL("百度本机转存 HTTP \(status)")
         }
 
@@ -2698,6 +2861,15 @@ class CloudDriveManager: ObservableObject {
         if errno != 0 {
             let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
             baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg), hasBDCLND=\(transferCookie.lowercased().contains("bdclnd=")), hasBDUSS=\(transferCookie.lowercased().contains("bduss=")), hasSTOKEN=\(transferCookie.lowercased().contains("stoken="))")
+            if let path = try? await baiduTransferFileViaWebView(
+                transferURL: transferURL,
+                transferCookie: transferCookie,
+                transferBody: transferBody,
+                fileName: fileName,
+                accountCookie: accountCookie
+            ) {
+                return path
+            }
             throw DriveError.noPlayURL("百度本机转存失败：\(msg)")
         }
 
@@ -2716,6 +2888,53 @@ class CloudDriveManager: ObservableObject {
             return to
         }
 
+        let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
+        return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
+    }
+
+    private func baiduTransferFileViaWebView(
+        transferURL: URL,
+        transferCookie: String,
+        transferBody: String,
+        fileName: String,
+        accountCookie: String
+    ) async throws -> String {
+        _ = try await BaiduWebViewBridge.shared.loadPanPageForBdstoken(cookie: transferCookie, timeout: 12, resetCookies: false)
+        let result = try await BaiduWebViewBridge.shared.request(
+            url: transferURL.absoluteString,
+            method: "POST",
+            headers: [
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-Requested-With": "XMLHttpRequest"
+            ],
+            body: transferBody,
+            timeout: 25
+        )
+        guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+            let preview = String(data: result.data.prefix(220), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR 转存返回不可解析：\(preview)")
+            throw DriveError.noPlayURL("百度 WebView 转存返回不可解析")
+        }
+        let errno = json["errno"] as? Int ?? -1
+        guard errno == 0 else {
+            let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
+            baiduLog("[Baidu-Local] ⚠️ WebView XHR 转存失败：\(msg)")
+            throw DriveError.noPlayURL("百度 WebView 转存失败：\(msg)")
+        }
+        baiduLog("[Baidu-Local] ✅ WebView XHR 转存请求成功")
+        if let taskID = json["task_id"] as? String
+            ?? (json["extra"] as? [String: Any])?["task_id"] as? String
+            ?? (json["request_id"] as? NSNumber)?.stringValue,
+           !taskID.isEmpty {
+            baiduLog("[Baidu-Local] WebView XHR 转存任务标识：\(taskID)")
+        }
+        if let extra = json["extra"] as? [String: Any],
+           let list = extra["list"] as? [[String: Any]],
+           let first = list.first,
+           let to = first["to"] as? String,
+           !to.isEmpty {
+            return to
+        }
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
         return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
     }
