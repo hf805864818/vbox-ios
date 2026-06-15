@@ -16,10 +16,10 @@ class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
-    // 严格对齐 iBox 百度路链：分享文件先转存到 iBox 固定目录，再从用户网盘路径取链播放。
+    // 严格对齐 iBox 百度路链：分享文件先转存到固定目录，再从用户网盘路径取链播放。
     // 注意：百度 API 的真实根路径是 "/"；App 里看到的“我的资源”是 UI 分类名，不应写进 API path。
-    // 因此这里请求用 "/iBox"，在百度网盘 UI 里会显示为“我的资源/iBox”。
-    private static let baiduIBoxTransferDir = "/iBox"
+    // 因此这里请求用 "/vbox"，在百度网盘 UI 里会显示为“我的资源/vbox”。
+    private static let baiduIBoxTransferDir = "/vbox"
 
     enum DriveType: String, CaseIterable {
         case ali = "ali"
@@ -932,7 +932,19 @@ class CloudDriveManager: ObservableObject {
         let list = tokens(for: .baidu)
         guard !list.isEmpty else { return nil }
 
-        guard let web = list.first(where: { isBaiduAccountWebToken($0) }) else {
+        let preferredWeb: DriveToken?
+        if let credential = CloudDriveAuthManager.shared.credential(for: .baidu),
+           let cookie = credential.cookie,
+           isBaiduAccountWebCookie(cookie) {
+            // 百度主路链必须优先使用授权中心最新扫码 Cookie。
+            // 旧 legacy Cookie 可能已过期，若排在前面会导致 api/gettemplatevariable/api/create 返回 errno=-6/-9。
+            let name = credential.userName?.isEmpty == false ? credential.userName! : "授权中心"
+            preferredWeb = DriveToken(type: DriveType.baidu.rawValue, name: name, value: cookie)
+        } else {
+            preferredWeb = nil
+        }
+
+        guard let web = preferredWeb ?? list.first(where: { isBaiduAccountWebToken($0) }) else {
             baiduLog("[Baidu-Token] ❌ 缺少百度 Web Cookie：需要同时包含 BDUSS 和 STOKEN，不能用 PCS Cookie 替代")
             return nil
         }
@@ -2386,7 +2398,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         guard try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA) else {
-            throw DriveError.noPlayURL("百度 iBox 转存目录创建失败：\(lastResponse)")
+            throw DriveError.noPlayURL("百度 vbox 转存目录创建失败：\(lastResponse)")
         }
     }
 
@@ -2448,10 +2460,10 @@ class CloudDriveManager: ObservableObject {
         }
         let errno = json["errno"] as? Int ?? 0
         if errno == 0 {
-            baiduLog("[Baidu-Local] ✅ iBox 转存目录可访问：\(Self.baiduIBoxTransferDir)")
+            baiduLog("[Baidu-Local] ✅ vbox 转存目录可访问：\(Self.baiduIBoxTransferDir)")
             return true
         }
-        baiduLog("[Baidu-Local] ⚠️ iBox 转存目录不可访问：errno=\(errno)")
+        baiduLog("[Baidu-Local] ⚠️ vbox 转存目录不可访问：errno=\(errno)")
         return false
     }
 
