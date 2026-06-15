@@ -1154,6 +1154,10 @@ private final class BaiduStreamSegmentCache {
     private var lastPreloadAt: [String: Date] = [:]
     private var activePreloads = Set<String>()
     private let rootURL: URL
+    /// 预加载暂停标志：seek或播放缓冲不足时设为true，阻止新的预加载请求
+    private var preloadPaused = false
+    /// 当前正在进行的预加载URLSessionTask，用于取消
+    private var activePreloadTask: URLSessionDataTask?
 
     init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -1221,6 +1225,12 @@ private final class BaiduStreamSegmentCache {
         duration: Double,
         requestBuilder: @escaping (String) -> URLRequest?
     ) {
+        // 预加载已暂停时不执行（seek中或播放缓冲不足）
+        lock.lock()
+        let paused = preloadPaused
+        lock.unlock()
+        if paused { return }
+
         guard let total = totalBytes(for: id), total > 0 else { return }
         let now = Date()
         lock.lock()
@@ -1306,6 +1316,15 @@ private final class BaiduStreamSegmentCache {
         maxSegments: Int,
         requestBuilder: @escaping (String) -> URLRequest?
     ) {
+        // 每个分片下载前检查暂停状态
+        lock.lock()
+        let paused = preloadPaused
+        lock.unlock()
+        guard !paused else {
+            finishPreload(id: id)
+            return
+        }
+
         guard start <= target, maxSegments > 0, usedBytes(id: id) < maxVideoBytes else {
             finishPreload(id: id)
             return
@@ -1322,8 +1341,14 @@ private final class BaiduStreamSegmentCache {
             return
         }
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
+            // 清理task引用
+            self.lock.lock()
+            if self.activePreloadTask?.taskIdentifier == task.taskIdentifier {
+                self.activePreloadTask = nil
+            }
+            self.lock.unlock()
             if let error {
                 print("⚠️ 百度后台分片预加载失败: id=\(id), range=\(range), error=\(error.localizedDescription)")
                 self.finishPreload(id: id)
@@ -1335,13 +1360,45 @@ private final class BaiduStreamSegmentCache {
             } else {
                 self.finishPreload(id: id)
             }
-        }.resume()
+        }
+        lock.lock()
+        activePreloadTask = task
+        lock.unlock()
+        task.resume()
     }
 
     private func finishPreload(id: String) {
         lock.lock()
         activePreloads.remove(id)
         lock.unlock()
+    }
+
+    /// 暂停预加载（seek操作或播放缓冲不足时调用）
+    func pausePreload() {
+        lock.lock()
+        preloadPaused = true
+        let task = activePreloadTask
+        activePreloadTask = nil
+        activePreloads.removeAll()
+        lock.unlock()
+        task?.cancel()
+        print("⏸️ 百度预加载已暂停（seek/缓冲不足）")
+    }
+
+    /// 恢复预加载（seek完成或播放缓冲恢复后调用）
+    func resumePreload() {
+        lock.lock()
+        preloadPaused = false
+        lock.unlock()
+        print("▶️ 百度预加载已恢复")
+    }
+
+    /// 预加载是否处于暂停状态
+    func isPreloadPaused() -> Bool {
+        lock.lock()
+        let paused = preloadPaused
+        lock.unlock()
+        return paused
     }
 
     private func totalBytes(for id: String) -> Int64? {
