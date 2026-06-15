@@ -2507,7 +2507,12 @@ class CloudDriveManager: ObservableObject {
         }
 
         let canListByURLSession = try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA)
-        let canList = canListByURLSession || await baiduCanListTransferDirViaWebView(cookie: cookie, bdstoken: bdstoken)
+        let canList: Bool
+        if canListByURLSession {
+            canList = true
+        } else {
+            canList = await baiduCanListTransferDirViaWebView(cookie: cookie, bdstoken: bdstoken)
+        }
         guard canList else {
             throw DriveError.noPlayURL("百度 vbox 转存目录创建失败：\(lastResponse)")
         }
