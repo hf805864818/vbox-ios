@@ -1158,6 +1158,8 @@ final class BaiduStreamSegmentCache {
     private var preloadPaused = false
     /// 当前正在进行的预加载URLSessionTask，用于取消
     private var activePreloadTask: URLSessionDataTask?
+    /// 预加载task标识，用于闭包内匹配清理
+    private var activePreloadTaskIdentifier: Int = 0
 
     init() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -1341,12 +1343,14 @@ final class BaiduStreamSegmentCache {
             return
         }
 
+        let taskIdentifier = Int.random(in: 1...Int.max)
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
-            // 清理task引用
+            // 清理task引用（通过identifier匹配）
             self.lock.lock()
-            if self.activePreloadTask?.taskIdentifier == task.taskIdentifier {
+            if self.activePreloadTaskIdentifier == taskIdentifier {
                 self.activePreloadTask = nil
+                self.activePreloadTaskIdentifier = 0
             }
             self.lock.unlock()
             if let error {
@@ -1363,6 +1367,7 @@ final class BaiduStreamSegmentCache {
         }
         lock.lock()
         activePreloadTask = task
+        activePreloadTaskIdentifier = taskIdentifier
         lock.unlock()
         task.resume()
     }
@@ -1379,6 +1384,7 @@ final class BaiduStreamSegmentCache {
         preloadPaused = true
         let task = activePreloadTask
         activePreloadTask = nil
+        activePreloadTaskIdentifier = 0
         activePreloads.removeAll()
         lock.unlock()
         task?.cancel()
