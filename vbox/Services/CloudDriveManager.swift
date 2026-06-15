@@ -765,6 +765,15 @@ class CloudDriveManager: ObservableObject {
         baiduCompatibilityHint(fileName: fileName).isEmpty ? "system" : "compatibility"
     }
 
+    private func baiduIsPlayableVideoFileName(_ fileName: String) -> Bool {
+        let lower = fileName.lowercased()
+        let videoExts = [
+            "mp4", "mkv", "mov", "m4v", "avi", "wmv", "flv", "ts", "m2ts", "mts",
+            "webm", "mpg", "mpeg", "3gp", "rm", "rmvb", "asf", "f4v", "m3u8"
+        ]
+        return videoExts.contains { lower.hasSuffix(".\($0)") }
+    }
+
     private func baiduStableHash(_ input: String) -> String {
         var hash: UInt64 = 1469598103934665603
         for byte in input.utf8 {
@@ -3110,11 +3119,24 @@ class CloudDriveManager: ObservableObject {
 
         let pwd = extractBaiduPwd(from: shareURL)
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
-        let selected = context.files.first { $0.fsId == fsId }
+        let matched = context.files.first { $0.fsId == fsId }
             ?? context.files.first { $0.fsId.trimmingCharacters(in: .whitespacesAndNewlines) == fsId.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let selected: BaiduFileItem?
+        if let matched, baiduIsPlayableVideoFileName(matched.name) {
+            selected = matched
+        } else if let matched {
+            let fallback = context.files.first { baiduIsPlayableVideoFileName($0.name) }
+            if let fallback {
+                baiduLog("[Baidu-iBoxRoute] ⚠️ fsId 命中非视频文件：\(matched.name)，自动切换到视频：\(fallback.name)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "跳过非视频", detail: "fsId 指向 \(matched.name)，已切换到 \(fallback.name)", fsId: fsId, fileName: matched.name)
+            }
+            selected = fallback
+        } else {
+            selected = context.files.first { baiduIsPlayableVideoFileName($0.name) }
+        }
         guard let selected else {
-            recordBaiduRouteDiagnostic(stage: "主路链", status: "文件未找到", detail: "分享列表未找到目标 fsId，pwd=\((pwd ?? "").isEmpty ? "无" : "有")", fsId: fsId, fileName: hintFileName)
-            throw DriveError.noPlayURL("主路链未找到目标文件")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "文件未找到", detail: "分享列表未找到可播放视频，pwd=\((pwd ?? "").isEmpty ? "无" : "有")", fsId: fsId, fileName: hintFileName)
+            throw DriveError.noPlayURL("主路链未找到可播放视频")
         }
 
         let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
@@ -3341,7 +3363,13 @@ class CloudDriveManager: ObservableObject {
             }
 
             func parsePlayableFiles(_ rawList: [[String: Any]]) -> [BaiduFileItem] {
-                parseFiles(rawList.filter { !isDirectory($0) })
+                let parsed = parseFiles(rawList.filter { !isDirectory($0) })
+                let videos = parsed.filter { baiduIsPlayableVideoFileName($0.name) }
+                let skipped = parsed.count - videos.count
+                if skipped > 0 {
+                    baiduLog("[Baidu-iBoxRoute] 已过滤非视频文件：\(skipped) 个（如 .nfo/.srt/.ass/.jpg）")
+                }
+                return videos
             }
 
             func parseJSONStringIfNeeded(_ value: Any) -> Any {
@@ -3380,7 +3408,7 @@ class CloudDriveManager: ObservableObject {
                 if let dict = normalized as? [String: Any] {
                     for key in ["list", "file_list", "records", "filelist", "result", "data", "info"] {
                         if let rawList = dict[key] as? [[String: Any]] {
-                            let parsed = parseFiles(rawList)
+                            let parsed = parsePlayableFiles(rawList)
                             if !parsed.isEmpty { return parsed }
                         }
                         if let nested = dict[key] {
@@ -3393,7 +3421,7 @@ class CloudDriveManager: ObservableObject {
                         if !found.isEmpty { return found }
                     }
                 } else if let rawList = normalized as? [[String: Any]] {
-                    let parsed = parseFiles(rawList)
+                    let parsed = parsePlayableFiles(rawList)
                     if !parsed.isEmpty { return parsed }
                 } else if let array = normalized as? [Any] {
                     for raw in array {
@@ -3493,7 +3521,7 @@ class CloudDriveManager: ObservableObject {
                     let raw = String(html[r])
                     if let data = raw.data(using: .utf8),
                        let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                        let parsed = parseFiles(arr)
+                        let parsed = parsePlayableFiles(arr)
                         if files.isEmpty, !parsed.isEmpty { files = parsed }
                         baiduLog("[Baidu-iBoxRoute] \(source) yunData.FILEINFO 解析：files=\(parsed.count)")
                     }
