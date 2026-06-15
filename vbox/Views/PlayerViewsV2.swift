@@ -343,8 +343,14 @@ class PlayerState: ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        // seek时暂停百度预加载，避免抢占播放器连接
+        DoubanImageProxyServer.shared.baiduStreamCache.pausePreload()
+
         if compatibilityURL != nil {
-            guard duration.isFinite, duration > 0 else { return }
+            guard duration.isFinite, duration > 0 else {
+                DoubanImageProxyServer.shared.baiduStreamCache.resumePreload()
+                return
+            }
             let target = max(0, min(seconds, duration))
             isSeeking = true
             seekPreviewTime = target
@@ -354,9 +360,16 @@ class PlayerState: ObservableObject {
             let notification: Notification.Name = compatibilityEngineName.contains("MPV") ? .vboxMPVSeek : .vboxVLCSeek
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["seconds": target])
             isSeeking = false
+            // seek完成后延迟恢复预加载，给播放器缓冲时间
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                DoubanImageProxyServer.shared.baiduStreamCache.resumePreload()
+            }
             return
         }
-        guard let player, duration.isFinite, duration > 0 else { return }
+        guard let player, duration.isFinite, duration > 0 else {
+            DoubanImageProxyServer.shared.baiduStreamCache.resumePreload()
+            return
+        }
         let target = max(0, min(seconds, duration))
         let cmTime = CMTime(seconds: target, preferredTimescale: 600)
         isSeeking = true
@@ -372,6 +385,10 @@ class PlayerState: ObservableObject {
                 self.isLoading = false
                 if finished, self.isPlaying {
                     self.player?.play()
+                }
+                // seek完成后延迟恢复预加载，给播放器缓冲时间
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    DoubanImageProxyServer.shared.baiduStreamCache.resumePreload()
                 }
             }
         }
@@ -655,6 +672,16 @@ class PlayerState: ObservableObject {
             bufferStatus = "🟢充足"
         }
         log("[预加载] 缓冲:\(String(format: "%.0f", aheadSeconds))秒\(bufferStatus) | 缓存:\(String(format: "%.1f", cachedMB))MB")
+
+        // 播放缓冲不足时暂停预加载，让出带宽给播放器
+        let cache = DoubanImageProxyServer.shared.baiduStreamCache
+        if aheadSeconds < 10 && !cache.isPreloadPaused() {
+            cache.pausePreload()
+            log("[预加载] ⏸️ 播放缓冲不足(\(String(format: "%.0f", aheadSeconds))秒)，暂停预加载让出带宽")
+        } else if aheadSeconds >= 30 && cache.isPreloadPaused() && !isSeeking {
+            cache.resumePreload()
+            log("[预加载] ▶️ 播放缓冲恢复(\(String(format: "%.0f", aheadSeconds))秒)，恢复预加载")
+        }
     }
 
     func reportBaiduCacheProgressIfNeeded(force: Bool = false) {
