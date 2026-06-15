@@ -2824,14 +2824,10 @@ class CloudDriveManager: ObservableObject {
 
         do {
             let shortSurl = baiduShortSurl(surl)
-            // iBox 用桌面 UA 抓 /s/1xxx HTML（含 yunData），手机 UA 会被重定向到 wap 简化页拿不到 yunData
+            // iBox 的密码分享顺序：先用 wap/init 预热 Cookie，再 share/verify 写 BDCLND，最后抓桌面 /s/1xxx 的 yunData。
             let webUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            // 入口页：和 iBox 一致直接访问桌面分享页 /s/1<shortSurl>?pwd=xxx
-            var initURLString = "https://pan.baidu.com/s/1\(shortSurl)"
-            if let pwd, !pwd.isEmpty {
-                initURLString += "?pwd=\(pwd)"
-            }
-            let initURL = initURLString
+            let initURL = "https://pan.baidu.com/wap/init?surl=\(shortSurl)"
+            let desktopShareURL = "https://pan.baidu.com/s/1\(shortSurl)"
             var iBoxCookie = cookie
             var shareid = ""
             var shareUk = ""
@@ -2979,7 +2975,57 @@ class CloudDriveManager: ObservableObject {
                 }
             }
 
-            baiduLog("[Baidu-iBoxRoute] ① GET 桌面分享页 \(initURL)")
+            func applyYunDataHTML(_ html: String, source: String, files: inout [BaiduFileItem]) {
+                let htmlShareid = firstHTMLValue(html, patterns: [
+                    #"yunData\.SHAREID\s*=\s*["']?(\d+)"#,
+                    #"["']?SHAREID["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"["']?shareid["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"["']?share_id["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"shareid=(\d+)"#,
+                    #"data-shareid="(\d+)""#
+                ])
+                let htmlShareUk = firstHTMLValue(html, patterns: [
+                    #"yunData\.SHARE_UK\s*=\s*["']?(\d+)"#,
+                    #"["']?SHARE_UK["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"["']?share_uk["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"["']?uk["']?\s*[:=]\s*["']?(\d+)"#,
+                    #"share_uk=(\d+)"#,
+                    #"data-uk="(\d+)""#
+                ])
+                let htmlBdstoken = firstHTMLValue(html, patterns: [
+                    #"yunData\.MYBDSTOKEN\s*=\s*["']([A-Za-z0-9_-]+)["']"#,
+                    #"["']?bdstoken["']?\s*[:=]\s*["']([A-Za-z0-9_-]+)["']"#,
+                    #"bdstoken=([A-Za-z0-9_-]+)"#
+                ])
+                let htmlSign = firstHTMLValue(html, patterns: [
+                    #"yunData\.SIGN\s*=\s*["']([^"']+)["']"#,
+                    #"["']?sign["']?\s*[:=]\s*["']([^"']+)["']"#
+                ])
+                let htmlTimestamp = firstHTMLValue(html, patterns: [
+                    #"yunData\.TIMESTAMP\s*=\s*["']?(\d+)"#,
+                    #"["']?timestamp["']?\s*[:=]\s*["']?(\d+)"#
+                ])
+                if shareid.isEmpty, !htmlShareid.isEmpty { shareid = htmlShareid }
+                if shareUk.isEmpty, !htmlShareUk.isEmpty { shareUk = htmlShareUk }
+                if bdstoken.isEmpty, !htmlBdstoken.isEmpty { bdstoken = htmlBdstoken }
+                if shareSign.isEmpty, !htmlSign.isEmpty { shareSign = htmlSign }
+                if shareTimestamp.isEmpty, !htmlTimestamp.isEmpty { shareTimestamp = htmlTimestamp }
+                baiduLog("[Baidu-iBoxRoute] \(source) yunData：shareid=\(!htmlShareid.isEmpty), uk=\(!htmlShareUk.isEmpty), bdstoken=\(!htmlBdstoken.isEmpty), sign=\(!htmlSign.isEmpty), html=\(html.count)字符")
+
+                if let fileInfoMatch = try? NSRegularExpression(pattern: #"yunData\.FILEINFO\s*=\s*(\[[\s\S]*?\]);"#).firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   fileInfoMatch.numberOfRanges > 1,
+                   let r = Range(fileInfoMatch.range(at: 1), in: html) {
+                    let raw = String(html[r])
+                    if let data = raw.data(using: .utf8),
+                       let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                        let parsed = parseFiles(arr)
+                        if files.isEmpty, !parsed.isEmpty { files = parsed }
+                        baiduLog("[Baidu-iBoxRoute] \(source) yunData.FILEINFO 解析：files=\(parsed.count)")
+                    }
+                }
+            }
+
+            baiduLog("[Baidu-iBoxRoute] ① GET /wap/init?surl=\(shortSurl)")
             guard let initURLObject = URL(string: initURL) else { throw DriveError.invalidShareURL }
             var initRequest = URLRequest(url: initURLObject)
             initRequest.timeoutInterval = 18
@@ -2994,50 +3040,8 @@ class CloudDriveManager: ObservableObject {
                 iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
             }
             let initHTML = String(data: initData, encoding: .utf8) ?? String(data: initData, encoding: .ascii) ?? ""
-            // iBox 真正的"模板变量"来源：桌面分享页 HTML 内嵌 yunData（含 SHAREID / SHARE_UK / FILEINFO / SIGN / TIMESTAMP）
-            shareid = firstHTMLValue(initHTML, patterns: [
-                #"yunData\.SHAREID\s*=\s*["']?(\d+)"#,
-                #"["']?SHAREID["']?\s*[:=]\s*["']?(\d+)"#,
-                #"["']?shareid["']?\s*[:=]\s*["']?(\d+)"#,
-                #"["']?share_id["']?\s*[:=]\s*["']?(\d+)"#,
-                #"shareid=(\d+)"#,
-                #"data-shareid="(\d+)""#
-            ])
-            shareUk = firstHTMLValue(initHTML, patterns: [
-                #"yunData\.SHARE_UK\s*=\s*["']?(\d+)"#,
-                #"["']?SHARE_UK["']?\s*[:=]\s*["']?(\d+)"#,
-                #"["']?share_uk["']?\s*[:=]\s*["']?(\d+)"#,
-                #"["']?uk["']?\s*[:=]\s*["']?(\d+)"#,
-                #"share_uk=(\d+)"#,
-                #"data-uk="(\d+)""#
-            ])
-            bdstoken = firstHTMLValue(initHTML, patterns: [
-                #"yunData\.MYBDSTOKEN\s*=\s*["']([A-Za-z0-9_-]+)["']"#,
-                #"["']?bdstoken["']?\s*[:=]\s*["']([A-Za-z0-9_-]+)["']"#,
-                #"bdstoken=([A-Za-z0-9_-]+)"#
-            ])
-            shareSign = firstHTMLValue(initHTML, patterns: [
-                #"yunData\.SIGN\s*=\s*["']([^"']+)["']"#,
-                #"["']?sign["']?\s*[:=]\s*["']([^"']+)["']"#
-            ])
-            shareTimestamp = firstHTMLValue(initHTML, patterns: [
-                #"yunData\.TIMESTAMP\s*=\s*["']?(\d+)"#,
-                #"["']?timestamp["']?\s*[:=]\s*["']?(\d+)"#
-            ])
-            baiduLog("[Baidu-iBoxRoute] yunData：shareid=\(!shareid.isEmpty), uk=\(!shareUk.isEmpty), bdstoken=\(!bdstoken.isEmpty), sign=\(!shareSign.isEmpty), html=\(initHTML.count)字符")
             var files: [BaiduFileItem] = []
-            // 先从 yunData.FILEINFO 直接拿文件列表（iBox 也是这么做的）
-            if let fileInfoMatch = try? NSRegularExpression(pattern: #"yunData\.FILEINFO\s*=\s*(\[[\s\S]*?\]);"#).firstMatch(in: initHTML, range: NSRange(initHTML.startIndex..., in: initHTML)),
-               fileInfoMatch.numberOfRanges > 1,
-               let r = Range(fileInfoMatch.range(at: 1), in: initHTML) {
-                let raw = String(initHTML[r])
-                if let data = raw.data(using: .utf8),
-                   let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                    let parsed = parseFiles(arr)
-                    if !parsed.isEmpty { files = parsed }
-                    baiduLog("[Baidu-iBoxRoute] yunData.FILEINFO 解析：files=\(parsed.count)")
-                }
-            }
+            applyYunDataHTML(initHTML, source: "wap/init", files: &files)
             // 备用：调 gettemplatevariable 拿 bdstoken/uk（不依赖它拿 shareid，因为这个接口只返回登录用户自身字段）
             if let templateJSON = await fetchTemplateVariables(source: "init后") {
                 applyTemplateVariables(templateJSON, source: "init后", files: &files)
@@ -3082,6 +3086,28 @@ class CloudDriveManager: ObservableObject {
                 }
                 if let templateJSON = await fetchTemplateVariables(source: "verify后") {
                     applyTemplateVariables(templateJSON, source: "verify后", files: &files)
+                }
+            }
+
+            // 密码分享必须在 verify 写入 BDCLND/randsk 后再抓桌面页，否则 /s/1xxx 会在验证页之间循环重定向。
+            baiduLog("[Baidu-iBoxRoute] ②.5 GET 桌面分享页 \(desktopShareURL)")
+            if let desktopURLObject = URL(string: desktopShareURL) {
+                do {
+                    var desktopRequest = URLRequest(url: desktopURLObject)
+                    desktopRequest.timeoutInterval = 18
+                    desktopRequest.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
+                    desktopRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
+                    desktopRequest.setValue(initURL, forHTTPHeaderField: "Referer")
+                    desktopRequest.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+                    desktopRequest.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+                    let (desktopData, desktopResponse) = try await session.data(for: desktopRequest)
+                    if let sc = (desktopResponse as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
+                        iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
+                    }
+                    let desktopHTML = String(data: desktopData, encoding: .utf8) ?? String(data: desktopData, encoding: .ascii) ?? ""
+                    applyYunDataHTML(desktopHTML, source: "桌面页", files: &files)
+                } catch {
+                    baiduLog("[Baidu-iBoxRoute] 桌面分享页失败，继续走 share/list 兜底：\(error.localizedDescription)")
                 }
             }
 
