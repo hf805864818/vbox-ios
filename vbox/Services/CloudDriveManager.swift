@@ -272,17 +272,22 @@ class CloudDriveManager: ObservableObject {
         baiduSavePersistedFileListCache(cache)
     }
 
-    private func baiduCachedShareContext(for key: String) -> BaiduShareContext? {
+    private func baiduCachedShareContext(for key: String, currentPwd: String?) -> BaiduShareContext? {
         var cache = baiduLoadPersistedShareContextCache()
         guard let context = cache[key] else { return nil }
-        let passwordShareNeedsRandsk = !(context.pwd ?? "").isEmpty
+        // 缓存版本必须按当前分享链接校验，不能只看旧缓存里的 pwd。
+        // 老版本缓存可能没有 randsk/bdstoken，但仍会被命中，导致直接跳过 iBox verify，
+        // 最终 share/transfer 缺 sekey 或 api/create 缺 bdstoken，返回 errno=2/-6。
+        let currentShareNeedsRandsk = !(currentPwd ?? "").isEmpty
         if context.expiresAt > Date(),
            !context.shareid.isEmpty,
            !context.shareUk.isEmpty,
            !context.files.isEmpty,
-           (!passwordShareNeedsRandsk || !(context.randsk ?? "").isEmpty) {
+           !(context.bdstoken ?? "").isEmpty,
+           (!currentShareNeedsRandsk || !(context.randsk ?? "").isEmpty) {
             return context
         }
+        baiduLog("[Baidu-ShareContext] ⚠️ 丢弃不完整分享上下文缓存：bdstoken=\(!((context.bdstoken ?? "").isEmpty)), randsk=\(!((context.randsk ?? "").isEmpty)), currentPwd=\(currentShareNeedsRandsk)")
         cache.removeValue(forKey: key)
         baiduSavePersistedShareContextCache(cache)
         return nil
@@ -2279,8 +2284,10 @@ class CloudDriveManager: ObservableObject {
             request.setValue(referer, forHTTPHeaderField: "Referer")
             request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
             request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            // 严格对齐 iBox 抓包：必须带 size=0、method=post，block_list 的 [] 也要 URL 编码
             let encodedPath = folder.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? folder
-            request.httpBody = "path=\(encodedPath)&isdir=1&block_list=[]".data(using: .utf8)
+            let encodedBlockList = "[]".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "%5B%5D"
+            request.httpBody = "path=\(encodedPath)&size=0&isdir=1&block_list=\(encodedBlockList)&method=post".data(using: .utf8)
 
             let (data, _) = try await session.data(for: request)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -2370,11 +2377,10 @@ class CloudDriveManager: ObservableObject {
         referer: String
     ) async throws -> String {
         var components = URLComponents(string: "https://pan.baidu.com/share/transfer")!
+        // 严格对齐 iBox 抓包：query 只保留 iBox 实际带的字段，不要带 ondup/async（那两个属于 body）
         var queryItems = [
             URLQueryItem(name: "shareid", value: shareid),
             URLQueryItem(name: "from", value: shareUk),
-            URLQueryItem(name: "ondup", value: "newcopy"),
-            URLQueryItem(name: "async", value: "1"),
             URLQueryItem(name: "channel", value: "chunlei"),
             URLQueryItem(name: "web", value: "1"),
             URLQueryItem(name: "app_id", value: "250528"),
@@ -2396,7 +2402,9 @@ class CloudDriveManager: ObservableObject {
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let transferPath = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
-        request.httpBody = "fsidlist=[\(fsId)]&path=\(transferPath)".data(using: .utf8)
+        // 严格对齐 iBox 抓包：fsidlist 必须 URL 编码（[ ] 不能裸发，否则 errno=2），并补 async/ondup
+        let encodedFsidList = "[\(fsId)]".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "%5B\(fsId)%5D"
+        request.httpBody = "fsidlist=\(encodedFsidList)&path=\(transferPath)&async=1&ondup=newcopy".data(using: .utf8)
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -2845,7 +2853,7 @@ class CloudDriveManager: ObservableObject {
 
         let contextKey = baiduShareContextKey(shareURL: shareURL, cookie: cookie)
         let verifyCooldownKey = "\(contextKey)|\(surl)|\(pwd ?? "")"
-        if let cached = baiduCachedShareContext(for: contextKey) {
+        if let cached = baiduCachedShareContext(for: contextKey, currentPwd: pwd) {
             baiduLog("[Baidu-ShareContext] ✅ 命中分享上下文缓存：source=\(cached.source), files=\(cached.files.count)")
             recordBaiduRouteDiagnostic(stage: "分享上下文", status: "缓存命中", detail: "命中 ShareContext：source=\(cached.source), files=\(cached.files.count)")
             return (cached.shareid, cached.shareUk, cached.bdstoken ?? "", cached.surl, cached.cookie, cached.files, cached.randsk ?? "")
