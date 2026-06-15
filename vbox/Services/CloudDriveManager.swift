@@ -2262,6 +2262,55 @@ class CloudDriveManager: ObservableObject {
         return refreshed
     }
 
+    /// 严格对齐 iBox：创建目录 / 转存 / 列目录这些「用户态私域接口」
+    /// 必须使用登录态 bdstoken，不能复用分享页 yunData 里的 bdstoken；
+    /// 否则百度会判定为越权，统一返回 errno=-6 path:""。
+    private func baiduFetchUserBdstokenLocal(cookie: String) async -> String? {
+        var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
+        components.queryItems = [
+            URLQueryItem(name: "clienttype", value: "0"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "fields", value: "[\"bdstoken\",\"token\",\"uk\",\"isdocuser\",\"servertime\"]")
+        ]
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com/disk/home", forHTTPHeaderField: "Referer")
+        if let (data, _) = try? await session.data(for: request),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let result = json["result"] as? [String: Any],
+           let token = result["bdstoken"] as? String,
+           !token.isEmpty {
+            baiduLog("[Baidu-Local] ✅ 取得登录态 bdstoken：\(token.prefix(6))…")
+            return token
+        }
+        // 回退：直接抓 disk/home 页面里的 bdstoken
+        var pageRequest = URLRequest(url: URL(string: "https://pan.baidu.com/disk/home")!)
+        pageRequest.timeoutInterval = 12
+        pageRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
+        pageRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        if let (data, _) = try? await session.data(for: pageRequest),
+           let html = String(data: data, encoding: .utf8) {
+            for pattern in ["\"bdstoken\":\"([0-9a-fA-F]+)\"", "bdstoken=\"([0-9a-fA-F]+)\""] {
+                if let regex = try? NSRegularExpression(pattern: pattern),
+                   let m = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   m.numberOfRanges >= 2,
+                   let r = Range(m.range(at: 1), in: html) {
+                    let token = String(html[r])
+                    if !token.isEmpty {
+                        baiduLog("[Baidu-Local] ✅ 从 disk/home 抓到 bdstoken：\(token.prefix(6))…")
+                        return token
+                    }
+                }
+            }
+        }
+        baiduLog("[Baidu-Local] ⚠️ 未能抓到登录态 bdstoken，回退使用分享页 bdstoken")
+        return nil
+    }
+
     private func baiduEnsureVboxFolderLocal(cookie: String, bdstoken: String, referer: String) async throws {
         let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
         if try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA) {
@@ -2822,7 +2871,9 @@ class CloudDriveManager: ObservableObject {
         }
 
         do {
-            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie, bdstoken: context.bdstoken, referer: shareURL)
+            // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
+            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: mergedCookie) ?? context.bdstoken
+            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie, bdstoken: userBdstoken, referer: shareURL)
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
             let filePath: String
             let sourcePrefix: String
@@ -2835,7 +2886,7 @@ class CloudDriveManager: ObservableObject {
                 filePath = try await baiduTransferFileOnDevice(
                     shareid: context.shareid,
                     shareUk: context.shareUk,
-                    bdstoken: context.bdstoken,
+                    bdstoken: userBdstoken,
                     randsk: context.randsk,
                     fsId: selected.fsId,
                     fileName: selected.name,

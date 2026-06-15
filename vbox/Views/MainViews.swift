@@ -716,24 +716,33 @@ struct SearchView: View {
                 .padding(.top, 8)
             
             ZStack {
-                if isSearching {
-                    // 搜索状态
-                    if !isSearchLoading && !searchResults.isEmpty {
-                        SearchResultsView(results: searchResults)
-                    } else if isSearchLoading {
-                        VStack(spacing: 20) {
-                            ProgressView().scaleEffect(1.5).padding(.top, 80)
-                            Text("搜索中...").font(.system(size: 14)).foregroundColor(.gray)
-                        }
-                    } else if !isSearchLoading && searchResults.isEmpty {
-                        VStack(spacing: 20) {
-                            Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
-                            Text("未找到结果").font(.system(size: 16)).foregroundColor(.gray)
-                        }
+                if isSearching && !isSearchLoading && !searchResults.isEmpty {
+                    // 已有搜索结果：展示结果页
+                    SearchResultsView(results: searchResults)
+                } else if isSearching && !isSearchLoading && searchResults.isEmpty {
+                    // 已结束搜索但无结果：展示空态
+                    VStack(spacing: 20) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
+                        Text("未找到结果").font(.system(size: 16)).foregroundColor(.gray)
                     }
                 } else {
-                    // 默认内容
-                    defaultContentView
+                    // 默认/搜索中：保持默认内容（搜索历史 + 豆瓣榜单），顶部以小条提示「搜索中」
+                    ZStack(alignment: .top) {
+                        defaultContentView
+                        if isSearching && isSearchLoading {
+                            HStack(spacing: 8) {
+                                ProgressView().scaleEffect(0.8)
+                                Text("搜索中...").font(.system(size: 13)).foregroundColor(.gray)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color(uiColor: .systemBackground).opacity(0.95))
+                            .clipShape(Capsule())
+                            .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+                            .padding(.top, 6)
+                            .transition(.opacity)
+                        }
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
