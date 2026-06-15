@@ -2629,6 +2629,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduTransferFileOnDevice(
+        shareURL: String,
         shareid: String,
         shareUk: String,
         bdstoken: String,
@@ -2639,9 +2640,13 @@ class CloudDriveManager: ObservableObject {
         accountCookie: String,
         referer: String
     ) async throws -> String {
+        var transferCookie = cookie
+        if let refreshed = await baiduRefreshTransferSekey(shareURL: shareURL, accountCookie: accountCookie, existingCookie: cookie) {
+            transferCookie = refreshed
+        }
         // 严格对齐 iBox 抓包：share/transfer 的 sekey 优先使用 Cookie 里的 BDCLND 原始值。
         // BDCLND 通常已经是百分号编码形态，不能再交给 URLQueryItem 二次编码，否则百度会认为分享信息不完整。
-        let rawSekey = baiduCookieValue(cookie, named: "BDCLND") ?? randsk ?? ""
+        let rawSekey = baiduCookieValue(transferCookie, named: "BDCLND") ?? randsk ?? ""
         var query = [
             "shareid=\(baiduQueryEncoded(shareid))",
             "from=\(baiduQueryEncoded(shareUk))",
@@ -2662,7 +2667,7 @@ class CloudDriveManager: ObservableObject {
         var request = URLRequest(url: transferURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 25
-        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(transferCookie, forHTTPHeaderField: "Cookie")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
@@ -2683,7 +2688,7 @@ class CloudDriveManager: ObservableObject {
         let errno = json["errno"] as? Int ?? -1
         if errno != 0 {
             let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
-            baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg)")
+            baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg), hasBDCLND=\(transferCookie.lowercased().contains("bdclnd=")), hasBDUSS=\(transferCookie.lowercased().contains("bduss=")), hasSTOKEN=\(transferCookie.lowercased().contains("stoken="))")
             throw DriveError.noPlayURL("百度本机转存失败：\(msg)")
         }
 
@@ -2704,6 +2709,59 @@ class CloudDriveManager: ObservableObject {
 
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
         return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
+    }
+
+    /// share/list 可以使用匿名分享态验证，但 share/transfer 属于账号转存动作。
+    /// 百度会校验 BDCLND/sekey 是否绑定到当前账号会话；否则可能返回 errno=200025。
+    private func baiduRefreshTransferSekey(shareURL: String, accountCookie: String, existingCookie: String) async -> String? {
+        guard let pwd = extractBaiduPwd(from: shareURL), !pwd.isEmpty,
+              let surl = try? baiduExtractSurl(from: shareURL) else {
+            return nil
+        }
+        let shortSurl = baiduShortSurl(surl)
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
+        let encodedPwd = pwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? pwd
+        let verifyURL = "https://pan.baidu.com/share/verify?t=\(Int(Date().timeIntervalSince1970 * 1000))&surl=\(shortSurl)&channel=chunlei&web=1&app_id=250528&bdstoken=&clienttype=0"
+        guard let url = URL(string: verifyURL) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 18
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue(accountCookie, forHTTPHeaderField: "Cookie")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.baidu.com/s/1\(shortSurl)", forHTTPHeaderField: "Referer")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
+        request.httpBody = "pwd=\(encodedPwd)&vcode=&vcode_str=&channel=chunlei&web=1&app_id=250528&clienttype=0&bdstoken=".data(using: .utf8)
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let preview = String(data: data.prefix(160), encoding: .utf8) ?? ""
+                baiduLog("[Baidu-Local] ⚠️ 账号态 verify 返回非 JSON：\(preview)")
+                return nil
+            }
+            let errno = json["errno"] as? Int ?? -1
+            guard errno == 0 else {
+                let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
+                baiduLog("[Baidu-Local] ⚠️ 账号态 verify 失败：\(msg)")
+                return nil
+            }
+            var merged = baiduMergeCookieStrings([existingCookie, accountCookie])
+            if let sc = (response as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
+                merged = baiduMergeCookieStrings([merged, sc])
+            }
+            if let rawRandsk = json["randsk"] as? String, !rawRandsk.isEmpty {
+                let decodedRandsk = rawRandsk.removingPercentEncoding ?? rawRandsk
+                merged = baiduMergeCookieStrings([merged, "BDCLND=\(rawRandsk); randsk=\(decodedRandsk)"])
+                baiduLog("[Baidu-Local] ✅ 账号态 verify 成功，刷新 share/transfer sekey")
+            }
+            return merged
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ 账号态 verify 异常：\(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func baiduQueryEncoded(_ value: String) -> String {
@@ -2732,6 +2790,8 @@ class CloudDriveManager: ObservableObject {
             return "成功"
         case -9:
             return "提取码错误"
+        case 200025:
+            return "分享验证态未绑定当前账号，请重新验证后转存"
         case -8:
             return "目标目录或文件已存在"
         case -7, -10:
@@ -3051,6 +3111,7 @@ class CloudDriveManager: ObservableObject {
                 recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "path命中", detail: "命中 \(Self.baiduIBoxTransferDir) 已转存文件：\(filePath)", fsId: fsId, fileName: selected.name)
             } else {
                 filePath = try await baiduTransferFileOnDevice(
+                    shareURL: shareURL,
                     shareid: context.shareid,
                     shareUk: context.shareUk,
                     bdstoken: userBdstoken,
