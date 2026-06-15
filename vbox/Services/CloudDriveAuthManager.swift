@@ -394,9 +394,10 @@ final class CloudDriveAuthManager: ObservableObject {
         let (_, response) = try await oneShot.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AuthError.invalidResponse("百度登录无响应") }
         let responseCookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.baidu.com")!)
-        let cookie = mergeCookieStrings([cookieCollector.cookieString(), responseCookie])
+        let initialCookie = mergeCookieStrings([cookieCollector.cookieString(), responseCookie])
+        let cookie = await baiduEnrichAccountCookie(initialCookie)
         guard isBaiduAccountCookie(cookie) else {
-            throw AuthError.invalidResponse("百度扫码未返回 BDUSS")
+            throw AuthError.invalidResponse("百度扫码未返回完整 BDUSS/STOKEN")
         }
         let vars = try? await baiduFetchTemplateVariables(cookie: cookie)
         var credential = CloudDriveCredential(
@@ -418,106 +419,53 @@ final class CloudDriveAuthManager: ObservableObject {
         )
         saveCredential(credential)
 
-        if let pcsCookie = await baiduFetchPCSCookie(webCookie: cookie),
-           CloudDriveManager.shared.addOrReplaceBaiduPCSToken(name: "百度PCS-扫码登录", value: pcsCookie) {
-            credential.statusMessage = "百度扫码登录成功，PCS Cookie 已获取"
-            credential.extra["pcs_cookie_status"] = "captured"
-            credential.extra["pcs_cookie_fields"] = baiduCookieNames(in: pcsCookie).joined(separator: ",")
-            saveCredential(credential, syncLegacyToken: false)
-        } else {
-            credential.statusMessage = "百度扫码登录成功，未捕获 PCS Cookie"
-            credential.extra["pcs_cookie_status"] = "missing"
-            saveCredential(credential, syncLegacyToken: false)
-        }
+        credential.statusMessage = "百度扫码登录成功，已保存 BDUSS/STOKEN"
+        credential.extra["cookie_mode"] = "BDUSS_STOKEN"
+        saveCredential(credential, syncLegacyToken: false)
         CloudDriveManager.shared.cleanupInvalidBaiduTokens()
     }
 
-    private func baiduFetchPCSCookie(webCookie: String) async -> String? {
-        let normalizedWebCookie = mergeCookieStrings([webCookie])
-        guard isBaiduAccountCookie(normalizedWebCookie) else { return nil }
+    private func baiduEnrichAccountCookie(_ cookie: String) async -> String {
+        let normalizedCookie = mergeCookieStrings([cookie])
+        guard !normalizedCookie.isEmpty else { return normalizedCookie }
 
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 20
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 18
         config.httpCookieAcceptPolicy = .always
         config.httpShouldSetCookies = true
         let storage = config.httpCookieStorage ?? HTTPCookieStorage.shared
         config.httpCookieStorage = storage
-        seedBaiduCookies(normalizedWebCookie, into: storage)
+        seedBaiduCookies(normalizedCookie, into: storage)
 
-        let pcsSession = URLSession(configuration: config)
-        defer { pcsSession.finishTasksAndInvalidate() }
+        let oneShot = URLSession(configuration: config)
+        defer { oneShot.finishTasksAndInvalidate() }
 
-        var collectedCookie = normalizedWebCookie
-        
-        // 百度 API 端点列表，并发请求加速
-        let pcsEndpoints: [(url: String, userAgent: String, referer: String?, body: String?)] = [
-            ("https://pan.baidu.com/disk/main", baiduUserAgent, "https://pan.baidu.com/", nil),
-            ("https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&fields=[%22username%22,%22uk%22,%22bdstoken%22]", baiduUserAgent, "https://pan.baidu.com/disk/main", nil),
-            ("https://pan.baidu.com/api/mediainfo?path=/&type=M3U8_FLV_264_480&clienttype=80&origin=dlna", baiduPCSUserAgent, "https://pan.baidu.com/", nil),
-            ("https://pan.baidu.com/api/mediainfo?path=/&type=M3U8_FLV_265_480&clienttype=80&origin=dlna", baiduPCSUserAgent, nil, nil),
-            ("https://d.pcs.baidu.com/rest/2.0/pcs/file?method=locatedownload&check_blue=1&time=\(Int(Date().timeIntervalSince1970))", baiduPCSUserAgent, nil, nil),
-            ("https://pan.baidu.com/rest/2.0/xpan/file?method=videoprelist&path=/&start=0&limit=5&clienttype=0&app_id=250528&bdstoken=&web=1", baiduUserAgent, "https://pan.baidu.com/disc/detail/?path=/", nil),
-            ("https://f.pcs.baidu.com/rest/2.0/pcs/file?method=download&check_blue=1&path=/", baiduPCSUserAgent, "https://pan.baidu.com/", nil),
-            ("https://d.pcs.baidu.com/rest/2.0/pcs/file?method=locatedownload&check_blue=1&path=/&extra_info={&is_video%22:true}&app_id=250528&clienttype=17", baiduPCSUserAgent, "https://pan.baidu.com/", nil),
-            ("https://d.pcs.baidu.com/rest/2.0/pcs/file?method=locatefile&check_blue=1&path=/&clienttype=0&app_id=250528", baiduPCSUserAgent, "https://pan.baidu.com/", nil)
+        var collected = normalizedCookie
+        let endpoints = [
+            "https://pan.baidu.com/disk/main",
+            "https://pan.baidu.com/api/gettemplatevariable?clienttype=0&app_id=250528&web=1&fields=[%22bdstoken%22,%22uk%22,%22username%22]"
         ]
-        
-        // 并发请求端点，加速 Cookie 获取
-        let requestCookie = collectedCookie
-        let capturedCookie = await withTaskGroup(of: (String, URLResponse?, Data?).self, returning: String?.self) { group in
-            for (urlString, ua, referer, body) in pcsEndpoints {
-                group.addTask {
-                    guard let url = URL(string: urlString) else { return (urlString, nil, nil) }
-                    var request = URLRequest(url: url)
-                    request.setValue(requestCookie, forHTTPHeaderField: "Cookie")
-                    request.setValue(ua, forHTTPHeaderField: "User-Agent")
-                    request.setValue("*/*", forHTTPHeaderField: "Accept")
-                    if let ref = referer {
-                        request.setValue(ref, forHTTPHeaderField: "Referer")
-                        request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-                    }
-                    if let bodyData = body {
-                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                        request.httpBody = bodyData.data(using: .utf8)
-                    }
-                    do {
-                        let (data, response) = try await pcsSession.data(for: request)
-                        return (urlString, response, data)
-                    } catch {
-                        return (urlString, nil, nil)
-                    }
+
+        for urlString in endpoints {
+            guard let url = URL(string: urlString) else { continue }
+            var request = URLRequest(url: url)
+            request.setValue(collected, forHTTPHeaderField: "Cookie")
+            request.setValue(baiduUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+            do {
+                let (_, response) = try await oneShot.data(for: request)
+                if let http = response as? HTTPURLResponse {
+                    let responseCookie = collectCookies(from: http, storage: storage, url: url)
+                    let storageCookie = CloudDriveAuthManager.cookieString(from: storage.cookies ?? [])
+                    collected = mergeCookieStrings([collected, responseCookie, storageCookie])
                 }
+            } catch {
+                continue
             }
-            
-            for await (urlString, response, data) in group {
-                guard data != nil, let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                    print("[Baidu-PCS] ⚠️ \(urlString) 未返回有效数据")
-                    continue
-                }
-                
-                guard let url = URL(string: urlString) else { continue }
-                let responseCookie = collectCookies(from: http, storage: storage, url: url)
-                let storageCookie = CloudDriveAuthManager.cookieString(from: storage.cookies ?? [])
-                collectedCookie = mergeCookieStrings([collectedCookie, responseCookie, storageCookie])
-                
-                if let pcsCookie = extractBaiduPCSCookie(from: collectedCookie) {
-                    print("[Baidu-PCS] ✅ \(urlString) 成功捕获 PCS Cookie 字段：\(baiduCookieNames(in: pcsCookie).joined(separator: ","))")
-                    group.cancelAll()
-                    return pcsCookie
-                }
-                
-                print("[Baidu-PCS] 🔄 \(urlString) 收集到 \(baiduCookieNames(in: collectedCookie).count) 个 cookie，继续...")
-            }
-            return nil
-        }
-        if let capturedCookie {
-            return capturedCookie
         }
 
-        print("[Baidu-PCS] ❌ 未捕获 PCS Cookie")
-        print("[Baidu-PCS] 💡 建议：在浏览器中打开 pan.baidu.com 并下载任意文件，然后复制完整 Cookie")
-        return nil
+        return collected
     }
     
     private func baiduIsVerifyCoolingDown(_ key: String) -> Bool {
@@ -699,7 +647,7 @@ final class CloudDriveAuthManager: ObservableObject {
     func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) -> Bool {
         if type == .baidu, !isBaiduAccountCookie(cookie) {
             var credential = credentials[type.rawValue]
-            credential?.statusMessage = "已捕获百度分享验证 Cookie，未覆盖账号 Cookie"
+            credential?.statusMessage = "已捕获百度 Cookie，但未包含完整 BDUSS/STOKEN，未覆盖账号 Cookie"
             credential?.lastCheckedAt = Date()
             credential?.updatedAt = Date()
             if let credential {
@@ -755,7 +703,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func isBaiduAccountCookie(_ value: String) -> Bool {
         let lower = value.lowercased()
-        return lower.contains("bduss=") || lower.contains("stoken=")
+        return lower.contains("bduss=") && lower.contains("stoken=")
     }
 
     private var ucUserAgent: String {

@@ -1112,10 +1112,10 @@ struct CloudAuthCenterView: View {
 
             VStack(spacing: 8) {
                 authStatusRow(title: "基础登录 Web Cookie", status: webStatus.text, isReady: webStatus.ready)
-                authStatusRow(title: "高速播放 PCS Cookie", status: pcsStatus.text, isReady: pcsStatus.ready)
+                authStatusRow(title: "可选 PCS Cookie", status: pcsStatus.text, isReady: pcsStatus.ready)
             }
 
-            Text("内部仍分开保存 Web Cookie 和 PCS Cookie；用户侧只显示为一个百度账号。Web Cookie 负责分享/转存/mediainfo，PCS Cookie 负责高速直链和拉流。")
+            Text("百度主账号态按 iBox 路线使用 BDUSS+STOKEN；BDCLND 会在分享验证后动态追加。PCS Cookie 仅作为可选附加缓存，不作为主登录态。")
                 .font(.system(size: 12))
                 .foregroundColor(.gray)
 
@@ -1433,18 +1433,19 @@ struct CloudAuthCenterView: View {
 
     private func baiduWebStatus(_ cookie: String) -> (text: String, ready: Bool) {
         let lower = cookie.lowercased()
-        let ready = lower.contains("bduss=") || !cookie.isEmpty
+        let hasBDUSS = lower.contains("bduss=")
         let hasSToken = lower.contains("stoken=")
-        if ready && hasSToken { return ("BDUSS/STOKEN 已获取", true) }
-        if ready { return ("BDUSS 已获取", true) }
-        return ("缺少 Web Cookie", false)
+        if hasBDUSS && hasSToken { return ("BDUSS/STOKEN 已获取", true) }
+        if hasBDUSS { return ("缺少 STOKEN", false) }
+        if hasSToken { return ("缺少 BDUSS", false) }
+        return ("缺少 BDUSS/STOKEN", false)
     }
 
     private func baiduPCSStatus(_ cookie: String) -> (text: String, ready: Bool) {
         let lower = cookie.lowercased()
         let ready = lower.contains("panpsc=") || lower.contains("ptoken") || lower.contains("ndut_fmt=") || lower.contains("nd_ftid=")
-        if ready { return ("PCS Cookie 已获取", true) }
-        return ("缺少高速播放 Cookie", false)
+        if ready { return ("可选 PCS Cookie 已获取", true) }
+        return ("未配置，可忽略", false)
     }
 
     private func iconForDriveType(_ type: CloudDriveManager.DriveType) -> String {
@@ -2249,8 +2250,8 @@ struct BaiduTestView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 InfoRow(icon: "link", text: "粘贴百度网盘分享链接（必须带提取码）")
-                InfoRow(icon: "key", text: "建议保存两条：Web Cookie 负责转存，名称含 PCS/下载 的 Cookie 负责取直链")
-                InfoRow(icon: "tag", text: "PCS Cookie 的 Token 名称请包含“PCS”或“下载”，App 会自动识别")
+                InfoRow(icon: "key", text: "主账号 Cookie 需要同时包含 BDUSS 和 STOKEN，和 iBox 路线一致")
+                InfoRow(icon: "tag", text: "PCS Cookie 仅作为可选附加缓存；iBox-style 主路链不依赖它")
                 InfoRow(icon: "play.circle", text: "点击测试后会直接跳转到播放页面")
             }
             .padding(12)
@@ -2265,7 +2266,7 @@ struct BaiduTestView: View {
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
             
-            TextField("完整 Cookie / BDUSS|STOKEN", text: $bduss)
+            TextField("完整 Cookie / BDUSS+STOKEN", text: $bduss)
                 .font(.system(size: 13))
                 .padding(12)
                 .background(Color(uiColor: .systemBackground))
@@ -3213,7 +3214,7 @@ struct NativeCloudQRLoginView: View {
                     try await CloudDriveAuthManager.shared.baiduExchangeQrLogin(token: token, bdussURL: bdussURL)
                     isPolling = false
                     statusText = "百度扫码登录成功"
-                    detailText = "BDUSS/STOKEN 已保存；已自动尝试捕获并保存 PCS 高速 Cookie。"
+                    detailText = "BDUSS/STOKEN 已保存；PCS Cookie 已作为可选附加缓存尝试捕获。"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
                     return
                 case .expired:
