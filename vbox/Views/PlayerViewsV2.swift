@@ -179,6 +179,7 @@ class PlayerState: ObservableObject {
     @Published var enginePreference: PlaybackEnginePreference = .auto
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
+    @Published var baiduCachedTimeRanges: [(start: Double, end: Double)] = []
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
     private var currentVideo: VodItem?
@@ -196,6 +197,10 @@ class PlayerState: ObservableObject {
     private var quarkFallbackAttempted = false
     private var quarkFallbackTimeoutTask: Task<Void, Never>?
     private var m3u8ProbeCache: [String: M3U8ProbeCacheEntry] = [:]
+    private var currentBaiduLocalProxyURL: URL?
+    private var currentBaiduStreamId: String?
+    private var baiduCacheObserver: NSObjectProtocol?
+    private var lastBaiduProgressReportAt: Date = .distantPast
 
     private enum M3U8PlaylistKind: String {
         case fmp4 = "hls-fmp4"
@@ -597,6 +602,56 @@ class PlayerState: ObservableObject {
         }
     }
 
+    private func bindBaiduCacheProgress(for localURL: URL?) {
+        currentBaiduLocalProxyURL = localURL
+        baiduCachedTimeRanges = []
+        currentBaiduStreamId = URLComponents(url: localURL ?? URL(fileURLWithPath: ""), resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "id" })?
+            .value
+        if baiduCacheObserver == nil {
+            baiduCacheObserver = NotificationCenter.default.addObserver(
+                forName: .vboxBaiduStreamCacheProgress,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleBaiduCacheProgress(notification)
+            }
+        }
+    }
+
+    private func handleBaiduCacheProgress(_ notification: Notification) {
+        guard let id = notification.userInfo?["id"] as? String,
+              id == currentBaiduStreamId,
+              duration.isFinite,
+              duration > 0,
+              let totalBytes = notification.userInfo?["totalBytes"] as? Int64,
+              totalBytes > 0,
+              let ranges = notification.userInfo?["ranges"] as? [[String: Int64]]
+        else { return }
+
+        let total = Double(totalBytes)
+        baiduCachedTimeRanges = ranges.compactMap { item in
+            guard let start = item["start"], let end = item["end"], end >= start else { return nil }
+            let startTime = max(0, min(Double(start) / total * duration, duration))
+            let endTime = max(0, min(Double(end + 1) / total * duration, duration))
+            return (start: startTime, end: endTime)
+        }
+    }
+
+    func reportBaiduCacheProgressIfNeeded(force: Bool = false) {
+        guard let currentBaiduLocalProxyURL else { return }
+        guard duration.isFinite, duration > 0, currentTime.isFinite else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastBaiduProgressReportAt) >= 4 else { return }
+        lastBaiduProgressReportAt = now
+        DoubanImageProxyServer.shared.reportBaiduStreamProgress(
+            localURL: currentBaiduLocalProxyURL,
+            currentTime: currentTime,
+            duration: duration
+        )
+    }
+
     private func logDrivePlayResult(_ result: PlayResult) {
         if result.driveType == .quark {
             log("[Quark] 主线路：\(result.source ?? "未知")，host=\(URL(string: result.url)?.host ?? "unknown")")
@@ -820,6 +875,13 @@ class PlayerState: ObservableObject {
         baiduPrefetchTask = nil
         baiduPrefetchingIds.removeAll()
         baiduNearEndPrefetchedIndexes.removeAll()
+        if let baiduCacheObserver {
+            NotificationCenter.default.removeObserver(baiduCacheObserver)
+            self.baiduCacheObserver = nil
+        }
+        currentBaiduLocalProxyURL = nil
+        currentBaiduStreamId = nil
+        baiduCachedTimeRanges = []
         cleanupObservers()
         player?.pause()
         if let observer = timeObserver {
@@ -1085,6 +1147,9 @@ class PlayerState: ObservableObject {
         let playlistKind = await probeM3U8IfNeeded(url: urlObj, headers: headers)
         let isCloudLocalProxy = urlObj.host == "127.0.0.1"
             && (urlObj.path.contains("ali-stream") || urlObj.path.contains("uc-stream") || urlObj.path.contains("115-stream"))
+        await MainActor.run {
+            bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
+        }
 
         if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
             await MainActor.run {
@@ -1273,6 +1338,7 @@ class PlayerState: ObservableObject {
             }
             if isBaiduLocalProxy {
                 self.prefetchNextBaiduFileNearEnd(current: self.currentTime, duration: self.duration)
+                self.reportBaiduCacheProgressIfNeeded()
             }
         }
         
@@ -2309,6 +2375,14 @@ struct PlayerControlsView: View {
                             
                             // 进度条
                             if playerState.duration > 0 {
+                                ForEach(Array(playerState.baiduCachedTimeRanges.enumerated()), id: \.offset) { _, range in
+                                    let start = max(0, min(range.start / playerState.duration, 1))
+                                    let end = max(start, min(range.end / playerState.duration, 1))
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color(hex: "00BEFF").opacity(0.28))
+                                        .frame(width: CGFloat(end - start) * geometry.size.width, height: 4)
+                                        .offset(x: CGFloat(start) * geometry.size.width)
+                                }
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(Color(hex: "00BEFF"))
                                     .frame(width: CGFloat(progress) * geometry.size.width, height: 4)
@@ -2591,6 +2665,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 }
                 playerState.updateDanmaku(at: state.currentTime)
                 playerState.savePlaybackProgress()
+                playerState.reportBaiduCacheProgressIfNeeded()
                 playerState.isLoading = state.isBuffering
                 playerState.isPlaying = state.isPlaying
                 if let error = state.errorMessage {
@@ -2770,6 +2845,7 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
 
                 self.playerState?.currentTime = max(0, current)
                 self.playerState?.duration = max(0, total)
+                self.playerState?.reportBaiduCacheProgressIfNeeded()
 
                 if !self.didFinish, current >= max(0, total - 0.8), total > 1 {
                     self.didFinish = true

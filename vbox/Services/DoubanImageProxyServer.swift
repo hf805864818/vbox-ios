@@ -1,6 +1,10 @@
 import Foundation
 import Network
 
+extension Notification.Name {
+    static let vboxBaiduStreamCacheProgress = Notification.Name("vbox.baidu.stream.cache.progress")
+}
+
 final class DoubanImageProxyServer {
     static let shared = DoubanImageProxyServer()
 
@@ -9,6 +13,7 @@ final class DoubanImageProxyServer {
     private let cache = NSCache<NSString, NSData>()
     private var listener: NWListener?
     private var streamItems: [String: StreamItem] = [:]
+    private let baiduStreamCache = BaiduStreamSegmentCache()
     private(set) var port: UInt16 = 18080
 
     private struct StreamItem {
@@ -127,6 +132,33 @@ final class DoubanImageProxyServer {
         components.path = "/\(provider)-stream"
         components.queryItems = [URLQueryItem(name: "id", value: id)]
         return components.url
+    }
+
+    func reportBaiduStreamProgress(localURL: URL?, currentTime: Double, duration: Double) {
+        guard let localURL,
+              localURL.host == "127.0.0.1",
+              localURL.path.contains("baidu-stream"),
+              currentTime.isFinite,
+              duration.isFinite,
+              duration > 0,
+              let components = URLComponents(url: localURL, resolvingAgainstBaseURL: false),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value
+        else { return }
+
+        queue.async { [weak self] in
+            guard let self,
+                  let item = self.streamItems[id],
+                  item.provider == "baidu"
+            else { return }
+            self.baiduStreamCache.preloadAhead(
+                id: id,
+                currentTime: currentTime,
+                duration: duration,
+                requestBuilder: { [weak self] range in
+                    self?.streamRequest(for: item, method: "GET", incomingRange: range)
+                }
+            )
+        }
     }
 
     func proxiedQuarkM3U8URL(for sourceURL: String, headers: [String: String]) -> URL? {
@@ -322,10 +354,19 @@ final class DoubanImageProxyServer {
         let requestHeaders = parseRequestHeaders(requestText)
         let incomingRange = requestHeaders["range"]
         print("📥 本地视频代理收到请求[\(item.provider)]: method=\(method), id=\(id), range=\(incomingRange ?? "无"), path=\(pathAndQuery)")
+        if item.provider == "baidu", method == "GET" {
+            let range = normalizedRange(incomingRange)
+            if let cached = baiduStreamCache.cachedResponse(id: id, requestedRange: range) {
+                print("💾 百度分片缓存命中: id=\(id), range=\(range ?? "无"), bytes=\(cached.body.count)")
+                sendStream(statusCode: 206, headers: cached.headers, body: cached.body, on: connection)
+                baiduStreamCache.postProgress(id: id)
+                return
+            }
+        }
         fetchStream(item: item, id: id, method: method, incomingRange: incomingRange, on: connection)
     }
 
-    private func fetchStream(item: StreamItem, id: String, method: String, incomingRange: String?, on connection: NWConnection) {
+    private func streamRequest(for item: StreamItem, method: String, incomingRange: String?) -> URLRequest {
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 30
         request.httpMethod = method
@@ -400,12 +441,32 @@ final class DoubanImageProxyServer {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
 
+        return request
+    }
+
+    private func fetchStream(item: StreamItem, id: String, method: String, incomingRange: String?, on connection: NWConnection) {
+        let request = streamRequest(for: item, method: method, incomingRange: incomingRange)
         print("📡 本地视频代理上游请求[\(item.provider)]: method=\(method), id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? ""), hasCookie=\(request.value(forHTTPHeaderField: "Cookie") != nil || request.value(forHTTPHeaderField: "X-Baidu-Pcs-Cookie") != nil), hasVideoAuth=\((request.value(forHTTPHeaderField: "Cookie") ?? "").contains("Video-Auth=")), hasUA=\(request.value(forHTTPHeaderField: "User-Agent") != nil), referer=\(request.value(forHTTPHeaderField: "Referer") ?? "无")")
+
+        let cacheSink: ((HTTPURLResponse, Data) -> Void)?
+        if item.provider == "baidu", method == "GET", let range = request.value(forHTTPHeaderField: "Range") {
+            cacheSink = { [weak self] response, body in
+                self?.baiduStreamCache.store(
+                    id: id,
+                    requestedRange: range,
+                    response: response,
+                    body: body
+                )
+            }
+        } else {
+            cacheSink = nil
+        }
 
         StreamForwarder(
             provider: item.provider,
             id: id,
-            connection: connection
+            connection: connection,
+            cacheSink: cacheSink
         ).start(request: request)
     }
 
@@ -852,7 +913,12 @@ final class DoubanImageProxyServer {
 
     private func cleanupExpiredStreams() {
         let deadline = Date().addingTimeInterval(-30 * 60)
+        let expiredIds = streamItems
+            .filter { $0.value.createdAt <= deadline }
+            .map(\.key)
         streamItems = streamItems.filter { $0.value.createdAt > deadline }
+        expiredIds.forEach { baiduStreamCache.remove(id: $0) }
+        baiduStreamCache.cleanupExpiredCaches(olderThan: 24 * 60 * 60)
     }
 
     private func contentType(for url: URL) -> String {
@@ -910,11 +976,20 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     private var upstreamHeaders: [String: String] = [:]
     private var startTime = Date()
     private var firstByteLogged = false
+    private let cacheSink: ((HTTPURLResponse, Data) -> Void)?
+    private var cacheBody = Data()
+    private var httpResponse: HTTPURLResponse?
 
-    init(provider: String, id: String, connection: NWConnection) {
+    init(
+        provider: String,
+        id: String,
+        connection: NWConnection,
+        cacheSink: ((HTTPURLResponse, Data) -> Void)? = nil
+    ) {
         self.provider = provider
         self.id = id
         self.connection = connection
+        self.cacheSink = cacheSink
         self.callbackQueue.maxConcurrentOperationCount = 1
         super.init()
     }
@@ -963,6 +1038,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         }
 
         statusCode = http.statusCode
+        httpResponse = http
         let headers = http.allHeaderFields
         let contentType = DoubanImageProxyServer.headerValue(headers, "Content-Type") ?? "无"
         let contentLength = DoubanImageProxyServer.headerValue(headers, "Content-Length") ?? "\(response.expectedContentLength)"
@@ -994,6 +1070,9 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         if shouldPreviewBody && preview.count < 512 {
             preview.append(data.prefix(max(0, 512 - preview.count)))
         }
+        if cacheSink != nil, cacheBody.count < 18 * 1024 * 1024 {
+            cacheBody.append(data)
+        }
 
         connection.send(content: data, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
             if let error {
@@ -1021,6 +1100,9 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         }
 
         print("✅ 本地视频代理转发完成[\(provider)]: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, bytes=\(receivedBytes)")
+        if error == nil, let httpResponse, let cacheSink, (200..<300).contains(statusCode), cacheBody.count == receivedBytes {
+            cacheSink(httpResponse, cacheBody)
+        }
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
             self.connection.cancel()
         })
@@ -1047,5 +1129,294 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         connection.send(content: response, completion: .contentProcessed { _ in
             self.connection.cancel()
         })
+    }
+}
+
+private final class BaiduStreamSegmentCache {
+    private struct Segment {
+        let start: Int64
+        let end: Int64
+        let url: URL
+        let modifiedAt: Date
+        var length: Int64 { max(0, end - start + 1) }
+    }
+
+    struct CachedResponse {
+        let headers: [AnyHashable: Any]
+        let body: Data
+    }
+
+    private let maxVideoBytes: Int64 = 1_610_612_736 // 1.5 GiB
+    private let defaultSegmentBytes: Int64 = 8 * 1024 * 1024
+    private let largeSegmentBytes: Int64 = 16 * 1024 * 1024
+    private let lock = NSLock()
+    private var totalBytesById: [String: Int64] = [:]
+    private var lastPreloadAt: [String: Date] = [:]
+    private var activePreloads = Set<String>()
+    private let rootURL: URL
+
+    init() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        rootURL = caches.appendingPathComponent("vbox-baidu-stream-cache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        cleanupExpiredCaches(olderThan: 24 * 60 * 60)
+    }
+
+    func cachedResponse(id: String, requestedRange: String?) -> CachedResponse? {
+        guard let request = Self.parseByteRange(requestedRange) else { return nil }
+        let segments = scanSegments(id: id)
+        guard let segment = segments.first(where: { $0.start <= request.start && $0.end >= request.end }),
+              let data = try? Data(contentsOf: segment.url)
+        else { return nil }
+
+        let localStart = Int(request.start - segment.start)
+        let localEnd = Int(request.end - segment.start)
+        guard localStart >= 0, localEnd < data.count, localStart <= localEnd else { return nil }
+
+        let body = data.subdata(in: localStart..<(localEnd + 1))
+        let total = totalBytes(for: id) ?? max(segment.end + 1, request.end + 1)
+        return CachedResponse(
+            headers: [
+                "Content-Type": "application/octet-stream",
+                "Content-Length": "\(body.count)",
+                "Accept-Ranges": "bytes",
+                "Content-Range": "bytes \(request.start)-\(request.end)/\(total)"
+            ],
+            body: body
+        )
+    }
+
+    func store(id: String, requestedRange: String, response: HTTPURLResponse, body: Data) {
+        guard !body.isEmpty, body.count <= Int(largeSegmentBytes + 2 * 1024 * 1024) else { return }
+        let parsedResponse = Self.parseContentRange(response.value(forHTTPHeaderField: "Content-Range"))
+        let requested = Self.parseByteRange(requestedRange)
+        let start = parsedResponse?.start ?? requested?.start ?? 0
+        let end = parsedResponse?.end ?? (start + Int64(body.count) - 1)
+        let total = parsedResponse?.total
+        guard end >= start, Int64(body.count) == end - start + 1 else { return }
+
+        if let total {
+            lock.lock()
+            totalBytesById[id] = total
+            lock.unlock()
+        }
+
+        let dir = directoryURL(for: id)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(start)-\(end).part")
+        do {
+            try body.write(to: url, options: .atomic)
+            pruneIfNeeded(id: id)
+            postProgress(id: id)
+            print("💾 百度分片缓存写入: id=\(id), range=\(start)-\(end), bytes=\(body.count), total=\(total.map { String($0) } ?? "未知")")
+        } catch {
+            print("⚠️ 百度分片缓存写入失败: id=\(id), error=\(error.localizedDescription)")
+        }
+    }
+
+    func preloadAhead(
+        id: String,
+        currentTime: Double,
+        duration: Double,
+        requestBuilder: @escaping (String) -> URLRequest?
+    ) {
+        guard let total = totalBytes(for: id), total > 0 else { return }
+        let now = Date()
+        lock.lock()
+        let shouldSkip = activePreloads.contains(id) || now.timeIntervalSince(lastPreloadAt[id] ?? .distantPast) < 4
+        if !shouldSkip {
+            activePreloads.insert(id)
+            lastPreloadAt[id] = now
+        }
+        lock.unlock()
+        guard !shouldSkip else { return }
+
+        let bytesPerSecond = Double(total) / max(duration, 1)
+        let currentByte = max(0, min(Int64(currentTime * bytesPerSecond), total - 1))
+        let segmentSize = total >= 1_073_741_824 ? largeSegmentBytes : defaultSegmentBytes
+        let start = (currentByte / segmentSize) * segmentSize
+        let target = min(total - 1, currentByte + Int64(600 * bytesPerSecond))
+
+        fetchPreloadSegment(
+            id: id,
+            start: start,
+            target: target,
+            total: total,
+            segmentSize: segmentSize,
+            maxSegments: 96,
+            requestBuilder: requestBuilder
+        )
+    }
+
+    func postProgress(id: String) {
+        let ranges = scanSegments(id: id)
+            .sorted { $0.start < $1.start }
+            .map { ["start": $0.start, "end": $0.end] }
+        let cachedBytes = ranges.reduce(Int64(0)) { acc, item in
+            guard let start = item["start"], let end = item["end"] else { return acc }
+            return acc + max(0, end - start + 1)
+        }
+        NotificationCenter.default.post(
+            name: .vboxBaiduStreamCacheProgress,
+            object: nil,
+            userInfo: [
+                "id": id,
+                "ranges": ranges,
+                "totalBytes": totalBytes(for: id) ?? 0,
+                "cachedBytes": cachedBytes,
+                "maxBytes": maxVideoBytes
+            ]
+        )
+    }
+
+    func remove(id: String) {
+        lock.lock()
+        activePreloads.remove(id)
+        totalBytesById.removeValue(forKey: id)
+        lastPreloadAt.removeValue(forKey: id)
+        lock.unlock()
+        try? FileManager.default.removeItem(at: directoryURL(for: id))
+    }
+
+    func cleanupExpiredCaches(olderThan seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(-seconds)
+        guard let dirs = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for dir in dirs {
+            let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if modified < deadline {
+                try? FileManager.default.removeItem(at: dir)
+            }
+        }
+    }
+
+    private func fetchPreloadSegment(
+        id: String,
+        start: Int64,
+        target: Int64,
+        total: Int64,
+        segmentSize: Int64,
+        maxSegments: Int,
+        requestBuilder: @escaping (String) -> URLRequest?
+    ) {
+        guard start <= target, maxSegments > 0, usedBytes(id: id) < maxVideoBytes else {
+            finishPreload(id: id)
+            return
+        }
+
+        let end = min(total - 1, start + segmentSize - 1)
+        let range = "bytes=\(start)-\(end)"
+        if cachedResponse(id: id, requestedRange: range) != nil {
+            fetchPreloadSegment(id: id, start: end + 1, target: target, total: total, segmentSize: segmentSize, maxSegments: maxSegments - 1, requestBuilder: requestBuilder)
+            return
+        }
+        guard let request = requestBuilder(range) else {
+            finishPreload(id: id)
+            return
+        }
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error {
+                print("⚠️ 百度后台分片预加载失败: id=\(id), range=\(range), error=\(error.localizedDescription)")
+                self.finishPreload(id: id)
+                return
+            }
+            if let http = response as? HTTPURLResponse, let data, (200..<300).contains(http.statusCode) {
+                self.store(id: id, requestedRange: range, response: http, body: data)
+                self.fetchPreloadSegment(id: id, start: end + 1, target: target, total: total, segmentSize: segmentSize, maxSegments: maxSegments - 1, requestBuilder: requestBuilder)
+            } else {
+                self.finishPreload(id: id)
+            }
+        }.resume()
+    }
+
+    private func finishPreload(id: String) {
+        lock.lock()
+        activePreloads.remove(id)
+        lock.unlock()
+    }
+
+    private func totalBytes(for id: String) -> Int64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return totalBytesById[id]
+    }
+
+    private func directoryURL(for id: String) -> URL {
+        let safe = id.replacingOccurrences(of: #"[^A-Za-z0-9_-]"#, with: "_", options: .regularExpression)
+        return rootURL.appendingPathComponent(safe, isDirectory: true)
+    }
+
+    private func scanSegments(id: String) -> [Segment] {
+        let dir = directoryURL(for: id)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return files.compactMap { url in
+            guard url.pathExtension == "part" else { return nil }
+            let name = url.deletingPathExtension().lastPathComponent
+            let parts = name.split(separator: "-")
+            guard parts.count == 2, let start = Int64(parts[0]), let end = Int64(parts[1]) else { return nil }
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return Segment(start: start, end: end, url: url, modifiedAt: modified)
+        }
+    }
+
+    private func usedBytes(id: String) -> Int64 {
+        scanSegments(id: id).reduce(Int64(0)) { $0 + $1.length }
+    }
+
+    private func pruneIfNeeded(id: String) {
+        var segments = scanSegments(id: id)
+        var used = segments.reduce(Int64(0)) { $0 + $1.length }
+        guard used > maxVideoBytes else { return }
+
+        segments.sort { $0.modifiedAt < $1.modifiedAt }
+        for segment in segments where used > maxVideoBytes {
+            try? FileManager.default.removeItem(at: segment.url)
+            used -= segment.length
+        }
+    }
+
+    private static func parseByteRange(_ raw: String?) -> (start: Int64, end: Int64)? {
+        guard let raw else { return nil }
+        let text = raw
+            .replacingOccurrences(of: "bytes=", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 2,
+              let start = Int64(parts[0]),
+              let end = Int64(parts[1]),
+              end >= start else { return nil }
+        return (start, end)
+    }
+
+    private static func parseContentRange(_ raw: String?) -> (start: Int64, end: Int64, total: Int64?)? {
+        guard let raw else { return nil }
+        let pattern = #"bytes\s+(\d+)-(\d+)/(\d+|\*)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+        let nsRange = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+        guard let match = regex.firstMatch(in: raw, range: nsRange),
+              match.numberOfRanges >= 4,
+              let startRange = Range(match.range(at: 1), in: raw),
+              let endRange = Range(match.range(at: 2), in: raw),
+              let start = Int64(raw[startRange]),
+              let end = Int64(raw[endRange]) else { return nil }
+        let total: Int64?
+        if let totalRange = Range(match.range(at: 3), in: raw) {
+            total = Int64(raw[totalRange])
+        } else {
+            total = nil
+        }
+        return (start, end, total)
     }
 }
