@@ -164,6 +164,8 @@ class PlayerState: ObservableObject {
     @Published var showDanmaku = true
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
+    @Published var danmakuArea: Double = 1.0       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
+    @Published var danmakuSpeed: Double = 1.0       // 弹幕滚动速度倍率 0.5/0.75/1.0/1.5/2.0
     @Published var isOrientationLocked = false
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
@@ -467,14 +469,19 @@ class PlayerState: ObservableObject {
         for item in newItems {
             emittedDanmakuIDs.insert(item.id)
         }
+        // 弹幕持续时间：速度越快持续时间越短
+        let baseDuration = 7.0
+        let duration = baseDuration / max(danmakuSpeed, 0.25)
+        // 弹幕轨道数：区域越小轨道越少
+        let maxLanes = max(1, Int(ceil(Double(8) * danmakuArea)))
         let appended = newItems.map { item in
             DanmakuRenderItem(
                 id: item.id,
                 content: item.content,
                 time: max(time, item.time),
-                lane: abs(item.id) % 8,
+                lane: abs(item.id) % maxLanes,
                 color: item.color,
-                duration: 7.0
+                duration: duration
             )
         }
         danmakuItems = (danmakuItems + appended)
@@ -2211,6 +2218,7 @@ struct PlayerContainerView: View {
                     showDanmaku: $playerState.showDanmaku,
                     opacity: playerState.danmakuOpacity,
                     fontSize: playerState.danmakuFontSize,
+                    area: playerState.danmakuArea,
                     currentTime: playerState.currentTime,
                     items: playerState.danmakuItems
                 )
@@ -2570,7 +2578,9 @@ struct PlayerControlsView: View {
                 DanmakuSettingsPanelV2(
                     showDanmaku: $playerState.showDanmaku,
                     opacity: $playerState.danmakuOpacity,
-                    fontSize: $playerState.danmakuFontSize
+                    fontSize: $playerState.danmakuFontSize,
+                    area: $playerState.danmakuArea,
+                    speed: $playerState.danmakuSpeed
                 )
             }
         )
@@ -2882,8 +2892,15 @@ struct DanmakuSettingsViewV2: View {
     @Binding var showDanmaku: Bool
     @Binding var opacity: Double
     @Binding var fontSize: CGFloat
+    @Binding var area: Double
+    @Binding var speed: Double
 
     @Environment(\.dismiss) private var dismiss
+
+    private let areaLabels = ["25%", "50%", "75%", "100%"]
+    private let areaValues: [Double] = [0.25, 0.5, 0.75, 1.0]
+    private let speedLabels = ["0.5x 慢", "0.75x", "1.0x 正常", "1.5x", "2.0x 快"]
+    private let speedValues: [Double] = [0.5, 0.75, 1.0, 1.5, 2.0]
 
     var body: some View {
         NavigationView {
@@ -2898,6 +2915,24 @@ struct DanmakuSettingsViewV2: View {
 
                 Section("弹幕字体大小") {
                     Slider(value: $fontSize, in: 12...24, step: 2)
+                }
+
+                Section("弹幕显示区域") {
+                    Picker("显示区域", selection: $area) {
+                        ForEach(Array(areaValues.enumerated()), id: \.offset) { idx, val in
+                            Text(areaLabels[idx]).tag(val)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("弹幕显示速度") {
+                    Picker("显示速度", selection: $speed) {
+                        ForEach(Array(speedValues.enumerated()), id: \.offset) { idx, val in
+                            Text(speedLabels[idx]).tag(val)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
             .navigationTitle("弹幕设置")
@@ -3209,7 +3244,23 @@ struct DanmakuSettingsPanelV2: View {
     @Binding var showDanmaku: Bool
     @Binding var opacity: Double
     @Binding var fontSize: CGFloat
-    
+    @Binding var area: Double
+    @Binding var speed: Double
+
+    private let areaOptions: [(Double, String)] = [
+        (0.25, "25%"),
+        (0.5, "50%"),
+        (0.75, "75%"),
+        (1.0, "100%")
+    ]
+    private let speedOptions: [(Double, String)] = [
+        (0.5, "0.5x 慢"),
+        (0.75, "0.75x"),
+        (1.0, "1.0x 正常"),
+        (1.5, "1.5x"),
+        (2.0, "2.0x 快")
+    ]
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -3217,15 +3268,15 @@ struct DanmakuSettingsPanelV2: View {
                     Text("开启弹幕")
                         .font(.system(size: 16))
                         .foregroundColor(.white)
-                    
+
                     Spacer()
-                    
+
                     Toggle("弹幕", isOn: $showDanmaku)
                         .labelsHidden()
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
-                
+
                 VStack(spacing: 8) {
                     HStack {
                         Text("弹幕透明度")
@@ -3237,11 +3288,11 @@ struct DanmakuSettingsPanelV2: View {
                             .foregroundColor(.white.opacity(0.7))
                     }
                     .padding(.horizontal, 16)
-                    
+
                     Slider(value: $opacity, in: 0...1, step: 0.1)
                         .padding(.horizontal, 16)
                 }
-                
+
                 VStack(spacing: 8) {
                     HStack {
                         Text("弹幕字体大小")
@@ -3253,11 +3304,75 @@ struct DanmakuSettingsPanelV2: View {
                             .foregroundColor(.white.opacity(0.7))
                     }
                     .padding(.horizontal, 16)
-                    
+
                     Slider(value: $fontSize, in: 12...24, step: 1)
                         .padding(.horizontal, 16)
                 }
-                
+
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("弹幕显示区域")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(areaOptions.first(where: { $0.0 == area })?.1 ?? "\(Int(area * 100))%")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+
+                    HStack(spacing: 0) {
+                        ForEach(areaOptions, id: \.0) { option in
+                            Button {
+                                area = option.0
+                            } label: {
+                                Text(option.1)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(area == option.0 ? .white : .white.opacity(0.6))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(area == option.0 ? Color(hex: "00BEFF") : Color.white.opacity(0.15))
+                                    )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("弹幕显示速度")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(speedOptions.first(where: { $0.0 == speed })?.1 ?? "\(speed)x")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+
+                    HStack(spacing: 0) {
+                        ForEach(speedOptions, id: \.0) { option in
+                            Button {
+                                speed = option.0
+                            } label: {
+                                Text(option.1)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(speed == option.0 ? .white : .white.opacity(0.6))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(speed == option.0 ? Color(hex: "00BEFF") : Color.white.opacity(0.15))
+                                    )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
                 Spacer()
             }
         }

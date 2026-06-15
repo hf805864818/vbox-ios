@@ -146,10 +146,45 @@ class LogVarDanmakuService: ObservableObject {
 
     private func normalizeFileName(_ fileName: String) -> String {
         let withoutExt = (fileName as NSString).deletingPathExtension
-        return withoutExt
+        var result = withoutExt
             .replacingOccurrences(of: #"\[[^\]]+\]|\([^\)]*\)|【[^】]+】"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 将中文集数格式转为API可识别的英文格式
+        // "第1集" / "第01集" / "第1话" / "第01话" → ".E01"
+        // "第一季 第1集" → "S01.E01"
+        // "S01 第1集" → "S01.E01"
+        let seasonPattern = #"[Ss](\d{1,2})"#
+        let epCNPattern = #"第\s*(\d{1,3})\s*[集话话期]"#
+
+        // 提取季数
+        var seasonStr = ""
+        if let seasonMatch = result.range(of: seasonPattern, options: .regularExpression) {
+            seasonStr = "S" + String(result[seasonMatch]).uppercased().filter { $0.isNumber }
+        }
+
+        // 替换中文集数
+        if let epMatch = result.range(of: epCNPattern, options: .regularExpression) {
+            let epText = String(result[epMatch])
+            let epNum = epText.filter { $0.isNumber }
+            let padded = epNum.count == 1 ? "0" + epNum : epNum
+            let replacement = ".E\(padded)"
+            result = result.replacingCharacters(in: epMatch, with: replacement)
+        }
+
+        // 如果有季数但结果中没有S前缀，在开头添加
+        if !seasonStr.isEmpty && !result.contains("S") {
+            result = "\(seasonStr).\(result)"
+        }
+
+        // 清理多余空格和点号
+        result = result
+            .replacingOccurrences(of: #"\s*\.\s*"#, with: ".", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return result
     }
 
     private func persistentKey(_ key: String) -> String {

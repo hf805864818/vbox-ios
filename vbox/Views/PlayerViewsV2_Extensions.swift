@@ -60,11 +60,13 @@ struct DanmakuOverlayViewV2: View {
     @Binding var showDanmaku: Bool
     let opacity: Double
     let fontSize: CGFloat
+    let area: Double
     let currentTime: Double
     let items: [DanmakuRenderItem]
 
     var body: some View {
         GeometryReader { geo in
+            let maxAreaHeight = geo.size.height * area
             ForEach(items) { item in
                 let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
                 let textWidth = max(80, CGFloat(item.content.count) * fontSize * 0.72)
@@ -76,6 +78,10 @@ struct DanmakuOverlayViewV2: View {
                         x: geo.size.width + textWidth / 2 - progress * (geo.size.width + textWidth),
                         y: CGFloat(item.lane) * (fontSize + 10) + 28
                     )
+                    // 限制弹幕不超出显示区域
+                    .offset(y: 0)
+                    .clipped()
+                    .frame(maxHeight: maxAreaHeight, alignment: .top)
             }
         }
         .clipped()
