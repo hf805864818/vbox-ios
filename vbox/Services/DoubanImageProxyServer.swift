@@ -145,19 +145,11 @@ final class DoubanImageProxyServer {
               let id = components.queryItems?.first(where: { $0.name == "id" })?.value
         else { return }
 
+        // 百度网盘HTTP连接有数据量/时间限制，当集分片预加载会加速触发连接重置
+        // 当集预加载已禁用，仅保留下一集预加载（prefetchNextBaiduFile）
+        // 此方法仍保留用于发送缓存进度通知
         queue.async { [weak self] in
-            guard let self,
-                  let item = self.streamItems[id],
-                  item.provider == "baidu"
-            else { return }
-            self.baiduStreamCache.preloadAhead(
-                id: id,
-                currentTime: currentTime,
-                duration: duration,
-                requestBuilder: { [weak self] range in
-                    self?.streamRequest(for: item, method: "GET", incomingRange: range)
-                }
-            )
+            self?.baiduStreamCache.postProgress(id: id)
         }
     }
 
