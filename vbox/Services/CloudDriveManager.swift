@@ -3117,20 +3117,22 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?shorturl=\(shortSurl)")
             let encodedRandsk = queryEncoded(randskForList)
             let encodedShortSurl = queryEncoded(shortSurl)
-            let encodedFullSurl = queryEncoded(surl)
             let encodedBdstoken = queryEncoded(bdstoken)
             let encodedSign = queryEncoded(shareSign)
+            let encodedShareid = queryEncoded(shareid)
+            let encodedShareUk = queryEncoded(shareUk)
             let bdstokenQuery = encodedBdstoken.isEmpty ? "" : "&bdstoken=\(encodedBdstoken)"
             let signQuery = encodedSign.isEmpty ? "" : "&sign=\(encodedSign)"
             let timestampQuery = shareTimestamp.isEmpty ? "" : "&timestamp=\(shareTimestamp)"
+            // 百度 share/list 必填参数：shareid + uk（来自 yunData/桌面页），缺一个就直接 errno=2 "参数不完整"
+            let shareidQuery = encodedShareid.isEmpty ? "" : "&shareid=\(encodedShareid)"
+            let ukQuery = encodedShareUk.isEmpty ? "" : "&uk=\(encodedShareUk)"
             // iBox/网页 share/list 核心参数固定 web=1；BDCLND 已在 Cookie 中，sekey/randsk 根据百度返回形态做等价兜底。
             let shareAuthQueries = encodedRandsk.isEmpty ? [""] : ["&sekey=\(encodedRandsk)", "&randsk=\(encodedRandsk)", ""]
             var listQueries: [String] = []
             for authQuery in shareAuthQueries {
-                let listCommon = "root=1&web=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(bdstokenQuery)\(signQuery)\(timestampQuery)\(authQuery)"
+                let listCommon = "root=1&web=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(bdstokenQuery)\(signQuery)\(timestampQuery)\(shareidQuery)\(ukQuery)\(authQuery)"
                 listQueries.append("https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)")
-                listQueries.append("https://pan.baidu.com/share/list?shorturl=\(encodedFullSurl)&\(listCommon)")
-                listQueries.append("https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)")
             }
             var lastListError = ""
             for listURL in listQueries {
