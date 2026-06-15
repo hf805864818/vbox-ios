@@ -2302,10 +2302,7 @@ class CloudDriveManager: ObservableObject {
     /// 必须使用登录态 bdstoken，不能复用分享页 yunData 里的 bdstoken；
     /// 否则百度会判定为越权，统一返回 errno=-6 path:""。
     private func baiduFetchUserBdstokenLocal(cookie: String) async -> String? {
-        if let saved = CloudDriveAuthManager.shared.credential(for: .baidu)?.extra["bdstoken"], !saved.isEmpty {
-            baiduLog("[Baidu-Local] ✅ 使用授权中心保存的登录态 bdstoken：\(saved.prefix(6))…")
-            return saved
-        }
+        let savedBdstoken = CloudDriveAuthManager.shared.credential(for: .baidu)?.extra["bdstoken"]
 
         var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
         components.queryItems = [
@@ -2325,6 +2322,7 @@ class CloudDriveManager: ObservableObject {
             let errno = json["errno"] as? Int ?? 0
             if let token = baiduDeepString(json, keys: ["bdstoken"]), !token.isEmpty {
                 baiduLog("[Baidu-Local] ✅ 取得登录态 bdstoken：\(token.prefix(6))…")
+                baiduPersistUserBdstoken(token, mergedCookie: cookie, source: "urlsession-templatevariable")
                 return token
             }
             baiduLog("[Baidu-Local] ⚠️ gettemplatevariable 未返回 bdstoken：errno=\(errno), keys=\(json.keys.sorted().joined(separator: ",")), \(baiduJSONStructureSummary(json["result"], label: "result"))")
@@ -2338,12 +2336,55 @@ class CloudDriveManager: ObservableObject {
            let html = String(data: data, encoding: .utf8) {
             if let token = baiduExtractBdstokenFromHTML(html), !token.isEmpty {
                 baiduLog("[Baidu-Local] ✅ 从 disk/main 抓到 bdstoken：\(token.prefix(6))…")
+                baiduPersistUserBdstoken(token, mergedCookie: cookie, source: "urlsession-disk-main")
                 return token
             }
             baiduLog("[Baidu-Local] ⚠️ disk/main 未解析到 bdstoken：htmlSize=\(html.count)")
         }
+        if let token = await baiduFetchUserBdstokenViaWebView(cookie: cookie) {
+            return token
+        }
+        if let saved = savedBdstoken, !saved.isEmpty {
+            baiduLog("[Baidu-Local] ⚠️ 本次未抓到新 bdstoken，临时回退授权中心保存值：\(saved.prefix(6))…")
+            return saved
+        }
         baiduLog("[Baidu-Local] ⚠️ 未能抓到登录态 bdstoken")
         return nil
+    }
+
+    /// 对齐 iBox 的真实浏览器会话：原生 URLSession 无法生成用户态 bdstoken 时，
+    /// 使用 WKWebView 载入 pan.baidu.com/disk/main，并复用 WebView CookieJar 中的登录态。
+    private func baiduFetchUserBdstokenViaWebView(cookie: String) async -> String? {
+        do {
+            let result = try await BaiduWebViewBridge.shared.loadPanPageForBdstoken(cookie: cookie)
+            let token = result.bdstoken ?? baiduExtractBdstokenFromHTML(result.html)
+            guard let token, !token.isEmpty else {
+                baiduLog("[Baidu-Local] ⚠️ WebView disk/main 未解析到 bdstoken：htmlSize=\(result.html.count), cookieHasBDUSS=\(result.cookie.lowercased().contains("bduss=")), cookieHasSTOKEN=\(result.cookie.lowercased().contains("stoken="))")
+                return nil
+            }
+            baiduPersistUserBdstoken(token, mergedCookie: result.cookie, source: "webview-disk-main")
+            baiduLog("[Baidu-Local] ✅ WebView 取得登录态 bdstoken：\(token.prefix(6))…")
+            return token
+        } catch {
+            baiduLog("[Baidu-Local] ⚠️ WebView 获取 bdstoken 失败：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func baiduPersistUserBdstoken(_ token: String, mergedCookie: String, source: String) {
+        guard !token.isEmpty,
+              var credential = CloudDriveAuthManager.shared.credential(for: .baidu) else { return }
+        let cookie = baiduMergeCookieStrings([credential.cookie ?? "", mergedCookie])
+        if !cookie.isEmpty {
+            credential.cookie = cookie
+        }
+        credential.extra["bdstoken"] = token
+        credential.extra["bdstoken_source"] = source
+        credential.updatedAt = Date()
+        credential.lastCheckedAt = Date()
+        credential.state = .valid
+        credential.statusMessage = "百度登录态已补齐 bdstoken"
+        CloudDriveAuthManager.shared.saveCredential(credential, syncLegacyToken: false)
     }
 
     private func baiduExtractBdstokenFromHTML(_ html: String) -> String? {
@@ -3400,7 +3441,7 @@ class CloudDriveManager: ObservableObject {
                 verifyRequest.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
                 verifyRequest.setValue("*/*", forHTTPHeaderField: "Accept")
                 verifyRequest.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
-                verifyRequest.httpBody = "pwd=\(encodedPwd)".data(using: .utf8)
+                verifyRequest.httpBody = verifyBody.data(using: .utf8)
                 let (verifyData, verifyResponse) = try await session.data(for: verifyRequest)
                 if let sc = (verifyResponse as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
                     iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
@@ -3482,7 +3523,7 @@ class CloudDriveManager: ObservableObject {
                 return listJSON
             }
 
-            let rootURL = "https://pan.baidu.com/share/list?web=5&app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&num=20&order=time&page=1&root=1&shorturl=\(encodedShortSurl)&showempty=0&view_mode=1&web=1"
+            let rootURL = "https://pan.baidu.com/share/list?app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&num=20&order=time&page=1&root=1&shorturl=\(encodedShortSurl)&showempty=0&view_mode=1&web=1"
             var dirsToLoad: [String] = []
             if let rootJSON = try await requestShareList(rootURL, source: "root-shorturl", includeAccountCookie: false) {
                 let root = (rootJSON["data"] as? [String: Any]) ?? rootJSON
@@ -3565,7 +3606,7 @@ class CloudDriveManager: ObservableObject {
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let list = json["list"] as? [[String: Any]] {
             for item in list {
-                if let name = item["server_filename"] as? String, name == "vbox播放" { return "/vbox播放/" }
+                if let name = item["server_filename"] as? String, name == "vbox" { return "/vbox/" }
             }
         }
         let createURL = URL(string: "https://pan.baidu.com/api/create?a=commit&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
@@ -3574,10 +3615,10 @@ class CloudDriveManager: ObservableObject {
         createReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         createReq.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
         createReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let params = "path=/vbox播放&isdir=1&block_list=[]"
+        let params = "path=/vbox&isdir=1&block_list=[]"
         createReq.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: createReq)
-        return "/vbox播放/"
+        return "/vbox/"
     }
 
     private func baiduDeleteFiles(fileIds: [String], bduss: String) async {
@@ -3588,7 +3629,7 @@ class CloudDriveManager: ObservableObject {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let params = "filelist=[\"\(fileIds.first!)\"]&path=/vbox播放/"
+        let params = "filelist=[\"\(fileIds.first!)\"]&path=/vbox/"
         req.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: req)
         print("[CloudDrive] ✅ 百度已删除转存文件")

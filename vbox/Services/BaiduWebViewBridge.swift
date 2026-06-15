@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import UIKit
 
 /// 用 WKWebView JS XMLHttpRequest 发 HTTP 请求，绕开 URLSession TLS 指纹
 /// 百度风控对 Safari/WebView 的 JA3 指纹更宽容
@@ -8,6 +9,7 @@ class BaiduWebViewBridge: NSObject {
     
     private var webView: WKWebView!
     private var pendingRequests: [String: (Result<(Data, HTTPURLResponse?), Error>) -> Void] = [:]
+    private var pendingNavigations: [String: (Result<Void, Error>) -> Void] = [:]
     private let queue = DispatchQueue(label: "baidu.webview.bridge")
     private var requestIdCounter = 0
     
@@ -16,8 +18,12 @@ class BaiduWebViewBridge: NSObject {
     
     private override init() {
         super.init()
-        DispatchQueue.main.sync {
+        if Thread.isMainThread {
             self.setupWebView()
+        } else {
+            DispatchQueue.main.sync {
+                self.setupWebView()
+            }
         }
     }
     
@@ -37,6 +43,7 @@ class BaiduWebViewBridge: NSObject {
     
     private func setupWebView() {
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
         let userController = config.userContentController
         userController.add(self, name: "bridgeResponse")
         
@@ -53,6 +60,68 @@ class BaiduWebViewBridge: NSObject {
         }
         
         self.webView = wv
+    }
+
+    /// 注入账号 Cookie 到 WKWebView 的 CookieJar，让后续 disk/main 和 XHR 具备真实网页登录态。
+    func seedCookies(_ cookie: String) async {
+        let cookies = makeHTTPCookies(from: cookie)
+        guard !cookies.isEmpty else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                let store = WKWebsiteDataStore.default().httpCookieStore
+                let group = DispatchGroup()
+                for item in cookies {
+                    group.enter()
+                    store.setCookie(item) {
+                        group.leave()
+                    }
+                }
+                group.notify(queue: .main) {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    /// 读取 WebView CookieJar 中的百度 Cookie。
+    func currentCookieString() async -> String {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            DispatchQueue.main.async {
+                WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                    let filtered = cookies.filter { cookie in
+                        let domain = cookie.domain.lowercased()
+                        return domain.contains("baidu.com") || domain.contains("pcs.baidu.com")
+                    }
+                    continuation.resume(returning: CloudDriveAuthManager.cookieString(from: filtered))
+                }
+            }
+        }
+    }
+
+    /// 使用真实 WebView 导航加载页面，并从 HTML/JS/CookieJar 中提取 bdstoken。
+    func loadPanPageForBdstoken(cookie: String, timeout: TimeInterval = 18) async throws -> (html: String, cookie: String, bdstoken: String?) {
+        await seedCookies(cookie)
+        try await load(url: "https://pan.baidu.com/disk/main", timeout: timeout)
+        let html = try await evaluateString("""
+        (function() {
+            return document.documentElement ? document.documentElement.outerHTML : document.body.innerHTML;
+        })();
+        """)
+        let token = try await evaluateString("""
+        (function() {
+            try {
+                if (window.locals && window.locals.get && window.locals.get('bdstoken')) return window.locals.get('bdstoken');
+                if (window.yunData && window.yunData.MYBDSTOKEN) return window.yunData.MYBDSTOKEN;
+                if (window.context && window.context.bdstoken) return window.context.bdstoken;
+            } catch (e) {}
+            var html = document.documentElement ? document.documentElement.outerHTML : '';
+            var m = html.match(/[\"']bdstoken[\"']\\s*[:=]\\s*[\"']([^\"']+)[\"']/i) || html.match(/bdstoken=([A-Za-z0-9_\\-%.]+)/i);
+            return m ? m[1] : '';
+        })();
+        """)
+        let jarCookie = await currentCookieString()
+        let mergedCookie = mergeCookieStrings([cookie, jarCookie])
+        return (html, mergedCookie, token.isEmpty ? nil : token)
     }
     
     /// 通过 WebView JS XMLHttpRequest 发请求（不用 async/await，避免 evaluateJavaScript 不支持）
@@ -155,6 +224,110 @@ class BaiduWebViewBridge: NSObject {
             }
         }
     }
+
+    private func load(url: String, timeout: TimeInterval) async throws {
+        await waitReady()
+        guard let target = URL(string: url) else { throw BridgeError.invalidResponse }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            guard let wv = self.webView else {
+                continuation.resume(throwing: BridgeError.notReady)
+                return
+            }
+            self.requestIdCounter += 1
+            let requestId = "nav_\(self.requestIdCounter)"
+            queue.async { [weak self] in
+                self?.pendingNavigations[requestId] = { result in
+                    continuation.resume(with: result)
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 2) { [weak self] in
+                self?.queue.async {
+                    if let cb = self?.pendingNavigations.removeValue(forKey: requestId) {
+                        cb(.failure(BridgeError.timeout))
+                    }
+                }
+            }
+            DispatchQueue.main.async {
+                var request = URLRequest(url: target)
+                request.timeoutInterval = timeout
+                wv.load(request)
+            }
+        }
+    }
+
+    private func evaluateString(_ javascript: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            guard let wv = self.webView else {
+                continuation.resume(throwing: BridgeError.notReady)
+                return
+            }
+            DispatchQueue.main.async {
+                wv.evaluateJavaScript(javascript) { value, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    if let text = value as? String {
+                        continuation.resume(returning: text)
+                    } else if let number = value as? NSNumber {
+                        continuation.resume(returning: number.stringValue)
+                    } else {
+                        continuation.resume(returning: "")
+                    }
+                }
+            }
+        }
+    }
+
+    private func makeHTTPCookies(from cookie: String) -> [HTTPCookie] {
+        let domains = ["pan.baidu.com", ".baidu.com", "passport.baidu.com", "d.pcs.baidu.com"]
+        var output: [HTTPCookie] = []
+        var seen = Set<String>()
+        for part in cookie.split(separator: ";") {
+            let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = item.firstIndex(of: "=") else { continue }
+            let name = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !value.isEmpty else { continue }
+            for domain in domains {
+                let key = "\(domain)|\(name)"
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                if let httpCookie = HTTPCookie(properties: [
+                    .domain: domain,
+                    .path: "/",
+                    .name: name,
+                    .value: value,
+                    .secure: "TRUE",
+                    .expires: Date(timeIntervalSinceNow: 30 * 24 * 3600)
+                ]) {
+                    output.append(httpCookie)
+                }
+            }
+        }
+        return output
+    }
+
+    private func mergeCookieStrings(_ cookies: [String]) -> String {
+        var values: [String: (name: String, value: String)] = [:]
+        var order: [String] = []
+        for cookie in cookies where !cookie.isEmpty {
+            for part in cookie.split(separator: ";") {
+                let item = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let eq = item.firstIndex(of: "=") else { continue }
+                let name = String(item[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(item[item.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, !value.isEmpty else { continue }
+                let key = name.lowercased()
+                if values[key] == nil { order.append(key) }
+                values[key] = (name, value)
+            }
+        }
+        return order.compactMap { key in
+            guard let item = values[key] else { return nil }
+            return "\(item.name)=\(item.value)"
+        }.joined(separator: "; ")
+    }
     
     enum BridgeError: Error {
         case notReady
@@ -172,6 +345,31 @@ extension BaiduWebViewBridge: WKNavigationDelegate {
             let conts = self?.readyContinuations ?? []
             self?.readyContinuations = []
             for c in conts { c.resume() }
+            guard let self = self else { return }
+            let navigationCallbacks = Array(self.pendingNavigations.values)
+            self.pendingNavigations.removeAll()
+            for cb in navigationCallbacks {
+                cb(.success(()))
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        finishPendingNavigations(with: error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        finishPendingNavigations(with: error)
+    }
+
+    private func finishPendingNavigations(with error: Error) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            let callbacks = Array(self.pendingNavigations.values)
+            self.pendingNavigations.removeAll()
+            for cb in callbacks {
+                cb(.failure(error))
+            }
         }
     }
 }
