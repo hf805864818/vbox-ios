@@ -16,7 +16,9 @@ class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
-    private static let baiduIBoxTransferDir = "/我的资源/iBox"
+    // 用户自己网盘里的转存根目录。iBox 抓包用的是 /我的资源/iBox（带 iBox 自家目录名），
+    // 我们改为独立的 /vbox 顶层目录，避免和 iBox 混淆，也方便用户在网盘里直接看到。
+    private static let baiduIBoxTransferDir = "/vbox"
 
     enum DriveType: String, CaseIterable {
         case ali = "ali"
@@ -100,6 +102,7 @@ class CloudDriveManager: ObservableObject {
         let shareid: String
         let shareUk: String
         let bdstoken: String?
+        let randsk: String?
         let cookie: String
         let files: [BaiduFileItem]
         let source: String
@@ -272,7 +275,12 @@ class CloudDriveManager: ObservableObject {
     private func baiduCachedShareContext(for key: String) -> BaiduShareContext? {
         var cache = baiduLoadPersistedShareContextCache()
         guard let context = cache[key] else { return nil }
-        if context.expiresAt > Date(), !context.shareid.isEmpty, !context.shareUk.isEmpty, !context.files.isEmpty {
+        let passwordShareNeedsRandsk = !(context.pwd ?? "").isEmpty
+        if context.expiresAt > Date(),
+           !context.shareid.isEmpty,
+           !context.shareUk.isEmpty,
+           !context.files.isEmpty,
+           (!passwordShareNeedsRandsk || !(context.randsk ?? "").isEmpty) {
             return context
         }
         cache.removeValue(forKey: key)
@@ -287,6 +295,7 @@ class CloudDriveManager: ObservableObject {
         shareid: String,
         shareUk: String,
         bdstoken: String? = nil,
+        randsk: String? = nil,
         cookie: String,
         files: [BaiduFileItem],
         source: String,
@@ -302,6 +311,7 @@ class CloudDriveManager: ObservableObject {
             shareid: shareid,
             shareUk: shareUk,
             bdstoken: bdstoken,
+            randsk: randsk,
             cookie: cookie,
             files: files,
             source: source,
@@ -2248,12 +2258,13 @@ class CloudDriveManager: ObservableObject {
         return refreshed
     }
 
-    private func baiduEnsureVboxFolderLocal(cookie: String) async throws {
-        for folder in ["/我的资源", Self.baiduIBoxTransferDir] {
+    private func baiduEnsureVboxFolderLocal(cookie: String, bdstoken: String, referer: String) async throws {
+        let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+        for folder in [Self.baiduIBoxTransferDir] {
             var components = URLComponents(string: "https://pan.baidu.com/api/create")!
             components.queryItems = [
                 URLQueryItem(name: "a", value: "commit"),
-                URLQueryItem(name: "bdstoken", value: ""),
+                URLQueryItem(name: "bdstoken", value: bdstoken),
                 URLQueryItem(name: "channel", value: "chunlei"),
                 URLQueryItem(name: "web", value: "1"),
                 URLQueryItem(name: "app_id", value: "250528"),
@@ -2264,7 +2275,10 @@ class CloudDriveManager: ObservableObject {
             request.timeoutInterval = 12
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+            request.setValue(webUA, forHTTPHeaderField: "User-Agent")
+            request.setValue(referer, forHTTPHeaderField: "Referer")
+            request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+            request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
             let encodedPath = folder.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? folder
             request.httpBody = "path=\(encodedPath)&isdir=1&block_list=[]".data(using: .utf8)
 
@@ -2349,12 +2363,14 @@ class CloudDriveManager: ObservableObject {
         shareid: String,
         shareUk: String,
         bdstoken: String,
+        randsk: String?,
         fsId: String,
         fileName: String,
-        cookie: String
+        cookie: String,
+        referer: String
     ) async throws -> String {
         var components = URLComponents(string: "https://pan.baidu.com/share/transfer")!
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "shareid", value: shareid),
             URLQueryItem(name: "from", value: shareUk),
             URLQueryItem(name: "ondup", value: "newcopy"),
@@ -2365,14 +2381,20 @@ class CloudDriveManager: ObservableObject {
             URLQueryItem(name: "clienttype", value: "0"),
             URLQueryItem(name: "bdstoken", value: bdstoken)
         ]
+        if let randsk, !randsk.isEmpty {
+            queryItems.append(URLQueryItem(name: "sekey", value: randsk))
+        }
+        components.queryItems = queryItems
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.timeoutInterval = 25
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let transferPath = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
         request.httpBody = "fsidlist=[\(fsId)]&path=\(transferPath)".data(using: .utf8)
 
@@ -2707,7 +2729,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         do {
-            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie)
+            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie, bdstoken: context.bdstoken, referer: shareURL)
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
             let filePath: String
             let sourcePrefix: String
@@ -2721,9 +2743,11 @@ class CloudDriveManager: ObservableObject {
                     shareid: context.shareid,
                     shareUk: context.shareUk,
                     bdstoken: context.bdstoken,
+                    randsk: context.randsk,
                     fsId: selected.fsId,
                     fileName: selected.name,
-                    cookie: mergedCookie
+                    cookie: mergedCookie,
+                    referer: shareURL
                 )
                 sourcePrefix = "main-transfer"
                 baiduLog("[Baidu-iBoxRoute] ✅ 本机转存完成：\(filePath)")
@@ -2795,7 +2819,7 @@ class CloudDriveManager: ObservableObject {
         return result
     }
 
-    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, bdstoken: String, surl: String, cookie: String, files: [BaiduFileItem]) {
+    private func baiduExtractShareMeta(shareURL: String, cookie: String, returnAll: Bool = false) async throws -> (shareid: String, shareUk: String, bdstoken: String, surl: String, cookie: String, files: [BaiduFileItem], randsk: String) {
         baiduLog("[Baidu] 提取分享信息：\(shareURL)")
 
         let surl: String
@@ -2824,7 +2848,7 @@ class CloudDriveManager: ObservableObject {
         if let cached = baiduCachedShareContext(for: contextKey) {
             baiduLog("[Baidu-ShareContext] ✅ 命中分享上下文缓存：source=\(cached.source), files=\(cached.files.count)")
             recordBaiduRouteDiagnostic(stage: "分享上下文", status: "缓存命中", detail: "命中 ShareContext：source=\(cached.source), files=\(cached.files.count)")
-            return (cached.shareid, cached.shareUk, cached.bdstoken ?? "", cached.surl, cached.cookie, cached.files)
+            return (cached.shareid, cached.shareUk, cached.bdstoken ?? "", cached.surl, cached.cookie, cached.files, cached.randsk ?? "")
         }
 
         do {
@@ -3243,13 +3267,14 @@ class CloudDriveManager: ObservableObject {
                 shareid: shareid,
                 shareUk: shareUk,
                 bdstoken: bdstoken,
+                randsk: randskForList,
                 cookie: iBoxCookie,
                 files: files,
                 source: "ibox-wap-share-list",
                 key: contextKey
             )
             baiduLog("[Baidu-iBoxRoute] ✅ shareid=\(shareid), uk=\(shareUk), 文件=\(files.count)")
-            return (shareid, shareUk, bdstoken, surl, iBoxCookie, files)
+            return (shareid, shareUk, bdstoken, surl, iBoxCookie, files, randskForList)
         } catch {
             baiduLog("[Baidu-iBoxRoute] ❌ /wap/init → share/list 失败：\(error.localizedDescription)")
             throw error
