@@ -2100,8 +2100,8 @@ class CloudDriveManager: ObservableObject {
             return cached
         }
 
-        baiduLog("[Baidu-iBox] 文件列表走 iBox-style 本机路链：wap/init → gettemplatevariable → verify → share/list")
-        recordBaiduRouteDiagnostic(stage: "文件列表", status: "iBox开始", detail: "本机 /wap/init + gettemplatevariable + share/list(web=5)，不走 Worker")
+        baiduLog("[Baidu-iBox] 文件列表走 iBox-style 本机路链：wap/init → verify → share页/yunData → gettemplatevariable → share/list")
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "iBox开始", detail: "本机 /wap/init + verify + share页/yunData + gettemplatevariable + share/list(web=1)，不走 Worker")
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
         let files = context.files
         baiduStoreFileList(files, for: cacheKey)
@@ -2645,7 +2645,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// iBox-style 百度主播放链路：
-    /// wap/init → gettemplatevariable → verify → share/list → transfer → api/list → mediainfo/locatedownload。
+    /// wap/init → verify → share页/yunData → gettemplatevariable → share/list → transfer → api/list → mediainfo/locatedownload。
     /// 失败时直接向调用方抛出错误，不再回落 Worker 或旧分享直链路。
     func resolveBaiduPlayURLViaMainRoute(
         shareURL: String,
@@ -2684,7 +2684,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-iBoxRoute] 开始 iBox-style 百度主路链：fsId=\(fsId), file=\(hintFileName ?? "未知")")
-        recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → gettemplatevariable → verify → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
+        recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → verify → share页/yunData → gettemplatevariable → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
 
         let pwd = extractBaiduPwd(from: shareURL)
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
@@ -2941,7 +2941,7 @@ class CloudDriveManager: ObservableObject {
                 baiduLog("[Baidu-iBoxRoute] \(source) templatevariable：bdstoken=\(!templateBdstoken.isEmpty), shareid=\(!templateShareid.isEmpty), uk=\(!templateUk.isEmpty), files=\(templateFiles.count), keys=\(json.keys.sorted().joined(separator: ","))")
             }
 
-            func fetchTemplateVariables(source: String) async -> [String: Any]? {
+            func fetchTemplateVariables(source: String, referer: String) async -> [String: Any]? {
                 var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
                 components.queryItems = [
                     URLQueryItem(name: "clienttype", value: "0"),
@@ -2955,7 +2955,7 @@ class CloudDriveManager: ObservableObject {
                 request.timeoutInterval = 15
                 request.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
                 request.setValue(webUA, forHTTPHeaderField: "User-Agent")
-                request.setValue(initURL, forHTTPHeaderField: "Referer")
+                request.setValue(referer, forHTTPHeaderField: "Referer")
                 request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
                 request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
                 do {
@@ -3042,11 +3042,6 @@ class CloudDriveManager: ObservableObject {
             let initHTML = String(data: initData, encoding: .utf8) ?? String(data: initData, encoding: .ascii) ?? ""
             var files: [BaiduFileItem] = []
             applyYunDataHTML(initHTML, source: "wap/init", files: &files)
-            // 备用：调 gettemplatevariable 拿 bdstoken/uk（不依赖它拿 shareid，因为这个接口只返回登录用户自身字段）
-            if let templateJSON = await fetchTemplateVariables(source: "init后") {
-                applyTemplateVariables(templateJSON, source: "init后", files: &files)
-            }
-
             if let pwd, !pwd.isEmpty {
                 baiduLog("[Baidu-iBoxRoute] ② POST /share/verify?surl=\(shortSurl)")
                 var allowed = CharacterSet.urlQueryAllowed
@@ -3084,9 +3079,6 @@ class CloudDriveManager: ObservableObject {
                     iBoxCookie = baiduMergeCookieStrings([iBoxCookie, "BDCLND=\(rawRandsk); randsk=\(decodedRandsk)"])
                     baiduLog("[Baidu-iBoxRoute] ✅ verify 成功，已写入 BDCLND/randsk")
                 }
-                if let templateJSON = await fetchTemplateVariables(source: "verify后") {
-                    applyTemplateVariables(templateJSON, source: "verify后", files: &files)
-                }
             }
 
             // 密码分享必须在 verify 写入 BDCLND/randsk 后再抓桌面页，否则 /s/1xxx 会在验证页之间循环重定向。
@@ -3111,6 +3103,11 @@ class CloudDriveManager: ObservableObject {
                 }
             }
 
+            // 对齐 iBox 报告中的 api/gettemplatevariable：必须跟在分享页上下文之后，并使用桌面分享页 Referer。
+            if let templateJSON = await fetchTemplateVariables(source: "桌面页后", referer: desktopShareURL) {
+                applyTemplateVariables(templateJSON, source: "桌面页后", files: &files)
+            }
+
             baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?shorturl=\(shortSurl)")
             let encodedRandsk = queryEncoded(randskForList)
             let randskQuery = encodedRandsk.isEmpty ? "" : "&sekey=\(encodedRandsk)"
@@ -3126,8 +3123,7 @@ class CloudDriveManager: ObservableObject {
             let listQueries = [
                 "https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)",
                 "https://pan.baidu.com/share/list?shorturl=\(encodedFullSurl)&\(listCommon)",
-                "https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)",
-                "https://pan.baidu.com/share/list?web=5&shorturl=\(encodedShortSurl)&\(listCommon)"
+                "https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)"
             ]
             var lastListError = ""
             for listURL in listQueries {
