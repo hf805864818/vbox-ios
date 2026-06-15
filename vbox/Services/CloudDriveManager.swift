@@ -2203,14 +2203,25 @@ class CloudDriveManager: ObservableObject {
             return nil
         }
 
+        var mediainfoFallback: PlayResult?
         do {
-            _ = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie, source: "ibox-mediainfo-probe")
+            mediainfoFallback = try await baiduGetDLNADlinkOnDevice(filePath: item.path, cookie: mergedCookie, source: "ibox-mediainfo-fallback")
             baiduLog("[Baidu-iBox] ✅ mediainfo 探测完成，继续 locatedownload")
         } catch {
             baiduLog("[Baidu-iBox] ⚠️ mediainfo 探测失败，继续 locatedownload：\(error.localizedDescription)")
             recordBaiduRouteDiagnostic(stage: "iBox", status: "mediainfo失败", detail: "path mediainfo 探测失败，继续 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: item.fileName)
         }
-        let refreshed = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
+        let refreshed: PlayResult
+        do {
+            refreshed = try await baiduGetLocatedownloadOnDevice(filePath: item.path, cookie: mergedCookie)
+        } catch {
+            if let mediainfoFallback {
+                baiduLog("[Baidu-iBox] ⚠️ locatedownload 失败，使用 mediainfo dlink 兜底：\(error.localizedDescription)")
+                refreshed = mediainfoFallback
+            } else {
+                throw error
+            }
+        }
 
         let finalFileName = item.fileName.isEmpty ? (fileName ?? item.path.split(separator: "/").last.map(String.init) ?? "") : item.fileName
         baiduStoreIBoxPlayItem(
@@ -2286,22 +2297,52 @@ class CloudDriveManager: ObservableObject {
         request.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=1".data(using: .utf8)
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = json["list"] as? [[String: Any]] else {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
 
+        let root = (json["data"] as? [String: Any]) ?? json
+        let list = root["list"] as? [[String: Any]]
+            ?? root["file_list"] as? [[String: Any]]
+            ?? root["records"] as? [[String: Any]]
+            ?? []
         let normalizedTarget = fileName.split(separator: "/").last.map(String.init) ?? fileName
+        let targetBase = (normalizedTarget as NSString).deletingPathExtension
+        let targetExt = (normalizedTarget as NSString).pathExtension
         for item in list {
             let name = item["server_filename"] as? String
                 ?? item["filename"] as? String
                 ?? item["name"] as? String
                 ?? ""
-            if name == normalizedTarget {
+            let nameBase = (name as NSString).deletingPathExtension
+            let nameExt = (name as NSString).pathExtension
+            if name == normalizedTarget || (!targetBase.isEmpty && nameBase.hasPrefix(targetBase) && (targetExt.isEmpty || nameExt == targetExt)) {
                 return item["path"] as? String ?? "\(Self.baiduIBoxTransferDir)/\(normalizedTarget)"
             }
         }
         return nil
+    }
+
+    private func baiduWaitForTransferredPath(fileName: String, cookie: String, preferredPath: String? = nil) async throws -> String {
+        if let preferredPath, !preferredPath.isEmpty {
+            baiduLog("[Baidu-Local] 转存返回目标 path：\(preferredPath)")
+            return preferredPath
+        }
+
+        var lastPath: String?
+        for attempt in 1...8 {
+            if attempt > 1 {
+                try? await Task.sleep(nanoseconds: UInt64(650_000_000 * min(attempt, 4)))
+            }
+            if let path = try await baiduFindExistingVboxPath(fileName: fileName, cookie: cookie) {
+                baiduLog("[Baidu-Local] ✅ 转存落盘确认成功：attempt=\(attempt), path=\(path)")
+                return path
+            }
+            lastPath = "\(Self.baiduIBoxTransferDir)/\(fileName.split(separator: "/").last.map(String.init) ?? fileName)"
+            baiduLog("[Baidu-Local] ⏳ 等待转存落盘：attempt=\(attempt)")
+        }
+
+        throw DriveError.noPlayURL("百度转存任务未确认落盘：\(lastPath ?? fileName)")
     }
 
     private func baiduTransferFileOnDevice(
@@ -2344,9 +2385,16 @@ class CloudDriveManager: ObservableObject {
 
         let errno = json["errno"] as? Int ?? -1
         if errno != 0 {
-            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? "errno=\(errno)"
+            let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
             baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg)")
             throw DriveError.noPlayURL("百度本机转存失败：\(msg)")
+        }
+
+        let taskID = json["task_id"] as? String
+            ?? (json["extra"] as? [String: Any])?["task_id"] as? String
+            ?? (json["request_id"] as? NSNumber)?.stringValue
+        if let taskID, !taskID.isEmpty {
+            baiduLog("[Baidu-Local] 转存返回任务标识：\(taskID)")
         }
 
         if let extra = json["extra"] as? [String: Any],
@@ -2358,7 +2406,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
-        return "\(Self.baiduIBoxTransferDir)/\(normalizedName)"
+        return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: cookie)
     }
 
     private func baiduCookieValue(_ cookie: String, named name: String) -> String? {
@@ -2373,6 +2421,42 @@ class CloudDriveManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func baiduErrorMessage(errno: Int, fallback: String? = nil) -> String {
+        switch errno {
+        case 0:
+            return "成功"
+        case -9:
+            return "提取码错误"
+        case -8:
+            return "目标目录或文件已存在"
+        case -7, -10:
+            return "账号登录态已过期，请重新扫码登录"
+        case -6:
+            return "身份验证失败，请重新登录百度网盘"
+        case -4, 4:
+            return "需要图形验证码或安全验证"
+        case 2:
+            return "参数错误或分享信息不完整"
+        case 5:
+            return "分享链接不存在或已失效"
+        case 10:
+            return "分享内容不存在或已被删除"
+        case 12:
+            return "分享内容违规或不可访问"
+        case 105:
+            return "百度风控限制，需要在网页完成验证后重试"
+        case 110:
+            return "分享文件不可转存"
+        case 111:
+            return "转存数量或目录限制"
+        case 115:
+            return "该文件禁止转存或下载"
+        default:
+            if let fallback, !fallback.isEmpty { return "\(fallback) (errno=\(errno))" }
+            return "errno=\(errno)"
+        }
     }
 
     private func baiduGetDLNADlinkOnDevice(filePath: String, cookie: String, source: String = "local-mediainfo") async throws -> PlayResult {
@@ -2418,7 +2502,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         let errno = json["errno"] as? Int ?? -1
-        let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+        let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String)
         baiduLog("[Baidu-DLNA] ❌ 未返回 dlink：errno=\(errno), msg=\(msg), fields=\(json.keys.sorted().joined(separator: ","))")
         throw DriveError.noPlayURL("百度 DLNA 未返回 dlink：\(msg)")
     }
@@ -2471,7 +2555,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         if let errno = json["errno"] as? Int, errno != 0 {
-            let msg = json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String ?? "errno=\(errno)"
+            let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String ?? json["msg"] as? String)
             baiduLog("[Baidu-LocalPCS] ❌ errno=\(errno), msg=\(msg)")
             throw DriveError.noPlayURL("百度本机取链失败：\(msg)")
         }
@@ -2641,15 +2725,29 @@ class CloudDriveManager: ObservableObject {
                 recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "转存成功", detail: "已转存到：\(filePath)", fsId: fsId, fileName: selected.name)
             }
 
+            var mediainfoFallback: PlayResult?
             do {
-                _ = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo-probe")
+                mediainfoFallback = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo")
                 baiduLog("[Baidu-iBoxRoute] ✅ mediainfo 探测完成，继续 locatedownload")
             } catch {
                 baiduLog("[Baidu-iBoxRoute] ⚠️ mediainfo 探测失败，继续 locatedownload：\(error.localizedDescription)")
                 recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "mediainfo失败", detail: "继续 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
             }
-            let rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-locatedownload")
-            let source = "\(sourcePrefix)-locatedownload"
+            let rawResult: PlayResult
+            let source: String
+            do {
+                rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-locatedownload")
+                source = "\(sourcePrefix)-locatedownload"
+            } catch {
+                if let mediainfoFallback {
+                    baiduLog("[Baidu-iBoxRoute] ⚠️ locatedownload 失败，使用 mediainfo dlink 兜底：\(error.localizedDescription)")
+                    recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "locatedownload失败", detail: "使用 mediainfo dlink 兜底：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
+                    rawResult = mediainfoFallback
+                    source = "\(sourcePrefix)-mediainfo-fallback"
+                } else {
+                    throw error
+                }
+            }
 
             let result = PlayResult(
                 url: rawResult.url,
@@ -2846,7 +2944,7 @@ class CloudDriveManager: ObservableObject {
                     URLQueryItem(name: "app_id", value: "250528"),
                     URLQueryItem(name: "web", value: "1"),
                     URLQueryItem(name: "bdstoken", value: bdstoken),
-                    URLQueryItem(name: "fields", value: #"["bdstoken","shareid","share_id","share_uk","uk","file_list","list","records","sign","timestamp"]"#)
+                    URLQueryItem(name: "fields", value: #"["bdstoken","token","uk","username","shareid","share_id","share_uk","sign","timestamp","file_list","filelist","list","records","shareinfo","share_info","yunData"]"#)
                 ]
                 guard let url = components.url else { return nil }
                 var request = URLRequest(url: url)
@@ -2934,10 +3032,8 @@ class CloudDriveManager: ObservableObject {
                     let preview = String(data: verifyData.prefix(200), encoding: .utf8) ?? ""
                     throw DriveError.noPlayURL("百度 iBox 验证返回非 JSON：\(preview)")
                 }
-                if errno == -9 { throw DriveError.noPlayURL("百度网盘：提取码错误") }
-                if errno == 4 { throw DriveError.noPlayURL("百度网盘：需要图形验证码") }
                 guard errno == 0 else {
-                    let msg = verifyJSON["errmsg"] as? String ?? verifyJSON["show_msg"] as? String ?? "errno=\(errno)"
+                    let msg = baiduErrorMessage(errno: errno, fallback: verifyJSON["errmsg"] as? String ?? verifyJSON["show_msg"] as? String)
                     throw DriveError.noPlayURL("百度 iBox 验证失败：\(msg)")
                 }
                 if let rawRandsk = verifyJSON["randsk"] as? String, !rawRandsk.isEmpty {
@@ -2985,14 +3081,11 @@ class CloudDriveManager: ObservableObject {
                 if shareUk.isEmpty { shareUk = stringValue(listRoot["share_uk"]).isEmpty ? stringValue(listRoot["uk"]) : stringValue(listRoot["share_uk"]) }
                 let errno = listJSON["errno"] as? Int ?? 0
                 if errno != 0 {
-                    lastListError = listJSON["errmsg"] as? String ?? listJSON["show_msg"] as? String ?? "errno=\(errno)"
+                    lastListError = baiduErrorMessage(errno: errno, fallback: listJSON["errmsg"] as? String ?? listJSON["show_msg"] as? String)
                     continue
                 }
-                let rawList = listRoot["list"] as? [[String: Any]]
-                    ?? listRoot["file_list"] as? [[String: Any]]
-                    ?? listRoot["records"] as? [[String: Any]]
-                    ?? []
-                files = parseFiles(rawList)
+                let listFiles = deepFiles(listJSON)
+                if !listFiles.isEmpty { files = listFiles }
                 if !files.isEmpty { break }
                 lastListError = "share/list 未返回文件，keys=\(Array(listRoot.keys).sorted().joined(separator: ","))"
             }
