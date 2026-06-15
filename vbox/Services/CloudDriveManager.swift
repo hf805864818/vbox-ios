@@ -2825,7 +2825,9 @@ class CloudDriveManager: ObservableObject {
         do {
             let shortSurl = baiduShortSurl(surl)
             // iBox 的密码分享顺序：先用 wap/init 预热 Cookie，再 share/verify 写 BDCLND，最后抓桌面 /s/1xxx 的 yunData。
-            let webUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            // iBox 是 iOS app，全程 iOS Safari Mobile UA。桌面 Chrome UA + 用户 STOKEN 会被百度判为非合法 web 登录态
+            // 触发桌面分享页 → 登录页的无限重定向（截图日志已多次验证），改用 iOS Safari UA。
+            let webUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
             let initURL = "https://pan.baidu.com/wap/init?surl=\(shortSurl)"
             let desktopShareURL = "https://pan.baidu.com/s/1\(shortSurl)"
             var iBoxCookie = cookie
@@ -2907,9 +2909,13 @@ class CloudDriveManager: ObservableObject {
             func deepFiles(_ value: Any) -> [BaiduFileItem] {
                 let normalized = parseJSONStringIfNeeded(value)
                 if let dict = normalized as? [String: Any] {
-                    for key in ["list", "file_list", "records", "filelist"] {
+                    for key in ["list", "file_list", "records", "filelist", "result", "data", "info"] {
                         if let rawList = dict[key] as? [[String: Any]] {
                             let parsed = parseFiles(rawList)
+                            if !parsed.isEmpty { return parsed }
+                        }
+                        if let nested = dict[key] {
+                            let parsed = deepFiles(nested)
                             if !parsed.isEmpty { return parsed }
                         }
                     }
