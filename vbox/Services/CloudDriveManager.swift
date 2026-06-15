@@ -2824,10 +2824,8 @@ class CloudDriveManager: ObservableObject {
 
         do {
             let shortSurl = baiduShortSurl(surl)
-            // iBox 的密码分享顺序：先用 wap/init 预热 Cookie，再 share/verify 写 BDCLND，最后抓桌面 /s/1xxx 的 yunData。
-            // iBox 是 iOS app，全程 iOS Safari Mobile UA。桌面 Chrome UA + 用户 STOKEN 会被百度判为非合法 web 登录态
-            // 触发桌面分享页 → 登录页的无限重定向（截图日志已多次验证），改用 iOS Safari UA。
-            let webUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+            // 按 iBox 抓包：分享验证与 share/list 使用 Mac Chrome UA，不是 iOS Safari UA。
+            let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
             let initURL = "https://pan.baidu.com/wap/init?surl=\(shortSurl)"
             let desktopShareURL = "https://pan.baidu.com/s/1\(shortSurl)"
             var iBoxCookie = cookie
@@ -2873,6 +2871,34 @@ class CloudDriveManager: ObservableObject {
                 var allowed = CharacterSet.urlQueryAllowed
                 allowed.remove(charactersIn: "&+=?#/")
                 return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+
+            func iBoxQueryEncoded(_ value: String, keepSlash: Bool = true) -> String {
+                var allowed = CharacterSet.urlQueryAllowed
+                allowed.remove(charactersIn: "&+=?#")
+                if !keepSlash { allowed.remove(charactersIn: "/") }
+                return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+
+            func cookieForShareList(_ cookie: String) -> String {
+                let dropNames: Set<String> = ["stoken", "stoken_bfess", "ptoken", "ptoken_bfess", "passid", "ubi_bfess", "randsk"]
+                return cookie
+                    .split(separator: ";")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { part in
+                        guard let name = part.split(separator: "=", maxSplits: 1).first?.lowercased() else { return false }
+                        return !dropNames.contains(String(name))
+                    }
+                    .joined(separator: "; ")
+            }
+
+            func isDirectory(_ item: [String: Any]) -> Bool {
+                let value = stringValue(item["isdir"])
+                return value == "1" || value.lowercased() == "true"
+            }
+
+            func parsePlayableFiles(_ rawList: [[String: Any]]) -> [BaiduFileItem] {
+                parseFiles(rawList.filter { !isDirectory($0) })
             }
 
             func parseJSONStringIfNeeded(_ value: Any) -> Any {
@@ -3059,13 +3085,14 @@ class CloudDriveManager: ObservableObject {
                 var verifyRequest = URLRequest(url: verifyURLObject)
                 verifyRequest.httpMethod = "POST"
                 verifyRequest.timeoutInterval = 18
-                verifyRequest.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+                verifyRequest.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
                 verifyRequest.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
                 verifyRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
-                verifyRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
                 verifyRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-                verifyRequest.setValue(initURL, forHTTPHeaderField: "Referer")
-                verifyRequest.httpBody = verifyBody.data(using: .utf8)
+                verifyRequest.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+                verifyRequest.setValue("*/*", forHTTPHeaderField: "Accept")
+                verifyRequest.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
+                verifyRequest.httpBody = "pwd=\(encodedPwd)".data(using: .utf8)
                 let (verifyData, verifyResponse) = try await session.data(for: verifyRequest)
                 if let sc = (verifyResponse as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
                     iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
@@ -3114,57 +3141,80 @@ class CloudDriveManager: ObservableObject {
                 applyTemplateVariables(templateJSON, source: "桌面页后", files: &files)
             }
 
-            baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?shorturl=\(shortSurl)")
-            let encodedRandsk = queryEncoded(randskForList)
+            baiduLog("[Baidu-iBoxRoute] ③ GET /share/list root shorturl=\(shortSurl)")
+            let encodedRandsk = iBoxQueryEncoded(randskForList, keepSlash: true)
             let encodedShortSurl = queryEncoded(shortSurl)
-            let encodedBdstoken = queryEncoded(bdstoken)
-            let encodedSign = queryEncoded(shareSign)
-            let encodedShareid = queryEncoded(shareid)
-            let encodedShareUk = queryEncoded(shareUk)
-            let bdstokenQuery = encodedBdstoken.isEmpty ? "" : "&bdstoken=\(encodedBdstoken)"
-            let signQuery = encodedSign.isEmpty ? "" : "&sign=\(encodedSign)"
-            let timestampQuery = shareTimestamp.isEmpty ? "" : "&timestamp=\(shareTimestamp)"
-            // 百度 share/list 必填参数：shareid + uk（来自 yunData/桌面页），缺一个就直接 errno=2 "参数不完整"
-            let shareidQuery = encodedShareid.isEmpty ? "" : "&shareid=\(encodedShareid)"
-            let ukQuery = encodedShareUk.isEmpty ? "" : "&uk=\(encodedShareUk)"
-            // iBox/网页 share/list 核心参数固定 web=1；BDCLND 已在 Cookie 中，sekey/randsk 根据百度返回形态做等价兜底。
-            let shareAuthQueries = encodedRandsk.isEmpty ? [""] : ["&sekey=\(encodedRandsk)", "&randsk=\(encodedRandsk)", ""]
-            var listQueries: [String] = []
-            for authQuery in shareAuthQueries {
-                let listCommon = "root=1&web=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(bdstokenQuery)\(signQuery)\(timestampQuery)\(shareidQuery)\(ukQuery)\(authQuery)"
-                listQueries.append("https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)")
-            }
             var lastListError = ""
-            for listURL in listQueries {
-                guard let listURLObject = URL(string: listURL) else { continue }
+
+            func requestShareList(_ listURL: String, source: String) async throws -> [String: Any]? {
+                guard let listURLObject = URL(string: listURL) else { return nil }
                 var listRequest = URLRequest(url: listURLObject)
                 listRequest.timeoutInterval = 18
-                listRequest.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
+                listRequest.setValue(cookieForShareList(iBoxCookie), forHTTPHeaderField: "Cookie")
                 listRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
-                // share/list 是桌面分享页发起的 AJAX，请求上下文必须使用 /s/1xxx 作为 Referer。
-                listRequest.setValue(desktopShareURL, forHTTPHeaderField: "Referer")
-                listRequest.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
-                listRequest.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+                listRequest.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+                listRequest.setValue("*/*", forHTTPHeaderField: "Accept")
+                listRequest.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
                 listRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
-                listRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-                let (listData, _) = try await session.data(for: listRequest)
+                let (listData, listResponse) = try await session.data(for: listRequest)
+                if let sc = (listResponse as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
+                    iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
+                }
                 guard let listJSON = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] else {
                     lastListError = String(data: listData.prefix(200), encoding: .utf8) ?? "非 JSON"
-                    continue
+                    return nil
                 }
-                let listRoot = (listJSON["data"] as? [String: Any]) ?? listJSON
-                if shareid.isEmpty { shareid = stringValue(listRoot["shareid"]).isEmpty ? stringValue(listRoot["share_id"]) : stringValue(listRoot["shareid"]) }
-                if shareUk.isEmpty { shareUk = stringValue(listRoot["share_uk"]).isEmpty ? stringValue(listRoot["uk"]) : stringValue(listRoot["share_uk"]) }
                 let errno = listJSON["errno"] as? Int ?? 0
                 if errno != 0 {
                     lastListError = baiduErrorMessage(errno: errno, fallback: listJSON["errmsg"] as? String ?? listJSON["show_msg"] as? String)
-                    baiduLog("[Baidu-iBoxRoute] share/list 失败：errno=\(errno), msg=\(lastListError), hasBDCLND=\(iBoxCookie.lowercased().contains("bdclnd=")), hasSTOKEN=\(iBoxCookie.lowercased().contains("stoken=")), url=\(listURL)")
-                    continue
+                    baiduLog("[Baidu-iBoxRoute] share/list(\(source)) 失败：errno=\(errno), msg=\(lastListError), hasBDCLND=\(iBoxCookie.lowercased().contains("bdclnd=")), shareCookieHasSTOKEN=\(cookieForShareList(iBoxCookie).lowercased().contains("stoken=")), url=\(listURL)")
+                    return nil
                 }
-                let listFiles = deepFiles(listJSON)
-                if !listFiles.isEmpty { files = listFiles }
-                if !files.isEmpty { break }
-                lastListError = "share/list 未返回文件，keys=\(Array(listRoot.keys).sorted().joined(separator: ","))"
+                return listJSON
+            }
+
+            let rootURL = "https://pan.baidu.com/share/list?web=5&app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&num=20&order=time&page=1&root=1&shorturl=\(encodedShortSurl)&showempty=0&view_mode=1&web=1"
+            var dirsToLoad: [String] = []
+            if let rootJSON = try await requestShareList(rootURL, source: "root-shorturl") {
+                let root = (rootJSON["data"] as? [String: Any]) ?? rootJSON
+                let rootShareid = stringValue(root["share_id"]).isEmpty ? stringValue(root["shareid"]) : stringValue(root["share_id"])
+                let rootUk = stringValue(root["uk"]).isEmpty ? stringValue(root["share_uk"]) : stringValue(root["uk"])
+                if !rootShareid.isEmpty { shareid = rootShareid }
+                if !rootUk.isEmpty { shareUk = rootUk }
+                if let rawList = root["list"] as? [[String: Any]] {
+                    let rootFiles = parsePlayableFiles(rawList)
+                    if !rootFiles.isEmpty { files.append(contentsOf: rootFiles) }
+                    dirsToLoad.append(contentsOf: rawList.filter { isDirectory($0) }.compactMap { item in
+                        let path = stringValue(item["path"])
+                        return path.isEmpty ? nil : path
+                    })
+                    baiduLog("[Baidu-iBoxRoute] root-shorturl 成功：shareid=\(!shareid.isEmpty), uk=\(!shareUk.isEmpty), files=\(rootFiles.count), dirs=\(dirsToLoad.count)")
+                }
+            }
+
+            if !shareid.isEmpty, !shareUk.isEmpty, !randskForList.isEmpty {
+                var seenDirs = Set<String>()
+                var index = 0
+                while index < dirsToLoad.count, index < 30 {
+                    let dir = dirsToLoad[index]
+                    index += 1
+                    guard !dir.isEmpty, !seenDirs.contains(dir) else { continue }
+                    seenDirs.insert(dir)
+                    let dirEncoded = iBoxQueryEncoded(dir, keepSlash: true)
+                    let dirURL = "https://pan.baidu.com/share/list?app_id=250528&bdstoken=&channel=chunlei&clienttype=0&desc=1&dir=\(dirEncoded)&is_from_web=true&num=100&order=other&page=1&sekey=\(encodedRandsk)&shareid=\(queryEncoded(shareid))&showempty=0&uk=\(queryEncoded(shareUk))&view_mode=1&web=1"
+                    if let dirJSON = try await requestShareList(dirURL, source: "dir") {
+                        let root = (dirJSON["data"] as? [String: Any]) ?? dirJSON
+                        if let rawList = root["list"] as? [[String: Any]] {
+                            let dirFiles = parsePlayableFiles(rawList)
+                            if !dirFiles.isEmpty { files.append(contentsOf: dirFiles) }
+                            dirsToLoad.append(contentsOf: rawList.filter { isDirectory($0) }.compactMap { item in
+                                let path = stringValue(item["path"])
+                                return path.isEmpty ? nil : path
+                            })
+                            baiduLog("[Baidu-iBoxRoute] dir-list 成功：dir=\(dir), files=\(dirFiles.count), subdirs=\(dirsToLoad.count - index)")
+                        }
+                    }
+                }
             }
 
             guard !shareid.isEmpty, !shareUk.isEmpty else {
