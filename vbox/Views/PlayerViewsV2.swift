@@ -543,26 +543,14 @@ class PlayerState: ObservableObject {
 
         do {
             let resolveStart = Date()
-            let result: PlayResult
-            do {
-                result = try await CloudDriveManager.shared.resolveBaiduPlayURLViaMainRoute(
-                    shareURL: shareURL,
-                    bduss: bduss,
-                    fsId: file.fsId,
-                    fileName: file.name,
-                    pcsCookie: pcsCookie
-                )
-                log("[Baidu-MainRoute] ✅ 第\(episodeNo)集主路链播放地址获取成功，耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
-            } catch {
-                log("[Baidu-MainRoute] ⚠️ 第\(episodeNo)集主路链失败，回落原百度播放链路：\(error.localizedDescription)")
-                result = try await CloudDriveManager.shared.resolveBaiduPlayURL(
-                    shareURL: shareURL,
-                    bduss: bduss,
-                    fsId: file.fsId,
-                    pcsCookie: pcsCookie
-                )
-                log("[Baidu-Fallback] ✅ 第\(episodeNo)集原百度播放链路获取成功，累计耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
-            }
+            let result = try await CloudDriveManager.shared.resolveBaiduPlayURLViaMainRoute(
+                shareURL: shareURL,
+                bduss: bduss,
+                fsId: file.fsId,
+                fileName: file.name,
+                pcsCookie: pcsCookie
+            )
+            log("[Baidu-iBoxRoute] ✅ 第\(episodeNo)集 iBox-style 路链播放地址获取成功，耗时=\(Int(Date().timeIntervalSince(resolveStart) * 1000))ms")
             if !reason.contains("刷新") && !reason.contains("重试") {
                 baiduStreamRetryCount = 0
             }
@@ -714,20 +702,16 @@ class PlayerState: ObservableObject {
 
     private func mergedBaiduStreamHeaders(_ headers: [String: String]) -> [String: String] {
         var merged = headers
-        let workerCookie = headerValue(headers, named: "Cookie")
-            ?? headerValue(headers, named: "X-Baidu-Pcs-Cookie")
-            ?? ""
+        let resultCookie = headerValue(headers, named: "Cookie") ?? ""
         let webCookie = normalizeBaiduCookie(baiduBduss)
-        let pcsCookie = normalizeBaiduCookie(baiduPcsCookie)
-        let finalCookie = mergeCookieStrings([workerCookie, webCookie, pcsCookie])
+        let finalCookie = mergeCookieStrings([resultCookie, webCookie])
 
         if !finalCookie.isEmpty {
             merged["Cookie"] = finalCookie
-            merged["X-Baidu-Pcs-Cookie"] = finalCookie
         }
 
         if headerValue(merged, named: "User-Agent") == nil {
-            merged["User-Agent"] = "netdisk;P2SP;2.2.101.236;netdisk;12.24.6;PHW110;android-android;12;JSbridge4.4.0;jointBridge;1.1.0;"
+            merged["User-Agent"] = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
         }
         if headerValue(merged, named: "Referer") == nil {
             merged["Referer"] = "https://pan.baidu.com/"
@@ -1036,8 +1020,12 @@ class PlayerState: ObservableObject {
                 finalURLString = localURL.absoluteString
                 log("[PlayerV2] 百度PCS走本地代理: \(finalURLString)")
             } else {
-                finalURLString = url
-                log("[PlayerV2] ⚠️ 百度本地代理创建失败，回退直连")
+                log("[PlayerV2] ❌ 百度本地代理创建失败，iBox-style 路线不回退直连")
+                await MainActor.run {
+                    loadError = "百度本地代理创建失败"
+                    isLoading = false
+                }
+                return
             }
         } else if isQuarkM3U8PlaybackURL(url) {
             if let localURL = DoubanImageProxyServer.shared.proxiedQuarkM3U8URL(for: url, headers: headers) {

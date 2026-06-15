@@ -452,7 +452,7 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
             let lower = cookie.lowercased()
             switch parent.driveType {
             case .baidu:
-                return lower.contains("bduss=") || lower.contains("stoken=")
+                return lower.contains("bduss=") && lower.contains("stoken=")
             case .ali:
                 return lower.contains("token") || lower.contains("login") || lower.contains("aliyun")
             case .quark:
