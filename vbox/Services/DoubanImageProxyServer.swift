@@ -1132,7 +1132,7 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
     }
 }
 
-private final class BaiduStreamSegmentCache {
+final class BaiduStreamSegmentCache {
     private struct Segment {
         let start: Int64
         let end: Int64
