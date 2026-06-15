@@ -637,6 +637,26 @@ class PlayerState: ObservableObject {
             let endTime = max(0, min(Double(end + 1) / total * duration, duration))
             return (start: startTime, end: endTime)
         }
+
+        // 计算预加载缓冲信息并输出到调试日志
+        let cachedBytes = ranges.reduce(Int64(0)) { acc, item in
+            guard let start = item["start"], let end = item["end"] else { return acc }
+            return acc + max(0, end - start + 1)
+        }
+        let cachedMB = Double(cachedBytes) / 1024.0 / 1024.0
+        let aheadRanges = baiduCachedTimeRanges.filter { $0.start > currentTime }
+        let aheadSeconds = aheadRanges.reduce(0.0) { $0 + max(0, $1.end - max($1.start, currentTime)) }
+        let memMB = Double(ProcessInfo.processInfo.physicalMemory) / 1024.0 / 1024.0 / 1024.0
+        let usedMB = Double(ReportMemory()) / 1024.0 / 1024.0
+        let bufferStatus: String
+        if aheadSeconds < 10 {
+            bufferStatus = "⚠️不足"
+        } else if aheadSeconds < 30 {
+            bufferStatus = "🟡一般"
+        } else {
+            bufferStatus = "🟢充足"
+        }
+        log("[预加载] 缓冲:\(String(format: "%.0f", aheadSeconds))秒\(bufferStatus) | 缓存:\(String(format: "%.1f", cachedMB))MB | 内存:\(String(format: "%.0f", usedMB))MB/\(String(format: "%.0f", memMB))GB")
     }
 
     func reportBaiduCacheProgressIfNeeded(force: Bool = false) {
