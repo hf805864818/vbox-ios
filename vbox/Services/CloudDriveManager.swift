@@ -16,9 +16,8 @@ class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
-    // 用户自己网盘里的转存根目录。iBox 抓包用的是 /我的资源/iBox（带 iBox 自家目录名），
-    // 我们改为独立的 /vbox 顶层目录，避免和 iBox 混淆，也方便用户在网盘里直接看到。
-    private static let baiduIBoxTransferDir = "/vbox"
+    // 严格对齐 iBox 百度路链：分享文件先转存到 iBox 固定目录，再从用户网盘路径取链播放。
+    private static let baiduIBoxTransferDir = "/我的资源/iBox"
 
     enum DriveType: String, CaseIterable {
         case ali = "ali"
@@ -2265,7 +2264,12 @@ class CloudDriveManager: ObservableObject {
 
     private func baiduEnsureVboxFolderLocal(cookie: String, bdstoken: String, referer: String) async throws {
         let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-        for folder in [Self.baiduIBoxTransferDir] {
+        if try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA) {
+            return
+        }
+
+        var lastResponse = ""
+        for folder in ["/我的资源", Self.baiduIBoxTransferDir] {
             var components = URLComponents(string: "https://pan.baidu.com/api/create")!
             components.queryItems = [
                 URLQueryItem(name: "a", value: "commit"),
@@ -2290,13 +2294,84 @@ class CloudDriveManager: ObservableObject {
             request.httpBody = "path=\(encodedPath)&size=0&isdir=1&block_list=\(encodedBlockList)&method=post".data(using: .utf8)
 
             let (data, _) = try await session.data(for: request)
+            lastResponse = String(data: data.prefix(220), encoding: .utf8) ?? ""
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errno = json["errno"] as? Int,
                errno == 0 || errno == -8 {
                 continue
             }
-            baiduLog("[Baidu-Local] ⚠️ \(folder) 创建响应：\(String(data: data.prefix(160), encoding: .utf8) ?? "")")
+            baiduLog("[Baidu-Local] ⚠️ api/create \(folder) 响应：\(lastResponse)")
+            try await baiduCreateFolderByFileManager(path: folder, cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA)
         }
+
+        guard try await baiduCanListTransferDir(cookie: cookie, bdstoken: bdstoken, referer: referer, userAgent: webUA) else {
+            throw DriveError.noPlayURL("百度 iBox 转存目录创建失败：\(lastResponse)")
+        }
+    }
+
+    private func baiduCreateFolderByFileManager(path: String, cookie: String, bdstoken: String, referer: String, userAgent: String) async throws {
+        var components = URLComponents(string: "https://pan.baidu.com/api/filemanager")!
+        components.queryItems = [
+            URLQueryItem(name: "opera", value: "create"),
+            URLQueryItem(name: "bdstoken", value: bdstoken),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 12
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        let encodedPath = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        request.httpBody = "path=\(encodedPath)&isdir=1&block_list=%5B%5D".data(using: .utf8)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errno = json["errno"] as? Int,
+              errno == 0 || errno == -8 else {
+            let preview = String(data: data.prefix(220), encoding: .utf8) ?? ""
+            baiduLog("[Baidu-Local] ⚠️ filemanager create \(path) 响应：\(preview)")
+            return
+        }
+        baiduLog("[Baidu-Local] ✅ filemanager create \(path) 成功或已存在")
+    }
+
+    private func baiduCanListTransferDir(cookie: String, bdstoken: String, referer: String, userAgent: String) async throws -> Bool {
+        var components = URLComponents(string: "https://pan.baidu.com/api/list")!
+        components.queryItems = [
+            URLQueryItem(name: "dir", value: Self.baiduIBoxTransferDir),
+            URLQueryItem(name: "order", value: "time"),
+            URLQueryItem(name: "desc", value: "1"),
+            URLQueryItem(name: "num", value: "1"),
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "bdstoken", value: bdstoken),
+            URLQueryItem(name: "channel", value: "chunlei"),
+            URLQueryItem(name: "web", value: "1"),
+            URLQueryItem(name: "app_id", value: "250528"),
+            URLQueryItem(name: "clienttype", value: "0")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 12
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        let (data, _) = try await session.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        let errno = json["errno"] as? Int ?? 0
+        if errno == 0 {
+            baiduLog("[Baidu-Local] ✅ iBox 转存目录可访问：\(Self.baiduIBoxTransferDir)")
+            return true
+        }
+        baiduLog("[Baidu-Local] ⚠️ iBox 转存目录不可访问：errno=\(errno)")
+        return false
     }
 
     private func baiduFindExistingVboxPath(fileName: String, cookie: String) async throws -> String? {
@@ -2376,23 +2451,27 @@ class CloudDriveManager: ObservableObject {
         cookie: String,
         referer: String
     ) async throws -> String {
-        var components = URLComponents(string: "https://pan.baidu.com/share/transfer")!
-        // 严格对齐 iBox 抓包：query 只保留 iBox 实际带的字段，不要带 ondup/async（那两个属于 body）
-        var queryItems = [
-            URLQueryItem(name: "shareid", value: shareid),
-            URLQueryItem(name: "from", value: shareUk),
-            URLQueryItem(name: "channel", value: "chunlei"),
-            URLQueryItem(name: "web", value: "1"),
-            URLQueryItem(name: "app_id", value: "250528"),
-            URLQueryItem(name: "clienttype", value: "0"),
-            URLQueryItem(name: "bdstoken", value: bdstoken)
+        // 严格对齐 iBox 抓包：share/transfer 的 sekey 优先使用 Cookie 里的 BDCLND 原始值。
+        // BDCLND 通常已经是百分号编码形态，不能再交给 URLQueryItem 二次编码，否则百度会认为分享信息不完整。
+        let rawSekey = baiduCookieValue(cookie, named: "BDCLND") ?? randsk ?? ""
+        var query = [
+            "shareid=\(baiduQueryEncoded(shareid))",
+            "from=\(baiduQueryEncoded(shareUk))",
+            "channel=chunlei",
+            "web=1",
+            "app_id=250528",
+            "clienttype=0",
+            "bdstoken=\(baiduQueryEncoded(bdstoken))"
         ]
-        if let randsk, !randsk.isEmpty {
-            queryItems.append(URLQueryItem(name: "sekey", value: randsk))
+        if !rawSekey.isEmpty {
+            let encodedSekey = rawSekey.contains("%") ? rawSekey : baiduQueryEncoded(rawSekey)
+            query.append("sekey=\(encodedSekey)")
         }
-        components.queryItems = queryItems
+        guard let transferURL = URL(string: "https://pan.baidu.com/share/transfer?\(query.joined(separator: "&"))") else {
+            throw DriveError.invalidShareURL
+        }
 
-        var request = URLRequest(url: components.url!)
+        var request = URLRequest(url: transferURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 25
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
@@ -2437,6 +2516,12 @@ class CloudDriveManager: ObservableObject {
 
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
         return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: cookie)
+    }
+
+    private func baiduQueryEncoded(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     private func baiduCookieValue(_ cookie: String, named name: String) -> String? {
@@ -2853,10 +2938,12 @@ class CloudDriveManager: ObservableObject {
 
         let contextKey = baiduShareContextKey(shareURL: shareURL, cookie: cookie)
         let verifyCooldownKey = "\(contextKey)|\(surl)|\(pwd ?? "")"
-        if let cached = baiduCachedShareContext(for: contextKey, currentPwd: pwd) {
+        if !returnAll, let cached = baiduCachedShareContext(for: contextKey, currentPwd: pwd) {
             baiduLog("[Baidu-ShareContext] ✅ 命中分享上下文缓存：source=\(cached.source), files=\(cached.files.count)")
             recordBaiduRouteDiagnostic(stage: "分享上下文", status: "缓存命中", detail: "命中 ShareContext：source=\(cached.source), files=\(cached.files.count)")
             return (cached.shareid, cached.shareUk, cached.bdstoken ?? "", cached.surl, cached.cookie, cached.files, cached.randsk ?? "")
+        } else if returnAll {
+            baiduLog("[Baidu-ShareContext] iBox 严格模式：跳过 ShareContext 缓存，重新验证分享上下文")
         }
 
         do {
