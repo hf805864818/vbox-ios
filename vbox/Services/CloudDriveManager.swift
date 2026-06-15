@@ -2764,6 +2764,12 @@ class CloudDriveManager: ObservableObject {
                 }
             }
 
+            func queryEncoded(_ value: String) -> String {
+                var allowed = CharacterSet.urlQueryAllowed
+                allowed.remove(charactersIn: "&+=?#/")
+                return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+
             baiduLog("[Baidu-iBoxRoute] ① GET /wap/init?surl=\(shortSurl)")
             guard let initURLObject = URL(string: initURL) else { throw DriveError.invalidShareURL }
             var initRequest = URLRequest(url: initURLObject)
@@ -2812,7 +2818,10 @@ class CloudDriveManager: ObservableObject {
                 verifyRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
                 verifyRequest.setValue(initURL, forHTTPHeaderField: "Referer")
                 verifyRequest.httpBody = verifyBody.data(using: .utf8)
-                let (verifyData, _) = try await session.data(for: verifyRequest)
+                let (verifyData, verifyResponse) = try await session.data(for: verifyRequest)
+                if let sc = (verifyResponse as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
+                    iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
+                }
                 guard let verifyJSON = try? JSONSerialization.jsonObject(with: verifyData) as? [String: Any],
                       let errno = verifyJSON["errno"] as? Int else {
                     let preview = String(data: verifyData.prefix(200), encoding: .utf8) ?? ""
@@ -2826,7 +2835,7 @@ class CloudDriveManager: ObservableObject {
                 }
                 if let rawRandsk = verifyJSON["randsk"] as? String, !rawRandsk.isEmpty {
                     let decodedRandsk = rawRandsk.removingPercentEncoding ?? rawRandsk
-                    randskForList = rawRandsk
+                    randskForList = decodedRandsk
                     iBoxCookie = baiduMergeCookieStrings([iBoxCookie, "BDCLND=\(rawRandsk); randsk=\(decodedRandsk)"])
                     baiduLog("[Baidu-iBoxRoute] ✅ verify 成功，已写入 BDCLND/randsk")
                 }
@@ -2834,10 +2843,16 @@ class CloudDriveManager: ObservableObject {
 
             baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?web=5&shorturl=\(shortSurl)")
             var files: [BaiduFileItem] = []
-            let encodedRandsk = randskForList.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? randskForList
+            let encodedRandsk = queryEncoded(randskForList)
             let randskQuery = encodedRandsk.isEmpty ? "" : "&randsk=\(encodedRandsk)"
+            let encodedShortSurl = queryEncoded(shortSurl)
+            let encodedFullSurl = queryEncoded(surl)
+            let listCommon = "root=1&web=5&channel=chunlei&web=1&app_id=250528&clienttype=0&dir=%2F&num=100&page=1&order=time&desc=1\(randskQuery)"
             let listQueries = [
-                "https://pan.baidu.com/share/list?shorturl=\(shortSurl)&root=1&web=5&channel=chunlei&app_id=250528&clienttype=0&dir=/\(randskQuery)"
+                "https://pan.baidu.com/share/list?shorturl=\(encodedShortSurl)&\(listCommon)",
+                "https://pan.baidu.com/share/list?web=5&shorturl=\(encodedShortSurl)&root=1&channel=chunlei&app_id=250528&clienttype=0&dir=%2F&num=100&page=1\(randskQuery)",
+                "https://pan.baidu.com/share/list?surl=\(encodedShortSurl)&\(listCommon)",
+                "https://pan.baidu.com/share/list?surl=\(encodedFullSurl)&\(listCommon)"
             ]
             var lastListError = ""
             for listURL in listQueries {
@@ -2848,6 +2863,8 @@ class CloudDriveManager: ObservableObject {
                 listRequest.setValue(webUA, forHTTPHeaderField: "User-Agent")
                 listRequest.setValue(initURL, forHTTPHeaderField: "Referer")
                 listRequest.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+                listRequest.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+                listRequest.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
                 listRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
                 let (listData, _) = try await session.data(for: listRequest)
                 guard let listJSON = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] else {
@@ -2868,7 +2885,7 @@ class CloudDriveManager: ObservableObject {
                     ?? []
                 files = parseFiles(rawList)
                 if !files.isEmpty { break }
-                lastListError = "share/list 未返回文件"
+                lastListError = "share/list 未返回文件，keys=\(Array(listRoot.keys).sorted().joined(separator: ","))"
             }
 
             guard !shareid.isEmpty, !shareUk.isEmpty else {

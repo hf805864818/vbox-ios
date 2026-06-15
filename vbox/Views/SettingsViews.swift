@@ -114,7 +114,7 @@ struct SettingsView: View {
                         Text("黑暗/浅色跟随手机外观")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.primary)
-                        Text("开启后黑暗模式和浅色模式会随系统外观切换；液态模式和磨砂模式始终需要手动点击切换。")
+                        Text("开启后会随系统外观切换；手动点击黑暗模式或浅色模式会立即生效，并自动关闭跟随系统。")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
