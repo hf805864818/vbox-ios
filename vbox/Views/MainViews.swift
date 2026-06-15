@@ -722,9 +722,12 @@ struct SearchView: View {
                 } else if isSearching && !isSearchLoading && searchResults.isEmpty {
                     // 已结束搜索但无结果：展示空态
                     VStack(spacing: 20) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray).padding(.top, 80)
+                        Spacer()
+                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(.gray)
                         Text("未找到结果").font(.system(size: 16)).foregroundColor(.gray)
+                        Spacer()
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     // 默认/搜索中：保持默认内容（搜索历史 + 豆瓣榜单），顶部以小条提示「搜索中」
                     ZStack(alignment: .top) {

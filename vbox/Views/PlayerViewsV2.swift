@@ -2765,6 +2765,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         private func inferredProfile(for url: URL) -> LibmpvMoltenVKPlayerCore.PlaybackProfile {
             let text = url.absoluteString.lowercased()
             let ext = url.pathExtension.lowercased()
+            if text.contains("baidu-stream") || text.contains("quark-stream") { return .httpStream }
             if ext == "mkv" || text.contains("mkv") { return .mkvLarge }
             if ext == "m3u8" { return .hlsFast }
             if ext == "mp4" || ext == "m4v" || ext == "mov" { return .mp4 }
