@@ -2100,8 +2100,8 @@ class CloudDriveManager: ObservableObject {
             return cached
         }
 
-        baiduLog("[Baidu-iBox] 文件列表走 iBox-style 本机路链：wap/init → verify → share/list")
-        recordBaiduRouteDiagnostic(stage: "文件列表", status: "iBox开始", detail: "本机 /wap/init + share/list(web=5)，不走 Worker")
+        baiduLog("[Baidu-iBox] 文件列表走 iBox-style 本机路链：wap/init → gettemplatevariable → verify → share/list")
+        recordBaiduRouteDiagnostic(stage: "文件列表", status: "iBox开始", detail: "本机 /wap/init + gettemplatevariable + share/list(web=5)，不走 Worker")
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: cookie, returnAll: true)
         let files = context.files
         baiduStoreFileList(files, for: cacheKey)
@@ -2561,7 +2561,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// iBox-style 百度主播放链路：
-    /// wap/init → verify → share/list → transfer → api/list → mediainfo/locatedownload。
+    /// wap/init → gettemplatevariable → verify → share/list → transfer → api/list → mediainfo/locatedownload。
     /// 失败时直接向调用方抛出错误，不再回落 Worker 或旧分享直链路。
     func resolveBaiduPlayURLViaMainRoute(
         shareURL: String,
@@ -2600,7 +2600,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         baiduLog("[Baidu-iBoxRoute] 开始 iBox-style 百度主路链：fsId=\(fsId), file=\(hintFileName ?? "未知")")
-        recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → verify → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
+        recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → gettemplatevariable → verify → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
 
         let pwd = extractBaiduPwd(from: shareURL)
         let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
@@ -2731,6 +2731,7 @@ class CloudDriveManager: ObservableObject {
             var iBoxCookie = cookie
             var shareid = ""
             var shareUk = ""
+            var bdstoken = ""
             var randskForList = ""
 
             func stringValue(_ value: Any?) -> String {
@@ -2770,6 +2771,108 @@ class CloudDriveManager: ObservableObject {
                 return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
             }
 
+            func parseJSONStringIfNeeded(_ value: Any) -> Any {
+                guard let text = value as? String else { return value }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+                      let data = trimmed.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) else {
+                    return value
+                }
+                return json
+            }
+
+            func deepString(_ value: Any, keys: Set<String>) -> String {
+                let normalized = parseJSONStringIfNeeded(value)
+                if let dict = normalized as? [String: Any] {
+                    for (key, raw) in dict where keys.contains(key.lowercased()) {
+                        let direct = stringValue(raw)
+                        if !direct.isEmpty { return direct }
+                    }
+                    for raw in dict.values {
+                        let found = deepString(raw, keys: keys)
+                        if !found.isEmpty { return found }
+                    }
+                } else if let array = normalized as? [Any] {
+                    for raw in array {
+                        let found = deepString(raw, keys: keys)
+                        if !found.isEmpty { return found }
+                    }
+                }
+                return ""
+            }
+
+            func deepFiles(_ value: Any) -> [BaiduFileItem] {
+                let normalized = parseJSONStringIfNeeded(value)
+                if let dict = normalized as? [String: Any] {
+                    for key in ["list", "file_list", "records", "filelist"] {
+                        if let rawList = dict[key] as? [[String: Any]] {
+                            let parsed = parseFiles(rawList)
+                            if !parsed.isEmpty { return parsed }
+                        }
+                    }
+                    for raw in dict.values {
+                        let found = deepFiles(raw)
+                        if !found.isEmpty { return found }
+                    }
+                } else if let rawList = normalized as? [[String: Any]] {
+                    let parsed = parseFiles(rawList)
+                    if !parsed.isEmpty { return parsed }
+                } else if let array = normalized as? [Any] {
+                    for raw in array {
+                        let found = deepFiles(raw)
+                        if !found.isEmpty { return found }
+                    }
+                }
+                return []
+            }
+
+            func applyTemplateVariables(_ json: [String: Any], source: String, files: inout [BaiduFileItem]) {
+                let templateBdstoken = deepString(json, keys: ["bdstoken"])
+                let templateShareid = deepString(json, keys: ["shareid", "share_id"])
+                let templateUk = deepString(json, keys: ["share_uk", "uk"])
+                let templateFiles = deepFiles(json)
+                if bdstoken.isEmpty, !templateBdstoken.isEmpty { bdstoken = templateBdstoken }
+                if shareid.isEmpty, !templateShareid.isEmpty { shareid = templateShareid }
+                if shareUk.isEmpty, !templateUk.isEmpty { shareUk = templateUk }
+                if files.isEmpty, !templateFiles.isEmpty { files = templateFiles }
+                baiduLog("[Baidu-iBoxRoute] \(source) templatevariable：bdstoken=\(!templateBdstoken.isEmpty), shareid=\(!templateShareid.isEmpty), uk=\(!templateUk.isEmpty), files=\(templateFiles.count), keys=\(json.keys.sorted().joined(separator: ","))")
+            }
+
+            func fetchTemplateVariables(source: String) async -> [String: Any]? {
+                var components = URLComponents(string: "https://pan.baidu.com/api/gettemplatevariable")!
+                components.queryItems = [
+                    URLQueryItem(name: "clienttype", value: "0"),
+                    URLQueryItem(name: "app_id", value: "250528"),
+                    URLQueryItem(name: "web", value: "1"),
+                    URLQueryItem(name: "bdstoken", value: bdstoken),
+                    URLQueryItem(name: "fields", value: #"["bdstoken","shareid","share_id","share_uk","uk","file_list","list","records","sign","timestamp"]"#)
+                ]
+                guard let url = components.url else { return nil }
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 15
+                request.setValue(iBoxCookie, forHTTPHeaderField: "Cookie")
+                request.setValue(webUA, forHTTPHeaderField: "User-Agent")
+                request.setValue(initURL, forHTTPHeaderField: "Referer")
+                request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+                request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+                do {
+                    let (data, response) = try await session.data(for: request)
+                    if let sc = (response as? HTTPURLResponse)?.allHeaderFields["Set-Cookie"] as? String {
+                        iBoxCookie = baiduMergeCookieStrings([iBoxCookie, sc])
+                    }
+                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        let preview = String(data: data.prefix(180), encoding: .utf8) ?? ""
+                        baiduLog("[Baidu-iBoxRoute] \(source) templatevariable 非 JSON：\(preview)")
+                        return nil
+                    }
+                    return json
+                } catch {
+                    baiduLog("[Baidu-iBoxRoute] \(source) templatevariable 失败：\(error.localizedDescription)")
+                    return nil
+                }
+            }
+
             baiduLog("[Baidu-iBoxRoute] ① GET /wap/init?surl=\(shortSurl)")
             guard let initURLObject = URL(string: initURL) else { throw DriveError.invalidShareURL }
             var initRequest = URLRequest(url: initURLObject)
@@ -2795,10 +2898,14 @@ class CloudDriveManager: ObservableObject {
                 #"share_uk=(\d+)"#,
                 #"data-uk="(\d+)""#
             ])
-            let bdstoken = firstHTMLValue(initHTML, patterns: [
+            bdstoken = firstHTMLValue(initHTML, patterns: [
                 #""bdstoken"\s*:\s*"([^"]+)""#,
                 #"bdstoken=([A-Za-z0-9_-]+)"#
             ])
+            var files: [BaiduFileItem] = []
+            if let templateJSON = await fetchTemplateVariables(source: "init后") {
+                applyTemplateVariables(templateJSON, source: "init后", files: &files)
+            }
 
             if let pwd, !pwd.isEmpty {
                 baiduLog("[Baidu-iBoxRoute] ② POST /share/verify?surl=\(shortSurl)")
@@ -2839,10 +2946,12 @@ class CloudDriveManager: ObservableObject {
                     iBoxCookie = baiduMergeCookieStrings([iBoxCookie, "BDCLND=\(rawRandsk); randsk=\(decodedRandsk)"])
                     baiduLog("[Baidu-iBoxRoute] ✅ verify 成功，已写入 BDCLND/randsk")
                 }
+                if let templateJSON = await fetchTemplateVariables(source: "verify后") {
+                    applyTemplateVariables(templateJSON, source: "verify后", files: &files)
+                }
             }
 
             baiduLog("[Baidu-iBoxRoute] ③ GET /share/list?web=5&shorturl=\(shortSurl)")
-            var files: [BaiduFileItem] = []
             let encodedRandsk = queryEncoded(randskForList)
             let randskQuery = encodedRandsk.isEmpty ? "" : "&randsk=\(encodedRandsk)"
             let encodedShortSurl = queryEncoded(shortSurl)
