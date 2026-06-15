@@ -2607,22 +2607,29 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func baiduWaitForTransferredPath(fileName: String, cookie: String, preferredPath: String? = nil) async throws -> String {
+        // 哪怕百度回了 preferredPath，也要走一次 api/list 复核，避免"接口报成功但文件未落盘"的静默失败。
         if let preferredPath, !preferredPath.isEmpty {
-            baiduLog("[Baidu-Local] 转存返回目标 path：\(preferredPath)")
-            return preferredPath
+            baiduLog("[Baidu-Local] 转存返回目标 path：\(preferredPath)，开始落盘复核")
         }
 
-        var lastPath: String?
-        for attempt in 1...8 {
+        var lastPath: String? = preferredPath
+        for attempt in 1...10 {
             if attempt > 1 {
-                try? await Task.sleep(nanoseconds: UInt64(650_000_000 * min(attempt, 4)))
+                try? await Task.sleep(nanoseconds: UInt64(700_000_000 * min(attempt, 5)))
             }
             if let path = try await baiduFindExistingVboxPath(fileName: fileName, cookie: cookie) {
                 baiduLog("[Baidu-Local] ✅ 转存落盘确认成功：attempt=\(attempt), path=\(path)")
                 return path
             }
-            lastPath = "\(Self.baiduIBoxTransferDir)/\(fileName.split(separator: "/").last.map(String.init) ?? fileName)"
-            baiduLog("[Baidu-Local] ⏳ 等待转存落盘：attempt=\(attempt)")
+            lastPath = preferredPath ?? "\(Self.baiduIBoxTransferDir)/\(fileName.split(separator: "/").last.map(String.init) ?? fileName)"
+            baiduLog("[Baidu-Local] ⏳ 等待转存落盘：attempt=\(attempt), 期望文件名=\(fileName)")
+        }
+
+        // 复核失败时，如果百度明确回了 preferredPath，仍按其路径继续——
+        // 让后续 mediainfo / locatedownload 真正暴露错误，而不是在这里早退。
+        if let preferredPath, !preferredPath.isEmpty {
+            baiduLog("[Baidu-Local] ⚠️ api/list 未发现 \(fileName)，但百度返回了 \(preferredPath)，强制继续后续播放链路")
+            return preferredPath
         }
 
         throw DriveError.noPlayURL("百度转存任务未确认落盘：\(lastPath ?? fileName)")
@@ -2674,23 +2681,32 @@ class CloudDriveManager: ObservableObject {
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         let transferPath = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
-        // 严格对齐 iBox 抓包：fsidlist 必须 URL 编码（[ ] 不能裸发，否则 errno=2），并补 async/ondup
+        // 严格对齐 iBox 抓包：fsidlist 必须 URL 编码（[ ] 不能裸发，否则 errno=2）
+        // async=2 表示同步转存，百度会等到落盘后才返回；若用 async=1 异步队列，
+        // 后台任务可能因 sekey 校验、风控等原因被静默丢弃，前端却看到 errno=0，
+        // 这就是 /vbox 目录已建但里面没有文件的根因。改为同步并 ondup=overwrite，
+        // 避免重复转存被识别为重名导致归档到其它子目录。
         let encodedFsidList = "[\(fsId)]".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "%5B\(fsId)%5D"
-        request.httpBody = "fsidlist=\(encodedFsidList)&path=\(transferPath)&async=1&ondup=newcopy".data(using: .utf8)
+        request.httpBody = "fsidlist=\(encodedFsidList)&path=\(transferPath)&async=2&ondup=overwrite".data(using: .utf8)
 
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let rawBody = String(data: data.prefix(800), encoding: .utf8) ?? ""
         guard status == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            baiduLog("[Baidu-Local] ❌ 本机转存 HTTP \(status), body=\(rawBody)")
             throw DriveError.noPlayURL("百度本机转存 HTTP \(status)")
         }
 
         let errno = json["errno"] as? Int ?? -1
         if errno != 0 {
             let msg = baiduErrorMessage(errno: errno, fallback: json["errmsg"] as? String ?? json["show_msg"] as? String)
-            baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg), hasBDCLND=\(transferCookie.lowercased().contains("bdclnd=")), hasBDUSS=\(transferCookie.lowercased().contains("bduss=")), hasSTOKEN=\(transferCookie.lowercased().contains("stoken="))")
+            baiduLog("[Baidu-Local] ❌ 本机转存失败：\(msg), body=\(rawBody), hasBDCLND=\(transferCookie.lowercased().contains("bdclnd=")), hasBDUSS=\(transferCookie.lowercased().contains("bduss=")), hasSTOKEN=\(transferCookie.lowercased().contains("stoken="))")
             throw DriveError.noPlayURL("百度本机转存失败：\(msg)")
         }
+
+        // 完整记录响应，便于排查"errno=0 但文件未落盘"的静默失败
+        baiduLog("[Baidu-Local] 转存响应原文：\(rawBody)")
 
         let taskID = json["task_id"] as? String
             ?? (json["extra"] as? [String: Any])?["task_id"] as? String
@@ -2699,16 +2715,35 @@ class CloudDriveManager: ObservableObject {
             baiduLog("[Baidu-Local] 转存返回任务标识：\(taskID)")
         }
 
+        // 优先解析 extra.list[0].to —— 同步模式百度会直接返回最终落盘绝对路径
         if let extra = json["extra"] as? [String: Any],
            let list = extra["list"] as? [[String: Any]],
-           let first = list.first,
-           let to = first["to"] as? String,
-           !to.isEmpty {
-            return to
+           let first = list.first {
+            // iBox 抓包字段：to / to_path / target_path / dest 都可能出现
+            let to = (first["to"] as? String)
+                ?? (first["to_path"] as? String)
+                ?? (first["target_path"] as? String)
+                ?? (first["dest"] as? String)
+                ?? ""
+            if !to.isEmpty {
+                baiduLog("[Baidu-Local] ✅ 同步转存落盘路径：\(to)")
+                // 二次回查，确保 api/list 真的能看到（某些情况下 to 字段返回但仍处在索引中）
+                let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
+                return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie, preferredPath: to)
+            }
+            // 同步模式下 list 为空说明转存被静默拒绝
+            if list.isEmpty {
+                baiduLog("[Baidu-Local] ⚠️ 转存返回 errno=0 但 extra.list 为空，疑似被风控丢弃")
+            }
         }
 
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
-        return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
+        do {
+            return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
+        } catch {
+            baiduLog("[Baidu-Local] ❌ 同步转存后仍未在 /vbox 中找到文件：\(normalizedName)，原始响应=\(rawBody)")
+            throw error
+        }
     }
 
     /// share/list 可以使用匿名分享态验证，但 share/transfer 属于账号转存动作。
