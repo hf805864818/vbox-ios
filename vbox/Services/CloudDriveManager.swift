@@ -17,7 +17,9 @@ class CloudDriveManager: ObservableObject {
     static let shared = CloudDriveManager()
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
     // 严格对齐 iBox 百度路链：分享文件先转存到 iBox 固定目录，再从用户网盘路径取链播放。
-    private static let baiduIBoxTransferDir = "/我的资源/iBox"
+    // 注意：百度 API 的真实根路径是 "/"；App 里看到的“我的资源”是 UI 分类名，不应写进 API path。
+    // 因此这里请求用 "/iBox"，在百度网盘 UI 里会显示为“我的资源/iBox”。
+    private static let baiduIBoxTransferDir = "/iBox"
 
     enum DriveType: String, CaseIterable {
         case ali = "ali"
@@ -2348,7 +2350,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         var lastResponse = ""
-        for folder in ["/我的资源", Self.baiduIBoxTransferDir] {
+        for folder in [Self.baiduIBoxTransferDir] {
             var components = URLComponents(string: "https://pan.baidu.com/api/create")!
             components.queryItems = [
                 URLQueryItem(name: "a", value: "commit"),
@@ -2528,6 +2530,7 @@ class CloudDriveManager: ObservableObject {
         fsId: String,
         fileName: String,
         cookie: String,
+        accountCookie: String,
         referer: String
     ) async throws -> String {
         // 严格对齐 iBox 抓包：share/transfer 的 sekey 优先使用 Cookie 里的 BDCLND 原始值。
@@ -2594,7 +2597,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         let normalizedName = fileName.split(separator: "/").last.map(String.init) ?? fileName
-        return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: cookie)
+        return try await baiduWaitForTransferredPath(fileName: normalizedName, cookie: accountCookie)
     }
 
     private func baiduQueryEncoded(_ value: String) -> String {
@@ -2894,7 +2897,8 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("主路链未找到目标文件")
         }
 
-        let mergedCookie = baiduMergeCookieStrings([context.cookie, webCookie])
+        let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
+        let mergedCookie = baiduMergeCookieStrings([context.cookie, accountCookie])
         guard !mergedCookie.isEmpty else {
             recordBaiduRouteDiagnostic(stage: "主路链", status: "Cookie缺失", detail: "无法合并 BDUSS/STOKEN Cookie", fsId: fsId, fileName: selected.name)
             throw DriveError.noPlayURL("主路链缺少百度 Cookie")
@@ -2902,9 +2906,10 @@ class CloudDriveManager: ObservableObject {
 
         do {
             // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
-            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: mergedCookie) ?? context.bdstoken
-            try await baiduEnsureVboxFolderLocal(cookie: mergedCookie, bdstoken: userBdstoken, referer: shareURL)
-            let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: mergedCookie)
+            // 创建目录/列用户网盘目录只能用账号 Cookie；share/transfer 再使用账号 Cookie + BDCLND 的混合 Cookie。
+            let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: accountCookie) ?? context.bdstoken
+            try await baiduEnsureVboxFolderLocal(cookie: accountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/home")
+            let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: accountCookie)
             let filePath: String
             let sourcePrefix: String
             if let existingPath {
@@ -2921,6 +2926,7 @@ class CloudDriveManager: ObservableObject {
                     fsId: selected.fsId,
                     fileName: selected.name,
                     cookie: mergedCookie,
+                    accountCookie: accountCookie,
                     referer: shareURL
                 )
                 sourcePrefix = "main-transfer"
