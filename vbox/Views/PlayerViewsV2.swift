@@ -1203,20 +1203,13 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
-        } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable && quarkFallbackURL == nil {
+        } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链兼容")
             log("[Quark] 自动模式下夸克直链优先使用 VLC 兼容内核，减少 AVPlayer 首帧慢和 12847 兼容问题")
-        } else if isQuarkLocalProxy && enginePreference == .auto && quarkFallbackURL != nil {
-            await MainActor.run {
-                playbackEngineMode = .system
-                compatibilityHint = nil
-            }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "夸克m3u8兜底可用")
-            log("[Quark] 已启用 m3u8 兜底，原画主线路先用系统内核观察失败/超时")
         } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
