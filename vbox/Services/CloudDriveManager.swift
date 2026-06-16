@@ -1699,11 +1699,11 @@ class CloudDriveManager: ObservableObject {
         quarkSetCommonHeaders(&req, cookie: cookie)
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try? await session.data(for: req)
+        let deleteResult = try? await session.data(for: req)
         print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
 
         // 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
-        if let data = data,
+        if let data = deleteResult?.0,
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let taskId = json["task_id"] as? String {
             // 等待删除任务完成
@@ -1719,7 +1719,8 @@ class CloudDriveManager: ObservableObject {
             recycleReq.timeoutInterval = 10
             quarkSetCommonHeaders(&recycleReq, cookie: cookie)
 
-            if let (recycleData, _) = try? await session.data(for: recycleReq),
+            let recycleResult = try? await session.data(for: recycleReq)
+            if let recycleData = recycleResult?.0,
                let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
                let list = recycleJSON["data"] as? [[String: Any]] {
                 // 找到刚删除的文件记录
