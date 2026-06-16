@@ -435,7 +435,7 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
                     var inputs = document.querySelectorAll('input, textarea');
                     for (var i = 0; i < inputs.length; i++) {
                         var val = inputs[i].value || inputs[i].textContent || '';
-                        if (val.length > 100 && val.indexOf('ey') === 0) return val;
+                        if (val.length > 100 && val.startsWith('ey')) return val;
                     }
                     return '';
                 })();
