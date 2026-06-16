@@ -1517,8 +1517,112 @@ class CloudDriveManager: ObservableObject {
             return visibleFolder
         }
 
+        // 创建失败可能是空间满了，尝试清理网盘中的大文件（包括iBox等转存的文件）
+        print("[Quark] ⚠️ vbox 目录创建失败，尝试清理网盘空间...")
+        do {
+            let cleanedCookie = try await quarkCleanUpLargeFiles(cookie: cookie)
+            if let visibleFolder = try? await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie) {
+                return visibleFolder
+            }
+        } catch {
+            print("[Quark] ⚠️ 清理空间失败：\(error.localizedDescription)")
+        }
+
         print("[Quark] ❌ vbox 目录创建/查找失败，不回退到默认转存目录")
         throw DriveError.noPlayURL("夸克：无法创建 vbox 文件夹，请检查网盘空间是否已满")
+    }
+
+    /// 清理网盘中的大文件（包括iBox等转存的文件），释放空间
+    private func quarkCleanUpLargeFiles(cookie: String) async throws -> String {
+        var currentCookie = cookie
+        // 1. 查找根目录下的大文件和文件夹
+        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
+        var request = URLRequest(url: listURL)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let body: [String: Any] = [
+            "pdir_fid": "0",
+            "_page": 1,
+            "_size": 100,
+            "_fetch_total": 1,
+            "_sort": "file_type:asc,updated_at:desc"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["list"] as? [[String: Any]] else {
+            return currentCookie
+        }
+
+        // 收集要删除的文件/文件夹ID（排除vbox文件夹）
+        var fileIdsToDelete: [String] = []
+        for item in list {
+            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+            let fid = item["fid"] as? String ?? ""
+            let size = item["size"] as? Int64 ?? 0
+            let isDir = item["dir"] as? Bool ?? false
+            // 排除vbox文件夹，删除其他大文件/文件夹（>100MB或是文件夹）
+            if name.lowercased() != "vbox", !fid.isEmpty {
+                if isDir || size > 100 * 1024 * 1024 {
+                    fileIdsToDelete.append(fid)
+                    print("[Quark] 标记清理：\(name) \(isDir ? "(文件夹)" : "(\(size) bytes)")")
+                }
+            }
+        }
+
+        // 2. 删除标记的文件/文件夹
+        if !fileIdsToDelete.isEmpty {
+            let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
+            var deleteReq = URLRequest(url: deleteURL)
+            deleteReq.httpMethod = "POST"
+            quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
+            let deleteBody: [String: Any] = [
+                "action_type": 2,
+                "filelist": fileIdsToDelete,
+                "exclude_fids": []
+            ]
+            deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
+            let _ = try? await session.data(for: deleteReq)
+            print("[Quark] ✅ 已清理 \(fileIdsToDelete.count) 个大文件/文件夹")
+
+            // 3. 彻底清理回收站
+            try? await quarkEmptyRecycleBin(cookie: currentCookie)
+        }
+
+        return currentCookie
+    }
+
+    /// 彻底清空回收站
+    private func quarkEmptyRecycleBin(cookie: String) async throws {
+        // 先获取回收站列表
+        let listURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [URLQueryItem(name: "_page", value: "1"), URLQueryItem(name: "_size", value: "100")])
+        var listReq = URLRequest(url: listURL)
+        listReq.httpMethod = "GET"
+        quarkSetCommonHeaders(&listReq, cookie: cookie)
+        let (listData, _) = try await session.data(for: listReq)
+        if let listJSON = try? JSONSerialization.jsonObject(with: listData) as? [String: Any],
+           let dataObj = listJSON["data"] as? [String: Any],
+           let list = dataObj["list"] as? [[String: Any]], !list.isEmpty {
+            var recordIds: [String] = []
+            for item in list {
+                if let rid = item["record_id"] as? String, !rid.isEmpty {
+                    recordIds.append(rid)
+                }
+            }
+            if !recordIds.isEmpty {
+                let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
+                var removeReq = URLRequest(url: removeURL)
+                removeReq.httpMethod = "POST"
+                quarkSetCommonHeaders(&removeReq, cookie: cookie)
+                let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
+                removeReq.httpBody = try JSONSerialization.data(withJSONObject: removeBody)
+                let _ = try? await session.data(for: removeReq)
+                print("[Quark] ✅ 回收站已彻底清理 \(recordIds.count) 条记录")
+            }
+        }
     }
 
     private func quarkFindOrCreateVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String) {
@@ -1961,11 +2065,18 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 对齐iBox原画抓包：调用 acquire_dl_token 获取加速下载token
+    /// 注意：这个接口的Host是 drive-social-api.quark.cn，不是 drive-pc.quark.cn
     private func quarkAcquireDLToken(cookie: String) async throws -> String {
-        let url = quarkAPIURL("/1/clouddrive/chat/conv/file/acquire_dl_token", extra: [
+        var components = URLComponents(string: "https://drive-social-api.quark.cn/1/clouddrive/chat/conv/file/acquire_dl_token")!
+        components.queryItems = [
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
             URLQueryItem(name: "sys", value: "darwin"),
             URLQueryItem(name: "ve", value: "3.19.0")
-        ])
+        ]
+        guard let url = components.url else {
+            throw DriveError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
