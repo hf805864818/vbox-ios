@@ -1288,6 +1288,13 @@ class CloudDriveManager: ObservableObject {
         }
 
         let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
+        // 保存refresh_token到cookie，下次download请求可用
+        if let rt = download.refreshToken, !rt.isEmpty {
+            var cookieDict = quarkCookieDictionary(from: authCookie)
+            cookieDict["refresh_token"] = rt
+            authCookie = quarkCookieString(from: cookieDict)
+            print("[Quark] refresh_token 已保存到cookie")
+        }
         let playURL: String
         let source: String
         if !download.url.isEmpty {
@@ -1414,16 +1421,26 @@ class CloudDriveManager: ObservableObject {
         return components.url!
     }
 
+    /// 生成稳定的 X-Device-ID（对齐iBox原画抓包）
+    private var quarkDeviceID: String {
+        if let cached = UserDefaults.standard.string(forKey: "quark_device_id"), !cached.isEmpty {
+            return cached
+        }
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        UserDefaults.standard.set(id, forKey: "quark_device_id")
+        return id
+    }
+
     private func quarkPlaybackHeaders(cookie: String) -> [String: String] {
-        // 抓包显示 PC 客户端拉取 download_url 直链时用的就是 quark-cloud-drive 的 PC UA。
-        // 切换为移动 UA 容易让签名链返回 403/未知错误，这里统一与 API 阶段保持一致。
+        // 对齐iBox原画抓包：使用移动端UA + X-Device-ID，Range请求播放更流畅
         [
             "Cookie": cookie,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
             "Referer": "https://pan.quark.cn/",
             "Origin": "https://pan.quark.cn",
             "Accept": "*/*",
-            "Accept-Encoding": "identity"
+            "Accept-Encoding": "identity",
+            "X-Device-Id": quarkDeviceID
         ]
     }
 
@@ -1950,12 +1967,22 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String) {
+    private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String, refreshToken: String?) {
         let url = quarkAPIURL("/1/clouddrive/file/download")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["fids": [fileId]])
+        // 对齐iBox原画抓包：增加 speedup_session 和 token（refresh_token）
+        var body: [String: Any] = [
+            "fids": [fileId],
+            "speedup_session": ""
+        ]
+        // 尝试从cookie字典中提取refresh_token
+        let cookieDict = quarkCookieDictionary(from: cookie)
+        if let refreshToken = cookieDict["refresh_token"], !refreshToken.isEmpty {
+            body["token"] = refreshToken
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
@@ -1970,7 +1997,14 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = first["download_url"] as? String ?? ""
         let fileName = first["file_name"] as? String ?? ""
-        return (downloadURL, fileName)
+        // 提取并保存 refresh_token（metadata.refresh_token）
+        var refreshToken: String? = nil
+        if let metadata = json["metadata"] as? [String: Any],
+           let rt = metadata["refresh_token"] as? String, !rt.isEmpty {
+            refreshToken = rt
+            print("[Quark] 获取到 refresh_token，用于加速下载")
+        }
+        return (downloadURL, fileName, refreshToken)
     }
 
     private func quarkGetPlayURL(fileId: String, cookie: String) async throws -> String {
