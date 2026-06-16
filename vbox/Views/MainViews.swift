@@ -1032,22 +1032,9 @@ struct SearchBar: View {
 }
 
 struct SearchSuggestionsView: View {
-    private let hotSearches = ["三体", "狂飙", "庆余年", "繁花", "肖申克的救赎"]
-    private let recentSearches = ["黑袍纠察队", "权力的游戏", "绝命毒师"]
     var onSelect: (String) -> Void = { _ in }
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack { Image(systemName: "flame.fill").foregroundColor(Color(hex: "E11D48")); Text("热门搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary) }
-                    FlowLayout(spacing: 10) { ForEach(hotSearches, id: \.self) { kw in KeywordButton(keyword: kw, onSelect: onSelect) } }
-                }.padding(.horizontal, 16)
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack { Image(systemName: "clock.fill").foregroundColor(Color(hex: "E11D48")); Text("最近搜索").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary) }
-                    ForEach(recentSearches, id: \.self) { kw in RecentSearchRow(keyword: kw, onSelect: onSelect) }
-                }.padding(.horizontal, 16)
-            }.padding(.vertical, 20)
-        }.background(Color(uiColor: .systemBackground))
+        Color(uiColor: .systemBackground)
     }
 }
 

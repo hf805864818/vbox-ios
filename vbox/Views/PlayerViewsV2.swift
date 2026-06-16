@@ -20,13 +20,21 @@ extension Notification.Name {
 
 // 屏幕方向辅助类
 class OrientationHelper {
+    static var currentOrientationMask: UIInterfaceOrientationMask = .all
+    
     static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
+        currentOrientationMask = orientation
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
+            // 强制立即生效：通过发送设备旋转通知
+            let key = orientation == .landscape ? UIInterfaceOrientation.landscapeRight : UIInterfaceOrientation.portrait
+            UIDevice.current.setValue(key.rawValue, forKey: "orientation")
+            UINavigationController.attemptRotationToDeviceOrientation()
         }
     }
     
     static func unlockOrientation() {
+        currentOrientationMask = .all
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
         }
@@ -42,6 +50,193 @@ class OrientationHelper {
         // 方案3: 触发系统旋转
         UINavigationController.attemptRotationToDeviceOrientation()
     }
+}
+
+// MARK: - 画中画/小窗口辅助类
+class PiPHelper: NSObject {
+    static let shared = PiPHelper()
+    
+    private var pipController: AVPictureInPictureController?
+    private var pipStatusObserver: Any?
+    private var floatingWindow: UIWindow?
+    private var floatingPlayerView: UIView?
+    private var isFloatingMode = false
+    
+    private override init() { super.init() }
+    
+    // MARK: - AVPlayer 原生画中画
+    func setupPiP(for player: AVPlayer) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            print("[PiP] 当前设备不支持画中画")
+            return
+        }
+        
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        
+        let pipContentSource = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: nil,
+            playerLayer: playerLayer
+        )
+        
+        pipController = AVPictureInPictureController(contentSource: pipContentSource)
+        pipController?.delegate = self
+        
+        pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible, options: .new) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+            }
+        }
+        
+        pipController?.startPictureInPicture()
+    }
+    
+    func stopPiP() {
+        pipController?.stopPictureInPicture()
+    }
+    
+    var isPiPPossible: Bool {
+        return pipController?.isPictureInPicturePossible ?? false
+    }
+    
+    // MARK: - 浮动小窗口（用于 VLC/MPV 等非 AVPlayer 内核）
+    func showFloatingWindow(sourceView: UIView) {
+        guard !isFloatingMode else { return }
+        isFloatingMode = true
+        
+        let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        guard let scene = windowScene else { return }
+        
+        let window = UIWindow(windowScene: scene)
+        window.windowLevel = .statusBar + 1
+        window.backgroundColor = .clear
+        window.isHidden = false
+        
+        let containerView = UIView(frame: CGRect(x: scene.screen.bounds.width - 220, y: 80, width: 200, height: 112))
+        containerView.backgroundColor = .black
+        containerView.layer.cornerRadius = 12
+        containerView.layer.masksToBounds = true
+        containerView.layer.shadowColor = UIColor.black.cgColor
+        containerView.layer.shadowOpacity = 0.5
+        containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        containerView.layer.shadowRadius = 12
+        
+        // 从源视图截图作为占位（实际播放视图需要通过其他方式传递）
+        if let snapshot = sourceView.snapshotView(afterScreenUpdates: true) {
+            snapshot.frame = containerView.bounds
+            containerView.addSubview(snapshot)
+        }
+        
+        // 关闭按钮
+        let closeBtn = UIButton(frame: CGRect(x: containerView.bounds.width - 32, y: 4, width: 28, height: 28))
+        closeBtn.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeBtn.tintColor = .white
+        closeBtn.addTarget(self, action: #selector(hideFloatingWindow), for: .touchUpInside)
+        containerView.addSubview(closeBtn)
+        
+        // 添加拖拽手势
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        containerView.addGestureRecognizer(panGesture)
+        
+        // 双击恢复全屏
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap))
+        doubleTap.numberOfTapsRequired = 2
+        containerView.addGestureRecognizer(doubleTap)
+        
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap))
+        tapGesture.require(toFail: doubleTap)
+        containerView.addGestureRecognizer(tapGesture)
+        
+        window.rootViewController = UIViewController()
+        window.rootViewController?.view.addSubview(containerView)
+        
+        floatingWindow = window
+        floatingPlayerView = containerView
+        
+        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+    }
+    
+    @objc func hideFloatingWindow() {
+        floatingWindow?.isHidden = true
+        floatingWindow = nil
+        floatingPlayerView = nil
+        isFloatingMode = false
+        
+        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+    }
+    
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        let superview = view.superview
+        let translation = gesture.translation(in: superview)
+        
+        view.center = CGPoint(x: view.center.x + translation.x, y: view.center.y + translation.y)
+        gesture.setTranslation(.zero, in: superview)
+        
+        if gesture.state == .ended {
+            // 吸附到最近的边缘
+            let screenBounds = UIScreen.main.bounds
+            var targetX: CGFloat
+            if view.center.x < screenBounds.width / 2 {
+                targetX = view.bounds.width / 2 + 8
+            } else {
+                targetX = screenBounds.width - view.bounds.width / 2 - 8
+            }
+            // 限制 Y 范围
+            let minY = view.bounds.height / 2 + 50
+            let maxY = screenBounds.height - view.bounds.height / 2 - 50
+            let targetY = min(max(view.center.y, minY), maxY)
+            
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5) {
+                view.center = CGPoint(x: targetX, y: targetY)
+            }
+        }
+    }
+    
+    @objc private func handleDoubleTap() {
+        hideFloatingWindow()
+        NotificationCenter.default.post(name: .vboxPiPRestoreFullScreen, object: nil)
+    }
+    
+    @objc private func handleSingleTap() {
+        // 单击暂停/播放
+        NotificationCenter.default.post(name: .vboxPiPTogglePlayPause, object: nil)
+    }
+    
+    func updateFloatingSnapshot(_ snapshot: UIImage?) {
+        guard let containerView = floatingPlayerView else { return }
+        // 移除旧的截图视图
+        containerView.subviews.first(where: { $0 is UIImageView })?.removeFromSuperview()
+        guard let image = snapshot else { return }
+        let imageView = UIImageView(image: image)
+        imageView.frame = containerView.bounds
+        imageView.contentMode = .scaleAspectFill
+        containerView.insertSubview(imageView, at: 0)
+    }
+    
+    var isFloating: Bool { isFloatingMode }
+}
+
+extension PiPHelper: AVPictureInPictureControllerDelegate {
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+    }
+    
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+    }
+    
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        print("[PiP] 启动画中画失败: \(error.localizedDescription)")
+        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+    }
+}
+
+// MARK: - PiP 相关通知
+extension Notification.Name {
+    static let vboxPiPStatusChanged = Notification.Name("vbox.pip.statusChanged")
+    static let vboxPiPRestoreFullScreen = Notification.Name("vbox.pip.restoreFullScreen")
+    static let vboxPiPTogglePlayPause = Notification.Name("vbox.pip.togglePlayPause")
 }
 
 // MARK: - 新版本播放器 (爱奇艺风格) - 简化版本，确保编译通过
@@ -155,6 +350,28 @@ class PlayerState: ObservableObject {
         }
     }
 
+    enum VideoGravityMode: String, CaseIterable {
+        case aspectFill = "填充"
+        case aspectFit = "适应"
+        case resize = "拉伸"
+
+        var avGravity: AVLayerVideoGravity {
+            switch self {
+            case .aspectFill: return .resizeAspectFill
+            case .aspectFit: return .resizeAspect
+            case .resize: return .resize
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .aspectFill: return "arrow.up.left.and.arrow.down.right"
+            case .aspectFit: return "aspectratio"
+            case .resize: return "arrow.left.and.right"
+            }
+        }
+    }
+
     @Published var player: AVPlayer?
     @Published var isPlaying = true
     @Published var showControls = true
@@ -179,6 +396,8 @@ class PlayerState: ObservableObject {
     @Published var danmakuSpeed: Double = 1.0       // 弹幕滚动速度倍率 0.5/0.75/1.0/1.5/2.0
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
+    @Published var isPiPActive = false
+    @Published var videoGravity: VideoGravityMode = .aspectFill
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
     @Published var danmakuItems: [DanmakuRenderItem] = []
@@ -2372,13 +2591,51 @@ struct PlayerControlsView: View {
                 
                 Spacer()
                 
+                // 画中画/小窗口按钮
+                Button(action: {
+                    togglePiP()
+                }) {
+                    Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                
+                // 屏幕拉伸按钮
+                Button(action: {
+                    let allModes = PlayerState.VideoGravityMode.allCases
+                    if let idx = allModes.firstIndex(of: playerState.videoGravity) {
+                        let nextIdx = (idx + 1) % allModes.count
+                        playerState.videoGravity = allModes[nextIdx]
+                    }
+                }) {
+                    Image(systemName: playerState.videoGravity.icon)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                
                 // 屏幕锁定按钮
                 Button(action: { 
                     playerState.isOrientationLocked.toggle()
                     if playerState.isOrientationLocked {
                         OrientationHelper.lockOrientation(.landscape)
+                        // 锁定后自动隐藏控制栏，防止误触
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showControls = false
+                            }
+                        }
                     } else {
                         OrientationHelper.unlockOrientation()
+                        // 解锁后显示控制栏
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            playerState.showControls = true
+                        }
                     }
                 }) {
                     Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
@@ -2603,6 +2860,33 @@ struct PlayerControlsView: View {
                 EnginePickerPanelV2(playerState: playerState)
             }
         )
+    }
+    
+    private func togglePiP() {
+        if playerState.isPiPActive {
+            // 关闭画中画/小窗口
+            if playerState.compatibilityURL != nil {
+                // VLC/MPV: 关闭浮动窗口
+                PiPHelper.shared.hideFloatingWindow()
+            } else {
+                // AVPlayer: 停止原生画中画
+                PiPHelper.shared.stopPiP()
+            }
+            playerState.isPiPActive = false
+        } else {
+            // 开启画中画/小窗口
+            if playerState.compatibilityURL != nil {
+                // VLC/MPV: 使用浮动小窗口
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
+                }
+            } else if let avPlayer = player {
+                // AVPlayer: 使用系统原生画中画
+                PiPHelper.shared.setupPiP(for: avPlayer)
+            }
+            playerState.isPiPActive = true
+        }
     }
     
     private func formatTime(_ time: Double) -> String {

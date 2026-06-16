@@ -1513,22 +1513,39 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
-        if let visibleFolder = try? await quarkFindOrCreateVisibleFolder(cookie: cookie) {
-            return visibleFolder
+        // 像百度路链一样，先独立查找已有vbox文件夹（避免不必要的创建请求）
+        print("[Quark] 🔍 开始查找vbox文件夹...")
+        if let existing = try? await quarkFindVisibleFolder(cookie: cookie) {
+            print("[Quark] ✅ 使用已有 vbox 文件夹 fid=\(existing.folderId)")
+            return existing
+        }
+        print("[Quark] 📁 未找到vbox文件夹，尝试创建...")
+
+        // 没找到，尝试创建（可能被人删了或首次使用）
+        do {
+            return try await quarkFindOrCreateVisibleFolder(cookie: cookie)
+        } catch {
+            print("[Quark] ⚠️ vbox 创建失败: \(error.localizedDescription)")
         }
 
-        // 创建失败可能是空间满了，尝试清理/vbox/目录下的旧转存文件
-        print("[Quark] ⚠️ vbox 目录创建失败，尝试清理vbox旧文件...")
+        // 创建失败（可能是"已存在"但file/sort没查出来），尝试清理后重新查找
+        print("[Quark] ⚠️ vbox 目录创建失败，尝试查找 + 清理兜底...")
         do {
             let cleanedCookie = try await quarkCleanUpVboxFiles(cookie: cookie)
-            if let visibleFolder = try? await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie) {
-                return visibleFolder
+            // 清理后再次独立查找（文件夹大概率已经存在了）
+            if let existing = try? await quarkFindVisibleFolder(cookie: cleanedCookie) {
+                print("[Quark] ✅ 清理后找到已有 vbox 文件夹 fid=\(existing.folderId)")
+                return existing
+            }
+            // 还没找到就最后试一次创建
+            if let retried = try? await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie) {
+                return retried
             }
         } catch {
             print("[Quark] ⚠️ 清理vbox文件失败：\(error.localizedDescription)")
         }
 
-        print("[Quark] ❌ vbox 目录创建/查找失败，不回退到默认转存目录")
+        print("[Quark] ❌ vbox 目录创建/查找彻底失败，不回退到默认转存目录")
         throw DriveError.noPlayURL("夸克：无法创建 vbox 文件夹，请检查网盘空间是否已满")
     }
 
@@ -1626,25 +1643,39 @@ class CloudDriveManager: ObservableObject {
             return (fid, mergedCookie)
         }
 
-        // 检查是否因为"已存在"而失败
+        // 检查是否因为"已存在"而失败（覆盖夸克API各种返回格式）
         let message = (json["message"] as? String ?? json["msg"] as? String ?? "").lowercased()
-        let isAlreadyExists = message.contains("已存在") || message.contains("exist") || message.contains("同名")
         let code = json["code"] as? Int ?? json["status"] as? Int ?? 0
+        let isAlreadyExists = message.contains("已存在")
+            || message.contains("exist")
+            || message.contains("同名")
+            || message.contains("already")
+            || message.contains("重复")
+            || message.contains("冲突")
+            || code == 40003
+            || code == 40001
+            || code == 40005   // 文件/目录已存在
 
-        if isAlreadyExists || code == 40003 || code == 40001 {
-            print("[Quark] ⚠️ vbox 目录已存在，尝试重新查找...")
+        if isAlreadyExists {
+            print("[Quark] ⚠️ vbox 目录已存在(code=\(code), message=\(message))，尝试重新查找...")
             if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie) {
                 print("[Quark] ✅ 找到已存在的 vbox 文件夹 fid=\(folder.folderId)")
                 return folder
             }
+            print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
+            if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
+                print("[Quark] ✅ 从创建响应提取到 fid=\(fid)")
+                return (fid, mergedCookie)
+            }
+            print("[Quark] ⚠️ 创建响应也没有 fid，查看完整响应诊断: \(preview)")
         }
 
         if code != 0 && code != 200 {
-            print("[Quark] ❌ 创建 vbox 目录失败: \(message), code=\(code), preview=\(preview)")
-            throw DriveError.noPlayURL("夸克创建 vbox 目录失败：\(message)")
+            print("[Quark] ❌ 创建 vbox 目录失败: message=\(message), code=\(code), preview=\(preview)")
+            throw DriveError.noPlayURL("夸克创建 vbox 目录失败：\(message) (code=\(code))")
         }
 
-        print("[Quark] ❌ 创建 vbox 目录成功但未返回 fid: \(preview)")
+        print("[Quark] ❌ 创建 vbox 目录成功(status=\(code))但未返回 fid: \(preview)")
         throw DriveError.noPlayURL("夸克创建 vbox 目录后未返回 fid")
     }
 
