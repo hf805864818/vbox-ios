@@ -1203,13 +1203,20 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
+        } else if isQuarkLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "夸克网盘直链"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链优先MPV")
+            log("[Quark] 自动模式下夸克直链优先使用 MPV-MoltenVK，与百度一致")
         } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链兼容")
-            log("[Quark] 自动模式下夸克直链优先使用 VLC 兼容内核，减少 AVPlayer 首帧慢和 12847 兼容问题")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链MPV不可用降级VLC")
+            log("[Quark] MPV 不可用，降级使用 VLC 兼容内核")
         } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
