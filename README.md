@@ -1,4 +1,4 @@
-# vbox - iOS 聚合视频播放器
+# vbox - iOS 聚合视频播放器(自用)
 
 基于 Myapp3.1 (TVBox 架构) 逆向分析的 iOS 移植版本。
 
