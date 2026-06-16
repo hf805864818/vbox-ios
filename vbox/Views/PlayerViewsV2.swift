@@ -2848,8 +2848,8 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             let media = VLCMedia(url: url)
             var options: [AnyHashable: Any] = [:]
             // 增加网络缓存，减少夸克/百度直链播放时的卡顿（默认300ms太小）
-            options["network-caching"] = 5000
-            options["file-caching"] = 5000
+            options["network-caching"] = 20000
+            options["file-caching"] = 20000
             if let ua = headers.first(where: { $0.key.lowercased() == "user-agent" })?.value {
                 options["http-user-agent"] = ua
             }
