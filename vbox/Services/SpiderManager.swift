@@ -284,6 +284,33 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     private func loadSitesFromSubscription() async {
+        // 先加载内置 ibox_sources.json（无论用户是否添加了订阅源）
+        var iboxSites: [SiteConfig] = []
+        if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
+           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
+            do {
+                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                iboxSites = iboxConfig.sites
+                print("[SpiderManager] 从 ibox_sources.json 读取了 \(iboxSites.count) 个站点")
+            } catch {
+                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+            }
+        } else {
+            // 尝试不带 inDirectory 的路径（文件夹引用可能扁平化）
+            if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json"),
+               let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
+                do {
+                    let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                    iboxSites = iboxConfig.sites
+                    print("[SpiderManager] 从 Bundle 根目录读取 ibox_sources.json: \(iboxSites.count) 个站点")
+                } catch {
+                    print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+                }
+            } else {
+                print("[SpiderManager] ⚠️ 未找到 ibox_sources.json")
+            }
+        }
+
         // 如果 subManager.config 为空但之前通过 apiyuan 转换过站点，
         // 从 subManager 的内部加载
         guard let config = subManager.config else {
@@ -292,6 +319,11 @@ globalThis.__JS_SPIDER__ = _spider;
                 self.allSites = subManager.allSites
                 loadedSiteCount = allSites.count
                 print("[SpiderManager] 从 subManager.allSites 加载 \(loadedSiteCount) 个站点")
+            } else if !iboxSites.isEmpty {
+                // 没有订阅源，使用内置 ibox 站点
+                self.allSites = iboxSites
+                loadedSiteCount = allSites.count
+                print("[SpiderManager] 无订阅源，使用内置 ibox_sources: \(loadedSiteCount) 个站点")
             } else {
                 errorMessage = "订阅源配置为空"
                 return
@@ -307,21 +339,14 @@ globalThis.__JS_SPIDER__ = _spider;
         self.allSites = config.sites
         loadedSiteCount = allSites.count
 
-        // 0. 加载内置 ibox_sources.json 并合并站点
-        if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
-           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)),
-           let iboxText = String(data: iboxData, encoding: .utf8) {
-            do {
-                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
-                let existingKeys = Set(allSites.map { $0.key })
-                let newSites = iboxConfig.sites.filter { !existingKeys.contains($0.key) }
-                if !newSites.isEmpty {
-                    self.allSites.append(contentsOf: newSites)
-                    loadedSiteCount = allSites.count
-                    print("[SpiderManager] 从 ibox_sources.json 加载了 \(newSites.count) 个站点，总计: \(loadedSiteCount)")
-                }
-            } catch {
-                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+        // 合并内置 ibox 站点（去重）
+        if !iboxSites.isEmpty {
+            let existingKeys = Set(allSites.map { $0.key })
+            let newSites = iboxSites.filter { !existingKeys.contains($0.key) }
+            if !newSites.isEmpty {
+                self.allSites.append(contentsOf: newSites)
+                loadedSiteCount = allSites.count
+                print("[SpiderManager] 从 ibox_sources.json 合并了 \(newSites.count) 个站点，总计: \(loadedSiteCount)")
             }
         }
 
