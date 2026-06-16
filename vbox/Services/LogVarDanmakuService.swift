@@ -93,8 +93,78 @@ class LogVarDanmakuService: ObservableObject {
     }
 
     func matchAndFetch(fileName: String) async -> [LogVarDanmakuItem] {
-        guard let episodeId = await matchEpisode(fileName: fileName) else { return [] }
-        return await fetchDanmaku(episodeId: episodeId)
+        print("[Danmaku] matchAndFetch 开始，输入: \(fileName)")
+        
+        // 路径1: 通过 match API 匹配
+        if let episodeId = await matchEpisode(fileName: fileName) {
+            print("[Danmaku] ✅ match成功，episodeId=\(episodeId)")
+            let items = await fetchDanmaku(episodeId: episodeId)
+            if !items.isEmpty {
+                print("[Danmaku] ✅ 获取到 \(items.count) 条弹幕")
+                return items
+            }
+            print("[Danmaku] ⚠️ episodeId=\(episodeId) 但弹幕为空")
+        } else {
+            print("[Danmaku] ⚠️ match失败，尝试 searchAnime fallback...")
+        }
+        
+        // 路径2: match 失败时，提取剧名通过 searchAnime 搜索
+        let animeName = extractAnimeName(from: fileName)
+        guard !animeName.isEmpty else {
+            print("[Danmaku] ❌ 无法从文件名提取剧名: \(fileName)")
+            return []
+        }
+        print("[Danmaku] 尝试搜索剧名: \(animeName)")
+        
+        if let animeId = await searchAnime(keyword: animeName) {
+            print("[Danmaku] ✅ searchAnime成功，animeId=\(animeId)")
+            // 尝试从文件名提取集数
+            let episode = extractEpisodeNumber(from: fileName)
+            let items = await fetchDanmaku(animeId: animeId, episode: episode)
+            if !items.isEmpty {
+                print("[Danmaku] ✅ 通过searchAnime获取到 \(items.count) 条弹幕")
+                return items
+            }
+            print("[Danmaku] ⚠️ animeId=\(animeId) episode=\(episode) 弹幕为空")
+        } else {
+            print("[Danmaku] ❌ searchAnime也失败: \(animeName)")
+        }
+        
+        return []
+    }
+    
+    /// 从文件名提取剧名（去掉集数、季数、后缀等）
+    private func extractAnimeName(from fileName: String) -> String {
+        var name = (fileName as NSString).deletingPathExtension
+        // 去掉常见的前缀/后缀标记
+        name = name
+            .replacingOccurrences(of: #"\[[^\]]+\]|\([^\)]*\)|【[^】]+】"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[\s._\-]+(?:S\d{1,2})?(?:E\d{1,3})?(?:EP?\d{1,3})?$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"第\s*\d{1,3}\s*[集话话期].*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name
+    }
+    
+    /// 从文件名提取集数（默认第1集）
+    private func extractEpisodeNumber(from fileName: String) -> Int {
+        let name = (fileName as NSString).deletingPathExtension
+        // 匹配 E01, EP01, 第1集 等格式
+        let patterns = [
+            #"[Ee][Pp]?(\d{1,3})(?:\b|[^0-9])"#,
+            #"第\s*(\d{1,3})\s*[集话话期]"#,
+            #"\.\s*(\d{1,3})\s*\."#
+        ]
+        for pattern in patterns {
+            if let match = name.range(of: pattern, options: .regularExpression),
+               let range = Range(match, in: name) {
+                let numStr = String(name[range]).filter { $0.isNumber }
+                if let num = Int(numStr), num > 0 {
+                    return num
+                }
+            }
+        }
+        return 1
     }
 
     private func fetchDanmaku(url: URL, cacheKey: String) async -> [LogVarDanmakuItem] {
