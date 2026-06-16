@@ -91,7 +91,7 @@ class WKWebViewParser: NSObject {
         timeoutTimer = nil
         if let wv = webView {
             wv.stopLoading()
-            wv.configuration.userContentController.removeAllUserContentControllerMessageHandlers()
+            wv.configuration.userContentController.removeScriptMessageHandler(forName: "parserHandler")
             webView = nil
         }
     }
