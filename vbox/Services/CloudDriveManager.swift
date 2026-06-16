@@ -990,6 +990,8 @@ class CloudDriveManager: ObservableObject {
         if url.contains("pan.baidu.com") { return .baidu }
         if url.contains("115.com") || url.contains("115cdn.com") { return .one15 }
         if url.contains("uc.cn") || url.contains("ucloud.cn") { return .uc }
+        if url.contains("123pan.com") || url.contains("123cloud.cn") { return .ali }  // 123云盘暂用阿里解析
+        if url.contains("yun.139.com") { return .uc }  // 天翼云盘暂用UC解析
         return nil
     }
 

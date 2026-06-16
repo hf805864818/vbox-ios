@@ -125,6 +125,18 @@
       "name": "备用解析",
       "url": "https://jx.aidouer.net/?url=",
       "type": 0
+    },
+    {
+      "name": "iBox主解析",
+      "type": 0,
+      "url": "http://124.222.116.5:8080/parse?url=",
+      "ext": {"flag": ["qq","腾讯","iqiyi","爱奇艺","youku","优酷","mgtv","芒果","bilibili","哔哩","sohu","搜狐"]}
+    },
+    {
+      "name": "iBox备用解析",
+      "type": 0,
+      "url": "http://103.254.150.215:9640/tunefree/parse?url=",
+      "ext": {"flag": ["qq","腾讯","iqiyi","爱奇艺","youku","优酷","mgtv","芒果","bilibili","哔哩"]}
     }
   ]
 }
