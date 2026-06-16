@@ -782,7 +782,8 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        var components = URLComponents(string: "https://su.uc.cn/4_eMHBJ")!
+        // 对齐iBox UC扫码：使用 drive.uc.cn 域名，避免跳转到夸克
+        var components = URLComponents(string: "https://drive.uc.cn/desktop/account/login")!
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
@@ -790,7 +791,7 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/4_eMHBJ?token=\(token)&client_id=\(clientId)&ssb=weblogin"
+        return components.url?.absoluteString ?? "https://drive.uc.cn/desktop/account/login?token=\(token)&client_id=\(clientId)&ssb=weblogin"
     }
 
     private func timestampMS() -> String {
