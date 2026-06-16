@@ -95,7 +95,7 @@ jobs:
           path: vbox.ipa
           compression-level: 0
 
-      - name: 🚀 Release
+      - name: 🚀 Release to A Repo
         run: |
           gh release delete "v${{ steps.get_version.outputs.MARKETING_VERSION }}" --yes 2>/dev/null || true
           gh release create "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
@@ -104,3 +104,17 @@ jobs:
             vbox.ipa
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: 🚀 Sync Release to B Repo
+        run: |
+          # 先在 B 仓库删除同名 release（如果存在）
+          gh release delete "v${{ steps.get_version.outputs.MARKETING_VERSION }}" --yes \
+            --repo ${{ secrets.B_REPO_OWNER }}/${{ secrets.B_REPO_NAME }} 2>/dev/null || true
+          # 在 B 仓库创建相同的 release
+          gh release create "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
+            --repo ${{ secrets.B_REPO_OWNER }}/${{ secrets.B_REPO_NAME }} \
+            --title "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
+            --notes "版本 ${{ steps.get_version.outputs.MARKETING_VERSION }} (build ${{ steps.get_version.outputs.BUILD_NUM }})" \
+            vbox.ipa
+        env:
+          GH_TOKEN: ${{ secrets.B_REPO_TOKEN }}

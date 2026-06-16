@@ -15,8 +15,9 @@ class UpdateManager: ObservableObject {
     @Published var releaseNotes = ""
     @Published var updateError: String?
 
-    private let repoOwner = "hf805864818"
-    private let repoName = "vbox-ios"
+    // B 仓库配置 — APP 从这里检查更新和下载 IPA
+    private let repoOwner = "B账号用户名"  // 替换为 B 仓库的 GitHub 用户名
+    private let repoName = "B仓库名"       // 替换为 B 仓库的名称
 
     private var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3"
