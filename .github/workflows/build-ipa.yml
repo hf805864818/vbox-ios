@@ -118,22 +118,21 @@ jobs:
       - name: 📖 获取版本号
         id: get_version
         run: |
-          # 从 git tag 或默认值获取版本号
-          VERSION="${GITHUB_REF_NAME}"
-          if [[ ! "$VERSION" =~ ^v[0-9] ]]; then
-            VERSION="v3.262"
+          # 从 A 仓库的 Release 标签获取版本号
+          VERSION=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
+          if [ -z "$VERSION" ]; then
+            VERSION="v3.264"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "同步版本: $VERSION"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: 🚀 Sync Release to B Repo
         run: |
           # 检查 B 仓库配置是否完整
           if [ -z "$B_REPO_TOKEN" ] || [ -z "$B_REPO_OWNER" ] || [ -z "$B_REPO_NAME" ]; then
             echo "⚠️ B 仓库 Secret 未配置，跳过同步"
-            echo "请在 A 仓库 Settings → Secrets → Actions 中添加:"
-            echo "  - B_REPO_TOKEN: B 账号的 Personal Access Token"
-            echo "  - B_REPO_OWNER: B 仓库的用户名"
-            echo "  - B_REPO_NAME: B 仓库的名称"
             exit 0
           fi
           # 查找 IPA 文件
@@ -143,6 +142,20 @@ jobs:
             exit 1
           fi
           echo "✅ B 仓库配置完整，IPA: $IPA_PATH，开始同步到 $B_REPO_OWNER/$B_REPO_NAME"
+          
+          # 检查 B 仓库是否有初始提交，没有则创建一个
+          B_REPO_EXISTS=$(gh repo view $B_REPO_OWNER/$B_REPO_NAME --json isEmpty -q '.isEmpty' 2>/dev/null || echo "true")
+          if [ "$B_REPO_EXISTS" = "true" ]; then
+            echo "📦 B 仓库为空，初始化..."
+            gh repo clone $B_REPO_OWNER/$B_REPO_NAME /tmp/b-repo 2>/dev/null || true
+            cd /tmp/b-repo
+            echo "# vbox-release" > README.md
+            echo "自动同步的 IPA 发布仓库" >> README.md
+            git add . && git commit -m "init" && git push origin main
+            cd -
+            rm -rf /tmp/b-repo
+          fi
+          
           gh release delete "${{ steps.get_version.outputs.VERSION }}" --yes \
             --repo $B_REPO_OWNER/$B_REPO_NAME 2>/dev/null || true
           gh release create "${{ steps.get_version.outputs.VERSION }}" \
