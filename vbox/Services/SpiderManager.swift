@@ -887,16 +887,21 @@ globalThis.__JS_SPIDER__ = _spider;
             return
         }
 
-        // 3. 并发搜索，每个站搜完立刻回调
-        await withTaskGroup(of: [VodItem]?.self) { group in
-            for site in sites.prefix(8) {
-                group.addTask {
-                    await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+        // 3. 分批并发搜索，每批10个，边搜边展示结果
+        let batchSize = 10
+        let allSites = Array(sites)
+        for batchStart in stride(from: 0, to: allSites.count, by: batchSize) {
+            let batch = Array(allSites[batchStart..<min(batchStart + batchSize, allSites.count)])
+            await withTaskGroup(of: [VodItem]?.self) { group in
+                for site in batch {
+                    group.addTask {
+                        await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                    }
                 }
-            }
-            for await items in group {
-                if let items = items, !items.isEmpty {
-                    onBatch(items)
+                for await items in group {
+                    if let items = items, !items.isEmpty {
+                        onBatch(items)
+                    }
                 }
             }
         }
@@ -989,21 +994,25 @@ globalThis.__JS_SPIDER__ = _spider;
 
         print("[SpiderManager] nativeSearch 合并搜索站点 \(mergedSites.count) 个（订阅\(subSites.count) + 兜底）")
 
-        // 并发搜索（限制并发数避免爆内存）
-        await withTaskGroup(of: [VodItem]?.self) { group in
-            // 每批最多搜 8 个站
-            for site in mergedSites.prefix(8) {
-                group.addTask {
-                    await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+        // 分批并发搜索，每批10个，支持全部站点参与搜索
+        let batchSize = 10
+        let allSites = Array(mergedSites)
+        for batchStart in stride(from: 0, to: allSites.count, by: batchSize) {
+            let batch = Array(allSites[batchStart..<min(batchStart + batchSize, allSites.count)])
+            await withTaskGroup(of: [VodItem]?.self) { group in
+                for site in batch {
+                    group.addTask {
+                        await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                    }
                 }
-            }
-            for await items in group {
-                if let items = items {
-                    for item in items {
-                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                        if !seenIds.contains(id) {
-                            seenIds.insert(id)
-                            allResults.append(item)
+                for await items in group {
+                    if let items = items {
+                        for item in items {
+                            let id = item.vodId.isEmpty ? item.vodName : item.vodId
+                            if !seenIds.contains(id) {
+                                seenIds.insert(id)
+                                allResults.append(item)
+                            }
                         }
                     }
                 }
@@ -1016,15 +1025,24 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 搜索单个 API 站点
     private func searchOneSite(name: String, api: String, keyword: String) async -> [VodItem]? {
-        // 构造搜索URL：兼容 api 已含参数 和 纯基地址 两种情况
+        // 构造搜索URL：兼容多种API格式
         let searchURL: String
         if api.hasSuffix("=") || api.hasSuffix("&") {
             // api 已含查询参数（如 apiyuan 的 searchurl），直接拼关键词
             searchURL = api + keyword
+        } else if api.hasSuffix("?") {
+            searchURL = api + "wd=" + keyword
+        } else if api.contains("?") {
+            searchURL = api + "&wd=" + keyword
+        } else if api.hasSuffix("/search") || api.hasSuffix("/search.html") {
+            // 搜索页路径，尝试 wd 参数
+            searchURL = api + "?wd=" + keyword
+        } else if api.contains("/api/v1/video/search") || api.contains("/appapi/searchList") {
+            // 非标准 API 路径
+            searchURL = api + "?keyword=" + keyword
         } else {
-            // 纯基地址，正确拼接（不要多余 /）
-            let separator = api.contains("?") ? "&" : "?"
-            searchURL = api + separator + "ac=videolist&wd=" + keyword
+            // 默认苹果CMS格式
+            searchURL = api + "?ac=videolist&wd=" + keyword
         }
 
         guard let url = URL(string: searchURL) else {
@@ -1418,8 +1436,33 @@ globalThis.__JS_SPIDER__ = _spider;
             return directUrl
         }
 
+        // 5.5 WKWebView 客户端解析回退（最后手段）
+        if let wkResult = await tryWKWebViewParse(originalURL: playPageUrl) {
+            return wkResult
+        }
+
         print("[SpiderManager] ❌ 所有解析器均失败")
         return nil
+    }
+
+    // MARK: - WKWebView 客户端解析回退
+    private func tryWKWebViewParse(originalURL: String) async -> String? {
+        return await withCheckedContinuation { continuation in
+            WKWebViewParser.shared.parse(url: originalURL, parserType: .jsParser(jsURL: "https://cdn.aiqingyu1314.com/jx/20230723ver/Play/global.min.js?v=20240310")) { result in
+                if let result = result, !result.isEmpty {
+                    // 尝试从结果中提取视频地址
+                    if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", options: .regularExpression) {
+                        continuation.resume(returning: String(result[urlRange]))
+                    } else if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*", options: .regularExpression) {
+                        continuation.resume(returning: String(result[urlRange]))
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     // MARK: - B站直链辅助方法
