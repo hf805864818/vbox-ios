@@ -1681,12 +1681,13 @@ class CloudDriveManager: ObservableObject {
         var request = URLRequest(url: listURL)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
+        // 对齐夸克API规范：参数需要带下划线
         let body: [String: Any] = [
             "pdir_fid": "0",
-            "sort_by": "file_name",
-            "sort_order": "asc",
-            "page": 1,
-            "size": 100
+            "_sort": "file_type:asc,file_name:asc",
+            "_page": 1,
+            "_size": 100,
+            "_fetch_total": 1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
