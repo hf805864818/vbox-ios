@@ -156,8 +156,7 @@ class LogVarDanmakuService: ObservableObject {
             #"\.\s*(\d{1,3})\s*\."#
         ]
         for pattern in patterns {
-            if let match = name.range(of: pattern, options: .regularExpression),
-               let range = Range(match, in: name) {
+            if let range = name.range(of: pattern, options: .regularExpression) {
                 let numStr = String(name[range]).filter { $0.isNumber }
                 if let num = Int(numStr), num > 0 {
                     return num
