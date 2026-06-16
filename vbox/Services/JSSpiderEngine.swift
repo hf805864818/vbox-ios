@@ -202,9 +202,30 @@ class JSSpiderEngine {
         // 处理关键词中的特殊字符
         let escaped = keyword.replacingOccurrences(of: "'", with: "\\'")
                               .replacingOccurrences(of: "\n", with: "\\n")
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.searchContent('\(escaped)', \(pg)))"
-        guard let result = context.evaluateScript(script)?.toString(),
-              let data = result.data(using: .utf8) else {
+        // 先获取原始返回值，避免双重 JSON.stringify
+        let rawScript = "globalThis.__JS_SPIDER__.searchContent('\(escaped)', \(pg))"
+        let rawResult = context.evaluateScript(rawScript)
+        
+        let jsonString: String
+        if let result = rawResult {
+            if result.isString {
+                // 返回值已经是字符串，直接使用（避免二次 stringify）
+                jsonString = result.toString()
+            } else if result.isObject || result.isArray {
+                // 返回值是对象/数组，需要 stringify
+                let stringifyScript = "JSON.stringify(globalThis.__JS_SPIDER__.searchContent('\(escaped)', \(pg)))"
+                guard let str = context.evaluateScript(stringifyScript)?.toString() else {
+                    throw JSError(message: "searchContent 返回无效")
+                }
+                jsonString = str
+            } else {
+                throw JSError(message: "searchContent 返回类型无效")
+            }
+        } else {
+            throw JSError(message: "searchContent 返回无效")
+        }
+        
+        guard let data = jsonString.data(using: .utf8) else {
             throw JSError(message: "searchContent 返回无效")
         }
         return try JSONDecoder().decode(SearchContentResult.self, from: data)
