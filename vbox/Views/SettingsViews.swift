@@ -35,6 +35,7 @@ struct SettingsView: View {
     @State private var showLibmpvMoltenVKDebugView = false
     @State private var showPlaybackTestTools = false
     @State private var showMPVAdvancedDiagnostics = false
+    @State private var showSiteDiagnostics = false
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
@@ -83,6 +84,7 @@ struct SettingsView: View {
             skinSettingsSection
             playbackSettingsSection
             subscriptionSection
+            siteDiagnosticsSection
             fallbackSection
             cloudDriveSection
             playbackTestToolsSection
@@ -418,6 +420,35 @@ struct SettingsView: View {
     private var storageSection: some View {
         SettingsSection(title: "存储管理") {
             SettingsNavigationRow(title: "缓存管理", subtitle: cacheSize, icon: "externaldrive.fill") { showCacheAlert = true }
+        }
+    }
+
+    private var siteDiagnosticsSection: some View {
+        SettingsSection(title: "站点诊断") {
+            Button(action: { showSiteDiagnostics = true }) {
+                HStack {
+                    Image(systemName: "stethoscope")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    Text("接口状态检测")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    let stats = spiderManager.engineStats
+                    Text("\(stats.loaded)/\(stats.total) 就绪")
+                        .font(.system(size: 13))
+                        .foregroundColor(stats.loaded == stats.total ? .green : .orange)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(Color.gray.opacity(0.04))
+        }
+        .sheet(isPresented: $showSiteDiagnostics) {
+            SiteDiagnosticsView()
         }
     }
 
