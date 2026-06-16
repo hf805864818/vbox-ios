@@ -259,8 +259,8 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
         case .baidu:
             return URL(string: "https://pan.baidu.com/")!
         case .ali:
-            // open.aliyundrive.com/oauth/users/authorize 已不再支持直接 GET 打开。
-            // 改用 AList 官方工具页作为 WebView 兜底入口，由页面完成扫码并展示 refresh_token。
+            // 阿里云盘开放平台 OAuth client_id 已失效，原生扫码不可用。
+            // 使用 AList 官方工具页作为兜底入口，用户扫码后页面会展示 refresh_token。
             return URL(string: "https://alistgo.com/tool/aliyundrive/request.html")!
         case .quark:
             return URL(string: "https://pan.quark.cn/")!
@@ -363,8 +363,12 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
         private func inspect(webView: WKWebView) {
             guard !saved else { return }
             if parent.driveType == .ali {
+                // 阿里云盘：优先尝试从页面文本提取 refresh_token，同时提示用户
+                inspectAliRefreshTokenIfNeeded(webView: webView)
                 DispatchQueue.main.async {
-                    self.parent.statusText = "请在页面扫码授权；出现 refresh_token 后会尝试自动保存，也可复制后手动粘贴。"
+                    if !self.saved {
+                        self.parent.statusText = "请在页面完成扫码授权；出现 refresh_token 后会自动保存，也可复制后手动粘贴到输入框。"
+                    }
                 }
                 return
             }
@@ -418,16 +422,41 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
 
         private func inspectAliRefreshTokenIfNeeded(webView: WKWebView) {
             guard parent.driveType == .ali, !saved else { return }
+            // 尝试从页面文本提取 refresh_token
             webView.evaluateJavaScript("document.body ? document.body.innerText : ''") { [weak self] result, _ in
                 guard let self,
                       let text = result as? String,
                       let token = self.extractAliRefreshToken(from: text) else { return }
-                DispatchQueue.main.async {
-                    CloudDriveAuthManager.shared.saveManualCredential(type: .ali, name: "阿里网页登录", value: token)
-                    self.saved = true
-                    self.parent.statusText = "已自动保存阿里 refresh_token"
-                    self.parent.onCredentialSaved()
-                }
+                self.saveAliRefreshToken(token)
+            }
+            // 同时尝试从页面 input/textarea 元素中提取（AList 工具页可能把 token 放在表单里）
+            let js = """
+                (function() {
+                    var inputs = document.querySelectorAll('input, textarea');
+                    for (var i = 0; i < inputs.length; i++) {
+                        var val = inputs[i].value || inputs[i].textContent || '';
+                        if (val.length > 100 && val.indexOf('ey') === 0) return val;
+                    }
+                    return '';
+                })();
+                """
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self,
+                      let text = result as? String,
+                      !text.isEmpty else { return }
+                self.saveAliRefreshToken(text)
+            }
+        }
+
+        private func saveAliRefreshToken(_ token: String) {
+            guard !saved else { return }
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count > 20 else { return }
+            DispatchQueue.main.async {
+                CloudDriveAuthManager.shared.saveManualCredential(type: .ali, name: "阿里网页登录", value: trimmed)
+                self.saved = true
+                self.parent.statusText = "已自动保存阿里 refresh_token"
+                self.parent.onCredentialSaved()
             }
         }
 
@@ -435,7 +464,9 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
             let patterns = [
                 #"refresh_token["'\s:=]+([A-Za-z0-9._\-]+)"#,
                 #"Refresh Token\s*[:：]\s*([A-Za-z0-9._\-]+)"#,
-                #"刷新令牌\s*[:：]\s*([A-Za-z0-9._\-]+)"#
+                #"刷新令牌\s*[:：]\s*([A-Za-z0-9._\-]+)"#,
+                #"token["'\s:=]+(ey[A-Za-z0-9._\-]+)"#,
+                #"(eyJ[A-Za-z0-9._\-]{100,})"#
             ]
             for pattern in patterns {
                 guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
