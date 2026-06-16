@@ -43,3 +43,4 @@
 - AVFoundation (视频播放)
 - iOS 15.0+
 - arm64 (巨魔)
+TG：https://t.me/hfkj520
