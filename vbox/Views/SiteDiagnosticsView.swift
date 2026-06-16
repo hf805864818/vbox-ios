@@ -10,6 +10,8 @@ struct SiteDiagnosticsView: View {
         case all = "全部"
         case searchable = "可搜索"
         case failed = "有异常"
+        case jscOnly = "仅JSC"
+        case qjsOnly = "仅QJS"
         case type0 = "API(type0)"
         case type1 = "API(type1)"
         case type2 = "站源(type2)"
@@ -21,6 +23,8 @@ struct SiteDiagnosticsView: View {
         case .all: return diagnosticsManager.results
         case .searchable: return diagnosticsManager.results.filter { $0.canSearch }
         case .failed: return diagnosticsManager.results.filter { !$0.canSearch }
+        case .jscOnly: return diagnosticsManager.results.filter { $0.jscCompatible && !$0.qjsCompatible }
+        case .qjsOnly: return diagnosticsManager.results.filter { $0.qjsCompatible && !$0.jscCompatible }
         case .type0: return diagnosticsManager.results.filter { $0.type == 0 }
         case .type1: return diagnosticsManager.results.filter { $0.type == 1 }
         case .type2: return diagnosticsManager.results.filter { $0.type == 2 }
@@ -117,11 +121,16 @@ struct SiteDiagnosticsView: View {
 
     private func summaryCard(_ summary: SiteDiagnosticsManager.DiagnosticSummary) -> some View {
         VStack(spacing: 12) {
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 SummaryItem(title: "总计", value: "\(summary.total)", color: .primary)
                 SummaryItem(title: "引擎就绪", value: "\(summary.engineReady)", color: .green)
                 SummaryItem(title: "仅API", value: "\(summary.apiOnly)", color: .blue)
                 SummaryItem(title: "可搜索", value: "\(summary.searchableCount)", color: Color(hex: "E11D48"))
+            }
+            HStack(spacing: 12) {
+                SummaryItem(title: "JSC引擎", value: "\(summary.jscCount)", color: .orange)
+                SummaryItem(title: "QJS引擎", value: "\(summary.qjsCount)", color: .purple)
+                Spacer()
             }
             if summary.failed > 0 {
                 HStack {
@@ -210,10 +219,40 @@ struct SiteDiagnosticRow: View {
                                 .background(Color(hex: "E11D48"))
                                 .cornerRadius(4)
                         }
+                        // 显示实际使用的引擎类型
+                        if let engineType = result.engineType {
+                            Text(engineType == .javaScriptCore ? "JSC" : "QJS")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(engineType == .javaScriptCore ? Color.orange : Color.purple)
+                                .cornerRadius(4)
+                        }
                     }
-                    Text(result.status.rawValue)
-                        .font(.system(size: 12))
-                        .foregroundColor(statusColor)
+                    HStack(spacing: 8) {
+                        Text(result.status.rawValue)
+                            .font(.system(size: 12))
+                            .foregroundColor(statusColor)
+                        // 显示双引擎兼容性标签
+                        if result.type == 3 {
+                            if result.jscCompatible {
+                                Text("🍎JSC")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.orange)
+                            }
+                            if result.qjsCompatible {
+                                Text("⚡QJS")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.purple)
+                            }
+                            if !result.jscCompatible && !result.qjsCompatible && !result.engineLoaded {
+                                Text("❌ 双引擎均不兼容")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.red)
+                            }
+                        }
+                    }
                 }
 
                 Spacer()
@@ -249,6 +288,24 @@ struct SiteDiagnosticRow: View {
                             .foregroundColor(.gray)
                             .lineLimit(2)
                     }
+                    // 显示引擎兼容性详情
+                    if result.type == 3 {
+                        HStack(spacing: 12) {
+                            HStack(spacing: 4) {
+                                Image(systemName: result.jscCompatible ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(result.jscCompatible ? .green : .red)
+                                Text("JSC兼容")
+                                    .font(.system(size: 11))
+                            }
+                            HStack(spacing: 4) {
+                                Image(systemName: result.qjsCompatible ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(result.qjsCompatible ? .green : .red)
+                                Text("QJS兼容")
+                                    .font(.system(size: 11))
+                            }
+                        }
+                        .foregroundColor(.gray)
+                    }
                 }
                 .padding(.bottom, 10)
                 .padding(.leading, 34)
@@ -262,6 +319,8 @@ struct SiteDiagnosticRow: View {
         case .apiOnly: return .blue
         case .noApi, .downloadFailed, .invalidContent, .registerFailed: return .orange
         case .unknown, .skipped: return .gray
+        case .jscOnly: return .orange
+        case .qjsOnly: return .purple
         }
     }
 }

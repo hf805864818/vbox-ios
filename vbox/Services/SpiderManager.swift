@@ -38,8 +38,21 @@ class SpiderManager: ObservableObject {
     ]
 
     let subManager = SubscriptionManager()
-    private var engines: [String: JSSpiderEngine] = [:]
+    /// 主引擎字典 — 统一使用协议类型，支持 JSC 和 QuickJS
+    private var engines: [String: SpiderEngineProtocol] = [:]
+    /// 记录每个引擎使用的类型（用于诊断显示）
+    private var engineTypes: [String: SpiderEngineType] = [:]
     private var cloudPlayCache: [String: (links: [(url: String, name: String)], siteName: String, expiresAt: Date)] = [:]
+    
+    /// 获取指定 key 的引擎类型
+    func engineType(forKey key: String) -> SpiderEngineType? {
+        return engineTypes[key]
+    }
+    
+    /// 获取所有引擎的统计信息（用于诊断）
+    var engineTypeStats: [(key: String, type: SpiderEngineType)] {
+        return engineTypes.map { ($0.key, $0.value) }
+    }
 
     private init() {
         self.fallbackEnabled = UserDefaults.standard.object(forKey: "fallback_enabled") as? Bool ?? true
@@ -326,7 +339,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 3. 加载 zhanyuan (type=2) 站源 — 用 cheerio + zhanyuan 引擎
+        // 3. 加载 zhanyuan (type=2) 站源 — 用 cheerio + zhanyuan 引擎（支持双引擎回退）
         let zhanSites = config.sites.filter { $0.type == 2 && $0.api != nil && !$0.api!.isEmpty }
         print("[SpiderManager] 发现 \(zhanSites.count) 个 zhanyuan 站源")
         for site in zhanSites.prefix(10) {
@@ -345,20 +358,40 @@ globalThis.__JS_SPIDER__ = _spider;
                 } catch(e) { print('[Zhanyuan] 创建蜘蛛失败: ' + e); }
             })();
             """
-            do {
-                let engine = JSSpiderEngine()
-                engine.onLog = { msg in print("[Zhanyuan|\(key)] \(msg)") }
-                try await injectSpiderLibraries(engine: engine)
-                try engine.loadScript(zhanJS)
-                if engine.isSpiderReady {
-                    engines[key] = engine
-                    if !subscribedSites.contains(key) { subscribedSites.append(key) }
-                    jsSpiderLoaded += 1
-                    print("[SpiderManager] ✅ zhanyuan 就绪: \(site.name)")
+            
+            // 尝试 JSC，失败回退到 QuickJS
+            var zhanLoaded = false
+            for engineType in [SpiderEngineType.javaScriptCore, .quickJS] {
+                do {
+                    let engine: SpiderEngineProtocol = engineType == .javaScriptCore ? JSSpiderEngine() : QJSSpiderEngine()
+                    engine.onLog = { msg in print("[Zhanyuan|\(key)|\(engineType.displayName)] \(msg)") }
+                    try await injectSpiderLibraries(engine: engine)
+                    try engine.loadScript(zhanJS)
+                    if engine.isSpiderReady {
+                        engines[key] = engine
+                        engineTypes[key] = engineType
+                        if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                        jsSpiderLoaded += 1
+                        print("[SpiderManager] ✅ zhanyuan 就绪 [\(engineType.displayName)]: \(site.name)")
+                        zhanLoaded = true
+                        break
+                    } else {
+                        try engine.registerSpider()
+                        engines[key] = engine
+                        engineTypes[key] = engineType
+                        if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                        jsSpiderLoaded += 1
+                        print("[SpiderManager] ✅ zhanyuan 注册成功 [\(engineType.displayName)]: \(site.name)")
+                        zhanLoaded = true
+                        break
+                    }
+                } catch {
+                    print("[SpiderManager] ⚠️ zhanyuan \(engineType.displayName) 失败: \(site.name): \(error)")
                 }
-            } catch {
+            }
+            if !zhanLoaded {
                 jsSpiderFailed += 1
-                print("[SpiderManager] ❌ zhanyuan 失败: \(site.name): \(error)")
+                print("[SpiderManager] ❌ zhanyuan 全部引擎失败: \(site.name)")
             }
         }
 
@@ -366,41 +399,67 @@ globalThis.__JS_SPIDER__ = _spider;
         await loadHomeData()
     }
 
-    /// 加载蜘蛛 JS 到引擎
-    private func loadSpiderEngine(jsCode: String, key: String = "builtin") async throws {
-        let engine = JSSpiderEngine()
+    /// 加载蜘蛛 JS 到引擎 — 支持双引擎自动回退（JSC 优先，失败时尝试 QuickJS）
+    private func loadSpiderEngine(jsCode: String, key: String = "builtin", preferredEngine: SpiderEngineType = .javaScriptCore) async throws {
+        // 先尝试首选引擎
+        let enginesToTry: [SpiderEngineType] = preferredEngine == .javaScriptCore
+            ? [.javaScriptCore, .quickJS]
+            : [.quickJS, .javaScriptCore]
+        
+        var lastError: Error?
+        
+        for engineType in enginesToTry {
+            do {
+                let engine = try await loadSpiderEngineWithType(jsCode: jsCode, key: key, engineType: engineType)
+                engines[key] = engine
+                engineTypes[key] = engineType
+                if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                engineError = nil
+                print("[SpiderManager] ✅ 蜘蛛就绪 [\(engineType.displayName)]: \(key)")
+                return
+            } catch {
+                lastError = error
+                print("[SpiderManager] ⚠️ \(engineType.displayName) 加载失败，尝试下一个引擎: \(error.localizedDescription)")
+            }
+        }
+        
+        let err = "蜘蛛注册失败 (\(key)): \(lastError?.localizedDescription ?? "所有引擎均失败")"
+        engineError = err
+        throw JSError(message: err)
+    }
+    
+    /// 使用指定引擎类型加载蜘蛛
+    private func loadSpiderEngineWithType(jsCode: String, key: String, engineType: SpiderEngineType) async throws -> SpiderEngineProtocol {
+        let engine: SpiderEngineProtocol
+        switch engineType {
+        case .javaScriptCore:
+            engine = JSSpiderEngine()
+        case .quickJS:
+            engine = QJSSpiderEngine()
+        }
+        
         engine.onLog = { msg in
-            print("[SpiderEngine|\(key)] \(msg)")
+            print("[SpiderEngine|\(key)|\(engineType.displayName)] \(msg)")
             if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
                 Task { @MainActor in self.engineError = msg }
             }
         }
-        // 注入 TVBox 标准模板库（模板.js、net.js）
+        
+        // 注入 TVBox 标准模板库
         try await injectSpiderLibraries(engine: engine)
         try engine.loadScript(jsCode)
-        // 尝试多种蜘蛛注册方式
+        
+        // 尝试注册
         if engine.isSpiderReady {
-            engines[key] = engine
-            if !subscribedSites.contains(key) { subscribedSites.append(key) }
-            engineError = nil
-            print("[SpiderManager] ✅ 蜘蛛就绪: \(key)")
+            return engine
         } else {
-            do {
-                try engine.registerSpider()
-                engines[key] = engine
-                if !subscribedSites.contains(key) { subscribedSites.append(key) }
-                engineError = nil
-                print("[SpiderManager] ✅ 蜘蛛注册成功: \(key)")
-            } catch {
-                let err = "蜘蛛注册失败 (\(key)): \(error.localizedDescription)"
-                engineError = err
-                throw JSError(message: err)
-            }
+            try engine.registerSpider()
+            return engine
         }
     }
 
     /// 注入 TVBox 标准 JS 库（模板引擎、网络桥接等）
-    private func injectSpiderLibraries(engine: JSSpiderEngine) async throws {
+    private func injectSpiderLibraries(engine: SpiderEngineProtocol) async throws {
         // 1. net.js — 同步/异步 HTTP 请求封装
         try engine.loadLibrary("""
         let req = (url, options) => http(url, Object.assign({ async: false }, options));
@@ -435,23 +494,31 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     private func loadSiteEngine(site: SiteConfig, jsURL: String) async throws {
-        let engine = JSSpiderEngine()
-        try await injectSpiderLibraries(engine: engine)
-        try await engine.loadScriptFromURL(jsURL)
-        if engine.isSpiderReady {
-            engines[site.key] = engine
-            if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
-            print("[SpiderManager] ✅ ext站点: \(site.name)")
-        } else {
+        // 尝试 JSC，失败回退到 QuickJS
+        for engineType in [SpiderEngineType.javaScriptCore, .quickJS] {
             do {
-                try engine.registerSpider()
-                engines[site.key] = engine
-                if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
-                print("[SpiderManager] ✅ ext站点(注册): \(site.name)")
+                let engine: SpiderEngineProtocol = engineType == .javaScriptCore ? JSSpiderEngine() : QJSSpiderEngine()
+                try await injectSpiderLibraries(engine: engine)
+                try await engine.loadScriptFromURL(jsURL)
+                if engine.isSpiderReady {
+                    engines[site.key] = engine
+                    engineTypes[site.key] = engineType
+                    if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
+                    print("[SpiderManager] ✅ ext站点 [\(engineType.displayName)]: \(site.name)")
+                    return
+                } else {
+                    try engine.registerSpider()
+                    engines[site.key] = engine
+                    engineTypes[site.key] = engineType
+                    if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
+                    print("[SpiderManager] ✅ ext站点(注册) [\(engineType.displayName)]: \(site.name)")
+                    return
+                }
             } catch {
-                print("[SpiderManager] ❌ ext站点失败: \(site.name): \(error)")
+                print("[SpiderManager] ⚠️ ext站点 \(engineType.displayName) 失败: \(site.name): \(error)")
             }
         }
+        print("[SpiderManager] ❌ ext站点全部引擎失败: \(site.name)")
     }
 
     private func downloadScript(url: String) async throws -> String {
