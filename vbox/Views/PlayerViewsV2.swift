@@ -74,12 +74,7 @@ class PiPHelper: NSObject {
         let playerLayer = AVPlayerLayer(player: player)
         playerLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         
-        let pipContentSource = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: nil,
-            playerLayer: playerLayer
-        )
-        
-        pipController = AVPictureInPictureController(contentSource: pipContentSource)
+        pipController = AVPictureInPictureController(playerLayer: playerLayer)
         pipController?.delegate = self
         
         pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible, options: .new) { [weak self] _, _ in
