@@ -1507,20 +1507,8 @@ class CloudDriveManager: ObservableObject {
             return visibleFolder
         }
 
-        print("[Quark] ⚠️ 可见 vbox 目录不可用，回退 sharepage/dir 默认转存目录")
-        let listURL = quarkAPIURL("/1/clouddrive/share/sharepage/dir", extra: [URLQueryItem(name: "aver", value: "1")])
-        var req = URLRequest(url: listURL)
-        req.httpMethod = "GET"
-        quarkSetCommonHeaders(&req, cookie: cookie)
-        let (data, response) = try await session.data(for: req)
-        let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
-        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let dataObj = json["data"] as? [String: Any],
-           let fid = dataObj["pdir_fid"] as? String,
-           !fid.isEmpty {
-            return (fid, mergedCookie)
-        }
-        throw DriveError.noPlayURL("夸克：无法获取转存目录")
+        print("[Quark] ❌ vbox 目录创建/查找失败，不回退到默认转存目录")
+        throw DriveError.noPlayURL("夸克：无法创建 vbox 文件夹，请检查网盘空间是否已满")
     }
 
     private func quarkFindOrCreateVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String) {
