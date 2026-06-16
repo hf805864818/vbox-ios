@@ -53,6 +53,16 @@ class SpiderManager: ObservableObject {
     var engineTypeStats: [(key: String, type: SpiderEngineType)] {
         return engineTypes.map { ($0.key, $0.value) }
     }
+    
+    /// 检查是否有指定 key 的引擎
+    func hasEngine(forKey key: String) -> Bool {
+        return engines[key] != nil
+    }
+    
+    /// 获取引擎加载统计
+    var engineStats: (loaded: Int, total: Int) {
+        return (engines.count, allSites.count)
+    }
 
     private init() {
         self.fallbackEnabled = UserDefaults.standard.object(forKey: "fallback_enabled") as? Bool ?? true
