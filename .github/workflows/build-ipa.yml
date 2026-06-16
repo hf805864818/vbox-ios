@@ -107,14 +107,25 @@ jobs:
 
       - name: 🚀 Sync Release to B Repo
         run: |
+          # 检查 B 仓库配置是否完整
+          if [ -z "$B_REPO_TOKEN" ] || [ -z "$B_REPO_OWNER" ] || [ -z "$B_REPO_NAME" ]; then
+            echo "⚠️ B 仓库 Secret 未配置，跳过同步"
+            echo "请在 A 仓库 Settings → Secrets → Actions 中添加:"
+            echo "  - B_REPO_TOKEN: B 账号的 Personal Access Token"
+            echo "  - B_REPO_OWNER: B 仓库的用户名"
+            echo "  - B_REPO_NAME: B 仓库的名称"
+            exit 0
+          fi
           # 先在 B 仓库删除同名 release（如果存在）
           gh release delete "v${{ steps.get_version.outputs.MARKETING_VERSION }}" --yes \
-            --repo ${{ secrets.B_REPO_OWNER }}/${{ secrets.B_REPO_NAME }} 2>/dev/null || true
+            --repo $B_REPO_OWNER/$B_REPO_NAME 2>/dev/null || true
           # 在 B 仓库创建相同的 release
           gh release create "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
-            --repo ${{ secrets.B_REPO_OWNER }}/${{ secrets.B_REPO_NAME }} \
+            --repo $B_REPO_OWNER/$B_REPO_NAME \
             --title "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
             --notes "版本 ${{ steps.get_version.outputs.MARKETING_VERSION }} (build ${{ steps.get_version.outputs.BUILD_NUM }})" \
             vbox.ipa
         env:
           GH_TOKEN: ${{ secrets.B_REPO_TOKEN }}
+          B_REPO_OWNER: ${{ secrets.B_REPO_OWNER }}
+          B_REPO_NAME: ${{ secrets.B_REPO_NAME }}
