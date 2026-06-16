@@ -1288,13 +1288,6 @@ class CloudDriveManager: ObservableObject {
         }
 
         let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
-        // 保存refresh_token到cookie，下次download请求可用
-        if let rt = download.refreshToken, !rt.isEmpty {
-            var cookieDict = quarkCookieDictionary(from: authCookie)
-            cookieDict["refresh_token"] = rt
-            authCookie = quarkCookieString(from: cookieDict)
-            print("[Quark] refresh_token 已保存到cookie")
-        }
         let playURL: String
         let source: String
         if !download.url.isEmpty {
@@ -1967,20 +1960,58 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String, refreshToken: String?) {
+    /// 对齐iBox原画抓包：调用 acquire_dl_token 获取加速下载token
+    private func quarkAcquireDLToken(cookie: String) async throws -> String {
+        let url = quarkAPIURL("/1/clouddrive/chat/conv/file/acquire_dl_token", extra: [
+            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "ve", value: "3.19.0")
+        ])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let body: [String: Any] = [
+            "conversation_id": "300000\(timestamp)",
+            "conversation_type": 3,
+            "msg_id": "\(timestamp)000"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("夸克 acquire_dl_token 失败：\(message)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let token = dataObj["token"] as? String, !token.isEmpty else {
+            throw DriveError.noPlayURL("夸克 acquire_dl_token 未返回token")
+        }
+        print("[Quark] 获取到加速下载token")
+        return token
+    }
+
+    private func quarkGetDownloadURL(fileId: String, cookie: String) async throws -> (url: String, fileName: String) {
+        // 先获取加速token（对齐iBox原画抓包）
+        var dlToken: String? = nil
+        do {
+            dlToken = try await quarkAcquireDLToken(cookie: cookie)
+        } catch {
+            print("[Quark] ⚠️ acquire_dl_token 失败，继续尝试普通下载：\(error.localizedDescription)")
+        }
+
         let url = quarkAPIURL("/1/clouddrive/file/download")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
-        // 对齐iBox原画抓包：增加 speedup_session 和 token（refresh_token）
+        // 对齐iBox原画抓包：增加 speedup_session 和 token（加速token）
         var body: [String: Any] = [
             "fids": [fileId],
             "speedup_session": ""
         ]
-        // 尝试从cookie字典中提取refresh_token
-        let cookieDict = quarkCookieDictionary(from: cookie)
-        if let refreshToken = cookieDict["refresh_token"], !refreshToken.isEmpty {
-            body["token"] = refreshToken
+        if let dlToken = dlToken, !dlToken.isEmpty {
+            body["token"] = dlToken
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await session.data(for: request)
@@ -1997,14 +2028,7 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = first["download_url"] as? String ?? ""
         let fileName = first["file_name"] as? String ?? ""
-        // 提取并保存 refresh_token（metadata.refresh_token）
-        var refreshToken: String? = nil
-        if let metadata = json["metadata"] as? [String: Any],
-           let rt = metadata["refresh_token"] as? String, !rt.isEmpty {
-            refreshToken = rt
-            print("[Quark] 获取到 refresh_token，用于加速下载")
-        }
-        return (downloadURL, fileName, refreshToken)
+        return (downloadURL, fileName)
     }
 
     private func quarkGetPlayURL(fileId: String, cookie: String) async throws -> String {
