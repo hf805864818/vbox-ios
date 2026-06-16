@@ -35,6 +35,17 @@ class SpiderManager: ObservableObject {
         ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
         ("卧龙资源",   "https://collect.wolongzyw.com/api.php/provide/vod"),
         ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
+        ("玩偶4K弹幕", "http://wogg.xxooo.cf/api.php/provide/vod"),
+        ("木偶影视",   "https://666.666291.xyz/api.php/provide/vod"),
+        ("4KTOP蓝光",  "https://4ktop.com/api.php/provide/vod"),
+        ("盘Ta资源",   "https://www.91panta.cn/api.php/provide/vod"),
+        ("雷鲸资源",   "https://www.leijing.xyz/api.php/provide/vod"),
+        ("闪电资源站", "https://sd.sduc.site/api.php/provide/vod"),
+        ("多多资源",   "https://tv.yydsys.top/api.php/provide/vod"),
+        ("南风资源",   "https://www.nanf.cc/api.php/provide/vod"),
+        ("趣盘资源",   "https://pan.funletu.com/api.php/provide/vod"),
+        ("至臻影视",   "http://www.miqk.cc/api.php/provide/vod"),
+        ("LibVio影视", "https://libvio.mov/api.php/provide/vod"),
     ]
 
     let subManager = SubscriptionManager()
@@ -295,6 +306,24 @@ globalThis.__JS_SPIDER__ = _spider;
 
         self.allSites = config.sites
         loadedSiteCount = allSites.count
+
+        // 0. 加载内置 ibox_sources.json 并合并站点
+        if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
+           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)),
+           let iboxText = String(data: iboxData, encoding: .utf8) {
+            do {
+                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                let existingKeys = Set(allSites.map { $0.key })
+                let newSites = iboxConfig.sites.filter { !existingKeys.contains($0.key) }
+                if !newSites.isEmpty {
+                    self.allSites.append(contentsOf: newSites)
+                    loadedSiteCount = allSites.count
+                    print("[SpiderManager] 从 ibox_sources.json 加载了 \(newSites.count) 个站点，总计: \(loadedSiteCount)")
+                }
+            } catch {
+                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+            }
+        }
 
         // 0. 先确保内置蜘蛛加载
         await loadBuiltinEngineIfNeeded()
@@ -1164,9 +1193,13 @@ globalThis.__JS_SPIDER__ = _spider;
             (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
             (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
             (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
+            (#"(https?://pan\.quark\.cn/s/([^#/]+))"#, "夸克网盘分享列表"),
             (#"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#, "百度网盘"),
             (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
             (#"(https?://yun\.139\.com/[^\s\"<>']*)"#, "天翼云盘"),
+            (#"(https?://yun\.139\.com/share(?:web|wap)/#/[wm]/i[/?][^\s\"<>']*)"#, "天翼云盘分享"),
+            (#"(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)"#, "123云盘"),
+            (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
         ]
 
         var allLinks: [(url: String, name: String)] = []
@@ -1307,6 +1340,22 @@ globalThis.__JS_SPIDER__ = _spider;
             return playPageUrl
         }
 
+        // 1.5 B站直链解析
+        if playPageUrl.contains("bilibili.com") || playPageUrl.contains("b23.tv") {
+            let bvid = extractBilibiliID(from: playPageUrl)
+            if !bvid.isEmpty {
+                let bUrl = "https://api.bilibili.com/x/player/playurl?bvid=\(bvid)&type=mp4&platform=html5"
+                if let data = try? await URLSession.shared.data(from: URL(string: bUrl)!).0,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let durl = json["data"] as? [String: Any] {
+                    // 尝试提取 durl 或 stream 中的视频地址
+                    if let durlList = durl["durl"] as? [[String: Any]], let first = durlList.first, let videoUrl = first["url"] as? String {
+                        return videoUrl
+                    }
+                }
+            }
+        }
+
         print("[SpiderManager] 开始解析播放页：\(playPageUrl.prefix(60))...")
 
         // 2. 优先使用自定义解析器
@@ -1372,6 +1421,28 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] ❌ 所有解析器均失败")
         return nil
     }
+
+    // MARK: - B站直链辅助方法
+    private func extractBilibiliID(from url: String) -> String {
+        // BV号格式
+        if let range = url.range(of: "BV[A-Za-z0-9]+") {
+            return String(url[range])
+        }
+        // b23.tv 短链接需要重定向获取真实URL
+        if url.contains("b23.tv") {
+            // 返回空，让解析器处理
+            return ""
+        }
+        // avid 格式
+        if let range = url.range(of: "/video/av(\\d+)", options: .regularExpression) {
+            let match = String(url[range])
+            if let avRange = match.range(of: "\\d+", options: .regularExpression) {
+                return String(match[avRange])
+            }
+        }
+        return ""
+    }
+
     private func tryParser(_ parserBase: String, url: String) async -> String? {
         let parseUrl = "\(parserBase)\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
 
