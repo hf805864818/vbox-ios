@@ -300,31 +300,121 @@ globalThis.__JS_SPIDER__ = _spider;
         await loadBuiltinEngineIfNeeded()
 
         // 1. 尝试从订阅源的 spider 字段加载全局 JS 蜘蛛
-        if let spiderURL = config.spider, spiderURL.hasPrefix("http") {
-            do {
-                let rawData = try await downloadRawData(url: spiderURL)
-                if let snippet = String(data: rawData, encoding: .utf8),
-                   snippet.count > 100,
-                   snippet.contains("function ") || snippet.contains("var ") || snippet.contains("let ") || snippet.contains("const ") {
-                    try await loadSpiderEngine(jsCode: snippet, key: "remote_spider")
-                    print("[SpiderManager] ✅ 远程蜘蛛加载成功")
-                } else {
-                    print("[SpiderManager] spider URL 不是纯 JS（可能是 jar 包），使用内置蜘蛛")
+        if let spiderField = config.spider, !spiderField.isEmpty {
+            // 提取实际 URL（spider 字段可能包含分号分隔的 md5 签名）
+            let spiderURL: String
+            if spiderField.contains(";") {
+                spiderURL = spiderField.components(separatedBy: ";").first ?? spiderField
+            } else {
+                spiderURL = spiderField
+            }
+
+            // 检查是否是 jar 包
+            if spiderURL.lowercased().contains(".jar") {
+                print("[SpiderManager] spider 字段是 jar 包，iOS 不支持 Java 蜘蛛，跳过: \(spiderURL.prefix(80))")
+            } else if spiderURL.hasPrefix("http://") || spiderURL.hasPrefix("https://") {
+                do {
+                    let rawData = try await downloadRawData(url: spiderURL)
+                    if let snippet = String(data: rawData, encoding: .utf8),
+                       snippet.count > 100,
+                       snippet.contains("function ") || snippet.contains("var ") || snippet.contains("let ") || snippet.contains("const ") {
+                        try await loadSpiderEngine(jsCode: snippet, key: "remote_spider")
+                        print("[SpiderManager] ✅ 远程蜘蛛加载成功")
+                    } else {
+                        print("[SpiderManager] spider URL 不是纯 JS（可能是 jar 包），使用内置蜘蛛")
+                    }
+                } catch {
+                    print("[SpiderManager] spider URL 加载失败: \(error.localizedDescription)")
                 }
-            } catch {
-                print("[SpiderManager] spider URL 加载失败: \(error.localizedDescription)")
+            } else if spiderURL.hasPrefix("./") {
+                // 相对路径，拼接订阅源 baseURL
+                let baseURL = subManager.activeURL ?? ""
+                let fullURL: String
+                if let url = URL(string: baseURL) {
+                    fullURL = url.deletingLastPathComponent().appendingPathComponent(spiderURL).absoluteString
+                } else {
+                    fullURL = spiderURL
+                }
+                print("[SpiderManager] spider 相对路径拼接: \(spiderURL) -> \(fullURL)")
+                do {
+                    let rawData = try await downloadRawData(url: fullURL)
+                    if let snippet = String(data: rawData, encoding: .utf8),
+                       snippet.count > 100,
+                       (snippet.contains("function ") || snippet.contains("var ") || snippet.contains("let ") || snippet.contains("const ")) {
+                        try await loadSpiderEngine(jsCode: snippet, key: "remote_spider")
+                        print("[SpiderManager] ✅ 远程蜘蛛(相对路径)加载成功")
+                    } else {
+                        print("[SpiderManager] spider 相对路径内容不是有效 JS，跳过")
+                    }
+                } catch {
+                    print("[SpiderManager] spider 相对路径加载失败: \(error.localizedDescription)")
+                }
+            } else {
+                print("[SpiderManager] spider 字段格式无法识别，跳过: \(spiderURL.prefix(80))")
             }
         }
 
         // 2. 加载 type=3 的 JS 蜘蛛（每个站点一个引擎）
         var jsSpiderLoaded = 0
         var jsSpiderFailed = 0
-        let jsSites = config.sites.filter { $0.type == 3 && $0.api != nil && !$0.api!.isEmpty && ($0.api!.hasPrefix("http://") || $0.api!.hasPrefix("https://")) }
-        print("[SpiderManager] 发现 \(jsSites.count) 个 JS 蜘蛛站点")
+        let baseURL = subManager.activeURL ?? ""
 
-        // 限制最多加载 10 个蜘蛛（避免内存爆炸）
-        for site in jsSites.prefix(10) {
-            guard let jsURL = site.api, let url = URL(string: jsURL) else { continue }
+        // 收集所有 type=3 站点，并解析 api 字段
+        var jsSitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
+        for site in config.sites where site.type == 3 && site.api != nil && !site.api!.isEmpty {
+            let api = site.api!
+            // jar 类名格式（如 csp_Douban），iOS 不支持 Java
+            if !api.hasPrefix("http://") && !api.hasPrefix("https://") && !api.hasPrefix("./") && !api.hasSuffix(".js") {
+                print("[SpiderManager] type=3 站点 api 是 jar 类名格式，iOS 不支持，跳过: \(site.name) (\(api))")
+                continue
+            }
+            // jar 包
+            if api.lowercased().contains(".jar") {
+                print("[SpiderManager] type=3 站点 api 是 jar 包，iOS 不支持，跳过: \(site.name)")
+                continue
+            }
+            // 相对路径（./xxx.js），拼接 baseURL
+            if api.hasPrefix("./") {
+                let fullURL: String
+                if let url = URL(string: baseURL) {
+                    fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                } else {
+                    fullURL = api
+                }
+                print("[SpiderManager] type=3 相对路径拼接: \(api) -> \(fullURL)")
+                jsSitesToLoad.append((site: site, resolvedURL: fullURL))
+                continue
+            }
+            // 纯 JS 文件名（如 drpy2.min.js），尝试从常见 CDN 下载
+            if !api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js") {
+                let cdnURLs = [
+                    "https://raw.githubusercontent.com/nicehash/nicehash/master/\(api)",
+                    "https://cdn.jsdelivr.net/gh/nicehash/nicehash@master/\(api)"
+                ]
+                // 先尝试从订阅源 baseURL 目录拼接
+                if let url = URL(string: baseURL) {
+                    let fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                    jsSitesToLoad.append((site: site, resolvedURL: fullURL))
+                } else {
+                    print("[SpiderManager] type=3 纯文件名无法拼接 baseURL，跳过: \(site.name) (\(api))")
+                }
+                continue
+            }
+            // 标准 HTTP URL
+            if api.hasPrefix("http://") || api.hasPrefix("https://") {
+                jsSitesToLoad.append((site: site, resolvedURL: api))
+                continue
+            }
+            print("[SpiderManager] type=3 站点 api 格式无法识别，跳过: \(site.name) (\(api))")
+        }
+
+        print("[SpiderManager] 发现 \(jsSitesToLoad.count) 个 JS 蜘蛛站点待加载")
+
+        // 限制最多加载 30 个蜘蛛（避免内存爆炸）
+        for item in jsSitesToLoad.prefix(30) {
+            let site = item.site
+            let jsURL = item.resolvedURL
+            guard let url = URL(string: jsURL) else { continue }
             let key = site.key.isEmpty ? site.name : site.key
             if engines[key] != nil { continue }
 
@@ -336,7 +426,40 @@ globalThis.__JS_SPIDER__ = _spider;
                 if let jsCode = String(data: data, encoding: .utf8),
                    jsCode.count > 200,
                    (jsCode.contains("function ") || jsCode.contains("var ") || jsCode.contains("spider")) {
+                    // 先加载 api 指向的 JS 框架
                     try await loadSpiderEngine(jsCode: jsCode, key: key)
+
+                    // 如果站点有 ext 字段，加载 ext（drpy 系列站点配置）
+                    if let ext = site.ext, !ext.isEmpty {
+                        let extTrimmed = ext.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if extTrimmed.hasPrefix("http://") || extTrimmed.hasPrefix("https://") {
+                            // ext 是 URL，下载并加载
+                            print("[SpiderManager] 加载 ext URL: \(extTrimmed.prefix(80))")
+                            do {
+                                let extData = try await downloadRawData(url: extTrimmed)
+                                if let extCode = String(data: extData, encoding: .utf8), extCode.count > 50 {
+                                    // 重新创建引擎，先加载框架再加载 ext 配置
+                                    if let engine = engines[key] {
+                                        try engine.loadScript(extCode)
+                                        print("[SpiderManager] ✅ ext URL 加载成功: \(site.name)")
+                                    }
+                                }
+                            } catch {
+                                print("[SpiderManager] ext URL 加载失败: \(site.name) - \(error.localizedDescription)")
+                            }
+                        } else if extTrimmed.contains("function ") || extTrimmed.contains("var ") || extTrimmed.contains("let ") || extTrimmed.contains("const ") {
+                            // ext 是内联 JS 代码，直接加载
+                            print("[SpiderManager] 加载内联 ext JS: \(site.name)")
+                            if let engine = engines[key] {
+                                try engine.loadScript(extTrimmed)
+                                print("[SpiderManager] ✅ 内联 ext 加载成功: \(site.name)")
+                            }
+                        } else {
+                            // ext 可能是 JSON 配置，尝试作为配置注入
+                            print("[SpiderManager] ext 不是 JS 代码，可能是配置: \(extTrimmed.prefix(60))")
+                        }
+                    }
+
                     jsSpiderLoaded += 1
                     print("[SpiderManager] ✅ JS蜘蛛加载成功: \(site.name) (\(key))")
                 } else {
@@ -480,13 +603,25 @@ globalThis.__JS_SPIDER__ = _spider;
             try engine.loadLibrary(cheerioJs)
             print("[SpiderManager] ✅ cheerio 已注入")
         }
-        // 3. 模板引擎
+        // 3. 加载 utils.js (TVBox 标准工具库)
+        if let utilsPath = Bundle.main.path(forResource: "utils", ofType: "js", inDirectory: "js/lib"),
+           let utilsJs = try? String(contentsOfFile: utilsPath, encoding: .utf8) {
+            try engine.loadLibrary(utilsJs)
+            print("[SpiderManager] ✅ utils.js 已注入")
+        }
+        // 4. 加载 similarity.js (相似度匹配库)
+        if let simPath = Bundle.main.path(forResource: "similarity", ofType: "js", inDirectory: "js/lib"),
+           let simJs = try? String(contentsOfFile: simPath, encoding: .utf8) {
+            try engine.loadLibrary(simJs)
+            print("[SpiderManager] ✅ similarity.js 已注入")
+        }
+        // 5. 模板引擎
         if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js"),
            let tmplJs = try? String(contentsOfFile: tmplPath, encoding: .utf8) {
             try engine.loadLibrary(tmplJs)
             print("[SpiderManager] ✅ 模板引擎已注入")
         }
-        // 4. zhanyuan 蜘蛛引擎 (HTML 站源)
+        // 6. zhanyuan 蜘蛛引擎 (HTML 站源)
         if let zhanPath = Bundle.main.path(forResource: "zhanyuan_spider", ofType: "js"),
            let zhanJs = try? String(contentsOfFile: zhanPath, encoding: .utf8) {
             try engine.loadLibrary(zhanJs)
