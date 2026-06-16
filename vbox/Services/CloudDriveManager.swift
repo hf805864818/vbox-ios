@@ -4659,7 +4659,14 @@ class CloudDriveManager: ObservableObject {
         var req = URLRequest(url: listURL)
         req.httpMethod = "POST"
         ucSetCommonHeaders(&req, cookie: cookie)
-        let body: [String: Any] = ["pdir_fid": "0", "sort_by": "file_name", "sort_order": "asc", "page": 1, "size": 100]
+        // 对齐夸克API规范：参数需要带下划线
+        let body: [String: Any] = [
+            "pdir_fid": "0",
+            "_sort": "file_type:asc,file_name:asc",
+            "_page": 1,
+            "_size": 100,
+            "_fetch_total": 1
+        ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         if let (data, response) = try? await session.data(for: req),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

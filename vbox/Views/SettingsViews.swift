@@ -1311,11 +1311,11 @@ struct CloudAuthCenterView: View {
                     }
                     disabledActionButton("官方OAuth直开不可用")
                 } else if type == .uc {
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页登录兜底", icon: "globe")
-                    }
                     Button(action: { showUCNativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页登录兜底", icon: "globe")
                     }
                 } else {
                     Button(action: { webAuthDriveType = type }) {
