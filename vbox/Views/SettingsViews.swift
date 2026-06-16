@@ -2973,6 +2973,10 @@ struct QuarkNativeQRLoginTestView: View {
         isPolling = false
         statusText = "夸克扫码登录成功"
         detailText = "Cookie 已保存到夸克 Token，可回到播放链路测试。"
+        // 扫码成功后自动关闭弹窗
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            dismiss()
+        }
     }
 
     private func makeQRCode(from text: String) -> UIImage? {
