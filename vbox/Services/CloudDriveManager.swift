@@ -1504,7 +1504,7 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
-    private struct QuarkShareFile {
+    struct QuarkShareFile {
         let fid: String
         let fileName: String
         let shareFidToken: String
@@ -2207,12 +2207,51 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("夸克分享内未找到可播放视频")
     }
 
-    private func quarkGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> [QuarkShareFile] {
+    // MARK: - 夸克网盘完整文件列表获取
+    func quarkGetFileList(shareURL: String, cookie: String) async throws -> [QuarkShareFile] {
+        let (pwdId, passcode) = quarkExtractShareInfo(shareURL: shareURL)
+        guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
+
+        var authCookie = cookie
+        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
+        authCookie = folder.cookie
+
+        let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+
+        var allPlayable: [QuarkShareFile] = []
+        try await quarkCollectAllPlayableFiles(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie, result: &allPlayable)
+        return allPlayable
+    }
+
+    private func quarkCollectAllPlayableFiles(pwdId: String, stoken: String, pdirFid: String, cookie: String, result: inout [QuarkShareFile]) async throws {
+        var page = 1
+        var hasMore = true
+        while hasMore {
+            let files = try await quarkGetShareDetail(pwdId: pwdId, stoken: stoken, pdirFid: pdirFid, cookie: cookie, page: page)
+            for file in files where !file.isDir && quarkIsPlayableFileName(file.fileName) {
+                result.append(file)
+            }
+            // 收集子目录，稍后递归
+            var subDirs: [QuarkShareFile] = []
+            for file in files where file.isDir {
+                subDirs.append(file)
+            }
+            // 递归进入子目录
+            for dir in subDirs {
+                try await quarkCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: dir.fid, cookie: cookie, result: &result)
+            }
+            hasMore = files.count >= 100
+            page += 1
+            if page > 20 { break } // 安全限制，最多20页
+        }
+    }
+
+    private func quarkGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String, page: Int = 1) async throws -> [QuarkShareFile] {
         let url = quarkAPIURLWithStrictQuery("/1/clouddrive/share/sharepage/detail", queryItems: [
             URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
             URLQueryItem(name: "_fetch_banner", value: "1"),
             URLQueryItem(name: "_fetch_total", value: "1"),
-            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_page", value: String(page)),
             URLQueryItem(name: "_size", value: "100"),
             URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
             URLQueryItem(name: "force", value: "0"),

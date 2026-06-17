@@ -412,6 +412,10 @@ class PlayerState: ObservableObject {
     @Published var baiduCachedTimeRanges: [(start: Double, end: Double)] = []
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
+    // 夸克网盘多文件列表
+    var quarkFileList: [CloudDriveManager.QuarkShareFile] = []
+    var quarkShareURL: String = ""
+    var quarkCookie: String = ""
     private var currentVideo: VodItem?
     private var allDanmakuItems: [LogVarDanmakuItem] = []
     private var emittedDanmakuIDs = Set<Int>()
@@ -1291,6 +1295,61 @@ class PlayerState: ObservableObject {
             } catch {
                 log("[Baidu] ❌ ①出错: \(error.localizedDescription)")
                 await MainActor.run { loadError = "百度解析失败: \(error.localizedDescription)"; isLoading = false }
+                return
+            }
+        }
+        
+        // 夸克网盘：先获取完整文件列表，多文件则展示选择列表
+        if driveType == .quark {
+            guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
+                await MainActor.run {
+                    loadError = "未配置夸克网盘 Cookie"
+                    isLoading = false
+                }
+                return
+            }
+            log("[Quark] ①获取完整文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: urlString, cookie: token.value)
+                log("[Quark] ✅ 成功，共\(files.count)个可播放文件")
+                
+                // 将文件列表转为JSON存入vodPlayUrl，让详情页能解析为剧集
+                let linksJSON: [[String: String]] = files.map { ["url": "quark://\(urlString)/\( $0.fid)", "name": $0.fileName] }
+                let linkData = try JSONSerialization.data(withJSONObject: linksJSON)
+                let linkString = String(data: linkData, encoding: .utf8) ?? "[]"
+                
+                await MainActor.run {
+                    // 更新当前item的播放URL为文件列表JSON
+                    if var item = currentItem {
+                        item.vodPlayUrl = linkString
+                        currentItem = item
+                    }
+                    quarkFileList = files
+                    quarkShareURL = urlString
+                    quarkCookie = token.value
+                }
+                
+                // 播放第一个文件
+                guard let firstFile = files.first else {
+                    await MainActor.run {
+                        loadError = "夸克文件列表为空"
+                        isLoading = false
+                    }
+                    return
+                }
+                
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[Quark] ❌ 获取文件列表失败: \(error.localizedDescription)")
+                // 降级到单文件解析
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch {
+                    await MainActor.run { loadError = "夸克解析失败: \(error.localizedDescription)"; isLoading = false }
+                }
                 return
             }
         }

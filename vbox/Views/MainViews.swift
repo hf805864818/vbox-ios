@@ -812,16 +812,18 @@ struct SearchView: View {
             runTriggeredSearch()
         }
         .onAppear {
-            guard !hasLoadedDefaultData else {
-                runTriggeredSearch()
-                return
+            if !hasLoadedDefaultData {
+                hasLoadedDefaultData = true
+                Task {
+                    await loadSearchHistory()
+                    await loadDoubanData(force: false)
+                }
+                // 首次出现：如果有外部搜索请求则执行
+                if !settings.searchQuery.isEmpty {
+                    runTriggeredSearch()
+                }
             }
-            hasLoadedDefaultData = true
-            Task {
-                await loadSearchHistory()
-                await loadDoubanData(force: false)
-            }
-            runTriggeredSearch()
+            // 从详情页返回时：不做任何操作，保持现有搜索结果
         }
     }
     
