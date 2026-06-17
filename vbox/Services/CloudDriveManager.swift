@@ -1632,24 +1632,45 @@ class CloudDriveManager: ObservableObject {
         (try await quarkEnsureFolderWithCookie(cookie: cookie)).folderId
     }
 
+    /// 判断 vbox 目录创建失败后是否值得尝试“清理旧转存文件再重试”。
+    /// 只在疑似配额/目录容量相关问题时触发，避免把网络/鉴权/接口结构异常误判成“空间满”。
+    private func quarkShouldAttemptVboxCleanup(error: Error) -> Bool {
+        let s = "\(error) \(error.localizedDescription)".lowercased()
+        // 命中这些关键词时，通常是目录满/配额/数量限制类问题，清理可能有效
+        let keywords = [
+            "空间", "容量", "不足", "已满", "quota", "full", "insufficient",
+            "limit", "超限", "too many", "file count", "exceed"
+        ]
+        return keywords.contains { s.contains($0) }
+    }
+
     private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
-        if let visibleFolder = try? await quarkFindOrCreateVisibleFolder(cookie: cookie) {
-            return visibleFolder
-        }
-
-        // 创建失败可能是空间满了，尝试清理/vbox/目录下的旧转存文件
-        print("[Quark] ⚠️ vbox 目录创建失败，尝试清理vbox旧文件...")
         do {
-            let cleanedCookie = try await quarkCleanUpVboxFiles(cookie: cookie)
-            if let visibleFolder = try? await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie) {
-                return visibleFolder
-            }
+            return try await quarkFindOrCreateVisibleFolder(cookie: cookie)
         } catch {
-            print("[Quark] ⚠️ 清理vbox文件失败：\(error.localizedDescription)")
-        }
+            let firstErrorDesc = error.localizedDescription
+            print("[Quark] ⚠️ vbox 目录创建/查找失败：\(firstErrorDesc)")
 
-        print("[Quark] ❌ vbox 目录创建/查找失败，不回退到默认转存目录")
-        throw DriveError.noPlayURL("夸克：无法创建 vbox 文件夹，请检查网盘空间是否已满")
+            // 仅在疑似配额/容量问题时尝试清理；否则直接把真实错误抛出去，避免误导。
+            guard quarkShouldAttemptVboxCleanup(error: error) else {
+                throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败：\(firstErrorDesc)")
+            }
+
+            print("[Quark] ⚠️ 疑似空间/配额问题，尝试清理 /vbox/ 旧转存文件后重试...")
+            do {
+                let cleanedCookie = try await quarkCleanUpVboxFiles(cookie: cookie)
+                do {
+                    return try await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie)
+                } catch {
+                    let secondErrorDesc = error.localizedDescription
+                    print("[Quark] ❌ 清理后仍无法创建/查找 vbox：\(secondErrorDesc)")
+                    throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败（清理后重试仍失败）：\(secondErrorDesc)")
+                }
+            } catch {
+                print("[Quark] ⚠️ 清理 vbox 旧文件失败：\(error.localizedDescription)")
+                throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败（清理失败）：\(firstErrorDesc)")
+            }
+        }
     }
 
     /// 清理 /vbox/ 目录下的转存文件（对齐百度清理逻辑），不清理回收站
@@ -1761,9 +1782,15 @@ class CloudDriveManager: ObservableObject {
 
         if isAlreadyExists {
             print("[Quark] ⚠️ vbox 目录已存在(code=\(code), message=\(message))，尝试重新查找...")
-            if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie) {
-                print("[Quark] ✅ 找到已存在的 vbox 文件夹 fid=\(folder.folderId)")
-                return folder
+            // 目录“已存在”但 file/sort 可能存在短暂不可见（或缓存延迟），做几次短重试
+            for attempt in 1...5 {
+                if attempt > 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(200_000_000 * attempt))
+                }
+                if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie) {
+                    print("[Quark] ✅ 找到已存在的 vbox 文件夹 fid=\(folder.folderId) (attempt=\(attempt))")
+                    return folder
+                }
             }
             print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
             if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
