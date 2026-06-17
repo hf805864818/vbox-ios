@@ -487,7 +487,9 @@ struct CloudDriveCookieWebView: UIViewRepresentable {
             case .ali:
                 return lower.contains("token") || lower.contains("login") || lower.contains("aliyun")
             case .quark:
-                return lower.contains("__pus=") || lower.contains("__kps=") || lower.contains("__puus=")
+                // 夸克：部分接口（如转存/下载）对 __puus 更敏感；仅有 __pus/__kps 时可能“能建vbox但转存失败”，表现为 vbox 空文件夹。
+                // 因此提高“可用 Cookie”判定门槛：优先要求 __puus；否则至少同时具备 __pus + __kps。
+                return lower.contains("__puus=") || (lower.contains("__pus=") && lower.contains("__kps="))
             case .uc:
                 return lower.contains("uc") || lower.contains("__pus=") || lower.contains("__kps=")
             case .one15:
