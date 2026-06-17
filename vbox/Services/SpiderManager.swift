@@ -1974,10 +1974,10 @@ globalThis.__JS_SPIDER__ = _spider;
             if qualityRank(newRemarks) > qualityRank(existingRemarks) {
                 existing.vodRemarks = newRemarks
             }
-            // 保留更高画质的封面
-            if !item.vodPic.isEmpty && qualityRank(newRemarks) > qualityRank(existingRemarks) {
-                existing.vodPic = item.vodPic
-            }
+            // 保留更高画质的封面（vodPic是let常量，不能修改，跳过）
+            // if !item.vodPic.isEmpty && qualityRank(newRemarks) > qualityRank(existingRemarks) {
+            //     existing.vodPic = item.vodPic
+            // }
             results[existIdx] = existing
         } else {
             results.append(item)
