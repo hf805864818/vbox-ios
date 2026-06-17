@@ -1887,6 +1887,19 @@ class CloudDriveManager: ObservableObject {
         let pageSize = 100
         let maxPages = 30
 
+        func isDirItem(_ item: [String: Any]) -> Bool {
+            if let b = item["dir"] as? Bool { return b }
+            if let i = item["dir"] as? Int { return i != 0 }
+            if let s = item["dir"] as? String {
+                let v = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return v == "1" || v == "true" || v == "yes"
+            }
+            // 兜底：部分接口不返回 dir 字段，仅返回 file_type / file
+            if let file = item["file"] as? Bool { return file == false }
+            if let fileType = item["file_type"] as? Int { return fileType == 0 }
+            return false
+        }
+
         // 对齐夸克API规范：参数需要带下划线；并增加翻页，避免 vbox 不在第一页导致误判不存在
         for page in 1...maxPages {
             var request = URLRequest(url: listURL)
@@ -1911,8 +1924,8 @@ class CloudDriveManager: ObservableObject {
 
             for item in list {
                 let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
-                let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
-                guard name == "vbox", isDir else { continue }
+                let isDir = isDirItem(item)
+                guard name.lowercased() == "vbox", isDir else { continue }
                 if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, currentCookie) }
                 if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, currentCookie) }
                 if let fid = item["fid"] as? Int { return (String(fid), currentCookie) }
