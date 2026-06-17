@@ -881,8 +881,9 @@ globalThis.__JS_SPIDER__ = _spider;
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
-                        // 智能去重：按 vodName+画质 分组，合并来源
-                        smartMerge(item: item, into: &allResults)
+                        // 智能去重：按 vodName+画质 分组，合并来源（已关闭，保留所有搜索结果）
+                        // smartMerge(item: item, into: &allResults)
+                        allResults.append(item)
                     }
                     print("[SpiderManager] 蜘蛛搜索[\(key)]: \(items.count) 条")
                 }
@@ -894,12 +895,13 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 2. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
         let nativeResults = await nativeSearch(keyword: keyword)
-        // 智能去重：合并原生搜索结果
+        // 智能去重：合并原生搜索结果（已关闭，保留所有搜索结果）
         for item in nativeResults {
-            smartMerge(item: item, into: &allResults)
+            // smartMerge(item: item, into: &allResults)
+            allResults.append(item)
         }
 
-        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条（智能去重后）")
+        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
         return allResults.isEmpty ? nativeResults : allResults
     }
 
@@ -962,12 +964,13 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
                 for await items in group {
                     if let items = items, !items.isEmpty {
-                        // 智能去重：按 vodName+画质 分组，合并来源
-                        var deduped: [VodItem] = []
-                        for item in items {
-                            smartMerge(item: item, into: &deduped)
-                        }
-                        onBatch(deduped)
+                        // 智能去重：按 vodName+画质 分组（已关闭，保留所有搜索结果）
+                        // var deduped: [VodItem] = []
+                        // for item in items {
+                        //     smartMerge(item: item, into: &deduped)
+                        // }
+                        // onBatch(deduped)
+                        onBatch(items)
                     }
                 }
             }
@@ -1067,16 +1070,17 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
                 for await items in group {
                     if let items = items {
-                        // 智能去重：按 vodName+画质 分组，合并来源
-                        for item in items {
-                            smartMerge(item: item, into: &allResults)
-                        }
+                        // 智能去重：按 vodName+画质 分组（已关闭，保留所有搜索结果）
+                        // for item in items {
+                        //     smartMerge(item: item, into: &allResults)
+                        // }
+                        allResults.append(contentsOf: items)
                     }
                 }
             }
         }
 
-        print("[SpiderManager] nativeSearch 完成: \(allResults.count) 条（智能去重后）")
+        print("[SpiderManager] nativeSearch 完成: \(allResults.count) 条")
         return allResults
     }
 
@@ -1191,7 +1195,9 @@ globalThis.__JS_SPIDER__ = _spider;
                     
                     let detailURL = site.detailBase + detailPath
                     let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: site.name)
-                    smartMerge(item: item, into: &results)
+                    // 智能去重（已关闭，保留所有搜索结果）
+                    // smartMerge(item: item, into: &results)
+                    results.append(item)
                     siteCount += 1
                 }
                 print("[SpiderManager] cloudSearch \(site.name): \(siteCount) 条")
