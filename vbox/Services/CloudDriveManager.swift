@@ -1705,12 +1705,9 @@ class CloudDriveManager: ObservableObject {
     private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
         let accountKey = quarkAccountKey(cookie: cookie)
 
-        // 方案1：优先使用缓存，避免每次播放都走“创建目录”，降低同名冲突概率；
-        // 同时用一次 find 刷新 cookie（可能包含 __puus / Video-Auth 等字段）。
-        quarkVboxCacheLock.lock()
-        let hasCached = quarkVboxFolderCache[accountKey] != nil
-        quarkVboxCacheLock.unlock()
-        if hasCached, let folder = try? await quarkFindVisibleFolder(cookie: cookie) {
+        // 优先按名称查找根目录里的 vbox。
+        // 这里不先依赖缓存 fid，因为当前线上核心问题正是“已有 vbox 时没准确识别出来”。
+        if let folder = try? await quarkFindVisibleFolder(cookie: cookie) {
             setQuarkVboxFolderCache(accountKey: accountKey, folderId: folder.folderId)
             return folder
         }
@@ -1914,10 +1911,26 @@ class CloudDriveManager: ObservableObject {
     private func quarkFindVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String)? {
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         var currentCookie = cookie
-        let pageSize = 100
-        let maxPages = 30
+        let pageSize = 200
+        var page = 1
 
-        func isDirItem(_ item: [String: Any]) -> Bool {
+        func extractName(from item: [String: Any]) -> String {
+            if let value = item["file_name"] as? String, !value.isEmpty { return value }
+            if let value = item["name"] as? String, !value.isEmpty { return value }
+            if let value = item["fileName"] as? String, !value.isEmpty { return value }
+            if let value = item["title"] as? String, !value.isEmpty { return value }
+            return ""
+        }
+
+        func extractFolderId(from item: [String: Any]) -> String? {
+            for key in ["fid", "file_id", "obj_id", "id"] {
+                if let value = item[key] as? String, !value.isEmpty { return value }
+                if let value = item[key] as? Int { return String(value) }
+            }
+            return nil
+        }
+
+        func looksLikeDirectory(_ item: [String: Any]) -> Bool {
             if let b = item["dir"] as? Bool { return b }
             if let i = item["dir"] as? Int { return i != 0 }
             if let s = item["dir"] as? String {
@@ -1926,11 +1939,17 @@ class CloudDriveManager: ObservableObject {
             }
             if let file = item["file"] as? Bool { return file == false }
             if let fileType = item["file_type"] as? Int { return fileType == 0 }
+            if let category = item["category"] as? String {
+                let lowered = category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if lowered == "folder" || lowered == "dir" || lowered == "directory" {
+                    return true
+                }
+            }
             return false
         }
 
-        // 对齐夸克API规范：参数需要带下划线；并增加翻页，避免 vbox 不在第一页导致误判不存在
-        for page in 1...maxPages {
+        // 核心策略：先按名称匹配 vbox，命中后再提取 fid；只有确认列表里没有 vbox 才返回 nil。
+        while true {
             var request = URLRequest(url: listURL)
             request.httpMethod = "POST"
             quarkSetCommonHeaders(&request, cookie: currentCookie)
@@ -1948,20 +1967,30 @@ class CloudDriveManager: ObservableObject {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
                   let list = dataObj["list"] as? [[String: Any]] else {
+                let preview = String(data: data.prefix(400), encoding: .utf8) ?? ""
+                print("[Quark] ⚠️ 根目录列表结构异常，无法识别 vbox：\(preview)")
                 return nil
             }
 
+            print("[Quark] 根目录扫描 page=\(page), count=\(list.count)")
             for item in list {
-                let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
-                let isDir = isDirItem(item)
-                guard name.lowercased() == "vbox", isDir else { continue }
-                if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, currentCookie) }
-                if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, currentCookie) }
-                if let fid = item["fid"] as? Int { return (String(fid), currentCookie) }
-                if let fileId = item["file_id"] as? Int { return (String(fileId), currentCookie) }
+                let name = extractName(from: item)
+                guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vbox" else { continue }
+
+                if let folderId = extractFolderId(from: item) {
+                    if looksLikeDirectory(item) {
+                        print("[Quark] ✅ 根目录命中 vbox 文件夹 fid=\(folderId)")
+                    } else {
+                        print("[Quark] ⚠️ 命中名称为 vbox 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
+                    }
+                    return (folderId, currentCookie)
+                } else {
+                    print("[Quark] ⚠️ 命中 vbox 但未提取到 fid，item=\(item)")
+                }
             }
 
             if list.count < pageSize { break }
+            page += 1
         }
 
         return nil
@@ -1969,7 +1998,7 @@ class CloudDriveManager: ObservableObject {
 
     private func quarkExtractFirstFid(from value: Any) -> String? {
         if let dict = value as? [String: Any] {
-            for key in ["fid", "file_id", "pdir_fid"] {
+            for key in ["fid", "file_id", "pdir_fid", "obj_id", "target_fid", "conflict_fid", "exist_fid", "id"] {
                 if let text = dict[key] as? String, !text.isEmpty { return text }
                 if let number = dict[key] as? Int { return String(number) }
             }
