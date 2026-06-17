@@ -930,11 +930,13 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 流式搜索 — 每个站点搜完立刻回调，不等全部完成
-    func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void) async {
+    func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void, onLog: ((String) -> Void)? = nil) async {
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        print("[searchStream] ====== 开始流式搜索: \(keyword) ======")
+        let log = onLog ?? { print("[searchStream] \($0)") }
+        log("====== 开始流式搜索: \(keyword) ======")
 
         // 1. QuickJS 蜘蛛（每个引擎一个任务）
+        log("QuickJS引擎: \(engines.count) 个")
         for (key, engine) in engines {
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
@@ -944,10 +946,14 @@ globalThis.__JS_SPIDER__ = _spider;
                             tagged[i].vodRemarks = key
                         }
                     }
-                    print("[searchStream] QuickJS[\(key)] 返回 \(tagged.count) 条")
+                    log("✅ QuickJS[\(key)] +\(tagged.count)条")
                     onBatch(tagged)
+                } else {
+                    log("⬜ QuickJS[\(key)] 0条")
                 }
-            } catch { continue }
+            } catch {
+                log("❌ QuickJS[\(key)] 错误: \(error.localizedDescription.prefix(50))")
+            }
         }
 
         // 2. 合并订阅源 + ibox内置源 + 兜底源
@@ -955,50 +961,60 @@ globalThis.__JS_SPIDER__ = _spider;
         var sites: [Site] = []
         // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
         let spiderAllSites = self.allSites
-        print("[searchStream] SpiderManager.allSites=\(spiderAllSites.count) 条")
+        log("allSites: \(spiderAllSites.count) 个")
         for s in spiderAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
             if let api = s.api {
                 sites.append(Site(name: s.name, api: api))
             }
         }
-        print("[searchStream] SpiderManager type=1/0 站点: \(sites.count) 个")
+        log("type=1/0 站点: \(sites.count) 个")
         // 兜底源补充
         if fallbackEnabled {
+            log("兜底站: \(allFallbackSites.count) 个")
             for fb in allFallbackSites {
                 sites.append(Site(name: fb.name, api: fb.api))
             }
         }
-        print("[searchStream] 合计搜索站点: \(sites.count) 个")
+        log("合计搜索站点: \(sites.count) 个")
 
         guard !sites.isEmpty else {
-            print("[searchStream] ⚠️ 无可用搜索站点，退出")
+            log("⚠️ 无可用搜索站点，退出")
             return
         }
 
         // 3. 分批并发搜索，每批10个，边搜边展示结果
         let batchSize = 10
         let allSites = Array(sites)
+        var successCount = 0
+        var failCount = 0
+        var emptyCount = 0
         for batchStart in stride(from: 0, to: allSites.count, by: batchSize) {
+            let batchNum = batchStart / batchSize + 1
+            let batchTotal = (allSites.count + batchSize - 1) / batchSize
             let batch = Array(allSites[batchStart..<min(batchStart + batchSize, allSites.count)])
-            await withTaskGroup(of: [VodItem]?.self) { group in
+            log("📦 第\(batchNum)/\(batchTotal)批 [\(batchStart+1)-\(min(batchStart+batchSize, allSites.count))]")
+            await withTaskGroup(of: (name: String, items: [VodItem]?).self) { group in
                 for site in batch {
                     group.addTask {
-                        await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                        let result = await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                        return (name: site.name, items: result)
                     }
                 }
-                for await items in group {
-                    if let items = items, !items.isEmpty {
-                        // 智能去重：按 vodName+画质 分组（已关闭，保留所有搜索结果）
-                        // var deduped: [VodItem] = []
-                        // for item in items {
-                        //     smartMerge(item: item, into: &deduped)
-                        // }
-                        // onBatch(deduped)
+                for await result in group {
+                    if let items = result.items, !items.isEmpty {
+                        log("✅ \(result.name) +\(items.count)条")
+                        successCount += 1
                         onBatch(items)
+                    } else if result.items == nil {
+                        log("❌ \(result.name) 请求失败")
+                        failCount += 1
+                    } else {
+                        emptyCount += 1
                     }
                 }
             }
         }
+        log("====== Stream完成: 成功\(successCount)/空\(emptyCount)/失败\(failCount) ======")
     }
 
     /// 通过引擎获取详情，失败时回退到原生 API 详情
@@ -1155,10 +1171,11 @@ globalThis.__JS_SPIDER__ = _spider;
     // MARK: - 网盘资源专用搜索（独立通道）
     /// 只搜索网盘资源站（video_sources.json 中的 HTML 网页站点）
     /// 返回的 VodItem.vodId 存的是详情页完整 URL，播放时直接抓取解析
-    func cloudSearch(keyword: String) async -> [VodItem] {
+    func cloudSearch(keyword: String, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
         var results: [VodItem] = []
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        print("[SpiderManager] ====== cloudSearch: \(keyword) ======")
+        let log = onLog ?? { print("[cloudSearch] \($0)") }
+        log("====== cloudSearch: \(keyword) ======")
         
         // 从配置中读取网盘资源站列表
         // 现在的 video_sources.json 是本地的，也可以内置信得过的网盘站
@@ -1183,7 +1200,7 @@ globalThis.__JS_SPIDER__ = _spider;
 
         for site in cloudSites {
             let fullURL = site.searchURL + encodedKW
-            print("[SpiderManager] cloudSearch 请求: \(site.name): \(fullURL)")
+            log("☁️ \(site.name) 请求中...")
             do {
                 guard let url = URL(string: fullURL) else { continue }
                 var req = URLRequest(url: url)
@@ -1236,7 +1253,9 @@ globalThis.__JS_SPIDER__ = _spider;
                     siteCount += 1
                 }
                 print("[SpiderManager] cloudSearch \(site.name): \(siteCount) 条")
+                log("☁️ ✅ \(site.name) +\(siteCount)条")
             } catch {
+                log("☁️ ❌ \(site.name) 失败")
                 print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
             }
         }
