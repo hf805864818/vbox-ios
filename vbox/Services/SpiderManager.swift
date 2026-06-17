@@ -26,24 +26,18 @@ class SpiderManager: ObservableObject {
 
     // 内置兜底采集 API 站
     static let builtinFallbackSites: [(name: String, api: String)] = [
-        ("酷点资源",   "https://kudian10.com/api.php/provide/vod"),
         ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
         ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
         ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
         ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
         ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
         ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
-        ("卧龙资源",   "https://collect.wolongzyw.com/api.php/provide/vod"),
         ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
         ("玩偶4K弹幕", "http://wogg.xxooo.cf/api.php/provide/vod"),
         ("木偶影视",   "https://666.666291.xyz/api.php/provide/vod"),
         ("4KTOP蓝光",  "https://4ktop.com/api.php/provide/vod"),
         ("盘Ta资源",   "https://www.91panta.cn/api.php/provide/vod"),
-        ("雷鲸资源",   "https://www.leijing.xyz/api.php/provide/vod"),
-        ("闪电资源站", "https://sd.sduc.site/api.php/provide/vod"),
         ("多多资源",   "https://tv.yydsys.top/api.php/provide/vod"),
-        ("南风资源",   "https://www.nanf.cc/api.php/provide/vod"),
-        ("趣盘资源",   "https://pan.funletu.com/api.php/provide/vod"),
         ("至臻影视",   "http://www.miqk.cc/api.php/provide/vod"),
         ("LibVio影视", "https://libvio.mov/api.php/provide/vod"),
     ]
@@ -1181,20 +1175,12 @@ globalThis.__JS_SPIDER__ = _spider;
         // 现在的 video_sources.json 是本地的，也可以内置信得过的网盘站
         let cloudSites: [(name: String, searchURL: String, detailBase: String)] = [
             ("木偶影视", "https://666.666291.xyz/index.php/vod/search.html?wd=", "https://666.666291.xyz"),
-            ("虎斑资源", "http://103.45.162.207:20720/index.php/vod/search.html?wd=", "http://103.45.162.207:20720"),
             ("小斑资源", "http://xsayang.fun:12512/index.php/vod/search.html?wd=", "http://xsayang.fun:12512"),
             ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
             ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
             ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
             ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
             ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
-            ("CZZY", "https://czzy.xn--m7r412advb92j21st65a.tk/index.php/vod/search.html?wd=", "https://czzy.xn--m7r412advb92j21st65a.tk"),
-            ("4Kcz", "https://www.4kcz.com/index.php/vod/search.html?wd=", "https://www.4kcz.com"),
-            ("BTtwo", "https://www.bttwo.life/index.php/vod/search.html?wd=", "https://www.bttwo.life"),
-            ("247看", "https://app.247kan.com/index.php/vod/search.html?wd=", "https://app.247kan.com"),
-            ("BTE影视", "https://api.bteys.com/index.php/vod/search.html?wd=", "https://api.bteys.com"),
-            ("SHDY", "https://v.shdy5.us/index.php/vod/search.html?wd=", "https://v.shdy5.us"),
-            ("YISO", "https://yiso.fun/index.php/vod/search.html?wd=", "https://yiso.fun"),
             ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
         ]
 
