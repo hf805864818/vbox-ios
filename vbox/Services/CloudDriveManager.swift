@@ -1746,59 +1746,93 @@ class CloudDriveManager: ObservableObject {
             return (fid, mergedCookie)
         }
 
-        // 检查是否因为"已存在"而失败
+        // 检查是否因为"已存在"而失败（覆盖夸克API各种返回格式）
         let message = (json["message"] as? String ?? json["msg"] as? String ?? "").lowercased()
-        let isAlreadyExists = message.contains("已存在") || message.contains("exist") || message.contains("同名")
         let code = json["code"] as? Int ?? json["status"] as? Int ?? 0
+        let isAlreadyExists = message.contains("已存在")
+            || message.contains("exist")
+            || message.contains("同名")
+            || message.contains("already")
+            || message.contains("重复")
+            || message.contains("冲突")
+            || code == 40003
+            || code == 40001
+            || code == 40005
 
-        if isAlreadyExists || code == 40003 || code == 40001 {
-            print("[Quark] ⚠️ vbox 目录已存在，尝试重新查找...")
+        if isAlreadyExists {
+            print("[Quark] ⚠️ vbox 目录已存在(code=\(code), message=\(message))，尝试重新查找...")
             if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie) {
                 print("[Quark] ✅ 找到已存在的 vbox 文件夹 fid=\(folder.folderId)")
                 return folder
             }
+            print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
+            if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
+                print("[Quark] ✅ 从创建响应提取到 fid=\(fid)")
+                return (fid, mergedCookie)
+            }
+            print("[Quark] ⚠️ 创建响应也没有 fid，查看完整响应诊断: \(preview)")
         }
 
         if code != 0 && code != 200 {
-            print("[Quark] ❌ 创建 vbox 目录失败: \(message), code=\(code), preview=\(preview)")
-            throw DriveError.noPlayURL("夸克创建 vbox 目录失败：\(message)")
+            print("[Quark] ❌ 创建 vbox 目录失败: message=\(message), code=\(code), preview=\(preview)")
+            throw DriveError.noPlayURL("夸克创建 vbox 目录失败：\(message) (code=\(code))")
         }
 
-        print("[Quark] ❌ 创建 vbox 目录成功但未返回 fid: \(preview)")
+        print("[Quark] ❌ 创建 vbox 目录成功(status=\(code))但未返回 fid: \(preview)")
         throw DriveError.noPlayURL("夸克创建 vbox 目录后未返回 fid")
     }
 
     private func quarkFindVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String)? {
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
-        var request = URLRequest(url: listURL)
-        request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: cookie)
-        // 对齐夸克API规范：参数需要带下划线
-        let body: [String: Any] = [
-            "pdir_fid": "0",
-            "_sort": "file_type:asc,file_name:asc",
-            "_page": 1,
-            "_size": 100,
-            "_fetch_total": 1
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        var currentCookie = cookie
+        let pageSize = 100
+        let maxPages = 30
 
-        let (data, response) = try await session.data(for: request)
-        let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let list = dataObj["list"] as? [[String: Any]] else {
-            return nil
+        func isDirItem(_ item: [String: Any]) -> Bool {
+            if let b = item["dir"] as? Bool { return b }
+            if let i = item["dir"] as? Int { return i != 0 }
+            if let s = item["dir"] as? String {
+                let v = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return v == "1" || v == "true" || v == "yes"
+            }
+            if let file = item["file"] as? Bool { return file == false }
+            if let fileType = item["file_type"] as? Int { return fileType == 0 }
+            return false
         }
 
-        for item in list {
-            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
-            let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
-            guard name == "vbox", isDir else { continue }
-            if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, mergedCookie) }
-            if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, mergedCookie) }
-            if let fid = item["fid"] as? Int { return (String(fid), mergedCookie) }
-            if let fileId = item["file_id"] as? Int { return (String(fileId), mergedCookie) }
+        // 对齐夸克API规范：参数需要带下划线；并增加翻页，避免 vbox 不在第一页导致误判不存在
+        for page in 1...maxPages {
+            var request = URLRequest(url: listURL)
+            request.httpMethod = "POST"
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
+            let body: [String: Any] = [
+                "pdir_fid": "0",
+                "_sort": "file_type:asc,file_name:asc",
+                "_page": page,
+                "_size": pageSize,
+                "_fetch_total": 1
+            ]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+            let (data, response) = try await session.data(for: request)
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else {
+                return nil
+            }
+
+            for item in list {
+                let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+                let isDir = isDirItem(item)
+                guard name.lowercased() == "vbox", isDir else { continue }
+                if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, currentCookie) }
+                if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, currentCookie) }
+                if let fid = item["fid"] as? Int { return (String(fid), currentCookie) }
+                if let fileId = item["file_id"] as? Int { return (String(fileId), currentCookie) }
+            }
+
+            if list.count < pageSize { break }
         }
 
         return nil
