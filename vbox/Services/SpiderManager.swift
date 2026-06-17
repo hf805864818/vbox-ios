@@ -976,35 +976,48 @@ globalThis.__JS_SPIDER__ = _spider;
             return
         }
 
-        // 3. 分批并发搜索，每批10个，边搜边展示结果
-        let batchSize = 10
+        // 3. 全部站点并发搜索（限制并发数20），每个站点完成立即回调
         let allSites = Array(sites)
+        log("合计搜索站点: \(allSites.count) 个（全部并发）")
         var successCount = 0
         var failCount = 0
         var emptyCount = 0
-        for batchStart in stride(from: 0, to: allSites.count, by: batchSize) {
-            let batchNum = batchStart / batchSize + 1
-            let batchTotal = (allSites.count + batchSize - 1) / batchSize
-            let batch = Array(allSites[batchStart..<min(batchStart + batchSize, allSites.count)])
-            log("📦 第\(batchNum)/\(batchTotal)批 [\(batchStart+1)-\(min(batchStart+batchSize, allSites.count))]")
-            await withTaskGroup(of: (name: String, items: [VodItem]?).self) { group in
-                for site in batch {
-                    group.addTask {
-                        let result = await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
-                        return (name: site.name, items: result)
+        let maxConcurrent = 20
+        await withTaskGroup(of: (name: String, items: [VodItem]?).self) { group in
+            var runningCount = 0
+            for site in allSites {
+                if runningCount >= maxConcurrent {
+                    if let result = await group.next() {
+                        if let items = result.items, !items.isEmpty {
+                            log("✅ \(result.name) +\(items.count)条")
+                            successCount += 1
+                            onBatch(items)
+                        } else if result.items == nil {
+                            log("❌ \(result.name) 请求失败")
+                            failCount += 1
+                        } else {
+                            emptyCount += 1
+                        }
+                        runningCount -= 1
                     }
                 }
-                for await result in group {
-                    if let items = result.items, !items.isEmpty {
-                        log("✅ \(result.name) +\(items.count)条")
-                        successCount += 1
-                        onBatch(items)
-                    } else if result.items == nil {
-                        log("❌ \(result.name) 请求失败")
-                        failCount += 1
-                    } else {
-                        emptyCount += 1
-                    }
+                runningCount += 1
+                group.addTask {
+                    let result = await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
+                    return (name: site.name, items: result)
+                }
+            }
+            // 等待剩余任务完成
+            for await result in group {
+                if let items = result.items, !items.isEmpty {
+                    log("✅ \(result.name) +\(items.count)条")
+                    successCount += 1
+                    onBatch(items)
+                } else if result.items == nil {
+                    log("❌ \(result.name) 请求失败")
+                    failCount += 1
+                } else {
+                    emptyCount += 1
                 }
             }
         }

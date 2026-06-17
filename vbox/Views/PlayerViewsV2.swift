@@ -1100,6 +1100,7 @@ class PlayerState: ObservableObject {
     private var timeObserver: Any?
     private var statusObserver: AnyCancellable?
     private var failureObserver: AnyCancellable?
+    private var hasRetriedNoReferer = false
     private var endObserver: AnyCancellable?
     private var currentTask: Task<Void, Never>?
     
@@ -2276,7 +2277,8 @@ class PlayerState: ObservableObject {
         return urls.filter { !$0.isEmpty }
     }
     
-    private func initPlayer(url: URL) {
+    private func initPlayer(url: URL, noReferer: Bool = false) {
+        if !noReferer { hasRetriedNoReferer = false }
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
 
         if shouldRouteDirectURLToMPV(url) {
@@ -2306,21 +2308,23 @@ class PlayerState: ObservableObject {
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
         
-        // 提取域名作为Referer
-        var referer = url.absoluteString
-        if let host = url.host {
-            referer = "https://\(host)/"
-        }
-        
         // 设置HTTP头（m3u8播放通常需要正确的User-Agent和Referer）
-        assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [
+        var headers: [String: String] = [
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
             "Accept": "*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Referer": referer
+            "Accept-Language": "zh-CN,zh;q=0.9"
         ]
-        
-        log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+        if !noReferer {
+            var referer = url.absoluteString
+            if let host = url.host {
+                referer = "https://\(host)/"
+            }
+            headers["Referer"] = referer
+            log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+        } else {
+            log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
+        }
+        assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
         
         // 创建Asset和PlayerItem
         let asset = AVURLAsset(url: url, options: assetOptions)
@@ -2353,6 +2357,15 @@ class PlayerState: ObservableObject {
                     self.log("[PlayerV2] ❌ PlayerItem 失败: code=\(errorCode) domain=\(errorDomain) desc=\(errorDesc)")
                     if let underlying = (playerItem.error as? NSError)?.userInfo[NSUnderlyingErrorKey] as? Error {
                         self.log("[PlayerV2] ❌ 底层错误: \(underlying.localizedDescription)")
+                    }
+                    // -11850/-12939 可能是Referer校验失败，尝试不带Referer重试
+                    if (errorCode == -11850 || errorCode == -12939) && !self.hasRetriedNoReferer {
+                        self.hasRetriedNoReferer = true
+                        self.log("[PlayerV2] 🔄 疑似Referer校验失败，尝试不带Referer重试...")
+                        self.statusObserver = nil
+                        self.failureObserver = nil
+                        self.initPlayer(url: url, noReferer: true)
+                        return
                     }
                     let errMsg = errorDesc.contains("不能") || errorDesc.contains("format") || errorDesc.contains("Invalid") 
                         ? "播放地址格式不支持" : "播放地址加载失败: \(errorDesc)"
