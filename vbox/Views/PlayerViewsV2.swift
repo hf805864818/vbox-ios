@@ -1319,11 +1319,6 @@ class PlayerState: ObservableObject {
                 let linkString = String(data: linkData, encoding: .utf8) ?? "[]"
                 
                 await MainActor.run {
-                    // 更新当前item的播放URL为文件列表JSON
-                    if var item = currentItem {
-                        item.vodPlayUrl = linkString
-                        currentItem = item
-                    }
                     quarkFileList = files
                     quarkShareURL = urlString
                     quarkCookie = token.value
