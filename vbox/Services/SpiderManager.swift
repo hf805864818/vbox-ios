@@ -161,12 +161,12 @@ class SpiderManager: ObservableObject {
         if let activeURL = subManager.activeURL {
             print("[SpiderManager] 加载激活的订阅源: \(activeURL)")
             await subManager.loadConfig(from: activeURL)
-            if subManager.config != nil {
-                await loadSitesFromSubscription()
-            }
         }
 
-        print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(subManager.config?.sites.count ?? 0)")
+        // 无论是否有订阅源，都加载站点配置（内置站点作为兜底）
+        await loadSitesFromSubscription()
+
+        print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(allSites.count)")
     }
 
     /// 加载内置 QuickJS 蜘蛛引擎
@@ -1270,13 +1270,11 @@ globalThis.__JS_SPIDER__ = _spider;
             (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
             (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
             (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
-            (#"(https?://pan\.quark\.cn/s/([^#/]+))"#, "夸克网盘分享列表"),
             (#"(https?://pan\.baidu\.com/s/[^\s\"<>']*)"#, "百度网盘"),
             (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
             (#"(https?://yun\.139\.com/[^\s\"<>']*)"#, "天翼云盘"),
             (#"(https?://yun\.139\.com/share(?:web|wap)/#/[wm]/i[/?][^\s\"<>']*)"#, "天翼云盘分享"),
             (#"(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)"#, "123云盘"),
-            (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']*)"#, "UC网盘"),
         ]
 
         var allLinks: [(url: String, name: String)] = []
