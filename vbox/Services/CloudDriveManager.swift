@@ -60,6 +60,16 @@ class CloudDriveManager: ObservableObject {
     private let baiduVerifyCooldownKey = "baidu_verify_cooldown_v1"
     private let unifiedCloudPlayItemCacheKey = "cloud_play_item_cache_v1"
     private let baiduRouteDiagnosticsKey = "baidu_route_diagnostics_v1"
+    private let quarkVboxFolderCacheKeyPrefix = "quark_vbox_folder_fid_v1_"
+    private let cleanupQueueKey = "cloud_drive_cleanup_queue_v1"
+
+    private struct CleanupQueueItem: Codable, Hashable {
+        let drive: String
+        let tokenName: String
+        let fileId: String
+        let eligibleAt: Date
+        let createdAt: Date
+    }
     private struct BaiduPlayCacheItem {
         let result: PlayResult
         let expiresAt: Date
@@ -162,12 +172,14 @@ class CloudDriveManager: ObservableObject {
     private let baiduPlayCacheLock = NSLock()
 
     @Published private(set) var savedTokens: [DriveToken] = []
+    private var cleanupWorkerTask: Task<Void, Never>?
 
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
         loadTokens()
+        startCleanupWorkerIfNeeded()
     }
 
     static var onLog: ((String) -> Void)?
@@ -865,9 +877,13 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func scheduleCleanup(drive: DriveType, fileIds: [String], token: String, delay: TimeInterval = 180) {
-        Task {
+        guard !fileIds.isEmpty else { return }
+        let tokenName = resolveTokenName(drive: drive, tokenValue: token)
+        enqueueCleanup(drive: drive, tokenName: tokenName, fileIds: fileIds, delay: delay)
+        startCleanupWorkerIfNeeded()
+        Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            await cleanupFiles(drive: drive, fileIds: fileIds, token: token)
+            await self?.flushCleanupQueue()
         }
     }
 
@@ -879,6 +895,109 @@ class CloudDriveManager: ObservableObject {
         case .uc: await ucDeleteFiles(fileIds: fileIds, cookie: token)
         default: break
         }
+    }
+
+    private func resolveTokenName(drive: DriveType, tokenValue: String) -> String {
+        savedTokens.first(where: { $0.type == drive.rawValue && $0.value == tokenValue })?.name ?? ""
+    }
+
+    private func tokenValue(for drive: DriveType, tokenName: String) -> String? {
+        if !tokenName.isEmpty,
+           let found = tokens(for: drive).first(where: { $0.name == tokenName }) {
+            return found.value
+        }
+        return tokens(for: drive).first?.value
+    }
+
+    private func loadCleanupQueue() -> [CleanupQueueItem] {
+        guard let data = defaults.data(forKey: cleanupQueueKey),
+              let items = try? JSONDecoder().decode([CleanupQueueItem].self, from: data) else {
+            return []
+        }
+        return items
+    }
+
+    private func saveCleanupQueue(_ items: [CleanupQueueItem]) {
+        guard let data = try? JSONEncoder().encode(items) else { return }
+        defaults.set(data, forKey: cleanupQueueKey)
+    }
+
+    private func enqueueCleanup(drive: DriveType, tokenName: String, fileIds: [String], delay: TimeInterval) {
+        let now = Date()
+        let eligibleAt = now.addingTimeInterval(delay)
+        var queue = loadCleanupQueue()
+        var existing = Set(queue.map { ($0.drive, $0.tokenName, $0.fileId) }.map { "\($0.0)|\($0.1)|\($0.2)" })
+
+        for fid in fileIds where !fid.isEmpty {
+            let key = "\(drive.rawValue)|\(tokenName)|\(fid)"
+            if existing.contains(key) { continue }
+            existing.insert(key)
+            queue.append(
+                CleanupQueueItem(
+                    drive: drive.rawValue,
+                    tokenName: tokenName,
+                    fileId: fid,
+                    eligibleAt: eligibleAt,
+                    createdAt: now
+                )
+            )
+        }
+
+        // 防止队列无限增长：保留最新 300 条
+        if queue.count > 300 {
+            queue.sort { $0.createdAt > $1.createdAt }
+            queue = Array(queue.prefix(300))
+        }
+        saveCleanupQueue(queue)
+    }
+
+    private func startCleanupWorkerIfNeeded() {
+        guard cleanupWorkerTask == nil else { return }
+        cleanupWorkerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.flushCleanupQueue()
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+            }
+        }
+    }
+
+    private func flushCleanupQueue() async {
+        var queue = loadCleanupQueue()
+        guard !queue.isEmpty else { return }
+        let now = Date()
+
+        let due = queue.filter { $0.eligibleAt <= now }
+        guard !due.isEmpty else { return }
+
+        // 按 drive + tokenName 分组批量删除，减少 API 调用
+        var groups: [String: [String]] = [:]
+        for item in due {
+            let k = "\(item.drive)|\(item.tokenName)"
+            groups[k, default: []].append(item.fileId)
+        }
+
+        for (key, fids) in groups {
+            let parts = key.components(separatedBy: "|")
+            guard parts.count >= 2 else { continue }
+            let driveRaw = parts[0]
+            let tokenName = parts[1]
+            guard let drive = DriveType(rawValue: driveRaw) else { continue }
+            guard let tokenValue = tokenValue(for: drive, tokenName: tokenName), !tokenValue.isEmpty else {
+                continue
+            }
+            // 去重并控制每批最大数量
+            let unique = Array(Set(fids)).filter { !$0.isEmpty }
+            if unique.isEmpty { continue }
+            let batches = stride(from: 0, to: unique.count, by: 100).map { Array(unique[$0..<min($0 + 100, unique.count)]) }
+            for batch in batches {
+                await cleanupFiles(drive: drive, fileIds: batch, token: tokenValue)
+            }
+        }
+
+        // 删除已到期的任务（默认认为提交删除即可；失败会在下次播放/触发兜底清理时再覆盖）
+        let dueSet = Set(due)
+        queue.removeAll { dueSet.contains($0) }
+        saveCleanupQueue(queue)
     }
 
     func tokens(for type: DriveType) -> [DriveToken] {
@@ -1483,6 +1602,66 @@ class CloudDriveManager: ObservableObject {
         return parts.joined(separator: "; ")
     }
 
+    private func quarkCookieIdentity(cookie: String) -> String {
+        let dict = quarkCookieDictionary(from: cookie)
+        // __uid 是相对稳定的账号标识；取不到再降级
+        return dict["__uid"]
+            ?? dict["__puus"]
+            ?? dict["__kps"]
+            ?? dict["ctoken"]
+            ?? "unknown"
+    }
+
+    private func quarkVboxCacheKey(cookie: String) -> String {
+        quarkVboxFolderCacheKeyPrefix + quarkCookieIdentity(cookie: cookie)
+    }
+
+    private func quarkCachedVboxFolderId(cookie: String) -> String? {
+        defaults.string(forKey: quarkVboxCacheKey(cookie: cookie))
+    }
+
+    private func quarkCacheVboxFolderId(_ folderId: String, cookie: String) {
+        guard !folderId.isEmpty else { return }
+        defaults.set(folderId, forKey: quarkVboxCacheKey(cookie: cookie))
+    }
+
+    private func quarkClearCachedVboxFolderId(cookie: String) {
+        defaults.removeObject(forKey: quarkVboxCacheKey(cookie: cookie))
+    }
+
+    private func quarkCheckFolderAccessible(folderId: String, cookie: String) async -> (ok: Bool, cookie: String) {
+        var currentCookie = cookie
+        guard !folderId.isEmpty else { return (false, currentCookie) }
+        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
+        var request = URLRequest(url: listURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        quarkSetCommonHeaders(&request, cookie: currentCookie)
+        let body: [String: Any] = [
+            "pdir_fid": folderId,
+            "_page": 1,
+            "_size": 1,
+            "_fetch_total": 0,
+            "_sort": "file_type:asc,updated_at:desc"
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let code = json["code"] as? Int ?? 0
+                let status = json["status"] as? Int ?? 200
+                if (code == 0 || code == 200) && (status == 200 || status == 0) {
+                    return (true, currentCookie)
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return (false, currentCookie)
+    }
+
     private func quarkGetShareToken(pwdId: String, passcode: String, cookie: String) async throws -> String {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
@@ -1515,17 +1694,36 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
+        var currentCookie = cookie
+
+        // 先尝试命中缓存（减少每次都去根目录翻页查找）
+        if let cachedFid = quarkCachedVboxFolderId(cookie: currentCookie), !cachedFid.isEmpty {
+            let check = await quarkCheckFolderAccessible(folderId: cachedFid, cookie: currentCookie)
+            if check.ok {
+                currentCookie = check.cookie
+                print("[Quark] ✅ 使用缓存 vbox 文件夹 fid=\(cachedFid)")
+                return (cachedFid, currentCookie)
+            } else {
+                quarkClearCachedVboxFolderId(cookie: currentCookie)
+                print("[Quark] ⚠️ 缓存 vbox fid 已失效，转入查找/创建流程")
+                currentCookie = check.cookie
+            }
+        }
+
         // 像百度路链一样，先独立查找已有vbox文件夹（避免不必要的创建请求）
         print("[Quark] 🔍 开始查找vbox文件夹...")
-        if let existing = try? await quarkFindVisibleFolder(cookie: cookie) {
+        if let existing = try? await quarkFindVisibleFolder(cookie: currentCookie) {
             print("[Quark] ✅ 使用已有 vbox 文件夹 fid=\(existing.folderId)")
+            quarkCacheVboxFolderId(existing.folderId, cookie: existing.cookie)
             return existing
         }
         print("[Quark] 📁 未找到vbox文件夹，尝试创建...")
 
         // 没找到，尝试创建（可能被人删了或首次使用）
         do {
-            return try await quarkFindOrCreateVisibleFolder(cookie: cookie)
+            let created = try await quarkFindOrCreateVisibleFolder(cookie: currentCookie)
+            quarkCacheVboxFolderId(created.folderId, cookie: created.cookie)
+            return created
         } catch {
             print("[Quark] ⚠️ vbox 创建失败: \(error.localizedDescription)")
         }
@@ -1533,14 +1731,16 @@ class CloudDriveManager: ObservableObject {
         // 创建失败（可能是"已存在"但file/sort没查出来），尝试清理后重新查找
         print("[Quark] ⚠️ vbox 目录创建失败，尝试查找 + 清理兜底...")
         do {
-            let cleanedCookie = try await quarkCleanUpVboxFiles(cookie: cookie)
+            let cleanedCookie = try await quarkCleanUpVboxFiles(cookie: currentCookie)
             // 清理后再次独立查找（文件夹大概率已经存在了）
             if let existing = try? await quarkFindVisibleFolder(cookie: cleanedCookie) {
                 print("[Quark] ✅ 清理后找到已有 vbox 文件夹 fid=\(existing.folderId)")
+                quarkCacheVboxFolderId(existing.folderId, cookie: existing.cookie)
                 return existing
             }
             // 还没找到就最后试一次创建
             if let retried = try? await quarkFindOrCreateVisibleFolder(cookie: cleanedCookie) {
+                quarkCacheVboxFolderId(retried.folderId, cookie: retried.cookie)
                 return retried
             }
         } catch {
@@ -1683,35 +1883,44 @@ class CloudDriveManager: ObservableObject {
 
     private func quarkFindVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String)? {
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
-        var request = URLRequest(url: listURL)
-        request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: cookie)
-        // 对齐夸克API规范：参数需要带下划线
-        let body: [String: Any] = [
-            "pdir_fid": "0",
-            "_sort": "file_type:asc,file_name:asc",
-            "_page": 1,
-            "_size": 100,
-            "_fetch_total": 1
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        var currentCookie = cookie
+        let pageSize = 100
+        let maxPages = 30
 
-        let (data, response) = try await session.data(for: request)
-        let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let list = dataObj["list"] as? [[String: Any]] else {
-            return nil
-        }
+        // 对齐夸克API规范：参数需要带下划线；并增加翻页，避免 vbox 不在第一页导致误判不存在
+        for page in 1...maxPages {
+            var request = URLRequest(url: listURL)
+            request.httpMethod = "POST"
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
+            let body: [String: Any] = [
+                "pdir_fid": "0",
+                "_sort": "file_type:asc,file_name:asc",
+                "_page": page,
+                "_size": pageSize,
+                "_fetch_total": 1
+            ]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        for item in list {
-            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
-            let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
-            guard name == "vbox", isDir else { continue }
-            if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, mergedCookie) }
-            if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, mergedCookie) }
-            if let fid = item["fid"] as? Int { return (String(fid), mergedCookie) }
-            if let fileId = item["file_id"] as? Int { return (String(fileId), mergedCookie) }
+            let (data, response) = try await session.data(for: request)
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else {
+                return nil
+            }
+
+            for item in list {
+                let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+                let isDir = (item["dir"] as? Bool) ?? ((item["file"] as? Bool) == false && (item["file_type"] as? Int) == 0)
+                guard name == "vbox", isDir else { continue }
+                if let fid = item["fid"] as? String, !fid.isEmpty { return (fid, currentCookie) }
+                if let fileId = item["file_id"] as? String, !fileId.isEmpty { return (fileId, currentCookie) }
+                if let fid = item["fid"] as? Int { return (String(fid), currentCookie) }
+                if let fileId = item["file_id"] as? Int { return (String(fileId), currentCookie) }
+            }
+
+            // 本页不足一页，结束翻页
+            if list.count < pageSize { break }
         }
 
         return nil
@@ -2044,10 +2253,10 @@ class CloudDriveManager: ObservableObject {
             quarkSetCommonHeaders(&request, cookie: cookie)
             let body: [String: Any] = [
                 "pdir_fid": folderId,
-                "sort_by": "file_name",
-                "sort_order": "asc",
-                "page": 1,
-                "size": 100
+                "_sort": "file_type:asc,file_name:asc",
+                "_page": 1,
+                "_size": 100,
+                "_fetch_total": 1
             ]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
