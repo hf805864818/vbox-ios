@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
     @AppStorage("show_debug_overlay") private var showDebugOverlay = false
+    @AppStorage("show_search_debug") private var showSearchDebug = false
     @State private var showCacheAlert = false
     @State private var cacheSize: String = "256 MB"
     @State private var showUpdateSheet = false
@@ -139,6 +140,7 @@ struct SettingsView: View {
             SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
             SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
             SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
+            SettingsToggleRow(title: "搜索调试面板", isOn: $showSearchDebug)
         }
     }
 

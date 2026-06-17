@@ -78,7 +78,22 @@ struct VideoDetailView: View {
     /// 解析所有播放源线路（不丢弃任何源）
     private func parseAllSources(from raw: String?, playFrom: String?) -> [(name: String, episodes: [(name: String, url: String)])] {
         guard let raw, !raw.isEmpty else { return [] }
-        if raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[") { return [] }
+        
+        // 网盘 JSON 格式: [{"url":"https://pan.quark.cn/s/xxx","name":"夸克网盘"}, ...]
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("[") {
+            guard let data = trimmed.data(using: .utf8),
+                  let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
+                  !links.isEmpty else { return [] }
+            var episodes: [(name: String, url: String)] = []
+            for (idx, link) in links.enumerated() {
+                guard let url = link["url"], !url.isEmpty else { continue }
+                let name = link["name"] ?? "网盘资源\(idx + 1)"
+                episodes.append((name: name, url: url))
+            }
+            guard !episodes.isEmpty else { return [] }
+            return [("name": "网盘资源", episodes: episodes)]
+        }
         
         let urlGroups = raw.components(separatedBy: "$$$")
         let nameGroups = playFrom?.components(separatedBy: "$$$") ?? []

@@ -659,6 +659,7 @@ struct SearchView: View {
     @State private var searchHistory: [String] = []
     @State private var selectedDoubanTab = 0
     @State private var doubanSubjects: [String: [DoubanSubject]] = [:]
+    @State private var searchDebugLogs: [String] = []
     @State private var doubanLoading = false
     @State private var hasLoadedDefaultData = false
     
@@ -755,6 +756,45 @@ struct SearchView: View {
                 } else {
                     await loadSearchHistory()
                     await loadDoubanData(force: true)
+                }
+            }
+            // 搜索调试浮层
+            .overlay(alignment: .bottom) {
+                if UserDefaults.standard.bool(forKey: "show_search_debug") && !searchDebugLogs.isEmpty {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text("搜索调试")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white.opacity(0.7))
+                            Spacer()
+                            Text("\(searchResults.count)条/\(Set(searchResults.compactMap { $0.vodRemarks }).count)源")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 6)
+                        
+                        ScrollView(showsIndicators: true) {
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                ForEach(Array(searchDebugLogs.enumerated()), id: \.offset) { _, log in
+                                    Text(log)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(.green.opacity(0.9))
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 6)
+                        }
+                        .frame(height: 100)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(Color.black.opacity(0.8))
+                    .cornerRadius(10)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(true)
                 }
             }
         }
@@ -900,6 +940,7 @@ struct SearchView: View {
         isSearching = true
         isSearchLoading = true
         searchResults = []
+        searchDebugLogs = []
         
         // 保存搜索历史
         if !searchHistory.contains(searchText) {
@@ -911,20 +952,22 @@ struct SearchView: View {
         }
         
         let keyword = searchText
-        print("[SearchView] 开始搜索: \(keyword)")
+        addSearchLog("🔍 开始搜索: \(keyword)")
         
         Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
                     await self.spiderManager.searchStream(keyword: keyword) { batch in
                         if !batch.isEmpty {
-                            print("[SearchView] 流式回调 +\(batch.count) 条")
+                            let sources = Set(batch.compactMap { $0.vodRemarks }).joined(separator: ",")
+                            self.addSearchLog("Stream +\(batch.count) [\(sources)]")
                             Task { @MainActor in
                                 self.searchResults.append(contentsOf: batch)
                                 self.isSearchLoading = false
                             }
                         }
                     }
+                    self.addSearchLog("Stream 搜索完成")
                 }
                 
                 group.addTask {
@@ -935,19 +978,30 @@ struct SearchView: View {
                             newItem.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
                             return newItem
                         }
-                        print("[SearchView] 网盘回调 +\(newItems.count) 条")
+                        self.addSearchLog("Cloud +\(newItems.count) 条")
                         await MainActor.run {
                             self.searchResults.append(contentsOf: newItems)
                             self.isSearchLoading = false
                         }
+                    } else {
+                        self.addSearchLog("Cloud 0 条")
                     }
                 }
                 
                 await group.waitForAll()
             }
             
-            print("[SearchView] 搜索结束，共 \(self.searchResults.count) 条")
+            let totalCount = self.searchResults.count
+            let sourceCount = Set(self.searchResults.compactMap { $0.vodRemarks }).count
+            self.addSearchLog("✅ 搜索结束: 共\(totalCount)条/\(sourceCount)个源")
             await MainActor.run { self.isSearchLoading = false }
+        }
+    }
+    
+    private func addSearchLog(_ msg: String) {
+        Task { @MainActor in
+            searchDebugLogs.append(msg)
+            if searchDebugLogs.count > 50 { searchDebugLogs.removeFirst(searchDebugLogs.count - 50) }
         }
     }
 
