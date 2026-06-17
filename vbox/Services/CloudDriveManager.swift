@@ -1659,6 +1659,16 @@ class CloudDriveManager: ObservableObject {
         return "cookie:\(baiduStableHash(cookie))"
     }
 
+    /// 生成夸克账号唯一目录名，避免固定名称 vbox 在服务端产生同名冲突/隐藏状态（code=23008）
+    /// 基于账号稳定标识生成，确保同一账号始终使用同一个目录
+    private func quarkFolderName(cookie: String) -> String {
+        let accountKey = quarkAccountKey(cookie: cookie)
+        // 取账号key的哈希前缀，保证名称唯一且固定
+        let hash = baiduStableHash(accountKey)
+        let shortHash = String(hash.prefix(8))
+        return "vbox_ios_\(shortHash)"
+    }
+
     private func quarkGetShareToken(pwdId: String, passcode: String, cookie: String) async throws -> String {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/token", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
@@ -1704,15 +1714,24 @@ class CloudDriveManager: ObservableObject {
 
     private func quarkEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
         let accountKey = quarkAccountKey(cookie: cookie)
+        let folderName = quarkFolderName(cookie: cookie)
 
-        // 优先按名称查找根目录里的 vbox。
-        // 这里不先依赖缓存 fid，因为当前线上核心问题正是“已有 vbox 时没准确识别出来”。
-        if let folder = try? await quarkFindVisibleFolder(cookie: cookie) {
+        // 1. 优先使用缓存的 folderId（快速路径）
+        quarkVboxCacheLock.lock()
+        if let cachedFolderId = quarkVboxFolderCache[accountKey], !cachedFolderId.isEmpty {
+            quarkVboxCacheLock.unlock()
+            print("[Quark] 使用缓存 folderId=\(cachedFolderId) (folder=\(folderName))")
+            return (cachedFolderId, cookie)
+        }
+        quarkVboxCacheLock.unlock()
+
+        // 2. 缓存未命中：按账号唯一目录名查找根目录
+        if let folder = try? await quarkFindVisibleFolder(cookie: cookie, folderName: folderName) {
             setQuarkVboxFolderCache(accountKey: accountKey, folderId: folder.folderId)
             return folder
         }
 
-        // 单飞：同一账号并发 ensure 时复用同一个 Task，避免重复创建目录导致 23008/同名冲突。
+        // 3. 单飞：同一账号并发 ensure 时复用同一个 Task，避免重复创建目录导致 23008/同名冲突。
         quarkVboxCacheLock.lock()
         if let existing = quarkEnsureFolderTasks[accountKey] {
             quarkVboxCacheLock.unlock()
@@ -1722,37 +1741,34 @@ class CloudDriveManager: ObservableObject {
         let task = Task<(folderId: String, cookie: String), Error> { [weak self] in
             guard let self else { throw DriveError.noPlayURL("夸克：内部对象已释放") }
             do {
-                let folder = try await self.quarkFindOrCreateVisibleFolder(cookie: cookie)
+                let folder = try await self.quarkFindOrCreateVisibleFolder(cookie: cookie, folderName: folderName)
                 self.setQuarkVboxFolderCache(accountKey: accountKey, folderId: folder.folderId)
                 return folder
             } catch {
                 let firstErrorDesc = error.localizedDescription
-                print("[Quark] ⚠️ vbox 目录创建/查找失败：\(firstErrorDesc)")
+                print("[Quark] ⚠️ \(folderName) 目录创建/查找失败：\(firstErrorDesc)")
 
-                // 兼容旧版逻辑：vbox 目录失败后尝试“清理旧转存文件再重试”。
-                // 线上反馈中，夸克接口的错误信息不稳定（可能不包含“空间/超限”等关键词），
-                // 仅靠关键词判断会导致本来可通过清理恢复的场景直接失败，从而表现为“夸克路链无法播放”。
-                // 这里做一次更保守的判断：只要根目录已存在 vbox 文件夹，就允许尝试清理并重试。
-                let hasVboxFolder = (try? await self.quarkFindVisibleFolder(cookie: cookie)) != nil
-                guard self.quarkShouldAttemptVboxCleanup(error: error) || hasVboxFolder else {
-                    throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败：\(firstErrorDesc)")
+                // 兼容旧版逻辑：目录失败后尝试“清理旧转存文件再重试”。
+                let hasFolder = (try? await self.quarkFindVisibleFolder(cookie: cookie, folderName: folderName)) != nil
+                guard self.quarkShouldAttemptVboxCleanup(error: error) || hasFolder else {
+                    throw DriveError.noPlayURL("夸克：创建/查找 \(folderName) 文件夹失败：\(firstErrorDesc)")
                 }
 
-                print("[Quark] ⚠️ 疑似空间/配额问题，尝试清理 /vbox/ 旧转存文件后重试...")
+                print("[Quark] ⚠️ 疑似空间/配额问题，尝试清理 /\(folderName)/ 旧转存文件后重试...")
                 do {
-                    let cleanedCookie = try await self.quarkCleanUpVboxFiles(cookie: cookie)
+                    let cleanedCookie = try await self.quarkCleanUpVboxFiles(cookie: cookie, folderName: folderName)
                     do {
-                        let folder = try await self.quarkFindOrCreateVisibleFolder(cookie: cleanedCookie)
+                        let folder = try await self.quarkFindOrCreateVisibleFolder(cookie: cleanedCookie, folderName: folderName)
                         self.setQuarkVboxFolderCache(accountKey: accountKey, folderId: folder.folderId)
                         return folder
                     } catch {
                         let secondErrorDesc = error.localizedDescription
-                        print("[Quark] ❌ 清理后仍无法创建/查找 vbox：\(secondErrorDesc)")
-                        throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败（清理后重试仍失败）：\(secondErrorDesc)")
+                        print("[Quark] ❌ 清理后仍无法创建/查找 \(folderName)：\(secondErrorDesc)")
+                        throw DriveError.noPlayURL("夸克：创建/查找 \(folderName) 文件夹失败（清理后重试仍失败）：\(secondErrorDesc)")
                     }
                 } catch {
-                    print("[Quark] ⚠️ 清理 vbox 旧文件失败：\(error.localizedDescription)")
-                    throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败（清理失败）：\(firstErrorDesc)")
+                    print("[Quark] ⚠️ 清理 \(folderName) 旧文件失败：\(error.localizedDescription)")
+                    throw DriveError.noPlayURL("夸克：创建/查找 \(folderName) 文件夹失败（清理失败）：\(firstErrorDesc)")
                 }
             }
         }
@@ -1768,23 +1784,23 @@ class CloudDriveManager: ObservableObject {
         return try await task.value
     }
 
-    /// 清理 /vbox/ 目录下的转存文件（对齐百度清理逻辑），不清理回收站
-    private func quarkCleanUpVboxFiles(cookie: String) async throws -> String {
+    /// 清理指定目录下的转存文件（对齐百度清理逻辑），不清理回收站
+    private func quarkCleanUpVboxFiles(cookie: String, folderName: String) async throws -> String {
         var currentCookie = cookie
-        // 1. 先查找vbox文件夹的fid
-        guard let vboxFolder = try? await quarkFindVisibleFolder(cookie: cookie) else {
-            print("[Quark] ⚠️ 清理vbox文件时找不到vbox文件夹，跳过")
+        // 1. 先查找目标文件夹的fid
+        guard let targetFolder = try? await quarkFindVisibleFolder(cookie: cookie, folderName: folderName) else {
+            print("[Quark] ⚠️ 清理\(folderName)文件时找不到文件夹，跳过")
             return currentCookie
         }
-        let vboxFid = vboxFolder.folderId
+        let targetFid = targetFolder.folderId
 
-        // 2. 列出vbox目录下的文件
+        // 2. 列出目标目录下的文件
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         var request = URLRequest(url: listURL)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
         let body: [String: Any] = [
-            "pdir_fid": vboxFid,
+            "pdir_fid": targetFid,
             "_page": 1,
             "_size": 100,
             "_fetch_total": 1,
@@ -1809,7 +1825,7 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
-        // 3. 删除vbox目录下的文件
+        // 3. 删除目标目录下的文件
         if !fileIdsToDelete.isEmpty {
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
@@ -1822,27 +1838,27 @@ class CloudDriveManager: ObservableObject {
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
             let _ = try? await session.data(for: deleteReq)
-            print("[Quark] ✅ 已清理vbox目录下 \(fileIdsToDelete.count) 个转存文件")
+            print("[Quark] ✅ 已清理\(folderName)目录下 \(fileIdsToDelete.count) 个转存文件")
         }
 
         return currentCookie
     }
 
-    private func quarkFindOrCreateVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String) {
-        // 先查找已存在的vbox
-        if let folder = try await quarkFindVisibleFolder(cookie: cookie) {
-            print("[Quark] 使用根目录 vbox 文件夹 fid=\(folder.folderId)")
+    private func quarkFindOrCreateVisibleFolder(cookie: String, folderName: String) async throws -> (folderId: String, cookie: String) {
+        // 先查找已存在的目录
+        if let folder = try await quarkFindVisibleFolder(cookie: cookie, folderName: folderName) {
+            print("[Quark] 使用根目录 \(folderName) 文件夹 fid=\(folder.folderId)")
             return folder
         }
 
-        // 尝试创建vbox
+        // 尝试创建目录
         let createURL = quarkAPIURL("/1/clouddrive/file")
         var request = URLRequest(url: createURL)
         request.httpMethod = "POST"
         quarkSetCommonHeaders(&request, cookie: cookie)
         let body: [String: Any] = [
             "pdir_fid": "0",
-            "file_name": "vbox",
+            "file_name": folderName,
             "dir": true,
             "dir_path": ""
         ]
@@ -1852,20 +1868,20 @@ class CloudDriveManager: ObservableObject {
         let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
         let preview = String(data: data.prefix(500), encoding: .utf8) ?? ""
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Quark] ❌ 创建 vbox 目录响应非JSON: \(preview)")
+            print("[Quark] ❌ 创建 \(folderName) 目录响应非JSON: \(preview)")
             throw DriveError.invalidResponse
         }
 
         // 创建成功，提取fid
         if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
-            print("[Quark] ✅ 已创建根目录 vbox 文件夹 fid=\(fid)")
+            print("[Quark] ✅ 已创建根目录 \(folderName) 文件夹 fid=\(fid)")
             return (fid, mergedCookie)
         }
 
         // 检查是否因为"已存在"而失败（覆盖夸克API各种返回格式）
         let message = (json["message"] as? String ?? json["msg"] as? String ?? "").lowercased()
         let code = json["code"] as? Int ?? json["status"] as? Int ?? 0
-        // 方案2：把“同名冲突/下载中”等视为瞬态问题，等待并重试查找即可恢复
+        // 把“同名冲突/下载中”等视为瞬态问题，等待并重试查找即可恢复
         let isAlreadyExists = message.contains("已存在")
             || message.contains("exist")
             || message.contains("同名")
@@ -1880,21 +1896,21 @@ class CloudDriveManager: ObservableObject {
             || code == 40005
 
         if isAlreadyExists {
-            print("[Quark] ⚠️ vbox 目录疑似已存在/处理中(code=\(code), message=\(message))，尝试重新查找...")
+            print("[Quark] ⚠️ \(folderName) 目录疑似已存在/处理中(code=\(code), message=\(message))，尝试重新查找...")
             // 目录“已存在”但 file/sort 可能存在短暂不可见（或缓存延迟），做几次短重试
             for attempt in 1...5 {
                 if attempt > 1 {
                     try? await Task.sleep(nanoseconds: UInt64(200_000_000 * attempt))
                 }
-                if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie) {
-                    print("[Quark] ✅ 找到已存在的 vbox 文件夹 fid=\(folder.folderId) (attempt=\(attempt))")
+                if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie, folderName: folderName) {
+                    print("[Quark] ✅ 找到已存在的 \(folderName) 文件夹 fid=\(folder.folderId) (attempt=\(attempt))")
                     return folder
                 }
             }
 
             // 兜底：某些环境下根目录 file/sort 返回结构/字段不稳定，尝试用另一套分页参数再按名称查一次。
-            if let fid = await quarkFindSavedFileId(fileName: "vbox", folderId: "0", cookie: mergedCookie) {
-                print("[Quark] ✅ 兜底：按名称在根目录定位 vbox，fid=\(fid)")
+            if let fid = await quarkFindSavedFileId(fileName: folderName, folderId: "0", cookie: mergedCookie) {
+                print("[Quark] ✅ 兜底：按名称在根目录定位 \(folderName)，fid=\(fid)")
                 return (fid, mergedCookie)
             }
             print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
@@ -1906,19 +1922,20 @@ class CloudDriveManager: ObservableObject {
         }
 
         if code != 0 && code != 200 {
-            print("[Quark] ❌ 创建 vbox 目录失败: message=\(message), code=\(code), preview=\(preview)")
-            throw DriveError.noPlayURL("夸克创建 vbox 目录失败：\(message) (code=\(code))")
+            print("[Quark] ❌ 创建 \(folderName) 目录失败: message=\(message), code=\(code), preview=\(preview)")
+            throw DriveError.noPlayURL("夸克创建 \(folderName) 目录失败：\(message) (code=\(code))")
         }
 
-        print("[Quark] ❌ 创建 vbox 目录成功(status=\(code))但未返回 fid: \(preview)")
-        throw DriveError.noPlayURL("夸克创建 vbox 目录后未返回 fid")
+        print("[Quark] ❌ 创建 \(folderName) 目录成功(status=\(code))但未返回 fid: \(preview)")
+        throw DriveError.noPlayURL("夸克创建 \(folderName) 目录后未返回 fid")
     }
 
-    private func quarkFindVisibleFolder(cookie: String) async throws -> (folderId: String, cookie: String)? {
+    private func quarkFindVisibleFolder(cookie: String, folderName: String) async throws -> (folderId: String, cookie: String)? {
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         var currentCookie = cookie
         let pageSize = 200
         let maxPages = 200
+        let targetName = folderName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         func extractName(from item: [String: Any]) -> String {
             if let value = item["file_name"] as? String, !value.isEmpty { return value }
@@ -1998,7 +2015,7 @@ class CloudDriveManager: ObservableObject {
             return (list, code, message, preview)
         }
 
-        // 核心策略：先按名称匹配 vbox，命中后再提取 fid；并对两种分页参数风格做兼容兜底。
+        // 核心策略：先按名称匹配目标目录，命中后再提取 fid；并对两种分页参数风格做兼容兜底。
         for underscoreStyle in [true, false] {
             for page in 1...maxPages {
                 let (listOpt, codeOpt, messageOpt, preview) = try await fetchList(page: page, underscoreStyle: underscoreStyle)
@@ -2014,16 +2031,16 @@ class CloudDriveManager: ObservableObject {
                 print("[Quark] 根目录扫描 style=\(underscoreStyle ? "underscore" : "plain") page=\(page), count=\(list.count)")
                 for item in list {
                     let name = extractName(from: item)
-                    guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vbox" else { continue }
+                    guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == targetName else { continue }
                     if let folderId = extractFolderId(from: item) {
                         if looksLikeDirectory(item) {
-                            print("[Quark] ✅ 根目录命中 vbox 文件夹 fid=\(folderId)")
+                            print("[Quark] ✅ 根目录命中 \(folderName) 文件夹 fid=\(folderId)")
                         } else {
-                            print("[Quark] ⚠️ 命中名称为 vbox 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
+                            print("[Quark] ⚠️ 命中名称为 \(folderName) 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
                         }
                         return (folderId, currentCookie)
                     } else {
-                        print("[Quark] ⚠️ 命中 vbox 但未提取到 fid，item=\(item)")
+                        print("[Quark] ⚠️ 命中 \(folderName) 但未提取到 fid，item=\(item)")
                     }
                 }
 
