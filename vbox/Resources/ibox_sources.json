@@ -1,39 +1,9 @@
 {
   "spider": "",
   "sites": [
-    /* 与兜底站重复，已注释
-    {
-      "key": "wogg",
-      "name": "玩偶4K弹幕",
-      "type": 1,
-      "api": "http://wogg.xxooo.cf/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "mupuppet",
-      "name": "木偶影视",
-      "type": 1,
-      "api": "https://666.666291.xyz/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "4ktop",
-      "name": "4KTOP蓝光",
-      "type": 1,
-      "api": "https://4ktop.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
+    
+    
+    
     {
       "key": "huban",
       "name": "虎斑资源",
@@ -52,28 +22,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    /* 与兜底站重复，已注释
-    {
-      "key": "panta",
-      "name": "盘Ta资源",
-      "type": 1,
-      "api": "https://www.91panta.cn/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "leijing",
-      "name": "雷鲸资源",
-      "type": 1,
-      "api": "https://www.leijing.xyz/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
+    
+    
     {
       "key": "lanbi",
       "name": "蜡笔资源",
@@ -83,17 +33,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    /* 与兜底站重复，已注释
-    {
-      "key": "libvio",
-      "name": "LibVio影视",
-      "type": 1,
-      "api": "https://libvio.mov/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
+    
     {
       "key": "ouge",
       "name": "欧歌影视",
@@ -103,28 +43,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    /* 与兜底站重复，已注释
-    {
-      "key": "shandian",
-      "name": "闪电资源",
-      "type": 1,
-      "api": "https://sd.sduc.site/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "duoduo",
-      "name": "多多资源",
-      "type": 1,
-      "api": "https://tv.yydsys.top/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
+    
+    
     {
       "key": "erxiao",
       "name": "二小资源",
@@ -134,138 +54,18 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    /* 与兜底站重复，已注释
-    {
-      "key": "zhizhen",
-      "name": "至臻影视",
-      "type": 1,
-      "api": "http://www.miqk.cc/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "nanfeng",
-      "name": "南风资源",
-      "type": 1,
-      "api": "https://www.nanf.cc/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "qupan",
-      "name": "趣盘资源",
-      "type": 1,
-      "api": "https://pan.funletu.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "kudian",
-      "name": "酷点资源",
-      "type": 1,
-      "api": "https://kudian10.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "sdzy",
-      "name": "闪电资源API",
-      "type": 1,
-      "api": "https://sdzyapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "guangsu",
-      "name": "光速资源",
-      "type": 1,
-      "api": "https://api.guangsuapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "xinlang",
-      "name": "新浪资源",
-      "type": 1,
-      "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "lizi",
-      "name": "量子资源",
-      "type": 1,
-      "api": "https://cj.lziapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "baofeng",
-      "name": "暴风资源",
-      "type": 1,
-      "api": "https://bfzyapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "feifan",
-      "name": "非凡资源",
-      "type": 1,
-      "api": "https://cj.ffzyapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "wolong",
-      "name": "卧龙资源",
-      "type": 1,
-      "api": "https://collect.wolongzyw.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
-    /* 与兜底站重复，已注释
-    {
-      "key": "hongniu",
-      "name": "红牛资源",
-      "type": 1,
-      "api": "https://www.hongniuzy2.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
-    */
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     {
       "key": "ffzy2",
       "name": "非凡资源站",
