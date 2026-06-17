@@ -716,6 +716,54 @@ struct SearchView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             
+            // 搜索调试面板（搜索框下方）
+            if UserDefaults.standard.bool(forKey: "show_search_debug") && !searchDebugLogs.isEmpty {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("搜索调试")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white.opacity(0.7))
+                        Spacer()
+                        Text("\(searchResults.count)条/\(Set(searchResults.compactMap { $0.vodRemarks }).count)源")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                    
+                    ScrollViewReader { proxy in
+                        ScrollView(showsIndicators: true) {
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                ForEach(Array(searchDebugLogs.enumerated()), id: \.offset) { idx, log in
+                                    Text(log)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(log.hasPrefix("✅") ? .green.opacity(0.9) :
+                                                           log.hasPrefix("❌") ? .red.opacity(0.9) :
+                                                           log.hasPrefix("📦") ? .yellow.opacity(0.9) :
+                                                           log.hasPrefix("☁️") ? .cyan.opacity(0.9) :
+                                                           .white.opacity(0.7))
+                                        .id(idx)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 6)
+                        }
+                        .onChange(of: searchDebugLogs.count) { _ in
+                            if let last = searchDebugLogs.indices.last {
+                                withAnimation { proxy.scrollTo(last) }
+                            }
+                        }
+                    }
+                    .frame(height: 120)
+                }
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.85))
+                .cornerRadius(10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            
             ZStack {
                 if isSearching && !isSearchLoading && !searchResults.isEmpty {
                     // 已有搜索结果：展示结果页
@@ -756,45 +804,6 @@ struct SearchView: View {
                 } else {
                     await loadSearchHistory()
                     await loadDoubanData(force: true)
-                }
-            }
-            // 搜索调试浮层
-            .overlay(alignment: .bottom) {
-                if UserDefaults.standard.bool(forKey: "show_search_debug") && !searchDebugLogs.isEmpty {
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text("搜索调试")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white.opacity(0.7))
-                            Spacer()
-                            Text("\(searchResults.count)条/\(Set(searchResults.compactMap { $0.vodRemarks }).count)源")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                        
-                        ScrollView(showsIndicators: true) {
-                            LazyVStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(searchDebugLogs.enumerated()), id: \.offset) { _, log in
-                                    Text(log)
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundColor(.green.opacity(0.9))
-                                        .lineLimit(1)
-                                }
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 6)
-                        }
-                        .frame(height: 100)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .background(Color.black.opacity(0.8))
-                    .cornerRadius(10)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(true)
                 }
             }
         }
@@ -957,34 +966,35 @@ struct SearchView: View {
         Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    await self.spiderManager.searchStream(keyword: keyword) { batch in
+                    await self.spiderManager.searchStream(keyword: keyword, onBatch: { batch in
                         if !batch.isEmpty {
-                            let sources = Set(batch.compactMap { $0.vodRemarks }).joined(separator: ",")
-                            self.addSearchLog("Stream +\(batch.count) [\(sources)]")
                             Task { @MainActor in
                                 self.searchResults.append(contentsOf: batch)
                                 self.isSearchLoading = false
                             }
                         }
-                    }
-                    self.addSearchLog("Stream 搜索完成")
+                    }, onLog: { msg in
+                        self.addSearchLog(msg)
+                    })
                 }
                 
                 group.addTask {
-                    let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword)
+                    let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword, onLog: { msg in
+                        self.addSearchLog(msg)
+                    })
                     if !cloudItems.isEmpty {
                         let newItems = cloudItems.map { item -> VodItem in
                             var newItem = item
                             newItem.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
                             return newItem
                         }
-                        self.addSearchLog("Cloud +\(newItems.count) 条")
+                        self.addSearchLog("☁️ 合计 +\(newItems.count)条")
                         await MainActor.run {
                             self.searchResults.append(contentsOf: newItems)
                             self.isSearchLoading = false
                         }
                     } else {
-                        self.addSearchLog("Cloud 0 条")
+                        self.addSearchLog("☁️ 合计 0条")
                     }
                 }
                 
