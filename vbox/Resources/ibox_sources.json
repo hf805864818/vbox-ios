@@ -868,6 +868,510 @@
       "searchable": 1,
       "quickSearch": 0,
       "filterable": 0
+    },
+    {
+      "key": "bbfun",
+      "name": "BBFun影视",
+      "type": 1,
+      "api": "https://www.bbfun.cc/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "cyapp",
+      "name": "CY影视",
+      "type": 1,
+      "api": "http://cyapp.cyfz.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "app7555",
+      "name": "555影视",
+      "type": 1,
+      "api": "https://app7.555618.xyz/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "gugu3",
+      "name": "咕咕影视",
+      "type": 1,
+      "api": "https://www.gugu3.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "dyttzy",
+      "name": "电影天堂",
+      "type": 1,
+      "api": "http://caiji.dyttzyapi.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "tyyszy",
+      "name": "TY影视",
+      "type": 1,
+      "api": "https://tyyszyapi.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "rytv",
+      "name": "如意影视",
+      "type": 1,
+      "api": "https://cj.rytvapi.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "360zyzz",
+      "name": "360资源",
+      "type": 1,
+      "api": "https://360zyzz.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "fannaz",
+      "name": "FANNAZ影视",
+      "type": 1,
+      "api": "https://sh11.fannaz.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "ageapi",
+      "name": "AGE动漫",
+      "type": 1,
+      "api": "https://ageapi.omwjhz.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "xgcartoon",
+      "name": "CN卡通",
+      "type": 1,
+      "api": "https://cn.xgcartoon.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "tuxiaobei",
+      "name": "兔小贝",
+      "type": 1,
+      "api": "https://www.tuxiaobei.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "silisili",
+      "name": "嘶哩嘶哩",
+      "type": 1,
+      "api": "http://app.silisili.cc/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "daoran",
+      "name": "道然影视",
+      "type": 1,
+      "api": "https://fly.daoran.tv/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "bubutv",
+      "name": "步步影视",
+      "type": 1,
+      "api": "https://bubutv.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "du88",
+      "name": "DU88影视",
+      "type": 1,
+      "api": "http://www.du88.cc/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "freeys",
+      "name": "Free影视",
+      "type": 1,
+      "api": "http://sk.freeys.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "kankelm",
+      "name": "看看影视",
+      "type": 1,
+      "api": "https://kanke.kankelm.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "cycback",
+      "name": "CYC影视",
+      "type": 1,
+      "api": "https://pc.cycback.org/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "y9api",
+      "name": "Y9影视",
+      "type": 1,
+      "api": "https://y9api.051.ai/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "yiso",
+      "name": "易搜影视",
+      "type": 1,
+      "api": "https://api.yiso.eu.org/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "ubestkid",
+      "name": "Ubestkid",
+      "type": 1,
+      "api": "https://vd.ubestkid.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "beva",
+      "name": "贝瓦影视",
+      "type": 1,
+      "api": "https://cms.beva.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "sdkapi",
+      "name": "龙珠影视",
+      "type": 1,
+      "api": "https://sdkapi.hhlqilongzhu.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "sbjson",
+      "name": "SBJSON影视",
+      "type": 1,
+      "api": "http://zltaa.sbjson.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "donw",
+      "name": "DONW影视",
+      "type": 1,
+      "api": "https://in.donw.work/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "03yy",
+      "name": "03YY影视",
+      "type": 1,
+      "api": "https://www.03yy.live/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "juok1",
+      "name": "JUOK影视",
+      "type": 1,
+      "api": "https://juok1.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "kaiduan",
+      "name": "开端影视",
+      "type": 1,
+      "api": "https://api.kaiduan.fun/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "arkplan",
+      "name": "ARK影视",
+      "type": 1,
+      "api": "http://fuck1.arkplansuk.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "gjjwgp3n",
+      "name": "GJJ影视",
+      "type": 1,
+      "api": "https://api.gjjwgp3n.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "mw_movie",
+      "name": "MW影视",
+      "type": 1,
+      "api": "https://m.hkybqufgh.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "qijicms",
+      "name": "奇迹影视",
+      "type": 1,
+      "api": "http://v12-1-hulucms.nmgzxrl.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "stxbed",
+      "name": "STX影视",
+      "type": 1,
+      "api": "https://dy.stxbed.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "mtovnd7gjf",
+      "name": "MTO影视",
+      "type": 1,
+      "api": "https://mtovnd7gjf.gcweqo.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "bteys",
+      "name": "BTE影视",
+      "type": 1,
+      "api": "https://api.bteys.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "rbotv",
+      "name": "RBO影视",
+      "type": 1,
+      "api": "http://v.rbotv.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "shdy5",
+      "name": "SHDY影视",
+      "type": 1,
+      "api": "https://v.shdy5.us/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "247kan",
+      "name": "247影视",
+      "type": 1,
+      "api": "https://app.247kan.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "bttwo",
+      "name": "BT影视",
+      "type": 1,
+      "api": "https://www.bttwo.life/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "4kcz",
+      "name": "4K影视",
+      "type": 1,
+      "api": "https://www.4kcz.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "hhmage",
+      "name": "HH影视",
+      "type": 1,
+      "api": "https://hhmage.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "yzzy",
+      "name": "YZZY影视",
+      "type": 1,
+      "api": "http://api.yzzy-api.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "feimo",
+      "name": "飞猫影视",
+      "type": 1,
+      "api": "http://feimo.fun/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "mihdr",
+      "name": "MI影视",
+      "type": 1,
+      "api": "https://mihdr.top/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "y7lvadaxo",
+      "name": "Y7影视",
+      "type": 1,
+      "api": "https://yzy0916.y7lvadaxo.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "yiys05",
+      "name": "YIY影视",
+      "type": 1,
+      "api": "https://aleig4ah.yiys05.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "ansj",
+      "name": "ANSJ影视",
+      "type": 1,
+      "api": "https://ansj.ejjjaakq.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "xhsdns",
+      "name": "XHS影视",
+      "type": 1,
+      "api": "https://api.xhsdns.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "pxapi2",
+      "name": "PX影视",
+      "type": 1,
+      "api": "https://pxapi2.12321app.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "vcache",
+      "name": "VC影视",
+      "type": 1,
+      "api": "https://vcache.o1rsn.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "wim",
+      "name": "WIM影视",
+      "type": 1,
+      "api": "http://wim.skzsz.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "img1wsyzy",
+      "name": "WS影视",
+      "type": 1,
+      "api": "https://img1.wsyzy.org/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "pps",
+      "name": "PPS影视",
+      "type": 1,
+      "api": "https://pps.vodfeiss.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "obs3688",
+      "name": "OBS影视",
+      "type": 1,
+      "api": "https://obs.3688baihuo.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
+    },
+    {
+      "key": "service2ti",
+      "name": "2TI影视",
+      "type": 1,
+      "api": "https://service.2ti.st/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 0
     }
   ]
 }
