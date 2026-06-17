@@ -877,19 +877,19 @@ globalThis.__JS_SPIDER__ = _spider;
             } catch { continue }
         }
 
-        // 2. 合并订阅源 + 兜底源
+        // 2. 合并订阅源 + ibox内置源 + 兜底源
         struct Site { let name: String; let api: String }
         var sites: [Site] = []
-        var seenDomains = Set<String>()
-        let subAllSites = subManager.allSites
-        print("[searchStream] subManager.allSites=\(subAllSites.count) 条, config=\(subManager.config != nil ? "有" : "nil"), isLoaded=\(subManager.isLoaded)")
-        // 域名去重已临时关闭
-        for s in subAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
+        // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
+        let spiderAllSites = self.allSites
+        print("[searchStream] SpiderManager.allSites=\(spiderAllSites.count) 条")
+        for s in spiderAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
             if let api = s.api {
                 sites.append(Site(name: s.name, api: api))
             }
         }
-        print("[searchStream] 订阅源 type=1/0 站点: \(sites.count) 个")
+        print("[searchStream] SpiderManager type=1/0 站点: \(sites.count) 个")
+        // 兜底源补充
         if fallbackEnabled {
             for fb in allFallbackSites {
                 sites.append(Site(name: fb.name, api: fb.api))
