@@ -27,6 +27,8 @@ class CloudDriveManager: ObservableObject {
         case baidu = "baidu"
         case one15 = "115"
         case uc = "uc"
+        case pan123 = "123pan"
+        case pan139 = "139pan"
 
         var displayName: String {
             switch self {
@@ -35,6 +37,8 @@ class CloudDriveManager: ObservableObject {
             case .baidu: return "百度网盘"
             case .one15: return "115网盘"
             case .uc: return "UC网盘"
+            case .pan123: return "123云盘"
+            case .pan139: return "139云盘"
             }
         }
 
@@ -45,6 +49,8 @@ class CloudDriveManager: ObservableObject {
             case .baidu: return "完整 Cookie / BDUSS+STOKEN"
             case .one15: return "完整 Cookie / CID"
             case .uc: return "Cookie"
+            case .pan123: return "Cookie / Token"
+            case .pan139: return "Cookie / Session"
             }
         }
     }
@@ -1152,8 +1158,8 @@ class CloudDriveManager: ObservableObject {
         if url.contains("pan.baidu.com") { return .baidu }
         if url.contains("115.com") || url.contains("115cdn.com") { return .one15 }
         if url.contains("uc.cn") || url.contains("ucloud.cn") { return .uc }
-        if url.contains("123pan.com") || url.contains("123cloud.cn") { return .ali }  // 123云盘暂用阿里解析
-        if url.contains("yun.139.com") { return .uc }  // 天翼云盘暂用UC解析
+        if url.contains("123pan.com") || url.contains("123cloud.cn") { return .pan123 }
+        if url.contains("yun.139.com") || url.contains("139.com") { return .pan139 }
         return nil
     }
 
@@ -4842,6 +4848,141 @@ class CloudDriveManager: ObservableObject {
         return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "m4v"].contains { lower.hasSuffix(".\($0)") }
     }
 
+    // MARK: - 123云盘
+
+    func resolve123PanPlayURL(shareURL: String, token: String) async throws -> PlayResult {
+        print("[123Pan] 开始解析: \(shareURL)")
+        let shareCode = extract123PanShareCode(from: shareURL)
+        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.123pan.com/",
+            "Origin": "https://www.123pan.com"
+        ]
+
+        // 123云盘分享解析API
+        let apiURL = URL(string: "https://www.123pan.com/b/api/share/get?limit=100&next=1&orderBy=share_id&orderDirection=desc&shareKey=\(shareCode)&SharePwd=&ParentFileId=0&Page=1")!
+        var request = URLRequest(url: apiURL)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "Cookie")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["InfoList"] as? [[String: Any]],
+              let firstFile = list.first else {
+            throw DriveError.noPlayURL("123云盘: 无法获取文件列表")
+        }
+
+        guard let fileId = firstFile["FileId"] as? Int,
+              let eTag = firstFile["Etag"] as? String else {
+            throw DriveError.noPlayURL("123云盘: 无法提取文件信息")
+        }
+
+        // 获取下载链接
+        let downloadURL = URL(string: "https://www.123pan.com/a/api/file/download_info")!
+        var downloadReq = URLRequest(url: downloadURL)
+        downloadReq.httpMethod = "POST"
+        downloadReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        downloadReq.setValue(token, forHTTPHeaderField: "Cookie")
+        for (k, v) in headers { downloadReq.setValue(v, forHTTPHeaderField: k) }
+        let body: [String: Any] = ["fileId": fileId, "etag": eTag, "shareKey": shareCode, "SharePwd": ""]
+        downloadReq.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (dlData, _) = try await session.data(for: downloadReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any],
+              let dlDataObj = dlJson["data"] as? [String: Any],
+              let downloadUrl = dlDataObj["DownloadUrl"] as? String else {
+            throw DriveError.noPlayURL("123云盘: 无法获取下载链接")
+        }
+
+        return PlayResult(
+            url: downloadUrl,
+            headers: headers,
+            driveType: .pan123,
+            source: "123pan_direct"
+        )
+    }
+
+    private func extract123PanShareCode(from url: String) -> String {
+        if let range = url.range(of: #"/s/([a-zA-Z0-9\-]+)"#, options: .regularExpression) {
+            return String(url[range]).replacingOccurrences(of: "/s/", with: "")
+        }
+        return ""
+    }
+
+    // MARK: - 139云盘
+
+    func resolve139PanPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+        print("[139Pan] 开始解析: \(shareURL)")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G960U) AppleWebKit/537.36",
+            "Referer": "https://yun.139.com/",
+            "Origin": "https://yun.139.com",
+            "Cookie": cookie
+        ]
+
+        // 139云盘分享链接解析
+        // 139云盘分享格式: https://yun.139.com/link/w/i/xxx 或 https://caiyun.139.com/w/i/xxx
+        guard let urlComponents = URLComponents(string: shareURL),
+              let path = urlComponents.path.components(separatedBy: "/").last,
+              !path.isEmpty else {
+            throw DriveError.invalidShareURL
+        }
+
+        // 调用139云盘开放API获取分享内容
+        let apiURL = URL(string: "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/devapp/IOutLink/getContentInfoFromOutLink")!
+        var request = URLRequest(url: apiURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        let body: [String: Any] = ["linkId": path, "password": ""]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let contentList = dataObj["contentList"] as? [[String: Any]],
+              let firstFile = contentList.first else {
+            throw DriveError.noPlayURL("139云盘: 无法获取分享内容")
+        }
+
+        guard let contentId = firstFile["contentId"] as? String,
+              let catalogId = firstFile["catalogId"] as? String else {
+            throw DriveError.noPlayURL("139云盘: 无法提取文件信息")
+        }
+
+        // 获取下载链接
+        let downloadURL = URL(string: "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/devapp/IOutLink/getContentDownloadUrl")!
+        var downloadReq = URLRequest(url: downloadURL)
+        downloadReq.httpMethod = "POST"
+        downloadReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { downloadReq.setValue(v, forHTTPHeaderField: k) }
+        let dlBody: [String: Any] = [
+            "contentId": contentId,
+            "catalogId": catalogId,
+            "linkId": path
+        ]
+        downloadReq.httpBody = try JSONSerialization.data(withJSONObject: dlBody)
+
+        let (dlData, _) = try await session.data(for: downloadReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any],
+              let dlDataObj = dlJson["data"] as? [String: Any],
+              let downloadUrl = dlDataObj["downloadUrl"] as? String else {
+            throw DriveError.noPlayURL("139云盘: 无法获取下载链接")
+        }
+
+        return PlayResult(
+            url: downloadUrl,
+            headers: headers,
+            driveType: .pan139,
+            source: "139pan_direct"
+        )
+    }
+
     // MARK: - UC 网盘
 
     func resolveUCPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
@@ -5222,6 +5363,10 @@ class CloudDriveManager: ObservableObject {
                     result = try await resolve115PlayURL(shareURL: shareURL, cid: token.value)
                 case .uc:
                     result = try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
+                case .pan123:
+                    result = try await resolve123PanPlayURL(shareURL: shareURL, token: token.value)
+                case .pan139:
+                    result = try await resolve139PanPlayURL(shareURL: shareURL, cookie: token.value)
                 }
                 print("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result
@@ -5293,6 +5438,8 @@ enum DriveTypeAlias: String {
     case baidu = "百度"
     case one15 = "115"
     case uc = "UC"
+    case pan123 = "123云盘"
+    case pan139 = "139云盘"
 }
 
 enum DriveError: LocalizedError {

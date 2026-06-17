@@ -119,11 +119,35 @@ class SpiderManager: ObservableObject {
         return sites
     }
 
-    /// 加载自定义解析器
+    /// 加载自定义解析器（内置 + 用户自定义）
     private func loadCustomParsers() {
+        // 先加载内置解析API
+        let builtinParsers: [ParseConfig] = [
+            ParseConfig(name: "FF影视解析", url: "https://www.ffys.top/player/api.php", type: 1),
+            ParseConfig(name: "久久解析", url: "https://www.jqqzx.me/jx/api.php", type: 1),
+            ParseConfig(name: "pipizei解析", url: "https://www.pipizei.cc/zplayer/api.php", type: 1),
+            ParseConfig(name: "ymck解析", url: "https://ymck.pro/API/v2.php", type: 1),
+            ParseConfig(name: "HLS.One解析", url: "https://api.hls.one:4433/Api", type: 1),
+            ParseConfig(name: "网飞解析", url: "https://api.nki.pw", type: 1),
+            ParseConfig(name: "趣盘搜解析", url: "https://www.qiaoji8.com/xgjm.php", type: 1),
+            ParseConfig(name: "555影视解析", url: "https://xx.555618.xyz/xxxjm/app", type: 1),
+            ParseConfig(name: "西瓜视频解析", url: "https://api.wwgz.cn:520/webcloud/relay.php", type: 1),
+            ParseConfig(name: "西瓜M3U8解析", url: "https://vip.wwgz.cn:5200/nmplay/webcloud/m3u8.php", type: 1),
+        ]
+        
+        // 加载用户自定义解析器
+        var userParsers: [ParseConfig] = []
         if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
            let parsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
-            customParsers = parsers
+            userParsers = parsers
+        }
+        
+        // 合并：内置 + 用户自定义（去重）
+        customParsers = builtinParsers
+        for parser in userParsers {
+            if !customParsers.contains(where: { $0.url == parser.url }) {
+                customParsers.append(parser)
+            }
         }
     }
 
@@ -1144,6 +1168,17 @@ globalThis.__JS_SPIDER__ = _spider;
             ("小斑资源", "http://xsayang.fun:12512/index.php/vod/search.html?wd=", "http://xsayang.fun:12512"),
             ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
             ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
+            ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
+            ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
+            ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
+            ("CZZY", "https://czzy.xn--m7r412advb92j21st65a.tk/index.php/vod/search.html?wd=", "https://czzy.xn--m7r412advb92j21st65a.tk"),
+            ("4Kcz", "https://www.4kcz.com/index.php/vod/search.html?wd=", "https://www.4kcz.com"),
+            ("BTtwo", "https://www.bttwo.life/index.php/vod/search.html?wd=", "https://www.bttwo.life"),
+            ("247看", "https://app.247kan.com/index.php/vod/search.html?wd=", "https://app.247kan.com"),
+            ("BTE影视", "https://api.bteys.com/index.php/vod/search.html?wd=", "https://api.bteys.com"),
+            ("SHDY", "https://v.shdy5.us/index.php/vod/search.html?wd=", "https://v.shdy5.us"),
+            ("YISO", "https://yiso.fun/index.php/vod/search.html?wd=", "https://yiso.fun"),
+            ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
         ]
 
         for site in cloudSites {
