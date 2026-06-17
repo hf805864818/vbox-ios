@@ -18,7 +18,13 @@ struct VideoDetailView: View {
 
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
     private var displayVideo: VodItem { detailVideo ?? video }
-    private var episodes: [(name: String, url: String)] { parseEpisodeList(from: displayVideo.vodPlayUrl) }
+    @State private var selectedSourceIndex = 0
+    private var allSources: [(name: String, episodes: [(name: String, url: String)])] { parseAllSources(from: displayVideo.vodPlayUrl, playFrom: displayVideo.vodPlayFrom) }
+    private var episodes: [(name: String, url: String)] {
+        guard !allSources.isEmpty else { return [] }
+        let idx = min(selectedSourceIndex, allSources.count - 1)
+        return allSources[idx].episodes
+    }
 
     private func loadPanLinks() {
         guard panLinks.isEmpty, !isLoadingPan else { return }
@@ -69,12 +75,22 @@ struct VideoDetailView: View {
         }
     }
 
-    private func parseEpisodeList(from raw: String?) -> [(name: String, url: String)] {
+    /// 解析所有播放源线路（不丢弃任何源）
+    private func parseAllSources(from raw: String?, playFrom: String?) -> [(name: String, episodes: [(name: String, url: String)])] {
         guard let raw, !raw.isEmpty else { return [] }
         if raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[") { return [] }
-        let groups = raw.components(separatedBy: "$$$")
-        let bestGroup = groups.max { parseGroupEpisodes($0).count < parseGroupEpisodes($1).count } ?? raw
-        return parseGroupEpisodes(bestGroup)
+        
+        let urlGroups = raw.components(separatedBy: "$$$")
+        let nameGroups = playFrom?.components(separatedBy: "$$$") ?? []
+        
+        var sources: [(name: String, episodes: [(name: String, url: String)])] = []
+        for (idx, group) in urlGroups.enumerated() {
+            let eps = parseGroupEpisodes(group)
+            guard !eps.isEmpty else { continue }
+            let sourceName = (idx < nameGroups.count && !nameGroups[idx].isEmpty) ? nameGroups[idx] : "线路\(idx + 1)"
+            sources.append((name: sourceName, episodes: eps))
+        }
+        return sources
     }
 
     private func parseGroupEpisodes(_ group: String) -> [(name: String, url: String)] {
@@ -198,6 +214,30 @@ struct VideoDetailView: View {
                                     Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集").font(.system(size: 12)).foregroundColor(.gray)
                                 }
                             }
+                            
+                            // 多线路切换
+                            if allSources.count > 1 {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(Array(allSources.enumerated()), id: \.offset) { idx, source in
+                                            Button(action: {
+                                                selectedSourceIndex = idx
+                                            }) {
+                                                Text(source.name)
+                                                    .font(.system(size: 12, weight: idx == selectedSourceIndex ? .semibold : .medium))
+                                                    .foregroundColor(idx == selectedSourceIndex ? .white : .primary)
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 6)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 8)
+                                                            .fill(idx == selectedSourceIndex ? Color(hex: "E11D48") : Color(uiColor: .secondarySystemGroupedBackground).opacity(0.8))
+                                                    )
+                                            }.buttonStyle(PlainButtonStyle())
+                                        }
+                                    }
+                                }
+                            }
+                            
                             EpisodeGridView(episodes: episodes) { episode in
                                 selectedEpisodeVideo = VodItem(
                                     vodId: displayVideo.vodId,

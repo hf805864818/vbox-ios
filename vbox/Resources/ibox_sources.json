@@ -1,6 +1,7 @@
 {
   "spider": "",
   "sites": [
+    /* 与兜底站重复，已注释
     {
       "key": "wogg",
       "name": "玩偶4K弹幕",
@@ -10,6 +11,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "mupuppet",
       "name": "木偶影视",
@@ -19,6 +22,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "4ktop",
       "name": "4KTOP蓝光",
@@ -28,6 +33,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
     {
       "key": "huban",
       "name": "虎斑资源",
@@ -46,6 +52,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    /* 与兜底站重复，已注释
     {
       "key": "panta",
       "name": "盘Ta资源",
@@ -55,6 +62,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "leijing",
       "name": "雷鲸资源",
@@ -64,6 +73,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
     {
       "key": "lanbi",
       "name": "蜡笔资源",
@@ -73,6 +83,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    /* 与兜底站重复，已注释
     {
       "key": "libvio",
       "name": "LibVio影视",
@@ -82,6 +93,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
     {
       "key": "ouge",
       "name": "欧歌影视",
@@ -91,6 +103,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    /* 与兜底站重复，已注释
     {
       "key": "shandian",
       "name": "闪电资源",
@@ -100,6 +113,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "duoduo",
       "name": "多多资源",
@@ -109,6 +124,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
     {
       "key": "erxiao",
       "name": "二小资源",
@@ -118,6 +134,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    /* 与兜底站重复，已注释
     {
       "key": "zhizhen",
       "name": "至臻影视",
@@ -127,6 +144,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "nanfeng",
       "name": "南风资源",
@@ -136,6 +155,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "qupan",
       "name": "趣盘资源",
@@ -145,6 +166,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "kudian",
       "name": "酷点资源",
@@ -154,6 +177,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "sdzy",
       "name": "闪电资源API",
@@ -163,6 +188,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "guangsu",
       "name": "光速资源",
@@ -172,6 +199,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "xinlang",
       "name": "新浪资源",
@@ -181,6 +210,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "lizi",
       "name": "量子资源",
@@ -190,6 +221,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "baofeng",
       "name": "暴风资源",
@@ -199,6 +232,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "feifan",
       "name": "非凡资源",
@@ -208,6 +243,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "wolong",
       "name": "卧龙资源",
@@ -217,6 +254,8 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
+    /* 与兜底站重复，已注释
     {
       "key": "hongniu",
       "name": "红牛资源",
@@ -226,6 +265,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
+    */
     {
       "key": "ffzy2",
       "name": "非凡资源站",

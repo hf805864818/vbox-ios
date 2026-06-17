@@ -911,24 +911,16 @@ struct SearchView: View {
         }
         
         let keyword = searchText
-        var seen = Set<String>()
         print("[SearchView] 开始搜索: \(keyword)")
         
         Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
                     await self.spiderManager.searchStream(keyword: keyword) { batch in
-                        var newItems: [VodItem] = []
-                        for item in batch {
-                            let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                            if seen.insert(id).inserted {
-                                newItems.append(item)
-                            }
-                        }
-                        if !newItems.isEmpty {
-                            print("[SearchView] 流式回调 +\(newItems.count) 条，累计 \(seen.count) 条")
+                        if !batch.isEmpty {
+                            print("[SearchView] 流式回调 +\(batch.count) 条")
                             Task { @MainActor in
-                                self.searchResults.append(contentsOf: newItems)
+                                self.searchResults.append(contentsOf: batch)
                                 self.isSearchLoading = false
                             }
                         }
@@ -937,15 +929,12 @@ struct SearchView: View {
                 
                 group.addTask {
                     let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword)
-                    var newItems: [VodItem] = []
-                    for var item in cloudItems {
-                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                        if seen.insert(id).inserted {
-                            item.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
-                            newItems.append(item)
+                    if !cloudItems.isEmpty {
+                        let newItems = cloudItems.map { item -> VodItem in
+                            var newItem = item
+                            newItem.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
+                            return newItem
                         }
-                    }
-                    if !newItems.isEmpty {
                         print("[SearchView] 网盘回调 +\(newItems.count) 条")
                         await MainActor.run {
                             self.searchResults.append(contentsOf: newItems)
@@ -957,7 +946,7 @@ struct SearchView: View {
                 await group.waitForAll()
             }
             
-            print("[SearchView] 搜索结束，共 \(seen.count) 条")
+            print("[SearchView] 搜索结束，共 \(self.searchResults.count) 条")
             await MainActor.run { self.isSearchLoading = false }
         }
     }
