@@ -1651,8 +1651,12 @@ class CloudDriveManager: ObservableObject {
             let firstErrorDesc = error.localizedDescription
             print("[Quark] ⚠️ vbox 目录创建/查找失败：\(firstErrorDesc)")
 
-            // 仅在疑似配额/容量问题时尝试清理；否则直接把真实错误抛出去，避免误导。
-            guard quarkShouldAttemptVboxCleanup(error: error) else {
+            // 兼容旧版逻辑：vbox 目录失败后尝试“清理旧转存文件再重试”。
+            // 线上反馈中，夸克接口的错误信息不稳定（可能不包含“空间/超限”等关键词），
+            // 仅靠关键词判断会导致本来可通过清理恢复的场景直接失败，从而表现为“夸克路链无法播放”。
+            // 这里做一次更保守的判断：只要根目录已存在 vbox 文件夹，就允许尝试清理并重试。
+            let hasVboxFolder = (try? await quarkFindVisibleFolder(cookie: cookie)) != nil
+            guard quarkShouldAttemptVboxCleanup(error: error) || hasVboxFolder else {
                 throw DriveError.noPlayURL("夸克：创建/查找 vbox 文件夹失败：\(firstErrorDesc)")
             }
 
