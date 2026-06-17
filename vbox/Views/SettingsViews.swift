@@ -1486,6 +1486,8 @@ struct CloudAuthCenterView: View {
         case .baidu: return "b.circle.fill"
         case .one15: return "1.circle.fill"
         case .uc: return "u.circle.fill"
+        case .pan123: return "1.square.fill"
+        case .pan139: return "9.square.fill"
         }
     }
 }
@@ -1760,6 +1762,8 @@ struct CloudPlaybackCacheView: View {
         case .baidu: return "b.circle.fill"
         case .one15: return "1.circle.fill"
         case .uc: return "u.circle.fill"
+        case .pan123: return "1.square.fill"
+        case .pan139: return "9.square.fill"
         }
     }
 }

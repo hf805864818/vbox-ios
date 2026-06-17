@@ -521,6 +521,10 @@ final class CloudDriveAuthManager: ObservableObject {
                 try await validateCookie(url: "https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc", cookie: credential.cookie ?? "", referer: "https://drive.uc.cn/")
             case .baidu:
                 _ = try await baiduFetchTemplateVariables(cookie: credential.cookie ?? "")
+            case .pan123:
+                try await validateCookie(url: "https://www.123pan.com/b/api/share/get?limit=1&next=1&shareKey=test&SharePwd=&ParentFileId=0&Page=1", cookie: credential.cookie ?? "", referer: "https://www.123pan.com/")
+            case .pan139:
+                try await validateCookie(url: "https://yun.139.com/", cookie: credential.cookie ?? "", referer: "https://yun.139.com/")
             }
             markValid(driveType, message: "授权检测正常")
             return true
