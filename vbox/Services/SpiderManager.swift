@@ -285,30 +285,76 @@ globalThis.__JS_SPIDER__ = _spider;
 
     private func loadSitesFromSubscription() async {
         // 先加载内置 ibox_sources.json（无论用户是否添加了订阅源）
+        // 多路径查找策略，确保文件被正确找到
         var iboxSites: [SiteConfig] = []
+        var iboxLoaded = false
+
+        // 方式1: 标准 path（带 inDirectory）
         if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
            let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
             do {
                 let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
                 iboxSites = iboxConfig.sites
-                print("[SpiderManager] 从 ibox_sources.json 读取了 \(iboxSites.count) 个站点")
+                iboxLoaded = true
+                print("[SpiderManager] 从 ibox_sources.json(js/) 读取了 \(iboxSites.count) 个站点")
             } catch {
                 print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
             }
-        } else {
-            // 尝试不带 inDirectory 的路径（文件夹引用可能扁平化）
-            if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json"),
-               let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
+        }
+        // 方式2: 不带 inDirectory（文件夹引用可能扁平化）
+        if !iboxLoaded, let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json"),
+           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
+            do {
+                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                iboxSites = iboxConfig.sites
+                iboxLoaded = true
+                print("[SpiderManager] 从 Bundle 根目录读取 ibox_sources.json: \(iboxSites.count) 个站点")
+            } catch {
+                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+            }
+        }
+        // 方式3: url(forResource:withExtension:subdirectory:)
+        if !iboxLoaded, let iboxURL = Bundle.main.url(forResource: "ibox_sources", withExtension: "json", subdirectory: "js"),
+           let iboxData = try? Data(contentsOf: iboxURL) {
+            do {
+                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                iboxSites = iboxConfig.sites
+                iboxLoaded = true
+                print("[SpiderManager] 从 url(subdirectory:js) 读取 ibox_sources.json: \(iboxSites.count) 个站点")
+            } catch {
+                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+            }
+        }
+        // 方式4: 枚举 Bundle.resources 查找
+        if !iboxLoaded {
+            if let jsURLs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "js"),
+               let iboxFile = jsURLs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
+               let iboxData = try? Data(contentsOf: iboxFile) {
                 do {
                     let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
                     iboxSites = iboxConfig.sites
-                    print("[SpiderManager] 从 Bundle 根目录读取 ibox_sources.json: \(iboxSites.count) 个站点")
+                    iboxLoaded = true
+                    print("[SpiderManager] 从 urls(js/) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
                 } catch {
                     print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
                 }
-            } else {
-                print("[SpiderManager] ⚠️ 未找到 ibox_sources.json")
             }
+            // 也检查 Bundle 根目录的 json 文件
+            if !iboxLoaded, let allJSONs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil),
+               let iboxFile = allJSONs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
+               let iboxData = try? Data(contentsOf: iboxFile) {
+                do {
+                    let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                    iboxSites = iboxConfig.sites
+                    iboxLoaded = true
+                    print("[SpiderManager] 从 urls(根目录) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
+                } catch {
+                    print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+                }
+            }
+        }
+        if !iboxLoaded {
+            print("[SpiderManager] ⚠️ 未找到 ibox_sources.json（已尝试4种查找方式）")
         }
 
         // 如果 subManager.config 为空但之前通过 apiyuan 转换过站点，
@@ -821,7 +867,6 @@ globalThis.__JS_SPIDER__ = _spider;
 
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
         var allResults: [VodItem] = []
-        var seenIds = Set<String>()
 
         // 先尝试加载内置蜘蛛
         if engines.isEmpty {
@@ -836,8 +881,8 @@ globalThis.__JS_SPIDER__ = _spider;
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
-                        // 去重已临时关闭
-                        allResults.append(item)
+                        // 智能去重：按 vodName+画质 分组，合并来源
+                        smartMerge(item: item, into: &allResults)
                     }
                     print("[SpiderManager] 蜘蛛搜索[\(key)]: \(items.count) 条")
                 }
@@ -849,10 +894,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 2. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
         let nativeResults = await nativeSearch(keyword: keyword)
-        // 去重已临时关闭
-        allResults.append(contentsOf: nativeResults)
+        // 智能去重：合并原生搜索结果
+        for item in nativeResults {
+            smartMerge(item: item, into: &allResults)
+        }
 
-        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
+        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条（智能去重后）")
         return allResults.isEmpty ? nativeResults : allResults
     }
 
@@ -915,7 +962,12 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
                 for await items in group {
                     if let items = items, !items.isEmpty {
-                        onBatch(items)
+                        // 智能去重：按 vodName+画质 分组，合并来源
+                        var deduped: [VodItem] = []
+                        for item in items {
+                            smartMerge(item: item, into: &deduped)
+                        }
+                        onBatch(deduped)
                     }
                 }
             }
@@ -974,7 +1026,6 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 先遍历订阅源中的 type=1/0 站点，再用硬编码采集站兜底
     func nativeSearch(keyword: String) async -> [VodItem] {
         var allResults: [VodItem] = []
-        var seenIds = Set<String>()
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
 
         // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
@@ -983,7 +1034,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // ====== 搜索源 1: 兜底采集 API（开关控制）======
         struct SearchSite { let name: String; let api: String }
         var mergedSites: [SearchSite] = []
-        // 域名去重已临时关闭
+        // 域名去重保持关闭（让所有站都参与搜索）
 
         for site in subSites {
             guard let api = site.api, !api.isEmpty else { continue }
@@ -1016,14 +1067,16 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
                 for await items in group {
                     if let items = items {
-                        // 去重已临时关闭
-                        allResults.append(contentsOf: items)
+                        // 智能去重：按 vodName+画质 分组，合并来源
+                        for item in items {
+                            smartMerge(item: item, into: &allResults)
+                        }
                     }
                 }
             }
         }
 
-        print("[SpiderManager] nativeSearch 完成: \(allResults.count) 条")
+        print("[SpiderManager] nativeSearch 完成: \(allResults.count) 条（智能去重后）")
         return allResults
     }
 
@@ -1076,7 +1129,6 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 返回的 VodItem.vodId 存的是详情页完整 URL，播放时直接抓取解析
     func cloudSearch(keyword: String) async -> [VodItem] {
         var results: [VodItem] = []
-        var seenIds = Set<String>()
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
         print("[SpiderManager] ====== cloudSearch: \(keyword) ======")
         
@@ -1119,10 +1171,6 @@ globalThis.__JS_SPIDER__ = _spider;
                     var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                     // 过滤掉菜单项
                     if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
-                    // 去重已临时关闭
-                    // let dedupKey = "\(site.name)_\(idRange.location != NSNotFound && idRange.location < html.count ? (Range(idRange, in: html).map { String(html[$0]) } ?? "0") : "0")"
-                    // if seenIds.contains(dedupKey) { continue }
-                    // seenIds.insert(dedupKey)
                     
                     // 尝试提取封面图
                     var pic = ""
@@ -1142,7 +1190,8 @@ globalThis.__JS_SPIDER__ = _spider;
                     }
                     
                     let detailURL = site.detailBase + detailPath
-                    results.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: site.name))
+                    let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: site.name)
+                    smartMerge(item: item, into: &results)
                     siteCount += 1
                 }
                 print("[SpiderManager] cloudSearch \(site.name): \(siteCount) 条")
@@ -1150,7 +1199,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
             }
         }
-        print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条 ======")
+        print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条（智能去重后） ======")
         return results
     }
 
@@ -1894,5 +1943,64 @@ globalThis.__JS_SPIDER__ = _spider;
             vodPlayFrom: vodPlayFrom,
             vodPlayUrl: vodPlayUrl
         )
+    }
+
+    // MARK: - 智能去重方法
+
+    /// 智能合并搜索结果：按 vodName+画质 分组，合并来源站点名
+    private func smartMerge(item: VodItem, into results: inout [VodItem]) {
+        // 提取画质标记
+        let quality = extractQuality(from: item.vodRemarks ?? "")
+        // 生成去重key：名称 + 画质（如果画质不同则视为不同条目）
+        let dedupKey = "\(item.vodName)_\(quality)"
+
+        if let existIdx = results.firstIndex(where: { "\($0.vodName)_\(extractQuality(from: $0.vodRemarks ?? ""))" == dedupKey }) {
+            // 合并来源
+            var existing = results[existIdx]
+            let existingRemarks = existing.vodRemarks ?? ""
+            let newRemarks = item.vodRemarks ?? ""
+            // 合并来源站点名（去重）
+            var sources = Set<String>()
+            for r in existingRemarks.components(separatedBy: ",") {
+                let s = r.trimmingCharacters(in: .whitespaces)
+                if !s.isEmpty { sources.insert(s) }
+            }
+            for r in newRemarks.components(separatedBy: ",") {
+                let s = r.trimmingCharacters(in: .whitespaces)
+                if !s.isEmpty { sources.insert(s) }
+            }
+            existing.vodRemarks = sources.joined(separator: ", ")
+            // 保留更高画质的备注
+            if qualityRank(newRemarks) > qualityRank(existingRemarks) {
+                existing.vodRemarks = newRemarks
+            }
+            // 保留更高画质的封面
+            if !item.vodPic.isEmpty && qualityRank(newRemarks) > qualityRank(existingRemarks) {
+                existing.vodPic = item.vodPic
+            }
+            results[existIdx] = existing
+        } else {
+            results.append(item)
+        }
+    }
+
+    /// 从备注中提取画质标记
+    private func extractQuality(from remarks: String) -> String {
+        if remarks.contains("4K") { return "4K" }
+        if remarks.contains("1080P") || remarks.contains("1080p") { return "1080P" }
+        if remarks.contains("720P") || remarks.contains("720p") { return "720P" }
+        if remarks.contains("蓝光") { return "蓝光" }
+        if remarks.contains("高清") { return "高清" }
+        return "其他"
+    }
+
+    /// 画质优先级排名（数值越高画质越好）
+    private func qualityRank(_ remarks: String) -> Int {
+        if remarks.contains("4K") { return 6 }
+        if remarks.contains("1080P") || remarks.contains("1080p") { return 5 }
+        if remarks.contains("蓝光") { return 4 }
+        if remarks.contains("720P") || remarks.contains("720p") { return 3 }
+        if remarks.contains("高清") { return 2 }
+        return 1
     }
 }
