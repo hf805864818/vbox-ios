@@ -1891,6 +1891,12 @@ class CloudDriveManager: ObservableObject {
                     return folder
                 }
             }
+
+            // 兜底：某些环境下根目录 file/sort 返回结构/字段不稳定，尝试用另一套分页参数再按名称查一次。
+            if let fid = await quarkFindSavedFileId(fileName: "vbox", folderId: "0", cookie: mergedCookie) {
+                print("[Quark] ✅ 兜底：按名称在根目录定位 vbox，fid=\(fid)")
+                return (fid, mergedCookie)
+            }
             print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
             if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
                 print("[Quark] ✅ 从创建响应提取到 fid=\(fid)")
@@ -1912,7 +1918,7 @@ class CloudDriveManager: ObservableObject {
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         var currentCookie = cookie
         let pageSize = 200
-        var page = 1
+        let maxPages = 200
 
         func extractName(from item: [String: Any]) -> String {
             if let value = item["file_name"] as? String, !value.isEmpty { return value }
@@ -1948,49 +1954,81 @@ class CloudDriveManager: ObservableObject {
             return false
         }
 
-        // 核心策略：先按名称匹配 vbox，命中后再提取 fid；只有确认列表里没有 vbox 才返回 nil。
-        while true {
+        func fetchList(page: Int, underscoreStyle: Bool) async throws -> ([[String: Any]]?, Int?, String?, String) {
             var request = URLRequest(url: listURL)
             request.httpMethod = "POST"
             quarkSetCommonHeaders(&request, cookie: currentCookie)
-            let body: [String: Any] = [
-                "pdir_fid": "0",
-                "_sort": "file_type:asc,file_name:asc",
-                "_page": page,
-                "_size": pageSize,
-                "_fetch_total": 1
-            ]
+            let body: [String: Any]
+            if underscoreStyle {
+                // 版本A：参数带下划线（目前大部分接口使用这一套）
+                body = [
+                    "pdir_fid": "0",
+                    "_sort": "file_type:asc,file_name:asc",
+                    "_page": page,
+                    "_size": pageSize,
+                    "_fetch_total": 1
+                ]
+            } else {
+                // 版本B：参数不带下划线（部分环境/接口返回结构更稳定）
+                body = [
+                    "pdir_fid": "0",
+                    "sort_by": "file_name",
+                    "sort_order": "asc",
+                    "page": page,
+                    "size": pageSize
+                ]
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
             let (data, response) = try await session.data(for: request)
             currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any],
+            let preview = String(data: data.prefix(500), encoding: .utf8) ?? ""
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return (nil, nil, nil, preview)
+            }
+            let code = json["code"] as? Int ?? (json["status"] as? Int)
+            let message = json["message"] as? String ?? json["msg"] as? String
+            if let code, code != 0 && code != 200 {
+                return (nil, code, message, preview)
+            }
+            guard let dataObj = json["data"] as? [String: Any],
                   let list = dataObj["list"] as? [[String: Any]] else {
-                let preview = String(data: data.prefix(400), encoding: .utf8) ?? ""
-                print("[Quark] ⚠️ 根目录列表结构异常，无法识别 vbox：\(preview)")
-                return nil
+                return (nil, code, message, preview)
             }
+            return (list, code, message, preview)
+        }
 
-            print("[Quark] 根目录扫描 page=\(page), count=\(list.count)")
-            for item in list {
-                let name = extractName(from: item)
-                guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vbox" else { continue }
-
-                if let folderId = extractFolderId(from: item) {
-                    if looksLikeDirectory(item) {
-                        print("[Quark] ✅ 根目录命中 vbox 文件夹 fid=\(folderId)")
+        // 核心策略：先按名称匹配 vbox，命中后再提取 fid；并对两种分页参数风格做兼容兜底。
+        for underscoreStyle in [true, false] {
+            for page in 1...maxPages {
+                let (listOpt, codeOpt, messageOpt, preview) = try await fetchList(page: page, underscoreStyle: underscoreStyle)
+                guard let list = listOpt else {
+                    if let codeOpt, let messageOpt {
+                        print("[Quark] ⚠️ 根目录列表返回异常 style=\(underscoreStyle ? "underscore" : "plain") code=\(codeOpt) message=\(messageOpt)，preview=\(preview)")
                     } else {
-                        print("[Quark] ⚠️ 命中名称为 vbox 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
+                        print("[Quark] ⚠️ 根目录列表结构异常 style=\(underscoreStyle ? "underscore" : "plain")，preview=\(preview)")
                     }
-                    return (folderId, currentCookie)
-                } else {
-                    print("[Quark] ⚠️ 命中 vbox 但未提取到 fid，item=\(item)")
+                    break
                 }
-            }
 
-            if list.count < pageSize { break }
-            page += 1
+                print("[Quark] 根目录扫描 style=\(underscoreStyle ? "underscore" : "plain") page=\(page), count=\(list.count)")
+                for item in list {
+                    let name = extractName(from: item)
+                    guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vbox" else { continue }
+                    if let folderId = extractFolderId(from: item) {
+                        if looksLikeDirectory(item) {
+                            print("[Quark] ✅ 根目录命中 vbox 文件夹 fid=\(folderId)")
+                        } else {
+                            print("[Quark] ⚠️ 命中名称为 vbox 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
+                        }
+                        return (folderId, currentCookie)
+                    } else {
+                        print("[Quark] ⚠️ 命中 vbox 但未提取到 fid，item=\(item)")
+                    }
+                }
+
+                if list.count < pageSize { break }
+            }
         }
 
         return nil
