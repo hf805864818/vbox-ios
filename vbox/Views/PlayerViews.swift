@@ -92,7 +92,7 @@ struct VideoDetailView: View {
                 episodes.append((name: name, url: url))
             }
             guard !episodes.isEmpty else { return [] }
-            return [("name": "网盘资源", episodes: episodes)]
+            return [("网盘资源", episodes)]
         }
         
         let urlGroups = raw.components(separatedBy: "$$$")
