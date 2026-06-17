@@ -794,11 +794,12 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] ✅ 蜘蛛数据已收集\(videos.count)条")
         }
 
-        // 去重
-        var seen = Set<String>()
-        let originalCount = videos.count
-        videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
-        print("[SpiderManager] 去重前: \(originalCount)条, 去重后: \(videos.count)条")
+        // 去重（已临时关闭以测试多源搜索结果）
+        // var seen = Set<String>()
+        // let originalCount = videos.count
+        // videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
+        // print("[SpiderManager] 去重前: \(originalCount)条, 去重后: \(videos.count)条")
+        print("[SpiderManager] 去重已关闭，当前结果: \(videos.count)条")
 
         await MainActor.run {
             self.homeVideos = videos
@@ -835,11 +836,8 @@ globalThis.__JS_SPIDER__ = _spider;
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
-                        let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                        if !seenIds.contains(id) {
-                            seenIds.insert(id)
-                            allResults.append(item)
-                        }
+                        // 去重已临时关闭
+                        allResults.append(item)
                     }
                     print("[SpiderManager] 蜘蛛搜索[\(key)]: \(items.count) 条")
                 }
@@ -851,13 +849,8 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 2. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
         let nativeResults = await nativeSearch(keyword: keyword)
-        for item in nativeResults {
-            let id = item.vodId.isEmpty ? item.vodName : item.vodId
-            if !seenIds.contains(id) {
-                seenIds.insert(id)
-                allResults.append(item)
-            }
-        }
+        // 去重已临时关闭
+        allResults.append(contentsOf: nativeResults)
 
         print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
         return allResults.isEmpty ? nativeResults : allResults
@@ -890,19 +883,16 @@ globalThis.__JS_SPIDER__ = _spider;
         var seenDomains = Set<String>()
         let subAllSites = subManager.allSites
         print("[searchStream] subManager.allSites=\(subAllSites.count) 条, config=\(subManager.config != nil ? "有" : "nil"), isLoaded=\(subManager.isLoaded)")
+        // 域名去重已临时关闭
         for s in subAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
-            if let api = s.api, let host = URL(string: api)?.host, !seenDomains.contains(host) {
-                seenDomains.insert(host)
+            if let api = s.api {
                 sites.append(Site(name: s.name, api: api))
             }
         }
         print("[searchStream] 订阅源 type=1/0 站点: \(sites.count) 个")
         if fallbackEnabled {
             for fb in allFallbackSites {
-                if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
-                    seenDomains.insert(host)
-                    sites.append(Site(name: fb.name, api: fb.api))
-                }
+                sites.append(Site(name: fb.name, api: fb.api))
             }
         }
         print("[searchStream] 合计搜索站点: \(sites.count) 个")
@@ -993,22 +983,16 @@ globalThis.__JS_SPIDER__ = _spider;
         // ====== 搜索源 1: 兜底采集 API（开关控制）======
         struct SearchSite { let name: String; let api: String }
         var mergedSites: [SearchSite] = []
-        var seenDomains = Set<String>()
+        // 域名去重已临时关闭
 
         for site in subSites {
             guard let api = site.api, !api.isEmpty else { continue }
-            if let host = URL(string: api)?.host, !seenDomains.contains(host) {
-                seenDomains.insert(host)
-                mergedSites.append(SearchSite(name: site.name, api: api))
-            }
+            mergedSites.append(SearchSite(name: site.name, api: api))
         }
         // 兜底源：开关打开时补充（订阅源不足3个 或 直接补上）
         if fallbackEnabled {
             for fb in allFallbackSites {
-                if let host = URL(string: fb.api)?.host, !seenDomains.contains(host) {
-                    seenDomains.insert(host)
-                    mergedSites.append(SearchSite(name: fb.name, api: fb.api))
-                }
+                mergedSites.append(SearchSite(name: fb.name, api: fb.api))
             }
         }
 
@@ -1032,13 +1016,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
                 for await items in group {
                     if let items = items {
-                        for item in items {
-                            let id = item.vodId.isEmpty ? item.vodName : item.vodId
-                            if !seenIds.contains(id) {
-                                seenIds.insert(id)
-                                allResults.append(item)
-                            }
-                        }
+                        // 去重已临时关闭
+                        allResults.append(contentsOf: items)
                     }
                 }
             }
@@ -1140,10 +1119,10 @@ globalThis.__JS_SPIDER__ = _spider;
                     var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                     // 过滤掉菜单项
                     if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
-                    // 去重
-                    let dedupKey = "\(site.name)_\(idRange.location != NSNotFound && idRange.location < html.count ? (Range(idRange, in: html).map { String(html[$0]) } ?? "0") : "0")"
-                    if seenIds.contains(dedupKey) { continue }
-                    seenIds.insert(dedupKey)
+                    // 去重已临时关闭
+                    // let dedupKey = "\(site.name)_\(idRange.location != NSNotFound && idRange.location < html.count ? (Range(idRange, in: html).map { String(html[$0]) } ?? "0") : "0")"
+                    // if seenIds.contains(dedupKey) { continue }
+                    // seenIds.insert(dedupKey)
                     
                     // 尝试提取封面图
                     var pic = ""
