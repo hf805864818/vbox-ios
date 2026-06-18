@@ -9,6 +9,7 @@ struct ContentView: View {
     enum Tab: String, CaseIterable {
         case home = "首页"
         case search = "搜索"
+        case live = "直播"
         case settings = "设置"
 
         // 未选中空心图标
@@ -16,15 +17,17 @@ struct ContentView: View {
             switch self {
             case .home: return "house"
             case .search: return "magnifyingglass"
+            case .live: return "antenna.radiowaves.left.and.right"
             case .settings: return "gearshape"
             }
         }
-        
+
         // 选中实心图标
         var iconFill: String {
             switch self {
             case .home: return "house.fill"
             case .search: return "magnifyingglass.circle.fill"
+            case .live: return "dot.radiowaves.left.and.right"
             case .settings: return "gearshape.fill"
             }
         }
@@ -49,6 +52,7 @@ struct ContentView: View {
                     switch selectedTab {
                     case .home: HomeView()
                     case .search: SearchView()
+                    case .live: LiveTVView()
                     case .settings: SettingsView()
                     }
                 }

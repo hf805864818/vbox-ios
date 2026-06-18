@@ -265,23 +265,62 @@ class DoubanService: ObservableObject {
 
     /// 根据作品名称搜索演职人员信息
     func fetchCredits(for workName: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
-        // 1. 先搜索作品获取 ID
-        guard let searchURL = URL(string: "\(baseURL)/search?q=\(workName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workName)&type=movie") else {
-            return ([], [], [])
-        }
-
-        do {
-            let (data, _) = try await session.data(from: searchURL)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let items = json["items"] as? [[String: Any]],
-               let first = items.first,
-               let targetId = first["id"] as? String ?? first["target_id"] as? String {
-                return await fetchCreditsById(targetId)
+        // 1. 先搜索作品获取 ID（使用豆瓣搜索API）
+        let encodedName = workName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workName
+        
+        // 尝试多种搜索URL格式
+        let searchURLs = [
+            "\(baseURL)/search?q=\(encodedName)&type=movie",
+            "https://movie.douban.com/j/subject_suggest?q=\(encodedName)",
+            "https://m.douban.com/rexxar/api/v2/search?type=movie&q=\(encodedName)"
+        ]
+        
+        for urlString in searchURLs {
+            guard let searchURL = URL(string: urlString) else { continue }
+            
+            do {
+                let (data, _) = try await session.data(from: searchURL)
+                
+                // 尝试解析 subject_suggest 格式
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                   let first = json.first,
+                   let id = first["id"] as? String {
+                    print("[DoubanService] 找到作品ID (suggest): \(id)")
+                    return await fetchCreditsById(id)
+                }
+                
+                // 尝试解析标准搜索格式
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    // 尝试 items 字段
+                    if let items = json["items"] as? [[String: Any]],
+                       let first = items.first,
+                       let targetId = first["id"] as? String ?? first["target_id"] as? String {
+                        print("[DoubanService] 找到作品ID (items): \(targetId)")
+                        return await fetchCreditsById(targetId)
+                    }
+                    
+                    // 尝试 subjects 字段
+                    if let subjects = json["subjects"] as? [[String: Any]],
+                       let first = subjects.first,
+                       let id = first["id"] as? String {
+                        print("[DoubanService] 找到作品ID (subjects): \(id)")
+                        return await fetchCreditsById(id)
+                    }
+                    
+                    // 尝试 data 字段
+                    if let dataArr = json["data"] as? [[String: Any]],
+                       let first = dataArr.first,
+                       let id = first["id"] as? String {
+                        print("[DoubanService] 找到作品ID (data): \(id)")
+                        return await fetchCreditsById(id)
+                    }
+                }
+            } catch {
+                print("[DoubanService] 搜索URL失败 \(urlString): \(error)")
             }
-        } catch {
-            print("[DoubanService] 搜索作品失败: \(error)")
         }
 
+        print("[DoubanService] 所有搜索方式都失败，尝试名称匹配")
         // 搜索失败时尝试直接用名称匹配
         return await fetchCreditsByName(workName)
     }
