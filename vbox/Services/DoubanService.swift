@@ -170,7 +170,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_showing", start: start, count: count)
+        return try await fetchCollection("movie_hot_gaia", start: start, count: count)
     }
     
     func fetchHotTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
