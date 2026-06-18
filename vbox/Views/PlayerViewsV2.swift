@@ -2665,6 +2665,7 @@ struct PlayerContainerView: View {
     @ObservedObject var playerState: PlayerState
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var settings: AppSettings
     
     var body: some View {
         ZStack {
