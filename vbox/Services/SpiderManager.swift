@@ -378,21 +378,18 @@ globalThis.__JS_SPIDER__ = _spider;
         // 如果 subManager.config 为空但之前通过 apiyuan 转换过站点，
         // 从 subManager 的内部加载
         guard let config = subManager.config else {
-            // 检查是否通过 apiyuan/zhanyuan 转换加载过站点
-            if subManager.isLoaded, !subManager.allSites.isEmpty {
-                self.allSites = subManager.allSites
-                loadedSiteCount = allSites.count
-                print("[SpiderManager] 从 subManager.allSites 加载 \(loadedSiteCount) 个站点")
-            } else if !iboxSites.isEmpty {
-                // 没有订阅源，使用内置 ibox 站点
+            // config 为 nil 说明没有订阅源，直接使用内置 ibox 站点
+            if !iboxSites.isEmpty {
                 self.allSites = iboxSites
                 loadedSiteCount = allSites.count
                 print("[SpiderManager] 无订阅源，使用内置 ibox_sources: \(loadedSiteCount) 个站点")
             } else {
+                self.allSites = []
+                loadedSiteCount = 0
                 errorMessage = "订阅源配置为空"
                 return
             }
-            // 没有 config 但有站点，继续加载引擎
+            // 加载引擎
             await loadBuiltinEngineIfNeeded()
             let totalSites = allSites.count
             print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
@@ -1070,6 +1067,9 @@ globalThis.__JS_SPIDER__ = _spider;
     func removeSubscriptionURL(_ url: String) {
         subManager.removeURL(url)
         savedURLs = subManager.configURLs
+        // 彻底清空 SpiderManager 的站点数据
+        allSites = []
+        loadedSiteCount = 0
         // 清除残留数据：如果删除的是当前激活的订阅源，重新加载站点
         Task { [self] in
             await loadSitesFromSubscription()
