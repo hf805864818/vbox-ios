@@ -35,19 +35,26 @@ struct MainTabView: View {
                     }
                     .tag(2)
 
-                CategoryView()
+                LiveTVView()
                     .tabItem {
-                        Image(systemName: selectedTab == 3 ? "square.grid.3x3.fill" : "square.grid.3x3")
-                        Text("分类")
+                        Image(systemName: selectedTab == 3 ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
+                        Text("直播")
                     }
                     .tag(3)
 
-                ProfileView()
+                CategoryView()
                     .tabItem {
-                        Image(systemName: selectedTab == 4 ? "person.fill" : "person")
-                        Text("我的")
+                        Image(systemName: selectedTab == 4 ? "square.grid.3x3.fill" : "square.grid.3x3")
+                        Text("分类")
                     }
                     .tag(4)
+
+                ProfileView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 5 ? "person.fill" : "person")
+                        Text("我的")
+                    }
+                    .tag(5)
             }
             .accentColor(Color(hex: "E11D48"))
 
@@ -96,6 +103,7 @@ struct GlassBottomTabBar: View {
         ("house", "house.fill", "首页"),
         ("film", "film.fill", "豆瓣"),
         ("magnifyingglass.circle", "magnifyingglass.circle.fill", "搜索"),
+        ("antenna.radiowaves.left.and.right", "dot.radiowaves.left.and.right", "直播"),
         ("square.grid.3x3", "square.grid.3x3.fill", "分类"),
         ("person", "person.fill", "我的")
     ]
