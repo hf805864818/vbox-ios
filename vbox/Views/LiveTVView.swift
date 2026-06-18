@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import Combine
+import UIKit
 
 // MARK: - 直播源选择视图
 struct LiveSourcePickerView: View {
@@ -9,6 +10,7 @@ struct LiveSourcePickerView: View {
     let onSelect: (LiveSourceType) -> Void
     let onAddCustom: (String, String) -> Void
     let onRemoveCustom: (Int) -> Void
+    var onImportLocal: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var showAddAlert = false
@@ -53,6 +55,22 @@ struct LiveSourcePickerView: View {
                             Spacer()
                         }
                     }
+
+                    if let onImportLocal = onImportLocal {
+                        Button(action: { onImportLocal() }) {
+                            HStack {
+                                Image(systemName: "folder.fill")
+                                    .foregroundColor(.blue)
+                                Text("导入本地直播文件")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                            }
+                        }
+                    }
+                } header: {
+                    Text("添加源")
+                } footer: {
+                    Text("支持导入 M3U、TXT、JSON 等格式的直播源文件")
                 }
             }
             .listStyle(.insetGrouped)
@@ -198,9 +216,17 @@ struct LiveTVView: View {
     @State private var showSourcePicker = false
     @State private var sourcePickerOffset: CGFloat = 0
 
+    // 浮动按钮自动隐藏/显示
+    @State private var isFloatingButtonVisible = true
+    @State private var hideTimer: Timer?
+    @State private var lastInteractionTime = Date()
+
     // 订阅源分组缓存
     @State private var subscribeGroups: [String] = []
     @State private var currentSubscribeGroup: String = ""
+
+    // 本地文件导入
+    @State private var showFileImporter = false
 
     private var isDefaultSource: Bool {
         if case .defaultIPTV = service.currentSource { return true }
@@ -236,40 +262,60 @@ struct LiveTVView: View {
                     // 频道列表
                     channelList
                 }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { _ in
+                            resetHideTimer()
+                        }
+                )
+                .onTapGesture {
+                    resetHideTimer()
+                }
 
-                // 右下角浮动按钮
+                // 右下角浮动按钮（自动隐藏/显示）
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button(action: { showSourcePicker = true }) {
+                        Button(action: {
+                            showSourcePicker = true
+                            resetHideTimer()
+                        }) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 20))
+                                .font(.system(size: 14))
                                 .foregroundColor(.white)
-                                .frame(width: 50, height: 50)
+                                .frame(width: 38, height: 38)
                                 .background(Color.orange)
                                 .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+                                .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                         }
                         .padding(.trailing, 16)
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 80) // 向上移动避免底栏遮挡
+                        .opacity(isFloatingButtonVisible ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.3), value: isFloatingButtonVisible)
                     }
                 }
             }
-            .navigationTitle("电视直播")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showSourcePicker = true }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 14))
-                            Text(service.currentSource.displayName)
-                                .font(.system(size: 13))
-                        }
-                        .foregroundColor(.orange)
-                    }
+                    EmptyView()
                 }
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [
+                    .item,                     // 通用文件
+                    .plainText,                 // TXT
+                    .mpeg4Movie,                // M3U8
+                    .json,                      // JSON
+                    .xml,                       // XML
+                ],
+                allowsMultipleSelection: false
+            ) { result in
+                handleFileImport(result: result)
             }
             .sheet(isPresented: $showSourcePicker) {
                 LiveSourcePickerView(
@@ -287,6 +333,9 @@ struct LiveTVView: View {
                     },
                     onRemoveCustom: { index in
                         service.removeCustomSource(at: index)
+                    },
+                    onImportLocal: {
+                        showFileImporter = true
                     }
                 )
                 .presentationDetents([.medium])
@@ -306,6 +355,11 @@ struct LiveTVView: View {
             }
             .onAppear {
                 loadChannelsIfNeeded(for: currentCategory)
+                startHideTimer()
+            }
+            .onDisappear {
+                hideTimer?.invalidate()
+                hideTimer = nil
             }
             .onChange(of: service.currentSource) { _ in
                 // 源切换时重新计算分组和加载数据
@@ -316,6 +370,73 @@ struct LiveTVView: View {
                     loadChannelsIfNeeded(for: first.id)
                 }
             }
+        }
+    }
+
+    // MARK: - 浮动按钮自动隐藏/显示逻辑
+    private func startHideTimer() {
+        hideTimer?.invalidate()
+        lastInteractionTime = Date()
+        isFloatingButtonVisible = true
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            let elapsed = Date().timeIntervalSince(lastInteractionTime)
+            if elapsed >= 10.0 && isFloatingButtonVisible {
+                DispatchQueue.main.async {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isFloatingButtonVisible = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func resetHideTimer() {
+        lastInteractionTime = Date()
+        if !isFloatingButtonVisible {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isFloatingButtonVisible = true
+            }
+        }
+    }
+
+    // MARK: - 处理本地文件导入
+    private func handleFileImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            // 获取对文件的访问权限
+            guard url.startAccessingSecurityScopedResource() else {
+                print("[LiveTV] 无法访问文件: \(url)")
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            do {
+                let content = try String(contentsOf: url, encoding: .utf8)
+                let fileName = url.deletingPathExtension().lastPathComponent
+
+                // 根据内容判断格式并解析
+                let parsed: [SubscribeChannel]
+                if content.trimmingCharacters(in: .whitespaces).hasPrefix("#EXTM3U") {
+                    parsed = service.parseM3U(content: content)
+                } else {
+                    parsed = service.parseTXT(content: content)
+                }
+
+                if !parsed.isEmpty {
+                    // 将解析到的频道添加为自定义源
+                    service.addLocalChannels(name: fileName, channels: parsed)
+                    // 如果当前没有选中自定义源，自动切换到导入的源
+                    if isDefaultSource {
+                        let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
+                        service.switchSource(to: customSource)
+                    }
+                }
+            } catch {
+                print("[LiveTV] 读取文件失败: \(error)")
+            }
+        case .failure(let error):
+            print("[LiveTV] 文件导入失败: \(error)")
         }
     }
 
@@ -390,8 +511,8 @@ struct LiveTVView: View {
     }
 
     // MARK: - 加载频道
-    private func loadChannelsIfNeeded(for categoryId: String) {
-        guard channelsCache[categoryId] == nil else { return }
+    private func loadChannelsIfNeeded(for categoryId: String, forceReload: Bool = false) {
+        guard channelsCache[categoryId] == nil || forceReload else { return }
         isLoading = true
 
         Task {
@@ -406,7 +527,7 @@ struct LiveTVView: View {
             await MainActor.run {
                 channelsCache[categoryId] = channels
                 isLoading = false
-                if channels.isEmpty {
+                if channels.isEmpty && !forceReload {
                     errorMessage = "该分类暂无频道"
                     showError = true
                 }
@@ -560,9 +681,9 @@ struct EmptyStateView: View {
                 .foregroundColor(.orange)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
-                .overlay(
+                .background(
                     RoundedRectangle(cornerRadius: 24)
-                        .stroke(Color.orange, lineWidth: 1)
+                        .fill(Color.orange.opacity(0.08))
                 )
             }
         }
