@@ -2046,11 +2046,15 @@ class PlayerState: ObservableObject {
     // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
-        
-        // 检查是否是直链（通过URL后缀判断，支持带参数）
+
+        // 检测官方平台URL（需要解析器转直链）
+        let officialDomains = ["iqiyi.com", "v.qq.com", "youku.com", "mgtv.com", "v.youku.com", "www.mgtv.com", "www.iqiyi.com"]
+        let isOfficialPlatform = officialDomains.contains { urlString.contains($0) }
+
+        // 检查是否是直链（官方平台URL永不视为直链）
         let isDirectLink: Bool = {
+            if isOfficialPlatform { return false }
             guard urlString.hasPrefix("http") else { return false }
-            // 提取URL路径中的文件后缀（去掉查询参数）
             let cleanPath: String
             if let url = URL(string: urlString) {
                 cleanPath = url.path
@@ -2063,10 +2067,9 @@ class PlayerState: ObservableObject {
             let ext = (cleanPath as NSString).pathExtension.lowercased()
             let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
             if videoExts.contains(ext) { return true }
-            // 部分源不帶后缀但路径包含 /hls/ 或 /video/
             return cleanPath.contains("/hls/") || cleanPath.contains("/video/")
         }()
-        
+
         if isDirectLink {
             log("[PlayerV2] 直链模式: 直接使用 URL=\(urlString.prefix(100))")
             if let url = createURL(from: urlString) {
@@ -2076,10 +2079,14 @@ class PlayerState: ObservableObject {
             }
             log("[PlayerV2] ❌ 直链URL创建失败, raw=\(urlString.prefix(120))")
         }
-        
+
         // 需要解析的链接：先试解析器，再试 playerContent
-        log("[PlayerV2] 解析模式: 非直链，尝试解析器")
-        
+        if isOfficialPlatform {
+            log("[PlayerV2] 解析模式: 检测到官方平台URL，强制走解析器")
+        } else {
+            log("[PlayerV2] 解析模式: 非直链，尝试解析器")
+        }
+
         // 1. 优先用解析器（subManager.parses + customParsers）
         let allParsers = await MainActor.run { SpiderManager.shared.subManager.parses + SpiderManager.shared.customParsers }
         if !allParsers.isEmpty {
@@ -2093,7 +2100,6 @@ class PlayerState: ObservableObject {
                     req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
                     let (data, _) = try await URLSession.shared.data(for: req)
                     if let resp = String(data: data, encoding: .utf8) {
-                        // 从响应中提取 m3u8/mp4 链接
                         let patterns = ["https?://[^\\s\"<>]+\\.m3u8[^\\s\"<>]*", "https?://[^\\s\"<>]+\\.mp4[^\\s\"<>]*"]
                         for pattern in patterns {
                             if let regex = try? NSRegularExpression(pattern: pattern),
@@ -2111,8 +2117,18 @@ class PlayerState: ObservableObject {
                 } catch { continue }
             }
         }
-        
-        // 2. 尝试 QuickJS playerContent
+
+        // 2. 调用 SpiderManager.parsePlayUrl 兜底（含16个公共解析器+WKWebView回退）
+        log("[PlayerV2] 内置解析器失败，尝试 SpiderManager.parsePlayUrl 兜底...")
+        if let parsedUrl = await spider.parsePlayUrl(from: urlString) {
+            log("[PlayerV2] ✅ SpiderManager 解析成功: \(parsedUrl.prefix(60))")
+            if let url = createURL(from: parsedUrl) {
+                await MainActor.run { initPlayer(url: url) }
+                return
+            }
+        }
+
+        // 3. 尝试 QuickJS playerContent
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
             let pu = pr.playUrl ?? pr.url
             if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
@@ -2121,13 +2137,12 @@ class PlayerState: ObservableObject {
                 return
             }
         }
-        
+
         // 尝试 nativeDetail 作为备选
         log("[PlayerV2] 备选: 尝试 nativeDetail...")
         let nd = await spider.nativeDetail(ids: video.vodId, name: video.vodName)
         if let nd = nd, let pu = nd.vodPlayUrl, !pu.isEmpty {
             log("[PlayerV2] nativeDetail 成功")
-            // 处理多集格式
             let urls = parsePlayUrls(playFrom: nd.vodPlayFrom ?? "", playUrl: pu)
             log("[PlayerV2] 解析出 \(urls.count) 个播放地址")
             for (index, videoUrl) in urls.enumerated() {
