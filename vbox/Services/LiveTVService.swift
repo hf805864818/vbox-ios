@@ -9,15 +9,31 @@ struct LiveChannel: Identifiable, Codable {
     let channelId: String
     let token: String
     let logo: String?
-    
+    /// 多线路播放地址列表（解析后填充）
+    var sources: [String]
+
     /// 构建播放页面URL
     var playURL: String {
         return "http://m.iptv807.com/?act=play&token=\(token)&tid=\(tid)&id=\(channelId)"
     }
-    
+
     /// 构建M3U8直链（通过解析播放页获取）
     var m3u8URL: String? {
         return LiveTVService.shared.m3u8Cache[id]
+    }
+
+    /// 线路数量
+    var routeCount: Int {
+        return max(1, sources.count)
+    }
+
+    /// 获取指定线路的播放地址
+    func routeURL(index: Int) -> String? {
+        if !sources.isEmpty {
+            let idx = min(index, sources.count - 1)
+            return sources[idx]
+        }
+        return m3u8URL
     }
 }
 
@@ -125,7 +141,8 @@ class LiveTVService: ObservableObject {
                 tid: tid,
                 channelId: channelId,
                 token: token,
-                logo: nil
+                logo: nil,
+                sources: []
             )
             channels.append(channel)
         }
@@ -137,14 +154,15 @@ class LiveTVService: ObservableObject {
     func resolveM3U8(channel: LiveChannel) async -> String? {
         // 先查缓存
         if let cached = m3u8Cache[channel.id] { return cached }
-        
+
         guard let url = URL(string: channel.playURL) else { return nil }
-        
+
         do {
             let (data, _) = try await session.data(from: url)
             guard let html = String(data: data, encoding: .utf8) else { return nil }
-            
-            // 尝试多种M3U8提取模式
+
+            // 提取所有匹配的URL作为多线路
+            var allSources: [String] = []
             let patterns = [
                 #"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#,
                 #"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#,
@@ -152,43 +170,97 @@ class LiveTVService: ObservableObject {
                 #"var\s+url\s*=\s*["']([^"']+)["']"#,
                 #"player\s*\(\s*["']([^"']+)["']"#
             ]
-            
+
             for pattern in patterns {
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-                   let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
-                   match.numberOfRanges >= 2,
-                   let range = Range(match.range(at: 1), in: html) {
-                    var m3u8 = String(html[range])
-                    // 处理相对路径
-                    if m3u8.hasPrefix("//") { m3u8 = "https:" + m3u8 }
-                    else if m3u8.hasPrefix("/") { m3u8 = baseURL + m3u8 }
-                    else if !m3u8.hasPrefix("http") { m3u8 = baseURL + "/" + m3u8 }
-                    
-                    // 验证URL
-                    if m3u8.contains(".m3u8") {
-                        m3u8Cache[channel.id] = m3u8
-                        return m3u8
+                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                    let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+                    for match in matches {
+                        guard match.numberOfRanges >= 2,
+                              let range = Range(match.range(at: 1), in: html) else { continue }
+                        var m3u8 = String(html[range])
+                        // 处理相对路径
+                        if m3u8.hasPrefix("//") { m3u8 = "https:" + m3u8 }
+                        else if m3u8.hasPrefix("/") { m3u8 = baseURL + m3u8 }
+                        else if !m3u8.hasPrefix("http") { m3u8 = baseURL + "/" + m3u8 }
+                        if m3u8.contains(".m3u8") && !allSources.contains(m3u8) {
+                            allSources.append(m3u8)
+                        }
                     }
                 }
             }
-            
-            // 如果都没找到，尝试返回iframe或embed中的URL
+
+            // 如果都没找到，尝试iframe
             let iframePattern = #"<iframe[^>]+src=["']([^"']+)["']"#
             if let regex = try? NSRegularExpression(pattern: iframePattern, options: []),
                let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
                match.numberOfRanges >= 2,
                let range = Range(match.range(at: 1), in: html) {
                 let iframeSrc = String(html[range])
-                if iframeSrc.contains(".m3u8") {
-                    m3u8Cache[channel.id] = iframeSrc
-                    return iframeSrc
+                if iframeSrc.contains(".m3u8") && !allSources.contains(iframeSrc) {
+                    allSources.append(iframeSrc)
                 }
             }
-            
+
+            // 缓存第一个线路
+            if let first = allSources.first {
+                m3u8Cache[channel.id] = first
+                return first
+            }
             return nil
         } catch {
             print("[LiveTV] 解析M3U8失败: \(error)")
             return nil
+        }
+    }
+
+    // MARK: - 解析频道所有可用线路
+    func resolveAllSources(channel: LiveChannel) async -> [String] {
+        // 先查缓存
+        if let cached = m3u8Cache[channel.id], !cached.isEmpty {
+            // 如果只有一个缓存，直接返回
+            return [cached]
+        }
+
+        guard let url = URL(string: channel.playURL) else { return [] }
+
+        do {
+            let (data, _) = try await session.data(from: url)
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+
+            var allSources: [String] = []
+            let patterns = [
+                #"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#,
+                #"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#,
+                #"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#,
+                #"var\s+url\s*=\s*["']([^"']+)["']"#,
+                #"player\s*\(\s*["']([^"']+)["']"#
+            ]
+
+            for pattern in patterns {
+                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                    let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+                    for match in matches {
+                        guard match.numberOfRanges >= 2,
+                              let range = Range(match.range(at: 1), in: html) else { continue }
+                        var m3u8 = String(html[range])
+                        if m3u8.hasPrefix("//") { m3u8 = "https:" + m3u8 }
+                        else if m3u8.hasPrefix("/") { m3u8 = baseURL + m3u8 }
+                        else if !m3u8.hasPrefix("http") { m3u8 = baseURL + "/" + m3u8 }
+                        if m3u8.contains(".m3u8") && !allSources.contains(m3u8) {
+                            allSources.append(m3u8)
+                        }
+                    }
+                }
+            }
+
+            // 缓存第一个
+            if let first = allSources.first {
+                m3u8Cache[channel.id] = first
+            }
+            return allSources
+        } catch {
+            print("[LiveTV] 解析线路失败: \(error)")
+            return []
         }
     }
     

@@ -2983,7 +2983,7 @@ struct PlayerControlsView: View {
         // 小巧弹窗 - 倍数
         .overlay(
             SmallPopupView(isPresented: $playerState.showSettings) {
-                PlayerSettingsPanelV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
+                PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
                     playerState.changePlaybackSpeed(speed)
                 })
             }
@@ -2991,7 +2991,7 @@ struct PlayerControlsView: View {
         // 小巧弹窗 - 选集
         .overlay(
             SmallPopupView(isPresented: $playerState.showEpisodePicker) {
-                EpisodePickerPanelV2(playerState: playerState)
+                EpisodePickerPanelV2(isPresented: $playerState.showEpisodePicker, playerState: playerState)
             }
         )
         // 侧边栏弹窗 - 清晰度
@@ -3502,8 +3502,8 @@ struct SmallPopupView<Content: View>: View {
                         }
 
                     content
-                        .frame(width: min(geometry.size.width * 0.55, 240))
-                        .background(Color(hex: "1E1E1E"))
+                        .frame(width: min(geometry.size.width * 0.7, 320))
+                        .background(Color(uiColor: .secondarySystemBackground))
                         .cornerRadius(10)
                         .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -3583,9 +3583,9 @@ struct SidePanelView<Content: View>: View {
 
 // MARK: - 播放设置面板 (侧边栏版本)
 struct PlayerSettingsPanelV2: View {
+    @Binding var isPresented: Bool
     @Binding var speed: Double
     var onSpeedChange: (Double) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
@@ -3595,18 +3595,18 @@ struct PlayerSettingsPanelV2: View {
             HStack {
                 Text("倍数")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color(uiColor: .label))
                 Spacer()
-                Button(action: { dismiss() }) {
+                Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(Color(uiColor: .secondaryLabel))
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
-            Divider().background(Color.white.opacity(0.1))
+            Divider().background(Color(uiColor: .separator))
 
             // 竖排列表
             ScrollView(showsIndicators: true) {
@@ -3615,13 +3615,13 @@ struct PlayerSettingsPanelV2: View {
                         Button(action: {
                             speed = s
                             onSpeedChange(s)
-                            dismiss()
+                            isPresented = false
                         }) {
                             HStack {
                                 let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
                                 Text(speedText + "x")
                                     .font(.system(size: 15, weight: speed == s ? .semibold : .regular))
-                                    .foregroundColor(speed == s ? Color(hex: "00BEFF") : .white)
+                                    .foregroundColor(speed == s ? Color(hex: "00BEFF") : Color(uiColor: .label))
                                 Spacer()
                                 if speed == s {
                                     Image(systemName: "checkmark")
@@ -3636,14 +3636,14 @@ struct PlayerSettingsPanelV2: View {
                         .buttonStyle(PlainButtonStyle())
 
                         Divider()
-                            .background(Color.white.opacity(0.08))
+                            .background(Color(uiColor: .separator))
                             .padding(.leading, 12)
                     }
                 }
             }
             .frame(maxHeight: 280)
         }
-        .background(Color(hex: "1E1E1E"))
+        .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(10)
     }
 }

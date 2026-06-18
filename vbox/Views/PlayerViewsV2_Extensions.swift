@@ -90,7 +90,7 @@ struct DanmakuOverlayViewV2: View {
 
 struct EpisodePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,18 +98,18 @@ struct EpisodePickerPanelV2: View {
             HStack {
                 Text("选集")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color(uiColor: .label))
                 Spacer()
-                Button(action: { dismiss() }) {
+                Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(Color(uiColor: .secondaryLabel))
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
-            Divider().background(Color.white.opacity(0.1))
+            Divider().background(Color(uiColor: .separator))
 
             if !playerState.baiduFileList.isEmpty {
                 // 竖排列表，可滚动
@@ -118,12 +118,12 @@ struct EpisodePickerPanelV2: View {
                         ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
                             Button(action: {
                                 playerState.switchBaiduFile(index: idx)
-                                dismiss()
+                                isPresented = false
                             }) {
                                 HStack {
                                     Text(episodeName(file.name, index: idx))
                                         .font(.system(size: 14, weight: idx == playerState.currentEpisodeIndex ? .semibold : .regular))
-                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF") : .white)
+                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF") : Color(uiColor: .label))
                                     Spacer()
                                     if idx == playerState.currentEpisodeIndex {
                                         Image(systemName: "checkmark")
@@ -138,7 +138,7 @@ struct EpisodePickerPanelV2: View {
                             .buttonStyle(PlainButtonStyle())
 
                             Divider()
-                                .background(Color.white.opacity(0.08))
+                                .background(Color(uiColor: .separator))
                                 .padding(.leading, 12)
                         }
                     }
@@ -146,11 +146,11 @@ struct EpisodePickerPanelV2: View {
                 .frame(maxHeight: 320)
             } else {
                 Text("暂无集数信息")
-                    .foregroundColor(.gray)
+                    .foregroundColor(Color(uiColor: .secondaryLabel))
                     .padding(.vertical, 40)
             }
         }
-        .background(Color(hex: "1E1E1E"))
+        .background(Color(uiColor: .secondarySystemBackground))
         .cornerRadius(10)
     }
 
