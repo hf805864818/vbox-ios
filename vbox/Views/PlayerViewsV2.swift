@@ -2446,9 +2446,7 @@ class PlayerState: ObservableObject {
                 await self.playQuarkEpisode(episode: episode)
             case .drive:
                 // 其他网盘
-                if let url = URL(string: episode.url) {
-                    await MainActor.run { self.playDriveVideo(url: url, headers: episode.headers) }
-                }
+                await MainActor.run { self.playDriveVideo(url: episode.url, headers: episode.headers) }
             }
         }
     }
@@ -2466,9 +2464,9 @@ class PlayerState: ObservableObject {
         do {
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: "\(shareURL)/\(file.fid)")
             await MainActor.run {
-                playResolvedDriveVideo(result)
                 currentEpisodeIndex = episode.id
             }
+            await playResolvedDriveVideo(result)
         } catch {
             log("[Quark] 切集失败: \(error.localizedDescription)")
             await MainActor.run {
