@@ -50,6 +50,14 @@ class OrientationHelper {
         // 方案3: 触发系统旋转
         UINavigationController.attemptRotationToDeviceOrientation()
     }
+    
+    /// 播放器进入时：允许横屏+竖屏，自动跟随手机方向
+    static func allowAllOrientations() {
+        currentOrientationMask = .allButUpsideDown
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .allButUpsideDown))
+        }
+    }
 }
 
 // MARK: - 画中画/小窗口辅助类
@@ -294,8 +302,11 @@ struct VideoPlayerViewV2: View {
             }
         }
         .onAppear {
-            // 强制横屏
+            // 进入播放器：先强制横屏，然后允许所有方向（自动跟随手机）
             OrientationHelper.rotateToLandscape()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                OrientationHelper.allowAllOrientations()
+            }
             playerState.setupPlayer(video: video)
         }
         .onDisappear {
@@ -2662,9 +2673,6 @@ struct PlayerTopBarView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: isPortrait ? 18 : 20, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: isPortrait ? 36 : 44, height: isPortrait ? 36 : 44)
-                    .background(isPortrait ? Color.clear : Color.black.opacity(0.3))
-                    .clipShape(Circle())
             }
 
             Spacer()
@@ -2837,19 +2845,53 @@ struct PortraitBottomBar: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            Button(action: { playerState.showSettings = true }) {
-                VStack(spacing: 0) {
-                    Text("倍")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("数")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundColor(.white)
-            }
-            .buttonStyle(PlainButtonStyle())
+            // 倍数按钮：弹窗从按钮上方弹出
+            SpeedAnchorButton(playerState: playerState)
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
+    }
+}
+
+// MARK: - 倍数锚点按钮（弹窗从按钮正上方弹出）
+struct SpeedAnchorButton: View {
+    @ObservedObject var playerState: PlayerState
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                playerState.showSettings.toggle()
+            }
+        }) {
+            VStack(spacing: 3) {
+                Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+                    .font(.system(size: 16))
+                Text("倍数")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(playerState.showSettings ? Color(hex: "2196F3") : .white)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .overlay(
+            Group {
+                if playerState.showSettings {
+                    // 从按钮上方弹出
+                    PlayerSettingsPanelV2(
+                        isPresented: $playerState.showSettings,
+                        speed: $playerState.playbackSpeed,
+                        onSpeedChange: { speed in
+                            playerState.changePlaybackSpeed(speed)
+                        }
+                    )
+                    .environmentObject(settings)
+                    .frame(width: 140)
+                    .offset(y: -8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            , alignment: .bottom
+        )
     }
 }
 
@@ -2984,18 +3026,30 @@ struct PlayerControlsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             updateOrientation()
         }
-        // 小巧弹窗 - 倍数
+        // 弹窗 - 倍数（竖屏由SpeedAnchorButton在按钮上方弹出，横屏用小弹窗）
         .overlay(
-            SmallPopupView(isPresented: $playerState.showSettings) {
-                PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
-                    playerState.changePlaybackSpeed(speed)
-                })
+            Group {
+                if !isPortrait {
+                    SmallPopupView(isPresented: $playerState.showSettings) {
+                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
+                            playerState.changePlaybackSpeed(speed)
+                        })
+                    }
+                }
             }
         )
-        // 小巧弹窗 - 选集
+        // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
         .overlay(
-            SmallPopupView(isPresented: $playerState.showEpisodePicker) {
-                EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+            Group {
+                if isPortrait {
+                    PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                    }
+                } else {
+                    SmallPopupView(isPresented: $playerState.showEpisodePicker) {
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                    }
+                }
             }
         )
         // 侧边栏弹窗 - 清晰度
@@ -3057,6 +3111,83 @@ struct PlayerControlsView: View {
         let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown
         if newIsPortrait != isPortrait {
             isPortrait = newIsPortrait
+        }
+    }
+}
+
+// MARK: - 竖屏弹窗容器（河马剧场风格：半透明背景+居中面板，自适应皮肤）
+struct PortraitPopupView<Content: View>: View {
+    @Binding var isPresented: Bool
+    let title: String
+    let content: Content
+    @EnvironmentObject private var settings: AppSettings
+
+    init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content) {
+        self._isPresented = isPresented
+        self.title = title
+        self.content = content()
+    }
+
+    /// 自适应皮肤的面板背景色
+    private var panelBackground: Color {
+        if settings.usesLiquidSkin {
+            return Color(hex: "1A1A2E").opacity(0.85)
+        } else if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.75)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if isPresented {
+                    // 半透明遮罩
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isPresented = false
+                            }
+                        }
+
+                    // 居中面板
+                    VStack(spacing: 0) {
+                        // 标题栏
+                        HStack {
+                            Text(title)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white)
+                            Spacer()
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isPresented = false
+                                }
+                            }) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.7))
+                                    .frame(width: 32, height: 32)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        content
+                    }
+                    .frame(width: min(geometry.size.width * 0.82, 320))
+                    .frame(maxHeight: geometry.size.height * 0.55)
+                    .background(panelBackground)
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isPresented)
         }
     }
 }
@@ -3593,70 +3724,82 @@ struct SidePanelView<Content: View>: View {
     }
 }
 
-// MARK: - 播放设置面板 (侧边栏版本)
+// MARK: - 播放设置面板 (竖屏：从按钮上方弹出的紧凑列表)
 struct PlayerSettingsPanelV2: View {
     @Binding var isPresented: Bool
     @Binding var speed: Double
     var onSpeedChange: (Double) -> Void
+    @EnvironmentObject private var settings: AppSettings
 
     let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
+    /// 自适应皮肤的面板背景色
+    private var panelBackground: Color {
+        if settings.usesLiquidSkin {
+            return Color(hex: "1A1A2E").opacity(0.88)
+        } else if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.8)
+    }
+
+    /// 自适应皮肤的文字颜色
+    private var textPrimary: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .label)
+        }
+        return .white.opacity(0.85)
+    }
+
+    private var textSecondary: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondaryLabel)
+        }
+        return .white.opacity(0.5)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // 标题栏
-            HStack {
-                Text("倍数")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color(uiColor: .label))
-                Spacer()
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(uiColor: .secondaryLabel))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            Divider().background(Color(uiColor: .separator))
-
-            // 竖排列表
-            ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 0) {
-                    ForEach(speeds, id: \.self) { s in
-                        Button(action: {
-                            speed = s
-                            onSpeedChange(s)
-                            isPresented = false
-                        }) {
-                            HStack {
-                                let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
-                                Text(speedText + "x")
-                                    .font(.system(size: 15, weight: speed == s ? .semibold : .regular))
-                                    .foregroundColor(speed == s ? Color(hex: "00BEFF") : Color(uiColor: .label))
-                                Spacer()
-                                if speed == s {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(Color(hex: "00BEFF"))
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
-                            .background(speed == s ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
+            ForEach(speeds, id: \.self) { s in
+                Button(action: {
+                    speed = s
+                    onSpeedChange(s)
+                    isPresented = false
+                }) {
+                    HStack {
+                        let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
+                        Text(speedText + "x")
+                            .font(.system(size: 14, weight: speed == s ? .semibold : .regular))
+                            .foregroundColor(speed == s ? Color(hex: "2196F3") : textPrimary)
+                        Spacer()
+                        if speed == s {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(Color(hex: "2196F3"))
                         }
-                        .buttonStyle(PlainButtonStyle())
-
-                        Divider()
-                            .background(Color(uiColor: .separator))
-                            .padding(.leading, 12)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(
+                        speed == s ? Color(hex: "2196F3").opacity(0.15) : Color.clear
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if s != speeds.last {
+                    Divider()
+                        .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                        .padding(.leading, 16)
                 }
             }
-            .frame(maxHeight: 280)
         }
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(panelBackground)
         .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
     }
 }
 
