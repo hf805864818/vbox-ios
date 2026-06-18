@@ -157,9 +157,12 @@ struct LiveChannel: Identifiable, Codable {
     /// 多线路播放地址列表（解析后填充）
     var sources: [String]
 
-    /// 构建播放页面URL
+    /// 播放地址：优先返回 sources[0]，否则返回空字符串
     var playURL: String {
-        return "http://m.iptv807.com/?act=play&token=\(token)&tid=\(tid)&id=\(channelId)"
+        if let first = sources.first, !first.isEmpty {
+            return first
+        }
+        return ""
     }
 
     /// 构建M3U8直链（通过解析播放页获取）
@@ -188,20 +191,21 @@ struct LiveCategory: Identifiable {
     let name: String
     let tid: String
     let icon: String
+    let logo: String?
+
+    /// 根据 index 循环分配颜色
+    static let palette: [Color] = [
+        .blue, .green, .red, .orange, .purple,
+        .pink, .cyan, .teal, .indigo, .yellow,
+        .mint, .brown
+    ]
 
     var tintColor: Color {
-        switch id {
-        case "itv": return Color.blue
-        case "ty": return Color.green
-        case "ys": return Color.red
-        case "ws": return Color.orange
-        case "gt": return Color.purple
-        case "movie": return Color.pink
-        case "migu": return Color.cyan
-        case "fjitv", "hlitv": return Color.teal
-        case "ipv6": return Color.indigo
-        default: return Color.gray
+        guard let idx = Int(id.components(separatedBy: "_").last ?? "0"),
+              idx >= 0 else {
+            return Color.gray
         }
+        return LiveCategory.palette[idx % LiveCategory.palette.count]
     }
 
     var backgroundColor: Color { tintColor }
@@ -228,6 +232,9 @@ class LiveTVService: ObservableObject {
     /// 订阅源频道列表（当前订阅源的频道）
     @Published var subscribeChannels: [SubscribeChannel] = []
 
+    /// 动态分类列表（从 group-title 生成）
+    @Published var dynamicCategories: [LiveCategory] = []
+
     /// 用户自定义源列表（从 UserDefaults 读取）
     @Published var customSources: [LiveSourceType] = []
 
@@ -246,21 +253,6 @@ class LiveTVService: ObservableObject {
 
     /// 配置文件中预定义的订阅源
     private var configSubscribeSources: [LiveSourceType] = []
-
-    /// 分类列表（仅默认源使用）
-    let categories: [LiveCategory] = [
-        LiveCategory(id: "itv", name: "综合", tid: "itv", icon: "tv"),
-        LiveCategory(id: "ty", name: "体育", tid: "ty", icon: "sportscourt"),
-        LiveCategory(id: "ys", name: "央视", tid: "ys", icon: "antenna.radiowaves.left.and.right"),
-        LiveCategory(id: "ws", name: "卫视", tid: "ws", icon: "tv.inset.filled"),
-        LiveCategory(id: "gt", name: "港澳台", tid: "gt", icon: "globe.asia.australia"),
-        LiveCategory(id: "other", name: "其他", tid: "other", icon: "ellipsis.circle"),
-        LiveCategory(id: "movie", name: "电影", tid: "movie", icon: "film"),
-        LiveCategory(id: "migu", name: "咪咕", tid: "migu", icon: "play.circle"),
-        LiveCategory(id: "fjitv", name: "福建IPTV", tid: "fjitv", icon: "network"),
-        LiveCategory(id: "hlitv", name: "黑龙江IPTV", tid: "hlitv", icon: "network"),
-        LiveCategory(id: "ipv6", name: "IPv6", tid: "ipv6", icon: "wifi")
-    ]
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -319,12 +311,14 @@ class LiveTVService: ObservableObject {
     func switchSource(to source: LiveSourceType) {
         currentSource = source
         subscribeChannels = [] // 清空缓存，强制重新加载
+        dynamicCategories = []
 
         if let url = source.sourceURL {
             // 如果是本地导入的源，从缓存加载
             if url.hasPrefix("local://") {
                 let localName = String(url.dropFirst(8))
                 subscribeChannels = localChannelsMap[localName] ?? []
+                buildDynamicCategories()
             } else {
                 Task {
                     await fetchSubscribeChannels(url: url)
@@ -410,68 +404,66 @@ class LiveTVService: ObservableObject {
         }
     }
 
-    // MARK: - 获取分类频道列表
-    func fetchChannels(tid: String) async -> [LiveChannel] {
-        // 所有源统一走订阅源解析逻辑
-        if let url = currentSource.sourceURL {
-            // 确保已加载订阅数据
-            if subscribeChannels.isEmpty {
-                await fetchSubscribeChannels(url: url)
+    // MARK: - 动态分类构建
+
+    /// 从 subscribeChannels 的 group-title 提取唯一分组，生成动态分类
+    func buildDynamicCategories() {
+        var groupMap: [String: (channels: [SubscribeChannel], firstLogo: String?)] = [:]
+        var insertionOrder: [String] = []
+
+        for ch in subscribeChannels {
+            let groupName = ch.group ?? "其他"
+            if groupMap[groupName] == nil {
+                insertionOrder.append(groupName)
+                groupMap[groupName] = (channels: [], firstLogo: nil)
             }
-            return await fetchSubscribeChannelsForTid(tid: tid)
+            groupMap[groupName]!.channels.append(ch)
+            // logo 取该分组中第一个有 logo 的频道
+            if groupMap[groupName]!.firstLogo == nil, let logo = ch.logo, !logo.isEmpty {
+                groupMap[groupName]!.firstLogo = logo
+            }
         }
-        return []
+
+        var categories: [LiveCategory] = []
+        for (index, groupName) in insertionOrder.enumerated() {
+            guard let info = groupMap[groupName] else { continue }
+            let cat = LiveCategory(
+                id: "cat_\(index)",
+                name: groupName,
+                tid: groupName,
+                icon: "tv",
+                logo: info.firstLogo
+            )
+            categories.append(cat)
+        }
+
+        dynamicCategories = categories
     }
 
-    // MARK: - 默认源频道获取（iptv807.com）
-    // MARK: - 订阅源频道获取（按分类过滤）
+    // MARK: - 获取分类频道列表
+    func fetchChannels(tid: String) async -> [LiveChannel] {
+        // 统一使用 dynamicCategories
+        if dynamicCategories.isEmpty {
+            if let url = currentSource.sourceURL {
+                if subscribeChannels.isEmpty {
+                    await fetchSubscribeChannels(url: url)
+                }
+            }
+        }
+        return await fetchChannelsForGroup(groupName: tid)
+    }
+
+    // MARK: - 按分组名精确匹配过滤频道
     private func fetchSubscribeChannelsForTid(tid: String) async -> [LiveChannel] {
         // 如果 subscribeChannels 为空，先尝试获取
         if subscribeChannels.isEmpty, let url = currentSource.sourceURL {
             await fetchSubscribeChannels(url: url)
         }
 
-        // 根据 tid 过滤频道
-        let filtered: [SubscribeChannel]
-        switch tid {
-        case "ys":
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains("央视") || group.contains("CCTV") || group.contains("中央")
-            }
-        case "ws":
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains("卫视") || group.contains("地方")
-            }
-        case "gt":
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains("港澳") || group.contains("台湾") || group.contains("港澳台")
-            }
-        case "ty":
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains("体育") || group.contains("Sport")
-            }
-        case "movie":
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains("电影") || group.contains("Movie")
-            }
-        case "itv":
-            // 综合：未分组或无法识别的分组
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return true }
-                let knownGroups = ["央视", "CCTV", "中央", "卫视", "地方", "港澳", "台湾", "港澳台", "体育", "Sport", "电影", "Movie"]
-                return !knownGroups.contains(where: { group.contains($0) })
-            }
-        default:
-            // 其他分类：尝试按分组名精确匹配
-            filtered = subscribeChannels.filter { ch in
-                guard let group = ch.group else { return false }
-                return group.contains(tid) || tid.contains(group)
-            }
+        // 按 group-title 精确匹配过滤频道
+        let filtered = subscribeChannels.filter { ch in
+            guard let group = ch.group else { return tid == "其他" }
+            return group == tid
         }
 
         return filtered.map { ch in
@@ -485,6 +477,53 @@ class LiveTVService: ObservableObject {
                 sources: [ch.url]
             )
         }
+    }
+
+    // MARK: - 按分组名过滤频道，同名频道自动合并多线路
+    func fetchChannelsForGroup(groupName: String) async -> [LiveChannel] {
+        // 如果 subscribeChannels 为空，先尝试获取
+        if subscribeChannels.isEmpty, let url = currentSource.sourceURL {
+            await fetchSubscribeChannels(url: url)
+        }
+
+        // 按 group-title 精确匹配过滤频道
+        let filtered = subscribeChannels.filter { ch in
+            guard let group = ch.group else { return groupName == "其他" }
+            return group == groupName
+        }
+
+        // 按 channel name 分组，同名频道合并多线路
+        var mergedMap: [String: (sources: [String], logo: String?, firstURL: String)] = [:]
+        var insertionOrder: [String] = []
+
+        for ch in filtered {
+            if mergedMap[ch.name] == nil {
+                insertionOrder.append(ch.name)
+                mergedMap[ch.name] = (sources: [], logo: nil, firstURL: ch.url)
+            }
+            mergedMap[ch.name]!.sources.append(ch.url)
+            // logo 取第一个有 logo 的
+            if mergedMap[ch.name]!.logo == nil, let logo = ch.logo, !logo.isEmpty {
+                mergedMap[ch.name]!.logo = logo
+            }
+        }
+
+        var channels: [LiveChannel] = []
+        for name in insertionOrder {
+            guard let info = mergedMap[name] else { continue }
+            let channel = LiveChannel(
+                id: "sub_\(name)_\(info.firstURL)",
+                name: name,
+                tid: groupName,
+                channelId: info.firstURL,
+                token: "",
+                logo: info.logo,
+                sources: info.sources
+            )
+            channels.append(channel)
+        }
+
+        return channels
     }
 
     // MARK: - 解析频道所有可用线路
@@ -665,6 +704,7 @@ class LiveTVService: ObservableObject {
 
             await MainActor.run {
                 self.subscribeChannels = parsed
+                self.buildDynamicCategories()
             }
             print("[LiveTV] 订阅源解析成功: \(parsed.count) 个频道")
         } catch {
