@@ -116,6 +116,15 @@ class QJSSpiderEngine {
         }
         return try JSONDecoder().decode(PlayerContentResult.self, from: data)
     }
+
+    /// 分类内容
+    func callCategoryContent(tid: String, pg: Int = 1, extend: String = "{}") throws -> CategoryContentResult {
+        let json = try callSpiderAPI("categoryContent", args: [tid, "\(pg)", extend])
+        guard let data = json.data(using: .utf8) else {
+            throw QJSError(message: "categoryContent 返回数据解析失败")
+        }
+        return try JSONDecoder().decode(CategoryContentResult.self, from: data)
+    }
 }
 
 struct QJSError: Error, LocalizedError {

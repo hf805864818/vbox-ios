@@ -25,6 +25,9 @@ protocol SpiderEngineProtocol: AnyObject {
     /// 调用搜索
     func callSearchContent(keyword: String, pg: Int) throws -> SearchContentResult
 
+    /// 调用分类
+    func callCategoryContent(tid: String, pg: Int, extend: String) throws -> CategoryContentResult
+
     /// 调用详情
     func callDetailContent(ids: String) throws -> DetailContentResult
 
@@ -98,5 +101,20 @@ extension QJSSpiderEngine: SpiderEngineProtocol {
             onLog?("❌ QuickJS 蜘蛛注册失败: __JS_SPIDER__ 类型=\(result ?? "nil")")
         }
         return founded
+    }
+
+    func callCategoryContent(tid: String, pg: Int, extend: String = "{}") throws -> CategoryContentResult {
+        let script = "JSON.stringify(globalThis.__JS_SPIDER__.categoryContent('\(tid)',\(pg),'\(extend)'))"
+        return try decodeResult(script)
+    }
+
+    private func decodeResult<T: Codable>(_ script: String) throws -> T {
+        guard let result = evaluateJS(script) else {
+            throw QJSError(message: "JS 返回 nil")
+        }
+        guard let data = result.data(using: .utf8) else {
+            throw QJSError(message: "结果编码无效")
+        }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 }

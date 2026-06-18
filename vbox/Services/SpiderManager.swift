@@ -899,6 +899,65 @@ globalThis.__JS_SPIDER__ = _spider;
         return allResults.isEmpty ? nativeResults : allResults
     }
 
+    /// 通过订阅源获取分类内容（调用 TVBox 标准的 ac=list 接口）
+    func fetchCategoryContent(categoryTypeId: String, page: Int = 1) async -> [VodItem] {
+        // 先尝试 QuickJS 引擎的 categoryContent
+        var results: [VodItem] = []
+        
+        // 1. 尝试 JS 引擎
+        for (key, engine) in engines {
+            do {
+                let result = try engine.callCategoryContent(tid: categoryTypeId, pg: page, extend: "{}")
+                if let list = result.list, !list.isEmpty {
+                    for var item in list {
+                        if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
+                            item.vodRemarks = key
+                        }
+                        results.append(item)
+                    }
+                    print("[SpiderManager] 分类[\(categoryTypeId)]引擎[\(key)]: \(list.count)条")
+                }
+            } catch {
+                print("[SpiderManager] 引擎分类失败[\(key)]: \(error)")
+            }
+        }
+        
+        // 2. 原生 HTTP 兜底 - 调用 TVBox API 站点
+        let apiSites = allSites.filter { ($0.api?.hasPrefix("http") ?? false) }
+        for site in apiSites {
+            guard let api = site.api else { continue }
+            let urlStr = api.hasSuffix("/") ? "\(api)at/json?ac=list&t=\(categoryTypeId)&pg=\(page)" : "\(api)/at/json?ac=list&t=\(categoryTypeId)&pg=\(page)"
+            guard let url = URL(string: urlStr) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let list = json["list"] as? [[String: Any]] {
+                    let items = list.compactMap { dict -> VodItem? in
+                        guard let vodName = dict["vod_name"] as? String ?? dict["name"] as? String else { return nil }
+                        let vodId = dict["vod_id"] as? String ?? dict["id"] as? String ?? UUID().uuidString
+                        return VodItem(
+                            vodId: vodId,
+                            vodName: vodName,
+                            vodPic: dict["vod_pic"] as? String ?? dict["pic"] as? String ?? "",
+                            vodRemarks: dict["vod_remarks"] as? String ?? dict["remarks"] as? String ?? site.name,
+                            vodYear: dict["vod_year"] as? String ?? dict["year"] as? String,
+                            vodArea: dict["vod_area"] as? String,
+                            vodDirector: dict["vod_director"] as? String,
+                            vodActor: dict["vod_actor"] as? String,
+                            vodContent: dict["vod_content"] as? String
+                        )
+                    }
+                    results.append(contentsOf: items)
+                    print("[SpiderManager] 原生分类[\(site.name)]: \(items.count)条")
+                }
+            } catch {
+                print("[SpiderManager] 原生分类请求失败[\(site.name)]: \(error)")
+            }
+        }
+        
+        return results
+    }
+
     /// 流式搜索 — 每个站点搜完立刻回调，不等全部完成
     func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void, onLog: ((String) -> Void)? = nil) async {
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
