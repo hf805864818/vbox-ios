@@ -239,19 +239,9 @@ struct LiveTVView: View {
         return service.currentSource.isDefault
     }
 
-    private var isCCTVSource: Bool {
-        if case .cctvLive = service.currentSource { return true }
-        return false
-    }
-
     private var currentCategories: [LiveCategory] {
-        if isCCTVSource {
-            // 央视源：只有央视和国际两个分类
-            return [
-                LiveCategory(id: "ys", name: "央视", tid: "ys", icon: "antenna.radiowaves.left.and.right"),
-                LiveCategory(id: "gt", name: "国际", tid: "gt", icon: "globe.asia.australia"),
-            ]
-        } else if isDefaultSource {
+        if isDefaultSource {
+            // 默认源现在也是远程M3U订阅，使用内置固定分类
             return service.categories
         } else {
             // 订阅源/自定义源：使用分组作为分类
@@ -311,10 +301,7 @@ struct LiveTVView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [UTType(filenameExtension: "m3u") ?? .data,
-                                       UTType(filenameExtension: "m3u8") ?? .data,
-                                       .plainText,
-                                       .data],
+                allowedContentTypes: [.item],
                 allowsMultipleSelection: false
             ) { result in
                 handleFileImport(result: result)
