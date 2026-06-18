@@ -2723,6 +2723,18 @@ struct PlayerTopBarView: View {
     }
 }
 
+// MARK: - 时间格式化（全局）
+private func formatTime(_ time: Double) -> String {
+    let hours = Int(time) / 3600
+    let minutes = (Int(time) % 3600) / 60
+    let seconds = Int(time) % 60
+    if hours > 0 {
+        return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
 // MARK: - 播放器进度条
 struct PlayerProgressBar: View {
     let isPortrait: Bool
@@ -2951,7 +2963,7 @@ struct PlayerControlsView: View {
                 }
             }
             .background(
-                isPortrait ? Color.clear : LinearGradient(
+                isPortrait ? AnyView(Color.clear) : AnyView(LinearGradient(
                     gradient: Gradient(colors: [
                         Color.black.opacity(0),
                         Color.black.opacity(0.6),
@@ -2959,7 +2971,7 @@ struct PlayerControlsView: View {
                     ]),
                     startPoint: .top,
                     endPoint: .bottom
-                )
+                ))
             )
         }
         .onAppear {
@@ -3014,43 +3026,25 @@ struct PlayerControlsView: View {
             }
         )
     }
-    
+
     private func togglePiP() {
         if playerState.isPiPActive {
-            // 关闭画中画/小窗口
             if playerState.compatibilityURL != nil {
-                // VLC/MPV: 关闭浮动窗口
                 PiPHelper.shared.hideFloatingWindow()
             } else {
-                // AVPlayer: 停止原生画中画
                 PiPHelper.shared.stopPiP()
             }
             playerState.isPiPActive = false
         } else {
-            // 开启画中画/小窗口
             if playerState.compatibilityURL != nil {
-                // VLC/MPV: 使用浮动小窗口
                 if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                    let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                     PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
                 }
             } else if let avPlayer = player {
-                // AVPlayer: 使用系统原生画中画
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
             playerState.isPiPActive = true
-        }
-    }
-    
-    private func formatTime(_ time: Double) -> String {
-        let hours = Int(time) / 3600
-        let minutes = (Int(time) % 3600) / 60
-        let seconds = Int(time) % 60
-        
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            return String(format: "%02d:%02d", minutes, seconds)
         }
     }
 }
