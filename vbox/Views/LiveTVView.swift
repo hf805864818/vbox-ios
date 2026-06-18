@@ -211,7 +211,7 @@ struct LiveTVView: View {
     @StateObject private var service = LiveTVService.shared
     @State private var channelsCache: [String: [LiveChannel]] = [:]
     @State private var isLoading = false
-    @State private var currentCategory: String = "itv"
+    @State private var currentCategory: String = ""
     @State private var selectedChannel: LiveChannel?
     @State private var showPlayer = false
     @State private var showEPGSheet = false
@@ -228,36 +228,15 @@ struct LiveTVView: View {
     @State private var hideTimer: Timer?
     @State private var lastInteractionTime = Date()
 
-    // 订阅源分组缓存
-    @State private var subscribeGroups: [String] = []
-    @State private var currentSubscribeGroup: String = ""
+    // 当前大分类下的小分类（子分组）
+    @State private var subCategories: [String] = []
+    @State private var currentSubCategory: String = ""
 
     // 本地文件导入
     @State private var showFileImporter = false
 
-    private var isDefaultSource: Bool {
-        switch service.currentSource {
-        case .defaultIPTV, .defaultIPTV2:
-            return true
-        case .subscribe, .custom:
-            return false
-        }
-    }
-
     private var currentCategories: [LiveCategory] {
-        if isDefaultSource {
-            return service.categories
-        } else {
-            // 订阅源/自定义源：使用分组作为分类
-            return subscribeGroups.map { group in
-                LiveCategory(
-                    id: group,
-                    name: group,
-                    tid: group,
-                    icon: "tv"
-                )
-            }
-        }
+        return service.dynamicCategories
     }
 
     var body: some View {
@@ -269,6 +248,11 @@ struct LiveTVView: View {
                 VStack(spacing: 0) {
                     // 分类标签栏
                     categoryTabs
+
+                    // 小分类标签栏（如果有子分组）
+                    if !subCategories.isEmpty {
+                        subCategoryTabs
+                    }
 
                     // 频道列表
                     channelList
@@ -347,6 +331,9 @@ struct LiveTVView: View {
                 Text(errorMessage ?? "未知错误")
             }
             .onAppear {
+                if currentCategory.isEmpty, let first = currentCategories.first {
+                    currentCategory = first.id
+                }
                 loadChannelsIfNeeded(for: currentCategory)
                 startHideTimer()
             }
@@ -355,11 +342,20 @@ struct LiveTVView: View {
                 hideTimer = nil
             }
             .onChange(of: service.currentSource) { _ in
-                updateSubscribeGroups()
                 channelsCache.removeAll()
+                subCategories = []
+                currentSubCategory = ""
                 if let first = currentCategories.first {
                     currentCategory = first.id
                     loadChannelsIfNeeded(for: first.id)
+                }
+            }
+            .onChange(of: service.dynamicCategories) { _ in
+                if !currentCategories.contains(where: { $0.id == currentCategory }) {
+                    if let first = currentCategories.first {
+                        currentCategory = first.id
+                        loadChannelsIfNeeded(for: first.id)
+                    }
                 }
             }
         }
@@ -435,7 +431,8 @@ struct LiveTVView: View {
                     let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
                     service.switchSource(to: customSource)
                     channelsCache.removeAll()
-                    updateSubscribeGroups()
+                    subCategories = []
+                    currentSubCategory = ""
                     if let first = currentCategories.first {
                         currentCategory = first.id
                         loadChannelsIfNeeded(for: first.id, forceReload: true)
@@ -452,19 +449,6 @@ struct LiveTVView: View {
         }
     }
 
-    // MARK: - 更新订阅源分组
-    private func updateSubscribeGroups() {
-        guard !isDefaultSource else {
-            subscribeGroups = []
-            return
-        }
-        let groups = Set(service.subscribeChannels.compactMap { $0.group })
-        subscribeGroups = Array(groups).sorted()
-        if !subscribeGroups.isEmpty && !subscribeGroups.contains(currentSubscribeGroup) {
-            currentSubscribeGroup = subscribeGroups[0]
-        }
-    }
-
     // MARK: - 分类标签栏
     private var categoryTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -476,6 +460,7 @@ struct LiveTVView: View {
                     ) {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             currentCategory = category.id
+                            currentSubCategory = ""
                         }
                         loadChannelsIfNeeded(for: category.id)
                     }
@@ -487,31 +472,92 @@ struct LiveTVView: View {
         .background(Color(.systemBackground))
     }
 
-    // MARK: - 频道列表
+    // MARK: - 小分类标签栏
+    private var subCategoryTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                // "全部"选项
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        currentSubCategory = ""
+                    }
+                }) {
+                    Text("全部")
+                        .font(.system(size: 13, weight: currentSubCategory.isEmpty ? .semibold : .regular))
+                        .foregroundColor(currentSubCategory.isEmpty ? .white : .primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(currentSubCategory.isEmpty ? Color.accentColor : Color(.systemGray5))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                ForEach(subCategories, id: \.self) { sub in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            currentSubCategory = sub
+                        }
+                    }) {
+                        Text(sub)
+                            .font(.system(size: 13, weight: currentSubCategory == sub ? .semibold : .regular))
+                            .foregroundColor(currentSubCategory == sub ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(currentSubCategory == sub ? Color.accentColor : Color(.systemGray5))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color(.systemBackground))
+    }
+
+    // MARK: - 频道列表（2列网格）
     private var channelList: some View {
         Group {
             if isLoading {
                 LoadingView()
             } else if let channels = channelsCache[currentCategory], !channels.isEmpty {
+                let filteredChannels = filteredChannelsBySubCategory(channels)
                 ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(channels) { channel in
-                            ChannelCard(channel: channel, service: service)
-                                .onTapGesture {
-                                    selectedChannel = channel
-                                }
-                                .contextMenu {
-                                    Button {
-                                        selectedChannelForEPG = channel
-                                        showEPGSheet = true
-                                    } label: {
-                                        Label("节目单", systemImage: "list.bullet.rectangle")
-                                    }
-                                }
+                    if filteredChannels.isEmpty {
+                        VStack(spacing: 20) {
+                            Image(systemName: "tv.slash")
+                                .font(.system(size: 40))
+                                .foregroundColor(.secondary)
+                            Text("该分组下暂无频道")
+                                .font(.system(size: 15))
+                                .foregroundColor(.secondary)
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 100)
+                    } else {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            ForEach(filteredChannels) { channel in
+                                ChannelGridItem(channel: channel, service: service)
+                                    .onTapGesture {
+                                        selectedChannel = channel
+                                    }
+                                    .contextMenu {
+                                        Button {
+                                            selectedChannelForEPG = channel
+                                            showEPGSheet = true
+                                        } label: {
+                                            Label("节目单", systemImage: "list.bullet.rectangle")
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
                 }
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 10)
@@ -533,22 +579,51 @@ struct LiveTVView: View {
         }
     }
 
+    // MARK: - 按小分类过滤频道
+    private func filteredChannelsBySubCategory(_ channels: [LiveChannel]) -> [LiveChannel] {
+        guard !currentSubCategory.isEmpty else { return channels }
+        // 从频道的 sources 或名称中匹配子分组
+        // 由于 LiveChannel 没有直接的 group 字段，我们从 service.subscribeChannels 中查找匹配
+        // 这里用频道名称的模糊匹配：如果频道名包含子分类名，则归入该子分类
+        return channels.filter { channel in
+            channel.name.contains(currentSubCategory)
+        }
+    }
+
+    // MARK: - 提取当前分类下的子分组
+    private func extractSubCategories(from channels: [LiveChannel]) {
+        // 从 subscribeChannels 中查找属于当前分类的频道，提取它们的 group 作为子分组
+        let categoryGroups = service.subscribeChannels.compactMap { ch -> String? in
+            guard let group = ch.group, !group.isEmpty else { return nil }
+            // 判断该频道是否属于当前大分类
+            // 通过频道名匹配
+            return group
+        }
+
+        // 去重并排序
+        let uniqueGroups = Array(Set(categoryGroups)).sorted()
+        // 只保留出现次数 >= 2 的分组（避免孤立的分组）
+        let groupCounts = Dictionary(grouping: categoryGroups, by: { $0 })
+        subCategories = uniqueGroups.filter { (groupCounts[$0]?.count ?? 0) >= 2 }
+
+        if !subCategories.isEmpty && !subCategories.contains(currentSubCategory) {
+            currentSubCategory = ""
+        }
+    }
+
     // MARK: - 加载频道
     private func loadChannelsIfNeeded(for categoryId: String, forceReload: Bool = false) {
+        guard !categoryId.isEmpty else { return }
         guard channelsCache[categoryId] == nil || forceReload else { return }
         isLoading = true
 
         Task {
-            if !isDefaultSource && subscribeGroups.isEmpty {
-                await MainActor.run {
-                    updateSubscribeGroups()
-                }
-            }
-
             let channels = await service.fetchChannels(tid: categoryId)
             await MainActor.run {
                 channelsCache[categoryId] = channels
                 isLoading = false
+                // 提取子分组
+                extractSubCategories(from: channels)
                 if channels.isEmpty && !forceReload {
                     errorMessage = "该分类暂无频道"
                     showError = true
@@ -567,8 +642,20 @@ struct CategoryTabButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: category.icon)
-                    .font(.system(size: 14, weight: .medium))
+                if let logo = category.logo, let url = URL(string: logo) {
+                    AsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 16, height: 16)
+                    } placeholder: {
+                        Image(systemName: category.icon)
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                } else {
+                    Image(systemName: category.icon)
+                        .font(.system(size: 14, weight: .medium))
+                }
                 Text(category.name)
                     .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
             }
@@ -584,67 +671,69 @@ struct CategoryTabButton: View {
     }
 }
 
-// MARK: - 频道卡片
-struct ChannelCard: View {
+// MARK: - 频道网格卡片
+struct ChannelGridItem: View {
     let channel: LiveChannel
     @ObservedObject var service: LiveTVService
     @State private var isResolving = false
     @State private var routeCount = 1
 
     var body: some View {
-        HStack(spacing: 16) {
+        VStack(spacing: 0) {
+            // 封面图（16:9 比例）
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.orange.opacity(0.1))
-                    .frame(width: 56, height: 56)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemGray6))
+                    .aspectRatio(16/9, contentMode: .fit)
 
                 if let logo = channel.logo, let url = URL(string: logo) {
                     AsyncImage(url: url) { image in
                         image
                             .resizable()
-                            .scaledToFit()
+                            .scaledToFill()
                     } placeholder: {
                         Image(systemName: "tv.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.orange)
+                            .font(.system(size: 28))
+                            .foregroundColor(.orange.opacity(0.6))
                     }
-                    .frame(width: 40, height: 40)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     Image(systemName: "tv.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.orange)
+                        .font(.system(size: 28))
+                        .foregroundColor(.orange.opacity(0.6))
                 }
             }
+            .clipped()
 
+            // 频道名称 + 线路数
             VStack(alignment: .leading, spacing: 4) {
                 Text(channel.name)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                HStack(spacing: 8) {
-                    Label("线路 \(routeCount)", systemImage: "arrow.triangle.branch")
-                        .font(.system(size: 12))
+                HStack(spacing: 4) {
+                    Text("\(routeCount)条线路")
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
 
                     if isResolving {
                         ProgressView()
-                            .scaleEffect(0.6)
+                            .scaleEffect(0.5)
                     }
                 }
             }
-
-            Spacer()
-
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 32))
-                .foregroundColor(.orange)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
         }
-        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 2)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .onAppear {
             Task {
                 isResolving = true
@@ -710,7 +799,22 @@ struct EmptyStateView: View {
     }
 }
 
-// MARK: - 直播频道详情Sheet（小窗口预览 + 线路列表）
+// MARK: - 系统播放器（AVPlayerViewController 封装）
+struct SystemPlayerViewController: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.entersFullScreenWhenPlaybackEnds = false
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
+}
+
+// MARK: - 直播频道详情Sheet（小窗口预览 + 线路切换 + 全屏）
 struct LivePlayerSheet: View {
     let channel: LiveChannel
     @ObservedObject var service: LiveTVService
@@ -721,13 +825,16 @@ struct LivePlayerSheet: View {
     @State private var availableRoutes: [String] = []
     @State private var currentRouteIndex = 0
 
-    // 跳转到主播放器
-    @State private var fullScreenVideo: VodItem?
+    // 全屏播放
+    @State private var showSystemPlayer = false
+
+    // 线路选择菜单
+    @State private var showRouteMenu = false
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 上半部分：小视频预览窗口
+                // 上半部分：小视频预览窗口（带叠加层）
                 ZStack {
                     Color.black
                         .aspectRatio(16/9, contentMode: .fit)
@@ -761,11 +868,69 @@ struct LivePlayerSheet: View {
                             .foregroundColor(.orange)
                         }
                     }
+
+                    // 叠加层：左上角线路切换 + 右上角全屏按钮
+                    if player != nil {
+                        VStack {
+                            HStack {
+                                // 左上角：线路切换按钮
+                                if availableRoutes.count > 1 {
+                                    Menu {
+                                        ForEach(0..<availableRoutes.count, id: \.self) { index in
+                                            Button(action: {
+                                                switchRoute(to: index)
+                                            }) {
+                                                HStack {
+                                                    Text("线路 \(index + 1)")
+                                                    if index == currentRouteIndex {
+                                                        Image(systemName: "checkmark")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.triangle.branch")
+                                                .font(.system(size: 12))
+                                            Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
+                                                .font(.system(size: 12, weight: .medium))
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.black.opacity(0.5))
+                                        )
+                                    }
+                                }
+
+                                Spacer()
+
+                                // 右上角：全屏按钮
+                                Button(action: {
+                                    showSystemPlayer = true
+                                }) {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(
+                                            Circle()
+                                                .fill(Color.black.opacity(0.5))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            Spacer()
+                        }
+                        .padding(8)
+                    }
                 }
 
                 // 下半部分：频道信息和线路列表
                 VStack(spacing: 16) {
-                    // 频道名称 + 全屏按钮
+                    // 频道名称
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(channel.name)
@@ -779,16 +944,6 @@ struct LivePlayerSheet: View {
                             }
                         }
                         Spacer()
-
-                        // 全屏按钮
-                        if player != nil {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 18))
-                                .foregroundColor(.accentColor)
-                                .onTapGesture {
-                                    openFullScreenPlayer()
-                                }
-                        }
 
                         if availableRoutes.count > 1 {
                             Text("共 \(availableRoutes.count) 条线路")
@@ -820,8 +975,7 @@ struct LivePlayerSheet: View {
                             LazyVStack(spacing: 8) {
                                 ForEach(0..<availableRoutes.count, id: \.self) { index in
                                     Button(action: {
-                                        currentRouteIndex = index
-                                        openFullScreenPlayer(routeIndex: index)
+                                        switchRoute(to: index)
                                     }) {
                                         HStack(spacing: 12) {
                                             ZStack {
@@ -884,8 +1038,11 @@ struct LivePlayerSheet: View {
                     }
                 }
             }
-            .fullScreenCover(item: $fullScreenVideo) { video in
-                VideoPlayerViewV2(video: video)
+            .fullScreenCover(isPresented: $showSystemPlayer) {
+                if let player = player {
+                    SystemPlayerViewController(player: player)
+                        .ignoresSafeArea()
+                }
             }
             .onAppear {
                 loadPlayer()
@@ -897,20 +1054,17 @@ struct LivePlayerSheet: View {
         }
     }
 
-    private func openFullScreenPlayer(routeIndex: Int? = nil) {
-        let idx = routeIndex ?? currentRouteIndex
-        guard idx < availableRoutes.count else { return }
+    // MARK: - 切换线路
+    private func switchRoute(to index: Int) {
+        guard index != currentRouteIndex && index < availableRoutes.count else { return }
+        currentRouteIndex = index
 
-        let urlString = availableRoutes[idx]
-        let playUrl = "线路\(idx + 1)$\(urlString)"
-        fullScreenVideo = VodItem(
-            vodId: channel.id,
-            vodName: channel.name,
-            vodPic: channel.logo ?? "",
-            vodRemarks: "直播",
-            vodPlayFrom: "直播源",
-            vodPlayUrl: playUrl
-        )
+        let urlString = availableRoutes[index]
+        guard let url = URL(string: urlString) else { return }
+
+        let avPlayer = AVPlayer(url: url)
+        self.player = avPlayer
+        avPlayer.play()
     }
 
     private func truncateURL(_ url: String) -> String {
