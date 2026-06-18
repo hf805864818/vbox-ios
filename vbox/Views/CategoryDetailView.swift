@@ -1,66 +1,111 @@
 import SwiftUI
 
-// MARK: - Category Detail View
+// MARK: - Category Detail View (新版：带筛选器)
 struct CategoryDetailView: View {
     let categoryType: String
     let categoryName: String
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var doubanService = DoubanService.shared
     @State private var subjects: [DoubanSubject] = []
+    @State private var filteredSubjects: [DoubanSubject] = []
     @State private var isLoading = true
     @State private var errorMessage: String? = nil
     @State private var currentPage = 0
     @State private var hasMoreData = true
     private let pageSize = 20
-    
+
+    // 筛选状态
+    @State private var selectedGenre: String = "全部"
+    @State private var selectedYear: String = "全部"
+    @State private var selectedSort: String = "热度"
+
+    // 筛选选项
+    private let genres = ["全部", "喜剧", "爱情", "动作", "悬疑", "科幻", "动画", "剧情", "恐怖", "犯罪", "冒险", "奇幻", "战争", "历史", "传记", "音乐", "家庭", "武侠", "古装", "真人秀", "脱口秀"]
+    private let years = ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "2000年代", "更早"]
+    private let sorts = ["热度", "评分", "年份"]
+
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 16) {
-                if isLoading && subjects.isEmpty {
-                    CategoryLoadingView()
-                } else if let error = errorMessage {
-                    CategoryErrorView(message: error, retryAction: loadData)
-                } else if subjects.isEmpty {
-                    CategoryEmptyView(categoryName: categoryName)
-                } else {
-                    SubjectGridView(
-                        subjects: subjects,
-                        settings: settings,
-                        onLoadMore: loadMoreData
-                    )
-                    
-                    if isLoading && !subjects.isEmpty {
-                        ProgressView()
-                            .padding()
-                    }
-                }
+        VStack(spacing: 0) {
+            // 顶部标题栏
+            HStack {
+                Text("找\(categoryName)")
+                    .font(.system(size: 20, weight: .bold))
+                Spacer()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            // 筛选器区域
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    // 类型筛选
+                    FilterChip(title: "类型", options: genres, selection: $selectedGenre)
+
+                    // 年代筛选
+                    FilterChip(title: "年代", options: years, selection: $selectedYear)
+
+                    // 排序
+                    FilterChip(title: "排序", options: sorts, selection: $selectedSort)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+
+            Divider()
+                .padding(.horizontal, 16)
+
+            // 内容区域
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 16) {
+                    if isLoading && filteredSubjects.isEmpty {
+                        CategoryLoadingView()
+                    } else if let error = errorMessage {
+                        CategoryErrorView(message: error, retryAction: loadData)
+                    } else if filteredSubjects.isEmpty {
+                        CategoryEmptyView(categoryName: categoryName)
+                    } else {
+                        SubjectGridView(
+                            subjects: filteredSubjects,
+                            settings: settings,
+                            onLoadMore: loadMoreData
+                        )
+
+                        if isLoading && !filteredSubjects.isEmpty {
+                            ProgressView()
+                                .padding()
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
-        .refreshable { loadData() }
-        .navigationTitle(categoryName)
-        .navigationBarTitleDisplayMode(.large)
         .onAppear {
             if subjects.isEmpty {
                 loadData()
             }
         }
+        .onChange(of: selectedGenre) { _ in applyFilters() }
+        .onChange(of: selectedYear) { _ in applyFilters() }
+        .onChange(of: selectedSort) { _ in applyFilters() }
     }
-    
+
     private func loadData() {
         isLoading = true
         errorMessage = nil
         currentPage = 0
         hasMoreData = true
         subjects = []
-        
+        filteredSubjects = []
+
         Task {
             do {
                 let newSubjects = try await fetchDataForCategory(start: 0, count: pageSize)
                 await MainActor.run {
                     subjects = newSubjects
+                    applyFilters()
                     hasMoreData = newSubjects.count == pageSize
                     isLoading = false
                 }
@@ -72,19 +117,20 @@ struct CategoryDetailView: View {
             }
         }
     }
-    
+
     private func loadMoreData() {
         guard !isLoading && hasMoreData else { return }
-        
+
         isLoading = true
         currentPage += 1
         let start = currentPage * pageSize
-        
+
         Task {
             do {
                 let newSubjects = try await fetchDataForCategory(start: start, count: pageSize)
                 await MainActor.run {
                     subjects.append(contentsOf: newSubjects)
+                    applyFilters()
                     hasMoreData = newSubjects.count == pageSize
                     isLoading = false
                 }
@@ -95,7 +141,46 @@ struct CategoryDetailView: View {
             }
         }
     }
-    
+
+    private func applyFilters() {
+        var result = subjects
+
+        // 类型筛选
+        if selectedGenre != "全部" {
+            result = result.filter { subject in
+                subject.genres?.contains(selectedGenre) ?? false
+            }
+        }
+
+        // 年代筛选
+        if selectedYear != "全部" {
+            result = result.filter { subject in
+                guard let year = subject.year else { return false }
+                if selectedYear == "2010年代" {
+                    return year >= "2010" && year < "2020"
+                } else if selectedYear == "2000年代" {
+                    return year >= "2000" && year < "2010"
+                } else if selectedYear == "更早" {
+                    return year < "2000"
+                } else {
+                    return year == selectedYear
+                }
+            }
+        }
+
+        // 排序
+        switch selectedSort {
+        case "评分":
+            result.sort { $0.ratingValue > $1.ratingValue }
+        case "年份":
+            result.sort { ($0.year ?? "") > ($1.year ?? "") }
+        default: // 热度 - 保持原始顺序
+            break
+        }
+
+        filteredSubjects = result
+    }
+
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
         switch categoryType {
         case "movie", "电影":
@@ -124,6 +209,76 @@ struct CategoryDetailView: View {
     }
 }
 
+// MARK: - Filter Chip
+struct FilterChip: View {
+    let title: String
+    let options: [String]
+    @Binding var selection: String
+    @State private var showPicker = false
+
+    var body: some View {
+        Button(action: { showPicker = true }) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                Text(selection)
+                    .font(.system(size: 12, weight: .bold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .cornerRadius(16)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .sheet(isPresented: $showPicker) {
+            FilterPickerSheet(title: "选择\(title)", options: options, selection: $selection)
+        }
+    }
+}
+
+// MARK: - Filter Picker Sheet
+struct FilterPickerSheet: View {
+    let title: String
+    let options: [String]
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(options, id: \.self) { option in
+                    Button(action: {
+                        selection = option
+                        dismiss()
+                    }) {
+                        HStack {
+                            Text(option)
+                                .font(.system(size: 15))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if option == selection {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Loading View
 struct CategoryLoadingView: View {
     var body: some View {
@@ -142,7 +297,7 @@ struct CategoryLoadingView: View {
 struct CategoryErrorView: View {
     let message: String
     let retryAction: () -> Void
-    
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
@@ -171,7 +326,7 @@ struct CategoryErrorView: View {
 // MARK: - Empty View
 struct CategoryEmptyView: View {
     let categoryName: String
-    
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "film")
@@ -190,13 +345,13 @@ struct SubjectGridView: View {
     let subjects: [DoubanSubject]
     let settings: AppSettings
     let onLoadMore: () -> Void
-    
+
     private let columns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
-    
+
     var body: some View {
         LazyVGrid(columns: columns, spacing: 16) {
             ForEach(subjects) { subject in
@@ -215,25 +370,25 @@ struct SubjectGridView: View {
 struct GridSubjectCard: View {
     let subject: DoubanSubject
     let settings: AppSettings
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 CoverImageView(subject: subject)
                     .frame(height: 140)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                
+
                 if subject.ratingValue > 0 {
                     RatingBadge(rating: subject.ratingValue)
                         .padding(4)
                 }
             }
-            
+
             Text(subject.title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.primary)
                 .lineLimit(1)
-            
+
             if let year = subject.year {
                 Text(year)
                     .font(.system(size: 11))
@@ -249,7 +404,7 @@ struct GridSubjectCard: View {
 // MARK: - Cover Image View
 struct CoverImageView: View {
     let subject: DoubanSubject
-    
+
     var body: some View {
         Group {
             if let url = DoubanImageProxyServer.shared.resolvedURL(for: subject.coverImageURL) {
@@ -283,7 +438,7 @@ struct CoverImageView: View {
 // MARK: - Rating Badge
 struct RatingBadge: View {
     let rating: Double
-    
+
     var body: some View {
         HStack(spacing: 2) {
             Image(systemName: "star.fill")

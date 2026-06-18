@@ -182,7 +182,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotAnimation(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("tv_animation", start: start, count: count)
+        return try await fetchCollectionWithTVCovers("tv_animation", start: start, count: count)
     }
     
     func fetchRecommendFeed(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
