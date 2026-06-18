@@ -2649,6 +2649,277 @@ struct ErrorViewWithLogs: View {
 }
 
 // MARK: - 播放器控制视图
+// MARK: - 播放器顶部栏
+struct PlayerTopBarView: View {
+    let isPortrait: Bool
+    @ObservedObject var playerState: PlayerState
+    @Environment(\.dismiss) private var dismiss
+    var onTogglePiP: () -> Void
+
+    var body: some View {
+        HStack {
+            Button(action: { dismiss() }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: isPortrait ? 18 : 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: isPortrait ? 36 : 44, height: isPortrait ? 36 : 44)
+                    .background(isPortrait ? Color.clear : Color.black.opacity(0.3))
+                    .clipShape(Circle())
+            }
+
+            Spacer()
+
+            if !isPortrait {
+                Button(action: { onTogglePiP() }) {
+                    Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+
+                Button(action: {
+                    let allModes = PlayerState.VideoGravityMode.allCases
+                    if let idx = allModes.firstIndex(of: playerState.videoGravity) {
+                        playerState.videoGravity = allModes[(idx + 1) % allModes.count]
+                    }
+                }) {
+                    Image(systemName: playerState.videoGravity.icon)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+
+                Button(action: {
+                    playerState.isOrientationLocked.toggle()
+                    if playerState.isOrientationLocked {
+                        OrientationHelper.lockOrientation(.landscape)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showControls = false
+                            }
+                        }
+                    } else {
+                        OrientationHelper.unlockOrientation()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            playerState.showControls = true
+                        }
+                    }
+                }) {
+                    Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+            }
+        }
+        .padding(.horizontal, isPortrait ? 12 : 16)
+        .padding(.top, isPortrait ? 4 : 8)
+    }
+}
+
+// MARK: - 播放器进度条
+struct PlayerProgressBar: View {
+    let isPortrait: Bool
+    @ObservedObject var playerState: PlayerState
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(formatTime(playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime))
+                .font(.system(size: isPortrait ? 10 : 12, weight: .medium))
+                .foregroundColor(.white)
+
+            GeometryReader { geometry in
+                let displayTime = playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime
+                let progress = playerState.duration > 0 ? max(0, min(displayTime / playerState.duration, 1)) : 0
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.3))
+                        .frame(height: isPortrait ? 3 : 4)
+
+                    if playerState.duration > 0 {
+                        ForEach(Array(playerState.baiduCachedTimeRanges.enumerated()), id: \.offset) { _, range in
+                            let start = max(0, min(range.start / playerState.duration, 1))
+                            let end = max(start, min(range.end / playerState.duration, 1))
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color(hex: "00BEFF").opacity(0.28))
+                                .frame(width: CGFloat(end - start) * geometry.size.width, height: isPortrait ? 3 : 4)
+                                .offset(x: CGFloat(start) * geometry.size.width)
+                        }
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(hex: "00BEFF"))
+                            .frame(width: CGFloat(progress) * geometry.size.width, height: isPortrait ? 3 : 4)
+                        Circle()
+                            .fill(Color(hex: "00BEFF"))
+                            .frame(width: isPortrait ? 10 : 14, height: isPortrait ? 10 : 14)
+                            .offset(x: max(0, min(CGFloat(progress) * geometry.size.width - (isPortrait ? 5 : 7), geometry.size.width - (isPortrait ? 10 : 14))))
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard playerState.duration > 0 else { return }
+                            let x = max(0, min(value.location.x, geometry.size.width))
+                            let target = Double(x / geometry.size.width) * playerState.duration
+                            playerState.isSeeking = true
+                            playerState.seekPreviewTime = target
+                        }
+                        .onEnded { value in
+                            guard playerState.duration > 0 else { return }
+                            let x = max(0, min(value.location.x, geometry.size.width))
+                            let target = Double(x / geometry.size.width) * playerState.duration
+                            playerState.seek(to: target)
+                        }
+                )
+            }
+            .frame(height: isPortrait ? 16 : 20)
+
+            Text(formatTime(playerState.duration))
+                .font(.system(size: isPortrait ? 10 : 12, weight: .medium))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, isPortrait ? 12 : 16)
+        .padding(.vertical, isPortrait ? 6 : 8)
+    }
+}
+
+// MARK: - 竖屏底部按钮栏
+struct PortraitBottomBar: View {
+    let player: AVPlayer?
+    @ObservedObject var playerState: PlayerState
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Button(action: { playerState.togglePlayback(player: player) }) {
+                Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
+            }
+            .disabled(player == nil && playerState.compatibilityURL == nil)
+
+            Button(action: { playerState.playNextBaiduFile() }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
+            }
+            .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
+
+            Spacer()
+
+            Button(action: { playerState.showEpisodePicker = true }) {
+                VStack(spacing: 1) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 14))
+                    Text("选集")
+                        .font(.system(size: 8))
+                }
+                .foregroundColor(.white)
+            }
+
+            Button(action: { playerState.showSettings = true }) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+}
+
+// MARK: - 横屏底部按钮栏
+struct LandscapeBottomBar: View {
+    let player: AVPlayer?
+    @ObservedObject var playerState: PlayerState
+
+    var body: some View {
+        HStack(spacing: 20) {
+            Button(action: { playerState.togglePlayback(player: player) }) {
+                Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(player == nil && playerState.compatibilityURL == nil)
+
+            Button(action: { playerState.playNextBaiduFile() }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
+
+            Spacer()
+
+            Button(action: { playerState.showEpisodePicker = true }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 18))
+                    Text("选集")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+            }
+
+            Button(action: { playerState.showQualityPicker = true }) {
+                Text(playerState.baiduFileList.isEmpty ? "高清" : "原画")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                    )
+            }
+
+            AirPlayViewV2()
+                .frame(width: 44, height: 44)
+
+            Button(action: { playerState.showEnginePicker = true }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 18))
+                    Text(playerState.currentEngineButtonTitle)
+                        .font(.system(size: 9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
+                .frame(width: 56, height: 44)
+            }
+
+            Button(action: { playerState.showDanmakuSettings = true }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 18))
+                    Text("弹幕")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
+                .frame(width: 44, height: 44)
+            }
+
+            Button(action: { playerState.showSettings = true }) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 20))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 20)
+    }
+}
+
+// MARK: - 播放器控制栏主视图
 struct PlayerControlsView: View {
     let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
@@ -2662,258 +2933,21 @@ struct PlayerControlsView: View {
 
     var body: some View {
         VStack {
-            // 顶部返回栏
-            HStack {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: isPortrait ? 18 : 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: isPortrait ? 36 : 44, height: isPortrait ? 36 : 44)
-                        .background(isPortrait ? Color.clear : Color.black.opacity(0.3))
-                        .clipShape(Circle())
-                }
-
-                Spacer()
-
-                // 横屏显示更多顶部按钮，竖屏简化
-                if !isPortrait {
-                    // 画中画/小窗口按钮
-                    Button(action: { togglePiP() }) {
-                        Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Color.black.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-
-                    // 屏幕拉伸按钮
-                    Button(action: {
-                        let allModes = PlayerState.VideoGravityMode.allCases
-                        if let idx = allModes.firstIndex(of: playerState.videoGravity) {
-                            playerState.videoGravity = allModes[(idx + 1) % allModes.count]
-                        }
-                    }) {
-                        Image(systemName: playerState.videoGravity.icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Color.black.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-
-                    // 屏幕锁定按钮
-                    Button(action: {
-                        playerState.isOrientationLocked.toggle()
-                        if playerState.isOrientationLocked {
-                            OrientationHelper.lockOrientation(.landscape)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    playerState.showControls = false
-                                }
-                            }
-                        } else {
-                            OrientationHelper.unlockOrientation()
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                playerState.showControls = true
-                            }
-                        }
-                    }) {
-                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(Color.black.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                }
-            }
-            .padding(.horizontal, isPortrait ? 12 : 16)
-            .padding(.top, isPortrait ? 4 : 8)
+            PlayerTopBarView(
+                isPortrait: isPortrait,
+                playerState: playerState,
+                onTogglePiP: { togglePiP() }
+            )
 
             Spacer()
 
-            // 底部控制栏
             VStack(spacing: 0) {
-                // 进度条区域（横竖屏都有）
-                HStack(spacing: 10) {
-                    Text(formatTime(playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime))
-                        .font(.system(size: isPortrait ? 10 : 12, weight: .medium))
-                        .foregroundColor(.white)
+                PlayerProgressBar(isPortrait: isPortrait, playerState: playerState)
 
-                    GeometryReader { geometry in
-                        let displayTime = playerState.isSeeking ? playerState.seekPreviewTime : playerState.currentTime
-                        let progress = playerState.duration > 0 ? max(0, min(displayTime / playerState.duration, 1)) : 0
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.white.opacity(0.3))
-                                .frame(height: isPortrait ? 3 : 4)
-
-                            if playerState.duration > 0 {
-                                ForEach(Array(playerState.baiduCachedTimeRanges.enumerated()), id: \.offset) { _, range in
-                                    let start = max(0, min(range.start / playerState.duration, 1))
-                                    let end = max(start, min(range.end / playerState.duration, 1))
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color(hex: "00BEFF").opacity(0.28))
-                                        .frame(width: CGFloat(end - start) * geometry.size.width, height: isPortrait ? 3 : 4)
-                                        .offset(x: CGFloat(start) * geometry.size.width)
-                                }
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color(hex: "00BEFF"))
-                                    .frame(width: CGFloat(progress) * geometry.size.width, height: isPortrait ? 3 : 4)
-                                Circle()
-                                    .fill(Color(hex: "00BEFF"))
-                                    .frame(width: isPortrait ? 10 : 14, height: isPortrait ? 10 : 14)
-                                    .offset(x: max(0, min(CGFloat(progress) * geometry.size.width - (isPortrait ? 5 : 7), geometry.size.width - (isPortrait ? 10 : 14))))
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    guard playerState.duration > 0 else { return }
-                                    let x = max(0, min(value.location.x, geometry.size.width))
-                                    let target = Double(x / geometry.size.width) * playerState.duration
-                                    playerState.isSeeking = true
-                                    playerState.seekPreviewTime = target
-                                }
-                                .onEnded { value in
-                                    guard playerState.duration > 0 else { return }
-                                    let x = max(0, min(value.location.x, geometry.size.width))
-                                    let target = Double(x / geometry.size.width) * playerState.duration
-                                    playerState.seek(to: target)
-                                }
-                        )
-                    }
-                    .frame(height: isPortrait ? 16 : 20)
-
-                    Text(formatTime(playerState.duration))
-                        .font(.system(size: isPortrait ? 10 : 12, weight: .medium))
-                        .foregroundColor(.white)
-                }
-                .padding(.horizontal, isPortrait ? 12 : 16)
-                .padding(.vertical, isPortrait ? 6 : 8)
-
-                // 按钮控制栏 - 竖屏简化版
                 if isPortrait {
-                    HStack(spacing: 16) {
-                        // 播放/暂停
-                        Button(action: { playerState.togglePlayback(player: player) }) {
-                            Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
-                        }
-                        .disabled(player == nil && playerState.compatibilityURL == nil)
-
-                        // 下一个
-                        Button(action: { playerState.playNextBaiduFile() }) {
-                            Image(systemName: "forward.end.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
-                        }
-                        .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
-
-                        Spacer()
-
-                        // 选集
-                        Button(action: { playerState.showEpisodePicker = true }) {
-                            VStack(spacing: 1) {
-                                Image(systemName: "list.bullet")
-                                    .font(.system(size: 14))
-                                Text("选集")
-                                    .font(.system(size: 8))
-                            }
-                            .foregroundColor(.white)
-                        }
-
-                        // 更多（把清晰度/内核/弹幕/设置都收进去）
-                        Button(action: { playerState.showSettings = true }) {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 18))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    PortraitBottomBar(player: player, playerState: playerState)
                 } else {
-                    // 横屏完整版
-                    HStack(spacing: 20) {
-                        Button(action: { playerState.togglePlayback(player: player) }) {
-                            Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 22))
-                                .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
-                                .frame(width: 44, height: 44)
-                        }
-                        .disabled(player == nil && playerState.compatibilityURL == nil)
-
-                        Button(action: { playerState.playNextBaiduFile() }) {
-                            Image(systemName: "forward.end.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
-                                .frame(width: 44, height: 44)
-                        }
-                        .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
-
-                        Spacer()
-
-                        Button(action: { playerState.showEpisodePicker = true }) {
-                            VStack(spacing: 2) {
-                                Image(systemName: "list.bullet")
-                                    .font(.system(size: 18))
-                                Text("选集")
-                                    .font(.system(size: 10))
-                            }
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                        }
-
-                        Button(action: { playerState.showQualityPicker = true }) {
-                            Text(playerState.baiduFileList.isEmpty ? "高清" : "原画")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 44, height: 44)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                                )
-                        }
-
-                        AirPlayViewV2()
-                            .frame(width: 44, height: 44)
-
-                        Button(action: { playerState.showEnginePicker = true }) {
-                            VStack(spacing: 2) {
-                                Image(systemName: "cpu")
-                                    .font(.system(size: 18))
-                                Text(playerState.currentEngineButtonTitle)
-                                    .font(.system(size: 9))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
-                            .frame(width: 56, height: 44)
-                        }
-
-                        Button(action: { playerState.showDanmakuSettings = true }) {
-                            VStack(spacing: 2) {
-                                Image(systemName: "text.bubble")
-                                    .font(.system(size: 18))
-                                Text("弹幕")
-                                    .font(.system(size: 10))
-                            }
-                            .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
-                            .frame(width: 44, height: 44)
-                        }
-
-                        Button(action: { playerState.showSettings = true }) {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .frame(width: 44, height: 44)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
+                    LandscapeBottomBar(player: player, playerState: playerState)
                 }
             }
             .background(
