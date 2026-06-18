@@ -91,67 +91,83 @@ struct DanmakuOverlayViewV2: View {
 struct EpisodePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
     @Binding var isPresented: Bool
+    @EnvironmentObject private var settings: AppSettings
+
+    /// 自适应皮肤的按钮背景色
+    private var buttonBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .tertiarySystemBackground)
+        }
+        return Color.white.opacity(0.12)
+    }
+
+    private var buttonBorder: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .separator)
+        }
+        return Color.white.opacity(0.15)
+    }
+
+    private var textNormal: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .label)
+        }
+        return Color.white.opacity(0.9)
+    }
+
+    private var textEmpty: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondaryLabel)
+        }
+        return Color.white.opacity(0.5)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // 标题栏
-            HStack {
-                Text("选集")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color(uiColor: .label))
-                Spacer()
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(uiColor: .secondaryLabel))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            Divider().background(Color(uiColor: .separator))
-
             if !playerState.baiduFileList.isEmpty {
-                // 竖排列表，可滚动
+                // 河马剧场风格：浅蓝色按钮网格
                 ScrollView(showsIndicators: true) {
-                    LazyVStack(spacing: 0) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                         ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
                             Button(action: {
                                 playerState.switchBaiduFile(index: idx)
                                 isPresented = false
                             }) {
-                                HStack {
+                                HStack(spacing: 6) {
                                     Text(episodeName(file.name, index: idx))
-                                        .font(.system(size: 14, weight: idx == playerState.currentEpisodeIndex ? .semibold : .regular))
-                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF") : Color(uiColor: .label))
-                                    Spacer()
+                                        .font(.system(size: 13, weight: idx == playerState.currentEpisodeIndex ? .semibold : .regular))
+                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                    Spacer(minLength: 0)
                                     if idx == playerState.currentEpisodeIndex {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundColor(Color(hex: "00BEFF"))
+                                        Image(systemName: "play.circle.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(Color(hex: "2196F3"))
                                     }
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 12)
-                                .background(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(idx == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(buttonBorder, lineWidth: 0.5)
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
-
-                            Divider()
-                                .background(Color(uiColor: .separator))
-                                .padding(.leading, 12)
                         }
                     }
+                    .padding(14)
                 }
-                .frame(maxHeight: 320)
             } else {
                 Text("暂无集数信息")
-                    .foregroundColor(Color(uiColor: .secondaryLabel))
+                    .foregroundColor(textEmpty)
                     .padding(.vertical, 40)
             }
         }
-        .background(Color(uiColor: .secondarySystemBackground))
-        .cornerRadius(10)
     }
 
     private func episodeName(_ name: String, index: Int) -> String {
