@@ -2807,38 +2807,46 @@ struct PortraitBottomBar: View {
     @ObservedObject var playerState: PlayerState
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 20) {
             Button(action: { playerState.togglePlayback(player: player) }) {
                 Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 20))
                     .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
             }
             .disabled(player == nil && playerState.compatibilityURL == nil)
+            .buttonStyle(PlainButtonStyle())
 
             Button(action: { playerState.playNextBaiduFile() }) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 16))
+                    .font(.system(size: 18))
                     .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
             }
             .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
+            .buttonStyle(PlainButtonStyle())
 
             Spacer()
 
             Button(action: { playerState.showEpisodePicker = true }) {
-                VStack(spacing: 1) {
+                VStack(spacing: 2) {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 14))
                     Text("选集")
-                        .font(.system(size: 8))
+                        .font(.system(size: 9))
                 }
                 .foregroundColor(.white)
             }
+            .buttonStyle(PlainButtonStyle())
 
             Button(action: { playerState.showSettings = true }) {
-                Text("倍数")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white)
+                VStack(spacing: 0) {
+                    Text("倍")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("数")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.white)
             }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
@@ -2937,11 +2945,7 @@ struct PlayerControlsView: View {
     @ObservedObject var playerState: PlayerState
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
-    @State private var orientation: UIDeviceOrientation = UIDevice.current.orientation
-
-    private var isPortrait: Bool {
-        orientation == .portrait || orientation == .portraitUpsideDown
-    }
+    @State private var isPortrait: Bool = false
 
     var body: some View {
         VStack {
@@ -2975,10 +2979,10 @@ struct PlayerControlsView: View {
             )
         }
         .onAppear {
-            orientation = UIDevice.current.orientation
+            updateOrientation()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            orientation = UIDevice.current.orientation
+            updateOrientation()
         }
         // 小巧弹窗 - 倍数
         .overlay(
@@ -3045,6 +3049,14 @@ struct PlayerControlsView: View {
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
             playerState.isPiPActive = true
+        }
+    }
+
+    private func updateOrientation() {
+        let newOrientation = UIDevice.current.orientation
+        let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown
+        if newIsPortrait != isPortrait {
+            isPortrait = newIsPortrait
         }
     }
 }
@@ -3502,7 +3514,7 @@ struct SmallPopupView<Content: View>: View {
                         }
 
                     content
-                        .frame(width: min(geometry.size.width * 0.7, 320))
+                        .frame(width: min(geometry.size.width * 0.5, 200), height: min(geometry.size.height * 0.55, 420))
                         .background(Color(uiColor: .secondarySystemBackground))
                         .cornerRadius(10)
                         .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
