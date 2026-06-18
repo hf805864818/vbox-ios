@@ -304,6 +304,7 @@ struct VideoPlayerViewV2: View {
         .onAppear {
             // 进入播放器：先强制横屏，然后允许所有方向（自动跟随手机）
             OrientationHelper.rotateToLandscape()
+            playerState.isPortrait = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OrientationHelper.allowAllOrientations()
             }
@@ -398,6 +399,7 @@ class PlayerState: ObservableObject {
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
     @Published var showDanmaku = true
+    @Published var isPortrait = false
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
     @Published var danmakuArea: Double = 1.0       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
@@ -2987,12 +2989,11 @@ struct PlayerControlsView: View {
     @ObservedObject var playerState: PlayerState
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
-    @State private var isPortrait: Bool = false
 
     var body: some View {
         VStack {
             PlayerTopBarView(
-                isPortrait: isPortrait,
+                isPortrait: playerState.isPortrait,
                 playerState: playerState,
                 onTogglePiP: { togglePiP() }
             )
@@ -3000,16 +3001,16 @@ struct PlayerControlsView: View {
             Spacer()
 
             VStack(spacing: 0) {
-                PlayerProgressBar(isPortrait: isPortrait, playerState: playerState)
+                PlayerProgressBar(isPortrait: playerState.isPortrait, playerState: playerState)
 
-                if isPortrait {
+                if playerState.isPortrait {
                     PortraitBottomBar(player: player, playerState: playerState)
                 } else {
                     LandscapeBottomBar(player: player, playerState: playerState)
                 }
             }
             .background(
-                isPortrait ? AnyView(Color.clear) : AnyView(LinearGradient(
+                playerState.isPortrait ? AnyView(Color.clear) : AnyView(LinearGradient(
                     gradient: Gradient(colors: [
                         Color.black.opacity(0),
                         Color.black.opacity(0.6),
@@ -3029,7 +3030,7 @@ struct PlayerControlsView: View {
         // 弹窗 - 倍数（竖屏由SpeedAnchorButton在按钮上方弹出，横屏用小弹窗）
         .overlay(
             Group {
-                if !isPortrait {
+                if !playerState.isPortrait {
                     SmallPopupView(isPresented: $playerState.showSettings) {
                         PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
                             playerState.changePlaybackSpeed(speed)
@@ -3041,7 +3042,7 @@ struct PlayerControlsView: View {
         // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
         .overlay(
             Group {
-                if isPortrait {
+                if playerState.isPortrait {
                     PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
                     }
@@ -3109,8 +3110,8 @@ struct PlayerControlsView: View {
     private func updateOrientation() {
         let newOrientation = UIDevice.current.orientation
         let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown
-        if newIsPortrait != isPortrait {
-            isPortrait = newIsPortrait
+        if newIsPortrait != playerState.isPortrait {
+            playerState.isPortrait = newIsPortrait
         }
     }
 }
