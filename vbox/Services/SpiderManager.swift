@@ -115,33 +115,12 @@ class SpiderManager: ObservableObject {
 
     /// 加载自定义解析器（内置 + 用户自定义）
     private func loadCustomParsers() {
-        // 先加载内置解析API
-        let builtinParsers: [ParseConfig] = [
-            ParseConfig(name: "FF影视解析", url: "https://www.ffys.top/player/api.php", type: 1),
-            ParseConfig(name: "久久解析", url: "https://www.jqqzx.me/jx/api.php", type: 1),
-            ParseConfig(name: "pipizei解析", url: "https://www.pipizei.cc/zplayer/api.php", type: 1),
-            ParseConfig(name: "ymck解析", url: "https://ymck.pro/API/v2.php", type: 1),
-            ParseConfig(name: "HLS.One解析", url: "https://api.hls.one:4433/Api", type: 1),
-            ParseConfig(name: "网飞解析", url: "https://api.nki.pw", type: 1),
-            ParseConfig(name: "趣盘搜解析", url: "https://www.qiaoji8.com/xgjm.php", type: 1),
-            ParseConfig(name: "555影视解析", url: "https://xx.555618.xyz/xxxjm/app", type: 1),
-            ParseConfig(name: "西瓜视频解析", url: "https://api.wwgz.cn:520/webcloud/relay.php", type: 1),
-            ParseConfig(name: "西瓜M3U8解析", url: "https://vip.wwgz.cn:5200/nmplay/webcloud/m3u8.php", type: 1),
-        ]
-        
-        // 加载用户自定义解析器
-        var userParsers: [ParseConfig] = []
+        // 内置解析器已全部失效（2025-06-18检测），仅保留用户自定义解析器
+        // 用户可通过设置页添加有效的第三方解析器
+        customParsers = []
         if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
            let parsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
-            userParsers = parsers
-        }
-        
-        // 合并：内置 + 用户自定义（去重）
-        customParsers = builtinParsers
-        for parser in userParsers {
-            if !customParsers.contains(where: { $0.url == parser.url }) {
-                customParsers.append(parser)
-            }
+            customParsers = parsers
         }
     }
 
@@ -1515,42 +1494,13 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 4. 使用公共解析器兜底
-        print("[SpiderManager] 订阅源解析器失败，尝试公共解析器...")
-        let parsers = [
-            ("777", "https://jx.777jiexi.com/player/?url="),
-            ("农民", "https://jiexi.nmypdm.com/nm.php?url="),
-            ("XMFlv", "https://jx.xmflv.com/?url="),
-            ("毛豆", "https://www.mdymv.com/jiexi/n.php?url="),
-            ("饭团", "https://www.fantuantmtv.com/jiexi/n.php?url="),
-            ("解析啦", "https://jx.jiexi.fun/?url="),
-            ("多多", "https://www.duoduozy.com/analysis/?url="),
-            ("量子", "https://lziplayer.com/?url="),
-            ("暴风", "https://bfzyplayer.com/player/?url="),
-            ("非凡", "https://ffzyplayer.com/player/?url="),
-            ("新浪", "https://svip.xnmap.com/?url="),
-            ("红牛", "https://player.hnzycoder.com/player/?url="),
-            ("卧龙", "https://mac.js.xn--z7x900a.com/player/?url="),
-            ("酷点", "https://jx.kudian20.com/player/?url="),
-            ("光速", "https://jx.gszyplayer.com/player/?url="),
-        ]
-
-        for (name, parser) in parsers {
-            print("[SpiderManager] 尝试公共解析器：\(name)")
-            if let parsedUrl = await tryParser(parser, url: playPageUrl) {
-                print("[SpiderManager] ✅ 公共解析器成功：\(name)")
-                print("[SpiderManager] 解析结果：\(parsedUrl.prefix(80))...")
-                return parsedUrl
-            }
-        }
-
-        // 5. 尝试直接请求播放页提取 m3u8
+        // 4. 尝试直接请求播放页提取 m3u8
         if let directUrl = await extractDirectPlayURL(from: playPageUrl) {
             print("[SpiderManager] ✅ 从播放页直接提取成功：\(directUrl.prefix(80))...")
             return directUrl
         }
 
-        // 5.5 WKWebView 客户端解析回退（最后手段）
+        // 4.5 WKWebView 客户端解析回退（最后手段）
         if let wkResult = await tryWKWebViewParse(originalURL: playPageUrl) {
             return wkResult
         }
