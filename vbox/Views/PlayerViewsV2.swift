@@ -2727,15 +2727,17 @@ struct ErrorViewWithLogs: View {
 struct PlayerTopBarView: View {
     let isPortrait: Bool
     @ObservedObject var playerState: PlayerState
-    @Environment(\.dismiss) private var dismiss
     var onTogglePiP: () -> Void
+    var onDismiss: () -> Void
 
     var body: some View {
         HStack {
-            Button(action: { dismiss() }) {
+            Button(action: { onDismiss() }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: isPortrait ? 18 : 20, weight: .semibold))
+                    .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
                     .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -2880,58 +2882,67 @@ struct PortraitBottomBar: View {
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             // 底层：按钮栏
-            HStack(spacing: 20) {
+            HStack(spacing: 0) {
                 Button(action: { playerState.togglePlayback(player: player) }) {
                     Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20))
+                        .font(.system(size: 22))
                         .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
+                        .frame(width: 56, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(player == nil && playerState.compatibilityURL == nil)
                 .buttonStyle(PlainButtonStyle())
 
                 Button(action: { playerState.playNextBaiduFile() }) {
                     Image(systemName: "forward.end.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 20))
                         .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
+                        .frame(width: 56, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
+                // 选集按钮
                 Button(action: { playerState.showEpisodePicker = true }) {
                     VStack(spacing: 2) {
                         Image(systemName: "list.bullet")
-                            .font(.system(size: 16))
+                            .font(.system(size: 18))
                         Text("选集")
                             .font(.system(size: 10, weight: .medium))
                     }
                     .foregroundColor(.white)
+                    .frame(width: 56, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
 
-                // 倍数按钮
+                // 倍数按钮 - 使用更协调的图标
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         playerState.showSettings.toggle()
                     }
                 }) {
-                    VStack(spacing: 3) {
-                        Image(systemName: "gauge.with.dots.needle.bottom.50percent")
-                            .font(.system(size: 16))
+                    VStack(spacing: 2) {
+                        Image(systemName: "speedometer")
+                            .font(.system(size: 18))
                         Text("倍数")
                             .font(.system(size: 10, weight: .medium))
                     }
                     .foregroundColor(playerState.showSettings ? Color(hex: "2196F3") : .white)
+                    .frame(width: 56, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 8)
             .padding(.bottom, 12)
             
-            // 上层：倍数弹窗 - 位于进度条前方（按钮上方），向左偏移
+            // 上层：倍数弹窗 - 固定在按钮上方，不扰乱布局
             if playerState.showSettings {
                 PlayerSettingsPanelV2(
                     isPresented: $playerState.showSettings,
@@ -2941,11 +2952,11 @@ struct PortraitBottomBar: View {
                     }
                 )
                 .environmentObject(settings)
-                .frame(width: 140)
-                .position(x: UIScreen.main.bounds.width - 80, y: -60)  // 向左偏移，位于进度条上方
+                .frame(width: 130)
+                .offset(x: 60, y: -50)  // 向右上方偏移，位于倍数按钮上方
                 .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.85)),
-                    removal: .opacity.combined(with: .scale(scale: 0.95))
+                    insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                    removal: .opacity.combined(with: .scale(scale: 0.9))
                 ))
             }
         }
@@ -3050,7 +3061,8 @@ struct PlayerControlsView: View {
             PlayerTopBarView(
                 isPortrait: playerState.isPortrait,
                 playerState: playerState,
-                onTogglePiP: { togglePiP() }
+                onTogglePiP: { togglePiP() },
+                onDismiss: { dismiss() }
             )
 
             Spacer()
@@ -3143,55 +3155,55 @@ struct PortraitPopupView<Content: View>: View {
             ZStack {
                 if isPresented {
                     // 半透明遮罩
-                    Color.black.opacity(0.45)
+                    Color.black.opacity(0.4)
                         .ignoresSafeArea()
                         .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
                                 isPresented = false
                             }
                         }
 
-                    // 居中面板 - 全屏高度，左右留边距
+                    // 小尺寸居中面板（类似河马剧场风格）
                     VStack(spacing: 0) {
                         // 标题栏
                         HStack {
                             Text(title)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white)
                             Spacer()
                             Button(action: {
-                                withAnimation(.easeInOut(duration: 0.25)) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
                                     isPresented = false
                                 }
                             }) {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.7))
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: 28, height: 28)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
                         content
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(width: geometry.size.width - 32)  // 左右各16pt边距
-                    .frame(maxHeight: geometry.size.height - 120)  // 上下留边距
+                    .frame(width: min(geometry.size.width * 0.75, 300))
+                    .frame(maxHeight: min(geometry.size.height * 0.5, 380))
                     .background(panelBackground)
-                    .cornerRadius(14)
+                    .cornerRadius(12)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                     )
-                    .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
+                    .shadow(color: .black.opacity(0.4), radius: 12, x: 0, y: 6)
                     .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
-                        removal: .opacity.combined(with: .scale(scale: 0.95))
+                        insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
                     ))
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: isPresented)
+            .animation(.easeInOut(duration: 0.2), value: isPresented)
         }
     }
 }
