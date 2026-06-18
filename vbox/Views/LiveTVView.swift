@@ -294,18 +294,17 @@ struct LiveTVView: View {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button(action: {
-                            showSourcePicker = true
-                            resetHideTimer()
-                        }) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 10))
-                                .foregroundColor(.accentColor)
-                        }
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 80) // 向上移动避免底栏遮挡
-                        .opacity(isFloatingButtonVisible ? 1 : 0)
-                        .animation(.easeInOut(duration: 0.3), value: isFloatingButtonVisible)
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 10))
+                            .foregroundColor(.accentColor)
+                            .onTapGesture {
+                                showSourcePicker = true
+                                resetHideTimer()
+                            }
+                            .padding(.trailing, 16)
+                            .padding(.bottom, 80) // 向上移动避免底栏遮挡
+                            .opacity(isFloatingButtonVisible ? 1 : 0)
+                            .animation(.easeInOut(duration: 0.3), value: isFloatingButtonVisible)
                     }
                 }
             }
@@ -318,7 +317,7 @@ struct LiveTVView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.data],  // 使用 .data 允许选择任意文件
+                allowedContentTypes: [.plainText, .data, .item],
                 allowsMultipleSelection: false
             ) { result in
                 handleFileImport(result: result)
@@ -352,6 +351,7 @@ struct LiveTVView: View {
             }
             .sheet(item: $selectedChannel) { channel in
                 LivePlayerSheet(channel: channel, service: service)
+                    .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showEPGSheet) {
                 if let channel = selectedChannelForEPG {
@@ -413,40 +413,63 @@ struct LiveTVView: View {
     private func handleFileImport(result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            // 获取对文件的访问权限
-            guard url.startAccessingSecurityScopedResource() else {
-                print("[LiveTV] 无法访问文件: \(url)")
+            print("[LiveTV] fileImporter 成功返回 \(urls.count) 个文件")
+            guard let url = urls.first else {
+                print("[LiveTV] 没有选中文件")
                 return
             }
+            print("[LiveTV] 选中文件: \(url)")
+
+            // 获取对文件的访问权限
+            let accessGranted = url.startAccessingSecurityScopedResource()
+            print("[LiveTV] 安全域访问权限: \(accessGranted)")
             defer { url.stopAccessingSecurityScopedResource() }
 
             do {
-                let content = try String(contentsOf: url, encoding: .utf8)
+                // 尝试多种编码读取
+                let content: String
+                if let utf8Content = try? String(contentsOf: url, encoding: .utf8) {
+                    content = utf8Content
+                } else if let gbkContent = try? String(contentsOf: url, encoding: .gb_18030_2000) {
+                    content = gbkContent
+                } else {
+                    content = try String(contentsOf: url, encoding: .ascii)
+                }
+
                 let fileName = url.deletingPathExtension().lastPathComponent
+                print("[LiveTV] 文件名: \(fileName), 内容长度: \(content.count)")
 
                 // 根据内容判断格式并解析
                 let parsed: [SubscribeChannel]
-                if content.trimmingCharacters(in: .whitespaces).hasPrefix("#EXTM3U") {
+                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("#EXTM3U") {
+                    print("[LiveTV] 检测到 M3U 格式")
                     parsed = service.parseM3U(content: content)
                 } else {
+                    print("[LiveTV] 按 TXT 格式解析")
                     parsed = service.parseTXT(content: content)
                 }
+
+                print("[LiveTV] 解析到 \(parsed.count) 个频道")
 
                 if !parsed.isEmpty {
                     // 将解析到的频道添加为自定义源
                     service.addLocalChannels(name: fileName, channels: parsed)
-                    // 如果当前没有选中自定义源，自动切换到导入的源
-                    if isDefaultSource {
-                        let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
-                        service.switchSource(to: customSource)
-                    }
+                    // 自动切换到导入的源
+                    let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
+                    service.switchSource(to: customSource)
+                    // 刷新频道列表
+                    channelsCache.removeAll()
+                    loadChannelsIfNeeded(for: currentCategory)
+                    print("[LiveTV] 导入成功，已切换到源: \(fileName)")
+                } else {
+                    print("[LiveTV] 文件内容解析为空")
                 }
             } catch {
                 print("[LiveTV] 读取文件失败: \(error)")
             }
         case .failure(let error):
-            print("[LiveTV] 文件导入失败: \(error)")
+            print("[LiveTV] fileImporter 失败: \(error)")
         }
     }
 
@@ -729,10 +752,6 @@ struct LivePlayerSheet: View {
                         VideoPlayer(player: player)
                             .frame(maxWidth: .infinity)
                             .aspectRatio(16/9, contentMode: .fit)
-                            .onTapGesture {
-                                // 点击小窗口 -> 全屏跳转到主播放器
-                                openFullScreenPlayer()
-                            }
                     } else if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
