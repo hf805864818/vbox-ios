@@ -299,12 +299,15 @@ class DoubanService: ObservableObject {
             if let casts = json?["casts"] as? [[String: Any]] {
                 actors = casts.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
+                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
+                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
+                        ?? dict["avatar"] as? String
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
-                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        cover_url: avatarUrl,
                         roles: nil,
-                        character: dict["character"] as? String ?? dict["name"] as? String
+                        character: dict["character"] as? String ?? name
                     )
                 }
             }
@@ -312,10 +315,13 @@ class DoubanService: ObservableObject {
             if let dirs = json?["directors"] as? [[String: Any]] {
                 directors = dirs.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
+                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
+                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
+                        ?? dict["avatar"] as? String
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
-                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        cover_url: avatarUrl,
                         roles: ["导演"],
                         character: nil
                     )
@@ -325,10 +331,13 @@ class DoubanService: ObservableObject {
             if let wrs = json?["writers"] as? [[String: Any]] {
                 writers = wrs.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
+                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
+                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
+                        ?? dict["avatar"] as? String
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
-                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        cover_url: avatarUrl,
                         roles: ["编剧"],
                         character: nil
                     )
