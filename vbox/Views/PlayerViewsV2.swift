@@ -3109,7 +3109,8 @@ struct PlayerControlsView: View {
 
     private func updateOrientation() {
         let newOrientation = UIDevice.current.orientation
-        let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown
+        // 竖屏判定：portrait / faceUp（平放）都算竖屏模式
+        let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown || newOrientation == .faceUp
         if newIsPortrait != playerState.isPortrait {
             playerState.isPortrait = newIsPortrait
         }
