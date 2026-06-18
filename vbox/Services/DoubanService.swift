@@ -170,7 +170,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchHotMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_real_time_hotest", start: start, count: count)
+        return try await fetchCollection("movie_showing", start: start, count: count)
     }
     
     func fetchHotTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
@@ -186,8 +186,7 @@ class DoubanService: ObservableObject {
     }
     
     func fetchRecommendFeed(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        // 使用电影实时热门作为推荐内容
-        return try await fetchCollection("movie_real_time_hotest", start: start, count: count)
+        return try await fetchCollection("movie_showing", start: start, count: count)
     }
     
     // MARK: - 豆瓣周榜
@@ -218,11 +217,21 @@ class DoubanService: ObservableObject {
     
     // MARK: - 国内即将上映
     
-    /// 国内即将上映
+    /// 国内即将上映（影院热映）
     func fetchUpcomingCN(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
         return try await fetchCollection("movie_showing", start: start, count: count)
     }
-    
+
+    /// 豆瓣热门
+    func fetchHotGaia(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_hot_gaia", start: start, count: count)
+    }
+
+    /// 英美剧
+    func fetchAmericanTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollectionWithTVCovers("tv_american", start: start, count: count)
+    }
+
     // MARK: - 按栏目标签获取数据
     
     /// 根据栏目标签名称获取对应的豆瓣数据（统一入口）
