@@ -1,0 +1,74 @@
+﻿2026-06-18T22:23:53.7623020Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-06-18T22:23:53.7628760Z ##[group]Run actions/checkout@v4
+2026-06-18T22:23:53.7629200Z with:
+2026-06-18T22:23:53.7629490Z   repository: hf805864818/vbox-ios
+2026-06-18T22:23:53.7632440Z   token: ***
+2026-06-18T22:23:53.7632730Z   ssh-strict: true
+2026-06-18T22:23:53.7633020Z   ssh-user: git
+2026-06-18T22:23:53.7633320Z   persist-credentials: true
+2026-06-18T22:23:53.7633640Z   clean: true
+2026-06-18T22:23:53.7633940Z   sparse-checkout-cone-mode: true
+2026-06-18T22:23:53.7634290Z   fetch-depth: 1
+2026-06-18T22:23:53.7634580Z   fetch-tags: false
+2026-06-18T22:23:53.7634880Z   show-progress: true
+2026-06-18T22:23:53.7635180Z   lfs: false
+2026-06-18T22:23:53.7635460Z   submodules: false
+2026-06-18T22:23:53.7635780Z   set-safe-directory: true
+2026-06-18T22:23:53.7636190Z ##[endgroup]
+2026-06-18T22:23:53.9955220Z Syncing repository: hf805864818/vbox-ios
+2026-06-18T22:23:53.9956540Z ##[group]Getting Git version info
+2026-06-18T22:23:53.9957050Z Working directory is '/Users/runner/work/vbox-ios/vbox-ios'
+2026-06-18T22:23:53.9958280Z [command]/opt/homebrew/bin/git version
+2026-06-18T22:23:54.0153130Z git version 2.54.0
+2026-06-18T22:23:54.0185160Z ##[endgroup]
+2026-06-18T22:23:54.0190290Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/c86d8acc-2a98-4891-a08b-089f8038fe24/.gitconfig'
+2026-06-18T22:23:54.0191600Z Temporarily overriding HOME='/Users/runner/work/_temp/c86d8acc-2a98-4891-a08b-089f8038fe24' before making global git config changes
+2026-06-18T22:23:54.0194100Z Adding repository directory to the temporary git global config as a safe directory
+2026-06-18T22:23:54.0195170Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/vbox-ios/vbox-ios
+2026-06-18T22:23:54.0272690Z Deleting the contents of '/Users/runner/work/vbox-ios/vbox-ios'
+2026-06-18T22:23:54.0275470Z ##[group]Initializing the repository
+2026-06-18T22:23:54.0278330Z [command]/opt/homebrew/bin/git init /Users/runner/work/vbox-ios/vbox-ios
+2026-06-18T22:23:54.0431310Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-06-18T22:23:54.0432200Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-06-18T22:23:54.0432880Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-06-18T22:23:54.0433550Z hint: call:
+2026-06-18T22:23:54.0433850Z hint:
+2026-06-18T22:23:54.0434380Z hint: 	git config --global init.defaultBranch <name>
+2026-06-18T22:23:54.0434850Z hint:
+2026-06-18T22:23:54.0435330Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-06-18T22:23:54.0436010Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-06-18T22:23:54.0436540Z hint:
+2026-06-18T22:23:54.0436910Z hint: 	git branch -m <name>
+2026-06-18T22:23:54.0437280Z hint:
+2026-06-18T22:23:54.0437730Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-06-18T22:23:54.0438410Z Initialized empty Git repository in /Users/runner/work/vbox-ios/vbox-ios/.git/
+2026-06-18T22:23:54.0439700Z [command]/opt/homebrew/bin/git remote add origin https://github.com/hf805864818/vbox-ios
+2026-06-18T22:23:54.0496380Z ##[endgroup]
+2026-06-18T22:23:54.0496970Z ##[group]Disabling automatic garbage collection
+2026-06-18T22:23:54.0498350Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-06-18T22:23:54.0543580Z ##[endgroup]
+2026-06-18T22:23:54.0544130Z ##[group]Setting up auth
+2026-06-18T22:23:54.0547560Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-06-18T22:23:54.0591510Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-06-18T22:23:54.1236660Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-06-18T22:23:54.1287780Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-06-18T22:23:54.1855940Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-06-18T22:23:54.1904320Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-06-18T22:23:54.2445860Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-06-18T22:23:54.2493630Z ##[endgroup]
+2026-06-18T22:23:54.2494240Z ##[group]Fetching the repository
+2026-06-18T22:23:54.2498770Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +24e9e2b55cce54654d6b22347eb823e14e5320f4:refs/remotes/origin/main
+2026-06-18T22:23:55.3761490Z From https://github.com/hf805864818/vbox-ios
+2026-06-18T22:23:55.3762730Z  * [new ref]         24e9e2b55cce54654d6b22347eb823e14e5320f4 -> origin/main
+2026-06-18T22:23:55.3839450Z ##[endgroup]
+2026-06-18T22:23:55.3840340Z ##[group]Determining the checkout info
+2026-06-18T22:23:55.3841140Z ##[endgroup]
+2026-06-18T22:23:55.3841640Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-06-18T22:23:55.3905160Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-06-18T22:23:55.3955440Z ##[group]Checking out the ref
+2026-06-18T22:23:55.3957510Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-06-18T22:23:55.4429320Z Switched to a new branch 'main'
+2026-06-18T22:23:55.4436290Z branch 'main' set up to track 'origin/main'.
+2026-06-18T22:23:55.4440950Z ##[endgroup]
+2026-06-18T22:23:55.4513560Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-06-18T22:23:55.4560800Z 24e9e2b55cce54654d6b22347eb823e14e5320f4

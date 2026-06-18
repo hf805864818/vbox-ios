@@ -1,0 +1,272 @@
+﻿2026-06-18T22:23:55.5620890Z ##[group]Run bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+2026-06-18T22:23:55.5622090Z [36;1mbash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache[0m
+2026-06-18T22:23:55.5623440Z [36;1mpython3 scripts/fetch_mpv_external_dependencies.py --all --cache-dir .mpv-cache/external[0m
+2026-06-18T22:23:55.5624690Z [36;1mpython3 scripts/check_mpv_installed_dependencies.py[0m
+2026-06-18T22:23:55.5652010Z shell: /bin/bash -e {0}
+2026-06-18T22:23:55.5652430Z ##[endgroup]
+2026-06-18T22:23:55.5880020Z MPVKit 依赖下载配置:
+2026-06-18T22:23:55.5881350Z   url:        https://github.com/hf805864818/vbox-ios/releases/download/mpvkit-deps-0.0.1/MPVKit-xcframework.zip
+2026-06-18T22:23:55.5883240Z   sha256 url: https://github.com/hf805864818/vbox-ios/releases/download/mpvkit-deps-0.0.1/MPVKit-xcframework.zip.sha256
+2026-06-18T22:23:55.5884490Z   cache:      .mpv-cache
+2026-06-18T22:23:55.9854460Z 已获取期望 sha256: 4f0bfbcad6aef0ff55a5ca1d8fe11f440a3081d0275c06013d7202aa226cc35a
+2026-06-18T22:23:55.9857010Z 下载 MPVKit 依赖包...
+2026-06-18T22:23:55.9980890Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+2026-06-18T22:23:55.9983520Z                                  Dload  Upload   Total   Spent    Left  Speed
+2026-06-18T22:23:55.9985000Z 
+2026-06-18T22:23:56.3183160Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+2026-06-18T22:23:56.3189640Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+2026-06-18T22:23:56.5941770Z 
+2026-06-18T22:23:56.9668190Z  30 72.8M   30 22.2M    0     0  37.3M      0  0:00:01 --:--:--  0:00:01 37.3M
+2026-06-18T22:23:56.9670110Z 100 72.8M  100 72.8M    0     0  75.1M      0 --:--:-- --:--:-- --:--:--  135M
+2026-06-18T22:23:57.2297130Z sha256 校验通过: 4f0bfbcad6aef0ff55a5ca1d8fe11f440a3081d0275c06013d7202aa226cc35a
+2026-06-18T22:23:57.8884810Z 安装目标目录: /Users/runner/work/vbox-ios/vbox-ios/vbox/Libraries/MPV/MPVKitDependencies
+2026-06-18T22:23:57.8885430Z 将安装 MPVKit 运行所需核心依赖:
+2026-06-18T22:23:57.8885740Z   - Libmpv.xcframework
+2026-06-18T22:23:57.8886180Z   - Libavcodec.xcframework
+2026-06-18T22:23:57.8886460Z   - Libavdevice.xcframework
+2026-06-18T22:23:57.8886700Z   - Libavfilter.xcframework
+2026-06-18T22:23:57.8886950Z   - Libavformat.xcframework
+2026-06-18T22:23:57.8887220Z   - Libavutil.xcframework
+2026-06-18T22:23:57.8887440Z   - Libswresample.xcframework
+2026-06-18T22:23:57.8887750Z   - Libswscale.xcframework
+2026-06-18T22:23:57.8888160Z MPVKit 核心依赖已安装。
+2026-06-18T22:23:57.8888580Z 注意：脚本只安装 MPVKit 运行依赖，不安装后续自由度 libmpv.xcframework。
+2026-06-18T22:23:57.8888910Z 注意：脚本不修改 Xcode Link/Embed。
+2026-06-18T22:23:57.8889260Z 如果后续走 Swift Package，还需要处理 Package.swift 中未随包携带的 binaryTarget。
+2026-06-18T22:23:57.8889670Z 可继续运行: python3 scripts/check_mpv_installed_dependencies.py
+2026-06-18T22:23:57.9866430Z 检查 MPVKit 运行依赖目录: vbox/Libraries/MPV/MPVKitDependencies
+2026-06-18T22:23:57.9867090Z 通过: Libmpv.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:23:57.9867730Z 通过: Libavcodec.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:23:57.9868380Z 通过: Libavdevice.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:23:57.9868990Z 通过: Libavfilter.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:23:57.9869530Z 通过: Libavformat.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:23:57.9870110Z 通过: Libavutil.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:23:57.9870680Z 通过: Libswresample.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:23:57.9871230Z 通过: Libswscale.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:23:57.9871590Z 
+2026-06-18T22:23:57.9871970Z Libmpv 静态链接外部依赖检查（提示项，不影响当前退出码）:
+2026-06-18T22:23:57.9872300Z 最小外部依赖集:
+2026-06-18T22:23:57.9872580Z   仍缺:
+2026-06-18T22:23:57.9872850Z     - gmp.xcframework
+2026-06-18T22:23:57.9873160Z     - Libass.xcframework
+2026-06-18T22:23:57.9873460Z     - Libbluray.xcframework
+2026-06-18T22:23:57.9873760Z     - lcms2.xcframework
+2026-06-18T22:23:57.9874950Z 仍缺外部依赖:
+2026-06-18T22:23:57.9875220Z   - Libcrypto.xcframework
+2026-06-18T22:23:57.9875530Z   - Libssl.xcframework
+2026-06-18T22:23:57.9875770Z   - gmp.xcframework
+2026-06-18T22:23:57.9875980Z   - nettle.xcframework
+2026-06-18T22:23:57.9876240Z   - hogweed.xcframework
+2026-06-18T22:23:57.9876410Z   - gnutls.xcframework
+2026-06-18T22:23:57.9876640Z   - Libunibreak.xcframework
+2026-06-18T22:23:57.9876830Z   - Libfreetype.xcframework
+2026-06-18T22:23:57.9877030Z   - Libfribidi.xcframework
+2026-06-18T22:23:57.9877230Z   - Libharfbuzz.xcframework
+2026-06-18T22:23:57.9877430Z   - Libass.xcframework
+2026-06-18T22:23:57.9877610Z   - Libsmbclient.xcframework
+2026-06-18T22:23:57.9877810Z   - Libbluray.xcframework
+2026-06-18T22:23:57.9878010Z   - Libuavs3d.xcframework
+2026-06-18T22:23:57.9878190Z   - Libdovi.xcframework
+2026-06-18T22:23:57.9878380Z   - MoltenVK.xcframework
+2026-06-18T22:23:57.9878570Z   - Libshaderc_combined.xcframework
+2026-06-18T22:23:57.9878780Z   - lcms2.xcframework
+2026-06-18T22:23:57.9878980Z   - Libplacebo.xcframework
+2026-06-18T22:23:57.9879180Z   - Libdav1d.xcframework
+2026-06-18T22:23:57.9879360Z   - Libuchardet.xcframework
+2026-06-18T22:23:57.9879500Z 
+2026-06-18T22:23:57.9879750Z 说明：当前 Libmpv.framework 是静态库。未补齐这些依赖前，不要直接 import Libmpv 或调用 mpv_create/mpv_initialize。
+2026-06-18T22:23:57.9880030Z 
+2026-06-18T22:23:57.9880450Z 打开 Libmpv 静态初始化时还需要确认系统 framework Link:
+2026-06-18T22:23:57.9880680Z   - VideoToolbox.framework
+2026-06-18T22:23:57.9880880Z   - CoreMedia.framework
+2026-06-18T22:23:57.9881050Z   - CoreVideo.framework
+2026-06-18T22:23:57.9881250Z   - AudioToolbox.framework
+2026-06-18T22:23:57.9881440Z   - AVFoundation.framework
+2026-06-18T22:23:57.9881630Z   - Metal.framework
+2026-06-18T22:23:57.9881800Z   - QuartzCore.framework
+2026-06-18T22:23:57.9881990Z   - UIKit.framework
+2026-06-18T22:23:57.9882170Z   - IOSurface.framework
+2026-06-18T22:23:57.9882360Z   - Security.framework
+2026-06-18T22:23:57.9882520Z   - libz.tbd
+2026-06-18T22:23:57.9882670Z   - libbz2.tbd
+2026-06-18T22:23:57.9882870Z   - libiconv.tbd
+2026-06-18T22:23:57.9883030Z   - libc++.tbd
+2026-06-18T22:23:57.9883140Z 
+2026-06-18T22:23:57.9883240Z 自由度内核占位目录: vbox/Libraries/MPV/Freedom
+2026-06-18T22:23:57.9883560Z 该目录不属于 MPVKit 依赖检查范围，后续 Freedom/libmpv.xcframework 单独验证。
+2026-06-18T22:23:57.9883750Z 
+2026-06-18T22:23:57.9883860Z MPVKit 核心运行依赖检查通过；外部静态依赖缺失已按参数降级为提示。
+2026-06-18T22:24:15.4263070Z MPVKit 外部静态依赖安装模式:
+2026-06-18T22:24:15.4263670Z   全部外部依赖
+2026-06-18T22:24:15.4263940Z   缓存目录: .mpv-cache/external
+2026-06-18T22:24:15.4264140Z 
+2026-06-18T22:24:15.4264320Z 准备安装外部依赖: gmp.xcframework
+2026-06-18T22:24:15.4264790Z 说明: 3.153 链接日志出现 ___gmpz_* 缺失符号
+2026-06-18T22:24:15.4265430Z 下载: https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gmp.xcframework.zip
+2026-06-18T22:24:15.4265930Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/gmp.xcframework
+2026-06-18T22:24:15.4266150Z 
+2026-06-18T22:24:15.4266290Z 准备安装外部依赖: Libass.xcframework
+2026-06-18T22:24:15.4266630Z 说明: 3.153 链接日志出现 ass_configure_prune 缺失符号
+2026-06-18T22:24:15.4267320Z 下载: https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libass.xcframework.zip
+2026-06-18T22:24:15.4267850Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libass.xcframework
+2026-06-18T22:24:15.4268180Z 
+2026-06-18T22:24:15.4268320Z 准备安装外部依赖: Libbluray.xcframework
+2026-06-18T22:24:15.4268620Z 说明: 3.153 链接日志出现 bd_* 缺失符号
+2026-06-18T22:24:15.4269310Z 下载: https://github.com/mpvkit/libbluray-build/releases/download/1.4.0/Libbluray.xcframework.zip
+2026-06-18T22:24:15.4270080Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libbluray.xcframework
+2026-06-18T22:24:15.4270300Z 
+2026-06-18T22:24:15.4270520Z 准备安装外部依赖: lcms2.xcframework
+2026-06-18T22:24:15.4270870Z 说明: 3.153 链接日志出现 cms* 缺失符号
+2026-06-18T22:24:15.4271320Z 下载: https://github.com/mpvkit/lcms2-build/releases/download/2.17.0/lcms2.xcframework.zip
+2026-06-18T22:24:15.4271890Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/lcms2.xcframework
+2026-06-18T22:24:15.4272140Z 
+2026-06-18T22:24:15.4272250Z 准备安装外部依赖: Libcrypto.xcframework
+2026-06-18T22:24:15.4278500Z 说明: Package.swift 外部 binaryTarget，后续 HTTPS/加密链路可能需要
+2026-06-18T22:24:15.4279080Z 下载: https://github.com/mpvkit/openssl-build/releases/download/3.3.5/Libcrypto.xcframework.zip
+2026-06-18T22:24:15.4279770Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework
+2026-06-18T22:24:15.4280060Z 
+2026-06-18T22:24:15.4280240Z 准备安装外部依赖: Libssl.xcframework
+2026-06-18T22:24:15.4280740Z 说明: Package.swift 外部 binaryTarget，后续 HTTPS/加密链路可能需要
+2026-06-18T22:24:15.4281270Z 下载: https://github.com/mpvkit/openssl-build/releases/download/3.3.5/Libssl.xcframework.zip
+2026-06-18T22:24:15.4281820Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libssl.xcframework
+2026-06-18T22:24:15.4282030Z 
+2026-06-18T22:24:15.4282200Z 准备安装外部依赖: nettle.xcframework
+2026-06-18T22:24:15.4282520Z 说明: gnutls 依赖链
+2026-06-18T22:24:15.4282890Z 下载: https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/nettle.xcframework.zip
+2026-06-18T22:24:15.4283420Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/nettle.xcframework
+2026-06-18T22:24:15.4283670Z 
+2026-06-18T22:24:15.4283770Z 准备安装外部依赖: hogweed.xcframework
+2026-06-18T22:24:15.4284030Z 说明: gnutls 依赖链
+2026-06-18T22:24:15.4284470Z 下载: https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/hogweed.xcframework.zip
+2026-06-18T22:24:15.4285070Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/hogweed.xcframework
+2026-06-18T22:24:15.4286190Z 
+2026-06-18T22:24:15.4286350Z 准备安装外部依赖: gnutls.xcframework
+2026-06-18T22:24:15.4286650Z 说明: Package.swift 外部 binaryTarget
+2026-06-18T22:24:15.4287140Z 下载: https://github.com/mpvkit/gnutls-build/releases/download/3.8.11/gnutls.xcframework.zip
+2026-06-18T22:24:15.4287660Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework
+2026-06-18T22:24:15.4287890Z 
+2026-06-18T22:24:15.4288070Z 准备安装外部依赖: Libunibreak.xcframework
+2026-06-18T22:24:15.4288370Z 说明: libass 依赖链
+2026-06-18T22:24:15.4288820Z 下载: https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libunibreak.xcframework.zip
+2026-06-18T22:24:15.4289340Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libunibreak.xcframework
+2026-06-18T22:24:15.4289650Z 
+2026-06-18T22:24:15.4289840Z 准备安装外部依赖: Libfreetype.xcframework
+2026-06-18T22:24:15.4290140Z 说明: libass 字体渲染依赖链
+2026-06-18T22:24:15.4290660Z 下载: https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libfreetype.xcframework.zip
+2026-06-18T22:24:15.4291180Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libfreetype.xcframework
+2026-06-18T22:24:15.4291470Z 
+2026-06-18T22:24:15.4291640Z 准备安装外部依赖: Libfribidi.xcframework
+2026-06-18T22:24:15.4292030Z 说明: libass 字幕排版依赖链
+2026-06-18T22:24:15.4292450Z 下载: https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libfribidi.xcframework.zip
+2026-06-18T22:24:15.4293050Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libfribidi.xcframework
+2026-06-18T22:24:15.4293270Z 
+2026-06-18T22:24:15.4293470Z 准备安装外部依赖: Libharfbuzz.xcframework
+2026-06-18T22:24:15.4293820Z 说明: libass 字形排版依赖链
+2026-06-18T22:24:15.4294250Z 下载: https://github.com/mpvkit/libass-build/releases/download/0.17.4/Libharfbuzz.xcframework.zip
+2026-06-18T22:24:15.4295270Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libharfbuzz.xcframework
+2026-06-18T22:24:15.4295580Z 
+2026-06-18T22:24:15.4295690Z 准备安装外部依赖: Libsmbclient.xcframework
+2026-06-18T22:24:15.4296030Z 说明: Package.swift 外部 binaryTarget
+2026-06-18T22:24:15.4296600Z 下载: https://github.com/mpvkit/libsmbclient-build/releases/download/4.15.13-2512/Libsmbclient.xcframework.zip
+2026-06-18T22:24:15.4297310Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libsmbclient.xcframework
+2026-06-18T22:24:15.4297620Z 
+2026-06-18T22:24:15.4297750Z 准备安装外部依赖: Libuavs3d.xcframework
+2026-06-18T22:24:15.4298030Z 说明: Package.swift 外部 binaryTarget
+2026-06-18T22:24:15.4298600Z 下载: https://github.com/mpvkit/libuavs3d-build/releases/download/1.2.1-xcode/Libuavs3d.xcframework.zip
+2026-06-18T22:24:15.4299140Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libuavs3d.xcframework
+2026-06-18T22:24:15.4299410Z 
+2026-06-18T22:24:15.4299580Z 准备安装外部依赖: Libdovi.xcframework
+2026-06-18T22:24:15.4300020Z 说明: Package.swift 外部 binaryTarget
+2026-06-18T22:24:15.4300580Z 下载: https://github.com/mpvkit/libdovi-build/releases/download/3.3.2/Libdovi.xcframework.zip
+2026-06-18T22:24:15.4301320Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libdovi.xcframework
+2026-06-18T22:24:15.4301540Z 
+2026-06-18T22:24:15.4301690Z 准备安装外部依赖: MoltenVK.xcframework
+2026-06-18T22:24:15.4301970Z 说明: Vulkan/MoltenVK 渲染链路，后续渲染阶段再处理
+2026-06-18T22:24:15.4302820Z 下载: https://github.com/mpvkit/moltenvk-build/releases/download/1.4.1/MoltenVK.xcframework.zip
+2026-06-18T22:24:15.4303450Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework
+2026-06-18T22:24:15.4303770Z 
+2026-06-18T22:24:15.4303890Z 准备安装外部依赖: Libshaderc_combined.xcframework
+2026-06-18T22:24:15.4304370Z 说明: shader 编译链路，后续渲染阶段再处理
+2026-06-18T22:24:15.4304860Z 下载: https://github.com/mpvkit/libshaderc-build/releases/download/2025.5.0/Libshaderc_combined.xcframework.zip
+2026-06-18T22:24:15.4305580Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libshaderc_combined.xcframework
+2026-06-18T22:24:15.4305960Z 
+2026-06-18T22:24:15.4306110Z 准备安装外部依赖: Libplacebo.xcframework
+2026-06-18T22:24:15.4306440Z 说明: 高阶视频渲染链路，后续渲染阶段再处理
+2026-06-18T22:24:15.4307010Z 下载: https://github.com/mpvkit/libplacebo-build/releases/download/7.360.1/Libplacebo.xcframework.zip
+2026-06-18T22:24:15.4307570Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libplacebo.xcframework
+2026-06-18T22:24:15.4307910Z 
+2026-06-18T22:24:15.4308110Z 准备安装外部依赖: Libdav1d.xcframework
+2026-06-18T22:24:15.4308460Z 说明: AV1 解码链路，后续播放能力扩展再处理
+2026-06-18T22:24:15.4308880Z 下载: https://github.com/mpvkit/libdav1d-build/releases/download/1.5.2-xcode/Libdav1d.xcframework.zip
+2026-06-18T22:24:15.4309370Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework
+2026-06-18T22:24:15.4309590Z 
+2026-06-18T22:24:15.4309700Z 准备安装外部依赖: Libuchardet.xcframework
+2026-06-18T22:24:15.4309940Z 说明: 字符集检测链路，后续字幕/文本兼容再处理
+2026-06-18T22:24:15.4310370Z 下载: https://github.com/mpvkit/libuchardet-build/releases/download/0.0.8-xcode/Libuchardet.xcframework.zip
+2026-06-18T22:24:15.4311650Z 已安装: vbox/Libraries/MPV/MPVKitDependencies/Libuchardet.xcframework
+2026-06-18T22:24:15.4312100Z 
+2026-06-18T22:24:15.4312190Z 外部静态依赖安装步骤完成。
+2026-06-18T22:24:15.4312400Z 注意：该脚本只安装/检查依赖，不修改播放器运行代码。
+2026-06-18T22:24:15.4951940Z 检查 MPVKit 运行依赖目录: vbox/Libraries/MPV/MPVKitDependencies
+2026-06-18T22:24:15.4953030Z 通过: Libmpv.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:24:15.4953720Z 通过: Libavcodec.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:24:15.5006320Z 通过: Libavdevice.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:24:15.5008490Z 通过: Libavfilter.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:24:15.5009500Z 通过: Libavformat.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:24:15.5010270Z 通过: Libavutil.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:24:15.5010830Z 通过: Libswresample.xcframework (ios-arm64_x86_64-simulator, ios-arm64，含模拟器)
+2026-06-18T22:24:15.5011430Z 通过: Libswscale.xcframework (ios-arm64, ios-arm64_x86_64-simulator，含模拟器)
+2026-06-18T22:24:15.5012230Z 
+2026-06-18T22:24:15.5012420Z Libmpv 静态链接外部依赖检查（提示项，不影响当前退出码）:
+2026-06-18T22:24:15.5012670Z 最小外部依赖集:
+2026-06-18T22:24:15.5012860Z   已安装:
+2026-06-18T22:24:15.5013030Z     - gmp.xcframework
+2026-06-18T22:24:15.5013280Z     - Libass.xcframework
+2026-06-18T22:24:15.5013460Z     - Libbluray.xcframework
+2026-06-18T22:24:15.5013790Z     - lcms2.xcframework
+2026-06-18T22:24:15.5014040Z   最小外部依赖集已安装。
+2026-06-18T22:24:15.5014170Z 
+2026-06-18T22:24:15.5014280Z 已安装外部依赖:
+2026-06-18T22:24:15.5014420Z   - Libcrypto.xcframework
+2026-06-18T22:24:15.5014610Z   - Libssl.xcframework
+2026-06-18T22:24:15.5014760Z   - gmp.xcframework
+2026-06-18T22:24:15.5015050Z   - nettle.xcframework
+2026-06-18T22:24:15.5015290Z   - hogweed.xcframework
+2026-06-18T22:24:15.5015510Z   - gnutls.xcframework
+2026-06-18T22:24:15.5015710Z   - Libunibreak.xcframework
+2026-06-18T22:24:15.5015920Z   - Libfreetype.xcframework
+2026-06-18T22:24:15.5016180Z   - Libfribidi.xcframework
+2026-06-18T22:24:15.5016380Z   - Libharfbuzz.xcframework
+2026-06-18T22:24:15.5016610Z   - Libass.xcframework
+2026-06-18T22:24:15.5016810Z   - Libsmbclient.xcframework
+2026-06-18T22:24:15.5016990Z   - Libbluray.xcframework
+2026-06-18T22:24:15.5017180Z   - Libuavs3d.xcframework
+2026-06-18T22:24:15.5017370Z   - Libdovi.xcframework
+2026-06-18T22:24:15.5017540Z   - MoltenVK.xcframework
+2026-06-18T22:24:15.5018010Z   - Libshaderc_combined.xcframework
+2026-06-18T22:24:15.5018290Z   - lcms2.xcframework
+2026-06-18T22:24:15.5018480Z   - Libplacebo.xcframework
+2026-06-18T22:24:15.5018670Z   - Libdav1d.xcframework
+2026-06-18T22:24:15.5018860Z   - Libuchardet.xcframework
+2026-06-18T22:24:15.5019160Z 外部静态依赖已全部安装，可进入下一阶段 mpv_create 初始化验证。
+2026-06-18T22:24:15.5019330Z 
+2026-06-18T22:24:15.5019460Z 打开 Libmpv 静态初始化时还需要确认系统 framework Link:
+2026-06-18T22:24:15.5019680Z   - VideoToolbox.framework
+2026-06-18T22:24:15.5019880Z   - CoreMedia.framework
+2026-06-18T22:24:15.5020050Z   - CoreVideo.framework
+2026-06-18T22:24:15.5020240Z   - AudioToolbox.framework
+2026-06-18T22:24:15.5020420Z   - AVFoundation.framework
+2026-06-18T22:24:15.5020610Z   - Metal.framework
+2026-06-18T22:24:15.5020780Z   - QuartzCore.framework
+2026-06-18T22:24:15.5020930Z   - UIKit.framework
+2026-06-18T22:24:15.5021080Z   - IOSurface.framework
+2026-06-18T22:24:15.5021240Z   - Security.framework
+2026-06-18T22:24:15.5021410Z   - libz.tbd
+2026-06-18T22:24:15.5021540Z   - libbz2.tbd
+2026-06-18T22:24:15.5021670Z   - libiconv.tbd
+2026-06-18T22:24:15.5021800Z   - libc++.tbd
+2026-06-18T22:24:15.5021880Z 
+2026-06-18T22:24:15.5022040Z 自由度内核占位目录: vbox/Libraries/MPV/Freedom
+2026-06-18T22:24:15.5022350Z 该目录不属于 MPVKit 依赖检查范围，后续 Freedom/libmpv.xcframework 单独验证。
+2026-06-18T22:24:15.5022560Z 
+2026-06-18T22:24:15.5022690Z MPVKit 核心运行依赖与外部静态依赖检查通过。
