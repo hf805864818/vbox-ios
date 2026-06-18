@@ -51,7 +51,7 @@ struct VideoDetailView: View {
         selectedSourceIndex = 0
     }
 
-    // MARK: - 加载真实详情
+    // MARK: - 加载真实详情（不触发UI闪跳）
     private func loadRealDetailIfNeeded() {
         guard !hasLoadedDetail, !isLoadingDetail else { return }
         isLoadingDetail = true
@@ -59,10 +59,11 @@ struct VideoDetailView: View {
             let detail = await SpiderManager.shared.nativeDetail(ids: video.vodId, name: video.vodName)
             await MainActor.run {
                 hasLoadedDetail = true
-                if let detail, detail.vodPlayUrl?.isEmpty == false {
-                    // 仅在初始 allSources 为空时更新，避免闪跳
-                    if allSources.isEmpty {
-                        let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                // 只在初始video没有playUrl时才用detail补充，避免覆盖已有数据
+                if video.vodPlayUrl?.isEmpty != false,
+                   let detail, detail.vodPlayUrl?.isEmpty == false {
+                    let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                    if !sources.isEmpty {
                         allSources = sources
                         selectedSourceIndex = 0
                     }
@@ -74,7 +75,7 @@ struct VideoDetailView: View {
 
     // MARK: - 加载演职人员
     private func loadCredits() {
-        guard actors.isEmpty, directors.isEmpty, !isLoadingCredits else { return }
+        guard !isLoadingCredits else { return }
         isLoadingCredits = true
         Task {
             let result = await DoubanService.shared.fetchCredits(for: video.vodName)
