@@ -286,8 +286,10 @@ struct LiveTVView: View {
                     HStack {
                         Spacer()
                         Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: 10))
+                            .font(.system(size: 16))
                             .foregroundColor(.accentColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                             .onTapGesture {
                                 showSourcePicker = true
                                 resetHideTimer()
@@ -299,16 +301,6 @@ struct LiveTVView: View {
                     }
                 }
                 .allowsHitTesting(isFloatingButtonVisible) // 隐藏时不拦截触摸
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 10)
-                    .onChanged { _ in
-                        resetHideTimer()
-                    }
-            )
-            .onTapGesture {
-                resetHideTimer()
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -544,6 +536,18 @@ struct LiveTVView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { _ in
+                            resetHideTimer()
+                        }
+                )
+                .simultaneousGesture(
+                    TapGesture()
+                        .onEnded { _ in
+                            resetHideTimer()
+                        }
+                )
             } else {
                 EmptyStateView {
                     loadChannelsIfNeeded(for: currentCategory)
