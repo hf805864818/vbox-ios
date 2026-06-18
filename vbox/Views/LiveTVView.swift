@@ -299,10 +299,8 @@ struct LiveTVView: View {
                             resetHideTimer()
                         }) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 12))
+                                .font(.system(size: 10))
                                 .foregroundColor(.accentColor)
-                                .frame(width: 30, height: 30)
-                                .clipShape(Circle())
                         }
                         .padding(.trailing, 16)
                         .padding(.bottom, 80) // 向上移动避免底栏遮挡
@@ -320,13 +318,7 @@ struct LiveTVView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [
-                    .item,                     // 通用文件
-                    .plainText,                 // TXT
-                    .mpeg4Movie,                // M3U8
-                    .json,                      // JSON
-                    .xml,                       // XML
-                ],
+                allowedContentTypes: [.data],  // 使用 .data 允许选择任意文件
                 allowsMultipleSelection: false
             ) { result in
                 handleFileImport(result: result)
@@ -710,7 +702,7 @@ struct EmptyStateView: View {
     }
 }
 
-// MARK: - 播放器Sheet
+// MARK: - 播放器Sheet（全屏播放）
 struct LivePlayerSheet: View {
     let channel: LiveChannel
     @ObservedObject var service: LiveTVService
@@ -723,86 +715,107 @@ struct LivePlayerSheet: View {
     @State private var showRoutePicker = false
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                VStack {
-                    if let player = player {
-                        VideoPlayer(player: player)
-                            .aspectRatio(16/9, contentMode: .fit)
-                            .cornerRadius(12)
-                            .padding(.horizontal)
-                    } else if isLoading {
-                        VStack(spacing: 16) {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                                .tint(.white)
-                            Text("正在解析播放地址...")
-                                .foregroundColor(.white)
-                        }
-                        .frame(height: 200)
-                    } else if let error = errorMessage {
-                        VStack(spacing: 16) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 50))
-                                .foregroundColor(.orange)
-                            Text(error)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                            Button("重试") {
-                                loadPlayer()
+            VStack {
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .onTapGesture {
+                            // 点击暂停/播放
+                            if player.timeControlStatus == .playing {
+                                player.pause()
+                            } else {
+                                player.play()
                             }
-                            .foregroundColor(.orange)
                         }
-                        .frame(height: 200)
-                    }
-
-                    Spacer()
-
-                    // 控制栏
+                } else if isLoading {
                     VStack(spacing: 16) {
-                        Text(channel.name)
-                            .font(.system(size: 20, weight: .bold))
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                        Text("正在解析播放地址...")
                             .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = errorMessage {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 50))
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                        Button("重试") {
+                            loadPlayer()
+                        }
+                        .foregroundColor(.orange)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
 
-                        HStack(spacing: 20) {
-                            Button(action: { dismiss() }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 44))
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
+                // 底部控制栏（半透明）
+                VStack(spacing: 12) {
+                    Text(channel.name)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
 
-                            if availableRoutes.count > 1 {
-                                Button(action: { showRoutePicker = true }) {
-                                    Image(systemName: "arrow.triangle.branch")
-                                        .font(.system(size: 32))
-                                        .foregroundColor(.orange)
+                    HStack(spacing: 24) {
+                        // 关闭按钮
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+
+                        // 线路切换
+                        if availableRoutes.count > 1 {
+                            Menu {
+                                ForEach(0..<availableRoutes.count, id: \.self) { index in
+                                    Button("线路 \(index + 1)") {
+                                        switchToRoute(index: index)
+                                    }
                                 }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.triangle.branch")
+                                    Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
+                                }
+                                .font(.system(size: 14))
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.white.opacity(0.15)))
                             }
+                        } else if !availableRoutes.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "antenna.radiowaves.left.and.right")
+                                Text("线路 1")
+                            }
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.6))
                         }
                     }
-                    .padding(.bottom, 40)
                 }
-            }
-            .navigationBarHidden(true)
-            .actionSheet(isPresented: $showRoutePicker) {
-                ActionSheet(
-                    title: Text("选择线路"),
-                    buttons: availableRoutes.enumerated().map { index, route in
-                        .default(Text("线路 \(index + 1)")) {
-                            switchToRoute(index: index)
-                        }
-                    } + [.cancel(Text("取消"))]
+                .padding(.horizontal, 20)
+                .padding(.bottom, max(20, 20)) // 适配安全区域
+                .background(
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.7)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
             }
-            .onAppear {
-                loadPlayer()
-            }
-            .onDisappear {
-                player?.pause()
-                player = nil
-            }
+        }
+        .statusBar(hidden: true)
+        .ignoresSafeArea()
+        .onAppear {
+            loadPlayer()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
         }
     }
 
@@ -813,6 +826,8 @@ struct LivePlayerSheet: View {
         Task {
             // 获取所有可用线路
             let routes = await service.resolveAllSources(channel: channel)
+            print("[LivePlayer] 解析到 \(routes.count) 个线路: \(routes)")
+
             await MainActor.run {
                 availableRoutes = routes
             }
@@ -820,7 +835,7 @@ struct LivePlayerSheet: View {
             guard !routes.isEmpty else {
                 await MainActor.run {
                     isLoading = false
-                    errorMessage = "无法获取播放地址"
+                    errorMessage = "无法获取播放地址，请检查网络或切换线路"
                 }
                 return
             }
@@ -830,16 +845,18 @@ struct LivePlayerSheet: View {
             guard let url = URL(string: urlString) else {
                 await MainActor.run {
                     isLoading = false
-                    errorMessage = "播放地址无效"
+                    errorMessage = "播放地址格式无效"
                 }
                 return
             }
 
-            let player = AVPlayer(url: url)
+            print("[LivePlayer] 开始播放: \(urlString)")
+
+            let avPlayer = AVPlayer(url: url)
             await MainActor.run {
-                self.player = player
+                self.player = avPlayer
                 self.isLoading = false
-                player.play()
+                avPlayer.play()
             }
         }
     }
