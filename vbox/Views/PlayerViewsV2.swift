@@ -2991,7 +2991,7 @@ struct PlayerControlsView: View {
         // 小巧弹窗 - 选集
         .overlay(
             SmallPopupView(isPresented: $playerState.showEpisodePicker) {
-                EpisodePickerPanelV2(isPresented: $playerState.showEpisodePicker, playerState: playerState)
+                EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
             }
         )
         // 侧边栏弹窗 - 清晰度
