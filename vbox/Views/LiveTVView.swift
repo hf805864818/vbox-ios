@@ -278,16 +278,6 @@ struct LiveTVView: View {
                     // 频道列表
                     channelList
                 }
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 10)
-                        .onChanged { _ in
-                            resetHideTimer()
-                        }
-                )
-                .onTapGesture {
-                    resetHideTimer()
-                }
 
                 // 右下角浮动按钮（自动隐藏/显示）
                 VStack {
@@ -307,6 +297,17 @@ struct LiveTVView: View {
                             .animation(.easeInOut(duration: 0.3), value: isFloatingButtonVisible)
                     }
                 }
+                .allowsHitTesting(isFloatingButtonVisible) // 隐藏时不拦截触摸
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { _ in
+                        resetHideTimer()
+                    }
+            )
+            .onTapGesture {
+                resetHideTimer()
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -430,10 +431,14 @@ struct LiveTVView: View {
                 let content: String
                 if let utf8Content = try? String(contentsOf: url, encoding: .utf8) {
                     content = utf8Content
-                } else if let gbkContent = try? String(contentsOf: url, encoding: .gb_18030_2000) {
-                    content = gbkContent
                 } else {
-                    content = try String(contentsOf: url, encoding: .ascii)
+                    // 尝试自动检测编码
+                    let data = try Data(contentsOf: url)
+                    if let detected = String(data: data, encoding: .utf8) {
+                        content = detected
+                    } else {
+                        content = String(data: data, encoding: .ascii) ?? ""
+                    }
                 }
 
                 let fileName = url.deletingPathExtension().lastPathComponent
