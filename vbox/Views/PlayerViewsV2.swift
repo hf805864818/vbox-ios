@@ -2835,8 +2835,8 @@ struct PortraitBottomBar: View {
             }
 
             Button(action: { playerState.showSettings = true }) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18))
+                Text("倍数")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white)
             }
         }
@@ -2980,17 +2980,17 @@ struct PlayerControlsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             orientation = UIDevice.current.orientation
         }
-        // 侧边栏弹窗 - 播放设置
+        // 小巧弹窗 - 倍数
         .overlay(
-            SidePanelView(isPresented: $playerState.showSettings, title: "播放设置") {
+            SmallPopupView(isPresented: $playerState.showSettings) {
                 PlayerSettingsPanelV2(speed: $playerState.playbackSpeed, onSpeedChange: { speed in
                     playerState.changePlaybackSpeed(speed)
                 })
             }
         )
-        // 侧边栏弹窗 - 选集
+        // 小巧弹窗 - 选集
         .overlay(
-            SidePanelView(isPresented: $playerState.showEpisodePicker, title: "选集") {
+            SmallPopupView(isPresented: $playerState.showEpisodePicker) {
                 EpisodePickerPanelV2(playerState: playerState)
             }
         )
@@ -3479,18 +3479,53 @@ struct QualityPickerViewV2: View {
     }
 }
 
-// MARK: - 侧边栏弹窗容器
+// MARK: - 小巧居中弹窗容器（用于选集/倍数）
+struct SmallPopupView<Content: View>: View {
+    @Binding var isPresented: Bool
+    let content: Content
+
+    init(isPresented: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self._isPresented = isPresented
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if isPresented {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isPresented = false
+                            }
+                        }
+
+                    content
+                        .frame(width: min(geometry.size.width * 0.55, 240))
+                        .background(Color(hex: "1E1E1E"))
+                        .cornerRadius(10)
+                        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isPresented)
+        }
+    }
+}
+
+// MARK: - 侧边栏弹窗容器（用于其他设置）
 struct SidePanelView<Content: View>: View {
     @Binding var isPresented: Bool
     let title: String
     let content: Content
-    
+
     init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content) {
         self._isPresented = isPresented
         self.title = title
         self.content = content()
     }
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -3502,18 +3537,18 @@ struct SidePanelView<Content: View>: View {
                                 isPresented = false
                             }
                         }
-                    
+
                     HStack {
                         Spacer()
-                        
+
                         VStack(spacing: 0) {
                             HStack {
                                 Text(title)
                                     .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(.white)
-                                
+
                                 Spacer()
-                                
+
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.25)) {
                                         isPresented = false
@@ -3528,7 +3563,7 @@ struct SidePanelView<Content: View>: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                             .background(Color.black.opacity(0.9))
-                            
+
                             content
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .background(Color(hex: "1A1A1A"))
@@ -3550,46 +3585,66 @@ struct SidePanelView<Content: View>: View {
 struct PlayerSettingsPanelV2: View {
     @Binding var speed: Double
     var onSpeedChange: (Double) -> Void
-    
+    @Environment(\.dismiss) private var dismiss
+
     let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
-    
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                Text("播放速度")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("倍数")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // 竖排列表
+            ScrollView(showsIndicators: true) {
+                LazyVStack(spacing: 0) {
                     ForEach(speeds, id: \.self) { s in
                         Button(action: {
                             speed = s
                             onSpeedChange(s)
+                            dismiss()
                         }) {
-                            let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
-                            Text(speedText + "X")
-                                .font(.system(size: 16, weight: speed == s ? .semibold : .regular))
-                                .foregroundColor(speed == s ? Color(hex: "00BEFF") : .white)
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(speed == s ? Color(hex: "00BEFF").opacity(0.2) : Color.white.opacity(0.1))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(speed == s ? Color(hex: "00BEFF") : Color.clear, lineWidth: 1)
-                                )
+                            HStack {
+                                let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
+                                Text(speedText + "x")
+                                    .font(.system(size: 15, weight: speed == s ? .semibold : .regular))
+                                    .foregroundColor(speed == s ? Color(hex: "00BEFF") : .white)
+                                Spacer()
+                                if speed == s {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(Color(hex: "00BEFF"))
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                            .background(speed == s ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
                         }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Divider()
+                            .background(Color.white.opacity(0.08))
+                            .padding(.leading, 12)
                     }
                 }
-                .padding(.horizontal, 16)
-                
-                Spacer()
             }
+            .frame(maxHeight: 280)
         }
+        .background(Color(hex: "1E1E1E"))
+        .cornerRadius(10)
     }
 }
 

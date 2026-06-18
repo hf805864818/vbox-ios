@@ -90,42 +90,74 @@ struct DanmakuOverlayViewV2: View {
 
 struct EpisodePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("选集")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Divider().background(Color.white.opacity(0.1))
+
             if !playerState.baiduFileList.isEmpty {
-                // 百度网盘多文件列表
-                let columns = Array(repeating: GridItem(.flexible()), count: 4)
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
-                        Button(action: {
-                            playerState.switchBaiduFile(index: idx)
-                        }) {
-                            Text(episodeName(file.name, index: idx))
-                                .font(.system(size: 13))
-                                .foregroundColor(.white)
-                                .frame(minWidth: 56, minHeight: 56)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(idx == playerState.currentEpisodeIndex ? Color.blue : Color.white.opacity(0.1))
-                                )
+                // 竖排列表，可滚动
+                ScrollView(showsIndicators: true) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
+                            Button(action: {
+                                playerState.switchBaiduFile(index: idx)
+                                dismiss()
+                            }) {
+                                HStack {
+                                    Text(episodeName(file.name, index: idx))
+                                        .font(.system(size: 14, weight: idx == playerState.currentEpisodeIndex ? .semibold : .regular))
+                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF") : .white)
+                                    Spacer()
+                                    if idx == playerState.currentEpisodeIndex {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(Color(hex: "00BEFF"))
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 12)
+                                .background(idx == playerState.currentEpisodeIndex ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Divider()
+                                .background(Color.white.opacity(0.08))
+                                .padding(.leading, 12)
                         }
                     }
                 }
-                .padding()
+                .frame(maxHeight: 320)
             } else {
-                // 普通多集占位
                 Text("暂无集数信息")
                     .foregroundColor(.gray)
-                    .padding()
+                    .padding(.vertical, 40)
             }
         }
+        .background(Color(hex: "1E1E1E"))
+        .cornerRadius(10)
     }
-    
+
     private func episodeName(_ name: String, index: Int) -> String {
-        // 去掉扩展名，取短名
         let cleaned = (name as NSString).deletingPathExtension
         if cleaned.count > 8 {
-            return "\(index + 1)"
+            return "第\(index + 1)集"
         }
         return cleaned
     }
