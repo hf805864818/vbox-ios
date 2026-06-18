@@ -200,6 +200,9 @@ struct HomeView: View {
     private static var cachedHotTV: [DoubanSubject] = []
     private static var cachedHotVariety: [DoubanSubject] = []
     private static var cachedTop250: [DoubanSubject] = []
+    private static var cachedShowingMovies: [DoubanSubject] = []
+    private static var cachedHotGaiaMovies: [DoubanSubject] = []
+    private static var cachedAmericanTV: [DoubanSubject] = []
     private static var hasHomeCache: Bool {
         !cachedBannerSubjects.isEmpty || !cachedHotMovies.isEmpty || !cachedHotTV.isEmpty || !cachedTop250.isEmpty
     }
@@ -209,6 +212,9 @@ struct HomeView: View {
     @State private var hotTV: [DoubanSubject]
     @State private var hotVariety: [DoubanSubject]
     @State private var top250: [DoubanSubject]
+    @State private var showingMovies: [DoubanSubject]
+    @State private var hotGaiaMovies: [DoubanSubject]
+    @State private var americanTV: [DoubanSubject]
     @State private var currentIndex = 0
 
     init() {
@@ -218,6 +224,9 @@ struct HomeView: View {
         _hotTV = State(initialValue: Self.cachedHotTV)
         _hotVariety = State(initialValue: Self.cachedHotVariety)
         _top250 = State(initialValue: Self.cachedTop250)
+        _showingMovies = State(initialValue: Self.cachedShowingMovies)
+        _hotGaiaMovies = State(initialValue: Self.cachedHotGaiaMovies)
+        _americanTV = State(initialValue: Self.cachedAmericanTV)
     }
 
     var body: some View {
@@ -249,6 +258,18 @@ struct HomeView: View {
                         SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
                         HorizontalSubjectRow(subjects: hotVariety, settings: settings)
                     }
+                    if !showingMovies.isEmpty {
+                        SectionHeader(title: "影院热映", icon: "film.fill")
+                        HorizontalSubjectRow(subjects: showingMovies, settings: settings)
+                    }
+                    if !hotGaiaMovies.isEmpty {
+                        SectionHeader(title: "豆瓣热门", icon: "flame.fill")
+                        HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
+                    }
+                    if !americanTV.isEmpty {
+                        SectionHeader(title: "值得看的英美剧", icon: "globe")
+                        HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                    }
                 }
             }
             .padding(.bottom, 100)
@@ -277,16 +298,25 @@ struct HomeView: View {
             async let tv = doubanService.fetchHotTV(start: 0, count: 10)
             async let variety = doubanService.fetchHotVariety(start: 0, count: 10)
             async let top = doubanService.fetchTop250(start: 0, count: 10)
+            async let showing = doubanService.fetchUpcomingCN(start: 0, count: 10)
+            async let hotGaia = doubanService.fetchHotGaia(start: 0, count: 10)
+            async let american = doubanService.fetchAmericanTV(start: 0, count: 10)
             bannerSubjects = try await banner
             hotMovies = try await movies
             hotTV = try await tv
             hotVariety = try await variety
             top250 = try await top
+            showingMovies = try await showing
+            hotGaiaMovies = try await hotGaia
+            americanTV = try await american
             Self.cachedBannerSubjects = bannerSubjects
             Self.cachedHotMovies = hotMovies
             Self.cachedHotTV = hotTV
             Self.cachedHotVariety = hotVariety
             Self.cachedTop250 = top250
+            Self.cachedShowingMovies = showingMovies
+            Self.cachedHotGaiaMovies = hotGaiaMovies
+            Self.cachedAmericanTV = americanTV
         } catch {
             print("Douban API error: \(error)")
         }
@@ -299,6 +329,9 @@ struct HomeView: View {
         hotTV = Self.cachedHotTV
         hotVariety = Self.cachedHotVariety
         top250 = Self.cachedTop250
+        showingMovies = Self.cachedShowingMovies
+        hotGaiaMovies = Self.cachedHotGaiaMovies
+        americanTV = Self.cachedAmericanTV
         isLoading = false
     }
 }
