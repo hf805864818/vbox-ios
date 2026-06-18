@@ -2570,6 +2570,67 @@ struct PlayerContainerView: View {
                     video: video
                 )
             }
+            
+            // 弹窗层 - 独立于控制栏，即使控制栏隐藏也能显示
+            // 弹窗 - 倍数（竖屏由SpeedAnchorButton在按钮上方弹出，横屏用小弹窗）
+            Group {
+                if !playerState.isPortrait && playerState.showSettings {
+                    SmallPopupView(isPresented: $playerState.showSettings) {
+                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
+                            playerState.changePlaybackSpeed(speed)
+                        })
+                    }
+                }
+            }
+            // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
+            Group {
+                if playerState.isPortrait && playerState.showEpisodePicker {
+                    PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                    }
+                } else if !playerState.isPortrait && playerState.showEpisodePicker {
+                    SmallPopupView(isPresented: $playerState.showEpisodePicker) {
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                    }
+                }
+            }
+            // 侧边栏弹窗 - 清晰度
+            Group {
+                if playerState.showQualityPicker {
+                    SidePanelView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
+                        QualityPickerPanelV2(
+                            selectedQuality: $playerState.selectedQuality,
+                            isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                            onQualityChange: { index in
+                                playerState.changeQuality(index: index)
+                            }
+                        )
+                    }
+                }
+            }
+            // 侧边栏弹窗 - 弹幕设置
+            Group {
+                if playerState.showDanmakuSettings {
+                    SidePanelView(isPresented: $playerState.showDanmakuSettings, title: "弹幕设置") {
+                        DanmakuSettingsPanelV2(
+                            showDanmaku: $playerState.showDanmaku,
+                            opacity: $playerState.danmakuOpacity,
+                            fontSize: $playerState.danmakuFontSize,
+                            area: $playerState.danmakuArea,
+                            speed: $playerState.danmakuSpeed,
+                            colorMode: $playerState.danmakuColorMode
+                        )
+                    }
+                }
+            }
+            // 侧边栏弹窗 - 播放内核
+            Group {
+                if playerState.showEnginePicker {
+                    SidePanelView(isPresented: $playerState.showEnginePicker, title: "播放内核") {
+                        EnginePickerPanelV2(playerState: playerState)
+                    }
+                }
+            }
         }
     }
 }
@@ -2676,6 +2737,7 @@ struct PlayerTopBarView: View {
                     .font(.system(size: isPortrait ? 18 : 20, weight: .semibold))
                     .foregroundColor(.white)
             }
+            .buttonStyle(PlainButtonStyle())
 
             Spacer()
 
@@ -2839,9 +2901,9 @@ struct PortraitBottomBar: View {
             Button(action: { playerState.showEpisodePicker = true }) {
                 VStack(spacing: 2) {
                     Image(systemName: "list.bullet")
-                        .font(.system(size: 14))
+                        .font(.system(size: 16))
                     Text("选集")
-                        .font(.system(size: 9))
+                        .font(.system(size: 10, weight: .medium))
                 }
                 .foregroundColor(.white)
             }
@@ -3027,63 +3089,6 @@ struct PlayerControlsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             updateOrientation()
         }
-        // 弹窗 - 倍数（竖屏由SpeedAnchorButton在按钮上方弹出，横屏用小弹窗）
-        .overlay(
-            Group {
-                if !playerState.isPortrait {
-                    SmallPopupView(isPresented: $playerState.showSettings) {
-                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
-                            playerState.changePlaybackSpeed(speed)
-                        })
-                    }
-                }
-            }
-        )
-        // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
-        .overlay(
-            Group {
-                if playerState.isPortrait {
-                    PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
-                    }
-                } else {
-                    SmallPopupView(isPresented: $playerState.showEpisodePicker) {
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
-                    }
-                }
-            }
-        )
-        // 侧边栏弹窗 - 清晰度
-        .overlay(
-            SidePanelView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
-                QualityPickerPanelV2(
-                    selectedQuality: $playerState.selectedQuality,
-                    isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
-                    onQualityChange: { index in
-                        playerState.changeQuality(index: index)
-                    }
-                )
-            }
-        )
-        // 侧边栏弹窗 - 弹幕设置
-        .overlay(
-            SidePanelView(isPresented: $playerState.showDanmakuSettings, title: "弹幕设置") {
-                DanmakuSettingsPanelV2(
-                    showDanmaku: $playerState.showDanmaku,
-                    opacity: $playerState.danmakuOpacity,
-                    fontSize: $playerState.danmakuFontSize,
-                    area: $playerState.danmakuArea,
-                    speed: $playerState.danmakuSpeed,
-                    colorMode: $playerState.danmakuColorMode
-                )
-            }
-        )
-        // 侧边栏弹窗 - 播放内核
-        .overlay(
-            SidePanelView(isPresented: $playerState.showEnginePicker, title: "播放内核") {
-                EnginePickerPanelV2(playerState: playerState)
-            }
-        )
     }
 
     private func togglePiP() {
