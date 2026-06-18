@@ -4,9 +4,10 @@ import AVKit
 // MARK: - 直播主页面
 struct LiveTVView: View {
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var service = LiveTVService.shared
     @State private var selectedCategory: LiveCategory?
     @State private var showChannelList = false
+    
+    private var service: LiveTVService { LiveTVService.shared }
     
     var body: some View {
         NavigationView {
