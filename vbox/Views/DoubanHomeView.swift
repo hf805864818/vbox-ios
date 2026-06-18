@@ -10,6 +10,9 @@ struct DoubanHomeView: View {
     @State private var hotTV: [DoubanSubject] = []
     @State private var hotVariety: [DoubanSubject] = []
     @State private var top250: [DoubanSubject] = []
+    @State private var showingMovies: [DoubanSubject] = []
+    @State private var hotGaiaMovies: [DoubanSubject] = []
+    @State private var americanTV: [DoubanSubject] = []
     @State private var currentIndex = 0
     let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     
@@ -41,6 +44,18 @@ struct DoubanHomeView: View {
                         SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
                         HorizontalSubjectRow(subjects: hotVariety, settings: settings)
                     }
+                    if !showingMovies.isEmpty {
+                        SectionHeader(title: "影院热映", icon: "film.fill")
+                        HorizontalSubjectRow(subjects: showingMovies, settings: settings)
+                    }
+                    if !hotGaiaMovies.isEmpty {
+                        SectionHeader(title: "豆瓣热门", icon: "flame.fill")
+                        HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
+                    }
+                    if !americanTV.isEmpty {
+                        SectionHeader(title: "值得看的英美剧", icon: "globe")
+                        HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                    }
                 }
             }
             .padding(.bottom, 100)
@@ -65,20 +80,29 @@ struct DoubanHomeView: View {
                     var tv: [DoubanSubject] = []
                     var variety: [DoubanSubject] = []
                     var top: [DoubanSubject] = []
-                    
+                    var showing: [DoubanSubject] = []
+                    var hotGaia: [DoubanSubject] = []
+                    var american: [DoubanSubject] = []
+
                     group.addTask { banner = try await doubanService.fetchTop250(start: 0, count: 10) }
                     group.addTask { movies = try await doubanService.fetchHotMovies(start: 0, count: 10) }
                     group.addTask { tv = try await doubanService.fetchHotTV(start: 0, count: 10) }
                     group.addTask { variety = try await doubanService.fetchHotVariety(start: 0, count: 10) }
                     group.addTask { top = try await doubanService.fetchTop250(start: 0, count: 10) }
-                    
+                    group.addTask { showing = try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
+                    group.addTask { hotGaia = try await doubanService.fetchHotGaia(start: 0, count: 10) }
+                    group.addTask { american = try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+
                     try await group.waitForAll()
-                    
+
                     bannerSubjects = banner
                     hotMovies = movies
                     hotTV = tv
                     hotVariety = variety
                     top250 = top
+                    showingMovies = showing
+                    hotGaiaMovies = hotGaia
+                    americanTV = american
                 }
             } catch {
                 print("Douban API error: \(error)")

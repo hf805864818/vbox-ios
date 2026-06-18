@@ -14,6 +14,10 @@ struct CategoryDetailView: View {
     @State private var hasMoreData = true
     private let pageSize = 20
 
+    // 订阅源相关
+    @State private var hasSubscription = false
+    @State private var subscriptionSites: [SiteConfig] = []
+
     // 筛选状态
     @State private var selectedGenre: String = "全部"
     @State private var selectedYear: String = "全部"
@@ -28,7 +32,7 @@ struct CategoryDetailView: View {
         VStack(spacing: 0) {
             // 顶部标题栏
             HStack {
-                Text("找\(categoryName)")
+                Text(hasSubscription ? "\(categoryName) · 订阅源" : "找\(categoryName)")
                     .font(.system(size: 20, weight: .bold))
                 Spacer()
             }
@@ -36,32 +40,31 @@ struct CategoryDetailView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
-            // 筛选器区域
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    // 类型筛选
-                    FilterChip(title: "类型", options: genres, selection: $selectedGenre)
-
-                    // 年代筛选
-                    FilterChip(title: "年代", options: years, selection: $selectedYear)
-
-                    // 排序
-                    FilterChip(title: "排序", options: sorts, selection: $selectedSort)
+            // 筛选器区域（豆瓣模式下显示）
+            if !hasSubscription {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        FilterChip(title: "类型", options: genres, selection: $selectedGenre)
+                        FilterChip(title: "年代", options: years, selection: $selectedYear)
+                        FilterChip(title: "排序", options: sorts, selection: $selectedSort)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+                Divider()
+                    .padding(.horizontal, 16)
             }
-
-            Divider()
-                .padding(.horizontal, 16)
 
             // 内容区域
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 16) {
-                    if isLoading && filteredSubjects.isEmpty {
+                    if isLoading && filteredSubjects.isEmpty && subscriptionSites.isEmpty {
                         CategoryLoadingView()
                     } else if let error = errorMessage {
                         CategoryErrorView(message: error, retryAction: loadData)
+                    } else if hasSubscription {
+                        // 订阅源模式：显示站点列表
+                        SubscriptionSiteGrid(sites: subscriptionSites, settings: settings)
                     } else if filteredSubjects.isEmpty {
                         CategoryEmptyView(categoryName: categoryName)
                     } else {
@@ -83,13 +86,39 @@ struct CategoryDetailView: View {
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onAppear {
-            if subjects.isEmpty {
+            checkSubscription()
+            if subjects.isEmpty && !hasSubscription {
                 loadData()
             }
         }
         .onChange(of: selectedGenre) { _ in applyFilters() }
         .onChange(of: selectedYear) { _ in applyFilters() }
         .onChange(of: selectedSort) { _ in applyFilters() }
+    }
+
+    private func checkSubscription() {
+        let spider = SpiderManager.shared
+        let sub = spider.subManager
+        hasSubscription = sub.isLoaded && !sub.allSites.isEmpty
+        if hasSubscription {
+            // 过滤出当前分类相关的站点
+            subscriptionSites = sub.allSites.filter { site in
+                let name = site.name.lowercased()
+                let type = categoryType.lowercased()
+                switch type {
+                case "movie", "电影":
+                    return name.contains("电影") || name.contains("影视") || site.type == 1
+                case "tv", "电视剧", "剧集":
+                    return name.contains("剧") || name.contains("电视") || name.contains("影视") || site.type == 1
+                case "variety", "综艺":
+                    return name.contains("综艺") || name.contains("影视") || site.type == 1
+                case "animation", "动漫":
+                    return name.contains("动漫") || name.contains("动画") || name.contains("影视") || site.type == 1
+                default:
+                    return site.type == 1
+                }
+            }
+        }
     }
 
     private func loadData() {
@@ -205,6 +234,43 @@ struct CategoryDetailView: View {
             return try await doubanService.fetchHotMovies(start: start, count: count)
         default:
             return []
+        }
+    }
+}
+
+// MARK: - Subscription Site Grid
+struct SubscriptionSiteGrid: View {
+    let sites: [SiteConfig]
+    let settings: AppSettings
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(sites) { site in
+                Button(action: {
+                    settings.triggerSearch(site.name)
+                }) {
+                    VStack(spacing: 4) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(.blue)
+                        Text(site.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(10)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
     }
 }
