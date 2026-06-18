@@ -702,7 +702,7 @@ struct EmptyStateView: View {
     }
 }
 
-// MARK: - 播放器Sheet（全屏播放）
+// MARK: - 直播频道详情Sheet（小窗口预览 + 线路列表）
 struct LivePlayerSheet: View {
     let channel: LiveChannel
     @ObservedObject var service: LiveTVService
@@ -710,123 +710,241 @@ struct LivePlayerSheet: View {
     @State private var player: AVPlayer?
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var currentRouteIndex = 0
     @State private var availableRoutes: [String] = []
-    @State private var showRoutePicker = false
+    @State private var currentRouteIndex = 0
+
+    // 跳转到主播放器
+    @State private var showFullScreenPlayer = false
+    @State private var fullScreenVideo: VodItem?
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        NavigationView {
+            VStack(spacing: 0) {
+                // 上半部分：小视频预览窗口
+                ZStack {
+                    Color.black
+                        .aspectRatio(16/9, contentMode: .fit)
 
-            VStack {
-                if let player = player {
-                    VideoPlayer(player: player)
-                        .onTapGesture {
-                            // 点击暂停/播放
-                            if player.timeControlStatus == .playing {
-                                player.pause()
-                            } else {
-                                player.play()
+                    if let player = player {
+                        VideoPlayer(player: player)
+                            .frame(maxWidth: .infinity)
+                            .aspectRatio(16/9, contentMode: .fit)
+                            .onTapGesture {
+                                // 点击小窗口 -> 全屏跳转到主播放器
+                                openFullScreenPlayer()
                             }
-                        }
-                } else if isLoading {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(.white)
-                        Text("正在解析播放地址...")
-                            .foregroundColor(.white)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = errorMessage {
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 50))
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                        Button("重试") {
-                            loadPlayer()
-                        }
-                        .foregroundColor(.orange)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-                // 底部控制栏（半透明）
-                VStack(spacing: 12) {
-                    Text(channel.name)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-
-                    HStack(spacing: 24) {
-                        // 关闭按钮
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 36))
+                    } else if isLoading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(.white)
+                            Text("正在解析播放地址...")
+                                .font(.system(size: 14))
                                 .foregroundColor(.white.opacity(0.8))
                         }
-
-                        // 线路切换
-                        if availableRoutes.count > 1 {
-                            Menu {
-                                ForEach(0..<availableRoutes.count, id: \.self) { index in
-                                    Button("线路 \(index + 1)") {
-                                        switchToRoute(index: index)
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.triangle.branch")
-                                    Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
-                                }
-                                .font(.system(size: 14))
+                    } else if let error = errorMessage {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 36))
                                 .foregroundColor(.orange)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Color.white.opacity(0.15)))
-                            }
-                        } else if !availableRoutes.isEmpty {
-                            HStack(spacing: 6) {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                Text("线路 1")
+                            Text(error)
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                            Button("重试") {
+                                loadPlayer()
                             }
                             .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.6))
+                            .foregroundColor(.orange)
+                        }
+                    }
+
+                    // 全屏按钮（右上角）
+                    if player != nil {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Button(action: {
+                                    openFullScreenPlayer()
+                                }) {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Circle().fill(Color.black.opacity(0.5)))
+                                }
+                                .padding(.trailing, 8)
+                                .padding(.top, 8)
+                            }
+                            Spacer()
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, max(20, 20)) // 适配安全区域
-                .background(
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.7)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+
+                // 下半部分：频道信息和线路列表
+                VStack(spacing: 16) {
+                    // 频道名称
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(channel.name)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.primary)
+
+                            if let logo = channel.logo {
+                                Text(logo)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+
+                        if availableRoutes.count > 1 {
+                            Text("共 \(availableRoutes.count) 条线路")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color(.systemGray5)))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+
+                    Divider()
+                        .padding(.horizontal, 16)
+
+                    // 线路列表
+                    if availableRoutes.isEmpty && !isLoading {
+                        VStack(spacing: 12) {
+                            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                                .font(.system(size: 40))
+                                .foregroundColor(.secondary)
+                            Text("暂无可用线路")
+                                .font(.system(size: 15))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(0..<availableRoutes.count, id: \.self) { index in
+                                    Button(action: {
+                                        // 点击线路 -> 跳转到主播放器
+                                        currentRouteIndex = index
+                                        openFullScreenPlayer(routeIndex: index)
+                                    }) {
+                                        HStack(spacing: 12) {
+                                            // 线路编号
+                                            ZStack {
+                                                Circle()
+                                                    .fill(index == currentRouteIndex ? Color.accentColor : Color(.systemGray4))
+                                                    .frame(width: 32, height: 32)
+                                                Text("\(index + 1)")
+                                                    .font(.system(size: 14, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            }
+
+                                            // 线路信息
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("线路 \(index + 1)")
+                                                    .font(.system(size: 15, weight: .medium))
+                                                    .foregroundColor(.primary)
+
+                                                Text(truncateURL(availableRoutes[index]))
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.secondary)
+                                                    .lineLimit(1)
+                                            }
+
+                                            Spacer()
+
+                                            if index == currentRouteIndex {
+                                                Image(systemName: "play.circle.fill")
+                                                    .font(.system(size: 24))
+                                                    .foregroundColor(.accentColor)
+                                            } else {
+                                                Image(systemName: "play.circle")
+                                                    .font(.system(size: 24))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                        .padding(12)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(index == currentRouteIndex ? Color.accentColor.opacity(0.08) : Color(.systemBackground))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(index == currentRouteIndex ? Color.accentColor.opacity(0.3) : Color(.systemGray4), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .padding(.top, 16)
             }
-        }
-        .statusBar(hidden: true)
-        .ignoresSafeArea()
-        .onAppear {
-            loadPlayer()
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
+            .navigationTitle("频道详情")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                }
+            }
+            .fullScreenCover(item: $fullScreenVideo) { video in
+                VideoPlayerViewV2(video: video)
+            }
+            .onAppear {
+                loadPlayer()
+            }
+            .onDisappear {
+                player?.pause()
+                player = nil
+            }
         }
     }
 
+    // MARK: - 打开全屏播放器
+    private func openFullScreenPlayer(routeIndex: Int? = nil) {
+        let idx = routeIndex ?? currentRouteIndex
+        guard idx < availableRoutes.count else { return }
+
+        let urlString = availableRoutes[idx]
+        // 构造 VodItem 传给主播放器
+        // vodPlayUrl 格式: "线路名$url"
+        let playUrl = "线路\(idx + 1)$\(urlString)"
+        fullScreenVideo = VodItem(
+            vodId: channel.id,
+            vodName: channel.name,
+            vodPic: channel.logo ?? "",
+            vodRemarks: "直播",
+            vodPlayFrom: "直播源",
+            vodPlayUrl: playUrl
+        )
+    }
+
+    // MARK: - 截断URL显示
+    private func truncateURL(_ url: String) -> String {
+        if url.count > 50 {
+            let start = url.prefix(25)
+            let end = url.suffix(20)
+            return "\(start)...\(end)"
+        }
+        return url
+    }
+
+    // MARK: - 加载预览播放器
     private func loadPlayer() {
         isLoading = true
         errorMessage = nil
 
         Task {
-            // 获取所有可用线路
             let routes = await service.resolveAllSources(channel: channel)
-            print("[LivePlayer] 解析到 \(routes.count) 个线路: \(routes)")
+            print("[LivePlayer] 解析到 \(routes.count) 个线路")
 
             await MainActor.run {
                 availableRoutes = routes
@@ -835,12 +953,11 @@ struct LivePlayerSheet: View {
             guard !routes.isEmpty else {
                 await MainActor.run {
                     isLoading = false
-                    errorMessage = "无法获取播放地址，请检查网络或切换线路"
+                    errorMessage = "无法获取播放地址"
                 }
                 return
             }
 
-            // 使用指定线路
             let urlString = routes[min(currentRouteIndex, routes.count - 1)]
             guard let url = URL(string: urlString) else {
                 await MainActor.run {
@@ -850,7 +967,7 @@ struct LivePlayerSheet: View {
                 return
             }
 
-            print("[LivePlayer] 开始播放: \(urlString)")
+            print("[LivePlayer] 预览播放: \(urlString)")
 
             let avPlayer = AVPlayer(url: url)
             await MainActor.run {
@@ -859,14 +976,6 @@ struct LivePlayerSheet: View {
                 avPlayer.play()
             }
         }
-    }
-
-    private func switchToRoute(index: Int) {
-        guard index < availableRoutes.count else { return }
-        currentRouteIndex = index
-        player?.pause()
-        player = nil
-        loadPlayer()
     }
 }
 
