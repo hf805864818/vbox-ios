@@ -174,7 +174,7 @@ struct SourceRowView: View {
 
     private var typeIcon: String {
         switch source {
-        case .defaultIPTV:
+        case .defaultIPTV, .defaultIPTV2:
             return "tv"
         case .subscribe:
             return "doc.text"
@@ -185,7 +185,7 @@ struct SourceRowView: View {
 
     private var typeColor: Color {
         switch source {
-        case .defaultIPTV:
+        case .defaultIPTV, .defaultIPTV2:
             return .blue
         case .subscribe:
             return .green
@@ -196,7 +196,7 @@ struct SourceRowView: View {
 
     private var typeLabel: String {
         switch source {
-        case .defaultIPTV:
+        case .defaultIPTV, .defaultIPTV2:
             return "默认源"
         case .subscribe:
             return "订阅源"
@@ -236,8 +236,12 @@ struct LiveTVView: View {
     @State private var showFileImporter = false
 
     private var isDefaultSource: Bool {
-        if case .defaultIPTV = service.currentSource { return true }
-        return false
+        switch service.currentSource {
+        case .defaultIPTV, .defaultIPTV2:
+            return true
+        case .subscribe, .custom:
+            return false
+        }
     }
 
     private var currentCategories: [LiveCategory] {
