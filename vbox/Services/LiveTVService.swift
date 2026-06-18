@@ -536,33 +536,76 @@ class LiveTVService: ObservableObject {
         }
     }
 
-    // MARK: - 央视直播流地址解析
+    // MARK: - 央视直播流地址解析（多线路备用）
     func resolveCCTVStream(channelId: String) async -> [String] {
-        // 中国移动IPTV源（公开可用）
-        let streamMap: [String: String] = [
-            "cctv1": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226016/index.m3u8",
-            "cctv2": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225588/index.m3u8",
-            "cctv3": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226021/index.m3u8",
-            "cctv4": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226428/index.m3u8",
-            "cctv5": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226019/index.m3u8",
-            "cctv5plus": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225603/index.m3u8",
-            "cctv6": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226010/index.m3u8",
-            "cctv7": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225733/index.m3u8",
-            "cctv8": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226008/index.m3u8",
-            "cctv9": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225734/index.m3u8",
-            "cctv10": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225730/index.m3u8",
-            "cctv11": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225597/index.m3u8",
-            "cctv12": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225731/index.m3u8",
-            "cctv13": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226011/index.m3u8",
-            "cctv14": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225732/index.m3u8",
-            "cctv15": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225601/index.m3u8",
-            "cctv16": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226100/index.m3u8",
-            "cctv17": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225765/index.m3u8",
-            "cctvnews": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226580/index.m3u8",
+        // 多线路备用：每条频道提供多个源，增加可用性
+        let streamMap: [String: [String]] = [
+            "cctv1": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226016/index.m3u8",
+                "http://39.134.24.162/dbiptv.sn.chinamobile.com/PLTV/88888890/224/3221225804/index.m3u8",
+            ],
+            "cctv2": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225588/index.m3u8",
+                "http://39.134.24.162/dbiptv.sn.chinamobile.com/PLTV/88888890/224/3221226195/index.m3u8",
+            ],
+            "cctv3": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226021/index.m3u8",
+            ],
+            "cctv4": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226428/index.m3u8",
+                "http://39.134.24.162/dbiptv.sn.chinamobile.com/PLTV/88888890/224/3221226191/index.m3u8",
+            ],
+            "cctv5": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226019/index.m3u8",
+                "http://39.134.24.162/dbiptv.sn.chinamobile.com/PLTV/88888890/224/3221226395/index.m3u8",
+            ],
+            "cctv5plus": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225603/index.m3u8",
+            ],
+            "cctv6": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226010/index.m3u8",
+            ],
+            "cctv7": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225733/index.m3u8",
+            ],
+            "cctv8": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226008/index.m3u8",
+            ],
+            "cctv9": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225734/index.m3u8",
+            ],
+            "cctv10": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225730/index.m3u8",
+            ],
+            "cctv11": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225597/index.m3u8",
+            ],
+            "cctv12": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225731/index.m3u8",
+            ],
+            "cctv13": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226011/index.m3u8",
+                "http://39.134.24.162/dbiptv.sn.chinamobile.com/PLTV/88888890/224/3221226233/index.m3u8",
+            ],
+            "cctv14": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225732/index.m3u8",
+            ],
+            "cctv15": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225601/index.m3u8",
+            ],
+            "cctv16": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226100/index.m3u8",
+            ],
+            "cctv17": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225765/index.m3u8",
+            ],
+            "cctvnews": [
+                "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226580/index.m3u8",
+            ],
         ]
 
-        if let url = streamMap[channelId] {
-            return [url]
+        if let urls = streamMap[channelId], !urls.isEmpty {
+            return urls
         }
 
         // CGTN 等国际频道使用备用源
@@ -894,168 +937,83 @@ class LiveTVService: ObservableObject {
             return streams
         }
 
-        // 默认源：从 iptv807.com 播放页解析（JavaScriptCore 解密）
-        guard let url = URL(string: channel.playURL) else { return [] }
-
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
-
-            print("[LiveTV] 播放页HTML长度: \(html.count), channelId=\(channel.channelId)")
-
-            // 使用 JavaScriptCore 解密 iptv807.com 的加密播放地址
-            let sources = decryptIPTV807Sources(from: html)
-            if !sources.isEmpty {
-                if let first = sources.first {
-                    m3u8Cache[channel.id] = first
-                }
-                print("[LiveTV] JavaScriptCore 解密到 \(sources.count) 个线路")
-                return sources
-            }
-
-            // 备用：正则匹配（可能匹配不到，因为地址是加密的）
-            var allSources: [String] = []
-            let patterns: [(String, String)] = [
-                (#"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#, "m3u8"),
-                (#"(https?://[^\s"'<>]+\.(mp4|flv|ts)[^\s"'<>]*)"#, "video"),
-            ]
-
-            for (pattern, _) in patterns {
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                    let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-                    for match in matches {
-                        guard match.numberOfRanges >= 2,
-                              let range = Range(match.range(at: 1), in: html) else { continue }
-                        var streamUrl = String(html[range])
-                        if streamUrl.hasPrefix("//") { streamUrl = "https:" + streamUrl }
-                        if !allSources.contains(streamUrl) {
-                            allSources.append(streamUrl)
-                        }
-                    }
-                }
-            }
-
-            if let first = allSources.first {
-                m3u8Cache[channel.id] = first
-            }
-            return allSources
-        } catch {
-            print("[LiveTV] 解析线路失败: \(error)")
-            return []
+        // 默认源：使用内置公开 IPTV 源映射
+        let sources = resolveDefaultStream(channelId: channel.channelId, tid: channel.tid)
+        if let first = sources.first {
+            m3u8Cache[channel.id] = first
         }
+        return sources
     }
 
-    // MARK: - iptv807.com JavaScriptCore 解密
-    private func decryptIPTV807Sources(from html: String) -> [String] {
-        // 提取加密变量
-        guard let tujbg = extractJSVar("tujbg", from: html),
-              let qcosi = extractJSVar("qcosi", from: html),
-              let nbojk = extractJSVar("nbojk", from: html),
-              let bglxn = extractJSVar("bglxn", from: html) else {
-            print("[LiveTV] 无法提取加密变量")
-            return []
+    // MARK: - 默认源内置公开 IPTV 流地址
+    private func resolveDefaultStream(channelId: String, tid: String) -> [String] {
+        // 内置公开 IPTV 源映射表（央视 + 卫视 + 地方台）
+        let streamMap: [String: [String]] = [
+            // 央视
+            "cctv1": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226016/index.m3u8"],
+            "cctv2": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225588/index.m3u8"],
+            "cctv3": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226021/index.m3u8"],
+            "cctv4": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226428/index.m3u8"],
+            "cctv5": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226019/index.m3u8"],
+            "cctv6": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226010/index.m3u8"],
+            "cctv7": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225733/index.m3u8"],
+            "cctv8": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226008/index.m3u8"],
+            "cctv9": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225734/index.m3u8"],
+            "cctv10": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225730/index.m3u8"],
+            "cctv11": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225597/index.m3u8"],
+            "cctv12": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225731/index.m3u8"],
+            "cctv13": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226011/index.m3u8"],
+            "cctv14": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225732/index.m3u8"],
+            "cctv15": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225601/index.m3u8"],
+            "cctv16": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226100/index.m3u8"],
+            "cctv17": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225765/index.m3u8"],
+            "cctv5plus": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225603/index.m3u8"],
+            // 卫视
+            "hunan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226307/index.m3u8"],
+            "zhejiang": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226333/index.m3u8"],
+            "jiangsu": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226310/index.m3u8"],
+            "dongfang": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226345/index.m3u8"],
+            "beijing": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226224/index.m3u8"],
+            "shenzhen": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226313/index.m3u8"],
+            "guangdong": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226180/index.m3u8"],
+            "anhui": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226391/index.m3u8"],
+            "dongnan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226341/index.m3u8"],
+            "tianjin": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226386/index.m3u8"],
+            "shandong": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226456/index.m3u8"],
+            "sichuan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226335/index.m3u8"],
+            "chongqing": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226400/index.m3u8"],
+            "heilongjiang": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226327/index.m3u8"],
+            "liaoning": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226261/index.m3u8"],
+            "hubei": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226477/index.m3u8"],
+            "jiangxi": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226344/index.m3u8"],
+            "guizhou": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226397/index.m3u8"],
+            "gansu": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226240/index.m3u8"],
+            "henan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226480/index.m3u8"],
+            "hebei": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226401/index.m3u8"],
+            "shanxi": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226392/index.m3u8"],
+            "guangxi": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226388/index.m3u8"],
+            "jilin": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226393/index.m3u8"],
+            "yunnan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226444/index.m3u8"],
+            "sanxia": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226485/index.m3u8"],
+            "neimenggu": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226389/index.m3u8"],
+            "qinghai": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226367/index.m3u8"],
+            "xinjiang": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226466/index.m3u8"],
+            "xizang": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226465/index.m3u8"],
+            "ningxia": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226462/index.m3u8"],
+            "bingtuan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226463/index.m3u8"],
+            "yanbian": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226350/index.m3u8"],
+            "kangba": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226464/index.m3u8"],
+            "shanxi2": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226486/index.m3u8"],
+            "hainan": ["http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226461/index.m3u8"],
+        ]
+
+        if let urls = streamMap[channelId], !urls.isEmpty {
+            print("[LiveTV] 默认源内置映射: \(channelId) -> \(urls)")
+            return urls
         }
 
-        // 提取 select option 的加密 value
-        let optionValues = extractSelectOptions(from: html)
-        guard !optionValues.isEmpty else {
-            print("[LiveTV] 无法提取线路选项")
-            return []
-        }
-
-        // 构建解密 JavaScript 代码
-        let jsCode = """
-        function ofmci(str) {
-            var output = "";
-            var chr1, chr2, chr3, enc1, enc2, enc3, enc4;
-            var i = 0;
-            var _keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-            str = str.replace(/[^A-Za-z0-9+/=]/g, "");
-            while (i < str.length) {
-                enc1 = _keyStr.indexOf(str.charAt(i++));
-                enc2 = _keyStr.indexOf(str.charAt(i++));
-                enc3 = _keyStr.indexOf(str.charAt(i++));
-                enc4 = _keyStr.indexOf(str.charAt(i++));
-                chr1 = (enc1 << 2) | (enc2 >> 4);
-                chr2 = ((enc2 & 15) << 4) | (enc3 >> 4);
-                chr3 = ((enc3 & 3) << 6) | enc4;
-                output += String.fromCharCode(chr1);
-                if (enc3 != 64) output += String.fromCharCode(chr2);
-                if (enc4 != 64) output += String.fromCharCode(chr3);
-            }
-            return output;
-        }
-
-        function zvmsy(input, key) {
-            var decoded = ofmci(input);
-            var result = "";
-            var fullKey = key + "4d5d89d25eb9a547";
-            for (var i = 0; i < decoded.length; i++) {
-                result += String.fromCharCode(decoded.charCodeAt(i) ^ fullKey.charCodeAt(i % fullKey.length));
-            }
-            return ofmci(result);
-        }
-
-        function xietr(yxp) {
-            yxp = yxp.split("").reverse().join("");
-            yxp = zvmsy(yxp, "\(qcosi)");
-            yxp = yxp.replace("token=\(nbojk)", "token=\(bglxn)");
-            yxp = yxp.replace("\(qcosi)", "");
-            return yxp;
-        }
-
-        var results = [];
-        var options = \(optionValues.toJSONEncodedString());
-        for (var i = 0; i < options.length; i++) {
-            try {
-                var decrypted = xietr(options[i]);
-                if (decrypted.indexOf("http") >= 0) {
-                    results.push(decrypted);
-                }
-            } catch(e) {}
-        }
-        JSON.stringify(results);
-        """
-
-        guard let context = JSContext() else {
-            print("[LiveTV] 无法创建 JSContext")
-            return []
-        }
-
-        let result = context.evaluateScript(jsCode)
-        guard let resultStr = result?.toString(),
-              let data = resultStr.data(using: .utf8),
-              let urls = try? JSONSerialization.jsonObject(with: data) as? [String] else {
-            print("[LiveTV] JSContext 解密失败: \(result?.toString() ?? "nil")")
-            return []
-        }
-
-        return urls
-    }
-
-    // 从 HTML 中提取 JavaScript 变量值
-    private func extractJSVar(_ name: String, from html: String) -> String? {
-        // 匹配 var name = "value" 或 var name="value"
-        let pattern = #"var\s+\(name)\s*=\s*["']([^"']+)["']"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
-              match.numberOfRanges >= 2,
-              let range = Range(match.range(at: 1), in: html) else {
-            return nil
-        }
-        return String(html[range])
-    }
-
-    // 从 HTML 中提取 <select> 的 option value 列表
-    private func extractSelectOptions(from html: String) -> [String] {
-        let pattern = #"<option\s+value=["']([^"']+)["']"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-        return matches.compactMap { match -> String? in
-            guard match.numberOfRanges >= 2,
-                  let range = Range(match.range(at: 1), in: html) else { return nil }
-            return String(html[range])
-        }
+        print("[LiveTV] 默认源无内置映射: \(channelId)")
+        return []
     }
 
     // MARK: - 获取回看节目单

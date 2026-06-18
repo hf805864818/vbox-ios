@@ -2,6 +2,7 @@ import SwiftUI
 import AVKit
 import Combine
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - 直播源选择视图
 struct LiveSourcePickerView: View {
@@ -318,7 +319,10 @@ struct LiveTVView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.plainText, .data, .item],
+                allowedContentTypes: [UTType(filenameExtension: "m3u") ?? .data,
+                                       UTType(filenameExtension: "m3u8") ?? .data,
+                                       .plainText,
+                                       .data],
                 allowsMultipleSelection: false
             ) { result in
                 handleFileImport(result: result)
