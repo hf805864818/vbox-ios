@@ -73,6 +73,8 @@
 		A10139 /* SiteDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10139 /* SiteDiagnosticsView.swift */; };
 		A10140 /* WKWebViewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10140 /* WKWebViewParser.swift */; };
 		A10141 /* ibox_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10141 /* ibox_sources.json */; };
+		A10142 /* LiveTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10142 /* LiveTVView.swift */; };
+		A10143 /* LiveTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10143 /* LiveTVService.swift */; };
 
 /* Begin PBXFileReference section */
 		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
@@ -137,6 +139,8 @@
 		B10139 /* SiteDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteDiagnosticsView.swift; sourceTree = "<group>"; };
 		B10140 /* WKWebViewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WKWebViewParser.swift; sourceTree = "<group>"; };
 		B10141 /* ibox_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ibox_sources.json; sourceTree = "<group>"; };
+		B10142 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
+		B10143 /* LiveTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVService.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
@@ -200,6 +204,7 @@
 				B10137 /* SpiderEngineProtocol.swift */,
 				B10138 /* SiteDiagnostics.swift */,
 				B10140 /* WKWebViewParser.swift */,
+				B10143 /* LiveTVService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -233,6 +238,7 @@
 				B10037 /* MPVRenderContextDebugView.swift */,
 				B10038 /* LibmpvMoltenVKDebugView.swift */,
 				B10139 /* SiteDiagnosticsView.swift */,
+				B10142 /* LiveTVView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -420,6 +426,8 @@
 				A10013 /* Assets.xcassets in Resources */,
 				A10020 /* js in Resources */,
 				A10141 /* ibox_sources.json in Resources */,
+				A10142 /* LiveTVView.swift in Sources */,
+				A10143 /* LiveTVService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
