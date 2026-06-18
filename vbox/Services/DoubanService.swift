@@ -371,6 +371,34 @@ class DoubanService: ObservableObject {
     }
 }
 
+// MARK: - 演职人员模型
+struct DoubanCelebrity: Codable, Identifiable {
+    let id: String
+    let name: String
+    let cover_url: String?
+    let roles: [String]?
+    let character: String?
+    
+    var avatarURL: String? {
+        guard let url = cover_url else { return nil }
+        if url.hasPrefix("//") { return "https:" + url }
+        if !url.hasPrefix("http") { return "https://" + url }
+        return url
+    }
+    
+    var roleText: String {
+        if let char = character, !char.isEmpty { return "饰 \(char)" }
+        if let roles = roles, !roles.isEmpty { return roles.joined(separator: " / ") }
+        return ""
+    }
+}
+
+struct DoubanCreditsResponse: Codable {
+    let actors: [DoubanCelebrity]?
+    let directors: [DoubanCelebrity]?
+    let writers: [DoubanCelebrity]?
+}
+
 // MARK: - Douban Error
 enum DoubanError: LocalizedError {
     case unknownTab(String)
