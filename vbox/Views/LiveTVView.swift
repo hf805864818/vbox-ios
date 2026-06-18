@@ -1,395 +1,338 @@
 import SwiftUI
 import AVKit
 
-// MARK: - 直播主页面（新版：参考截图设计）
+// MARK: - 直播主页面（重构版：分类标签 + 小分类圆形图标 + 频道网格）
 struct LiveTVView: View {
     @EnvironmentObject private var settings: AppSettings
-    @State private var selectedCategory: LiveCategory?
-    @State private var showChannelList = false
+    /// 当前选中的大分类
+    @State private var selectedCategoryIndex: Int = 0
+    /// 每个分类下的频道数据缓存 [分类id: 频道列表]
+    @State private var channelsCache: [String: [LiveChannel]] = [:]
+    /// 各分类加载状态
+    @State private var loadingCategories: Set<String> = []
+    /// 当前要播放的频道
     @State private var selectedChannel: LiveChannel?
+    /// 是否显示播放器
     @State private var showPlayer = false
+    /// 线路选择弹窗
+    @State private var showRoutePicker = false
+    /// 线路选择的目标频道
+    @State private var routePickerChannel: LiveChannel?
+    /// 频道已解析的线路缓存 [channelId: [urls]]
+    @State private var resolvedSources: [String: [String]] = [:]
 
     private var service: LiveTVService { LiveTVService.shared }
 
+    /// 当前选中的分类
+    private var currentCategory: LiveCategory {
+        service.categories[selectedCategoryIndex]
+    }
+
+    /// 当前分类的频道列表
+    private var currentChannels: [LiveChannel] {
+        channelsCache[currentCategory.id] ?? []
+    }
+
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
+        ZStack {
+            // 页面背景色（适配深色模式）
+            Color(uiColor: .systemBackground).ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // 顶部导航栏
-                        HStack {
-                            Button(action: {}) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(.primary)
-                            }
-
-                            Spacer()
-
-                            Text("全部频道")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(.primary)
-
-                            Spacer()
-
-                            // 右侧占位保持居中
-                            Color.clear.frame(width: 20, height: 20)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-
-                        // 提示文字
-                        Text("长按可编辑频道顺序")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-                            .padding(.top, 8)
-                            .padding(.bottom, 16)
-
-                        // 分类网格（3列，大图标）
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 0),
-                                GridItem(.flexible(), spacing: 0),
-                                GridItem(.flexible(), spacing: 0)
-                            ],
-                            spacing: 20
-                        ) {
-                            ForEach(service.categories) { category in
-                                LiveCategoryGridItem(category: category) {
-                                    selectedCategory = category
-                                    showChannelList = true
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 20)
-
-                        Spacer(minLength: 40)
+            VStack(spacing: 0) {
+                // 顶部导航栏 - 横向可滑动分类标签
+                LiveCategoryTabBar(
+                    categories: service.categories,
+                    selectedIndex: selectedCategoryIndex,
+                    onSelect: { index in
+                        selectedCategoryIndex = index
+                        let cat = service.categories[index]
+                        loadChannelsIfNeeded(for: cat)
                     }
-                }
-            }
-            .navigationBarHidden(true)
-            .sheet(item: $selectedCategory) { category in
-                LiveChannelListView(category: category)
-            }
-            .fullScreenCover(item: $selectedChannel) { channel in
-                LivePlayerView(channel: channel)
-            }
-        }
-    }
-}
+                )
 
-// MARK: - 分类网格项（大图标+文字，参考截图）
-struct LiveCategoryGridItem: View {
-    let category: LiveCategory
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 8) {
-                // 图标区域（大图标，无背景或浅色背景）
-                ZStack {
-                    Circle()
-                        .fill(category.backgroundColor.opacity(0.12))
-                        .frame(width: 56, height: 56)
-
-                    Image(systemName: category.icon)
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundColor(category.tintColor)
-                }
-
-                Text(category.name)
-                    .font(.system(size: 14))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-            }
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - 频道列表页（参考截图：顶部横向分类 + 精选推荐 + 频道网格）
-struct LiveChannelListView: View {
-    let category: LiveCategory
-    @Environment(\.dismiss) private var dismiss
-    @State private var channels: [LiveChannel] = []
-    @State private var isLoading = true
-    @State private var selectedChannel: LiveChannel?
-    @State private var showPlayer = false
-
-    // 所有分类用于顶部横向切换
-    private var allCategories: [LiveCategory] { LiveTVService.shared.categories }
-    @State private var currentCategory: LiveCategory
-
-    init(category: LiveCategory) {
-        self.category = category
-        _currentCategory = State(initialValue: category)
-    }
-
-    var body: some View {
-        NavigationView {
-            ZStack {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    // 顶部横向分类标签
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 20) {
-                            ForEach(allCategories) { cat in
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        currentCategory = cat
-                                    }
-                                    loadChannels(for: cat)
-                                }) {
-                                    VStack(spacing: 4) {
-                                        Text(cat.name)
-                                            .font(.system(size: 16, weight: currentCategory.id == cat.id ? .bold : .regular))
-                                            .foregroundColor(currentCategory.id == cat.id ? .primary : .gray)
-
-                                        // 选中下划线
-                                        if currentCategory.id == cat.id {
-                                            Rectangle()
-                                                .fill(Color(hex: "FF6B00"))
-                                                .frame(width: 20, height: 3)
-                                                .cornerRadius(1.5)
-                                        } else {
-                                            Color.clear.frame(width: 20, height: 3)
-                                        }
-                                    }
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+                // 小分类圆形图标行（使用当前分类下的频道作为子分类展示）
+                LiveSubCategoryRow(
+                    channels: currentChannels,
+                    onSelect: { channel in
+                        playChannel(channel, routeIndex: 0)
                     }
+                )
 
-                    if isLoading {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            ProgressView().scaleEffect(1.2)
-                            Text("正在加载...")
-                                .font(.system(size: 14))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                    } else if channels.isEmpty {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            Image(systemName: "tv.slash")
-                                .font(.system(size: 48))
-                                .foregroundColor(.gray.opacity(0.5))
-                            Text("暂无频道数据")
-                                .font(.system(size: 15))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                    } else {
-                        ScrollView(showsIndicators: false) {
-                            VStack(spacing: 16) {
-                                // 精选推荐（横向滚动，圆形图标+直播中标签）
-                                if let featured = channels.prefix(5).shuffled().prefix(5) as? ArraySlice<LiveChannel>, !featured.isEmpty {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        Text("精选推荐")
-                                            .font(.system(size: 18, weight: .bold))
-                                            .foregroundColor(.primary)
-                                            .padding(.horizontal, 16)
-
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 16) {
-                                                ForEach(featured) { channel in
-                                                    FeaturedChannelItem(channel: channel) {
-                                                        selectedChannel = channel
-                                                        showPlayer = true
-                                                    }
-                                                }
-                                            }
-                                            .padding(.horizontal, 16)
-                                        }
-                                    }
-                                    .padding(.top, 8)
-                                }
-
-                                // 频道直播（2列网格，大图+台标+节目名）
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("\(currentCategory.name)直播")
-                                        .font(.system(size: 18, weight: .bold))
-                                        .foregroundColor(.primary)
-                                        .padding(.horizontal, 16)
-
-                                    LazyVGrid(
-                                        columns: [
-                                            GridItem(.flexible(), spacing: 12),
-                                            GridItem(.flexible(), spacing: 12)
-                                        ],
-                                        spacing: 12
-                                    ) {
-                                        ForEach(channels) { channel in
-                                            LiveChannelGridItem(channel: channel) {
-                                                selectedChannel = channel
-                                                showPlayer = true
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal, 16)
-                                }
-
-                                Spacer(minLength: 30)
-                            }
-                        }
+                // 频道网格
+                if loadingCategories.contains(currentCategory.id) {
+                    // 加载中
+                    Spacer()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("正在加载频道...")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(uiColor: .secondaryLabel))
                     }
-                }
-            }
-            .navigationBarHidden(true)
-            .fullScreenCover(item: $selectedChannel) { channel in
-                LivePlayerView(channel: channel)
-            }
-            .onAppear {
-                loadChannels(for: currentCategory)
-            }
-        }
-    }
-
-    private func loadChannels(for cat: LiveCategory) {
-        isLoading = true
-        channels = []
-        Task {
-            let result = await LiveTVService.shared.fetchChannels(tid: cat.tid)
-            await MainActor.run {
-                channels = result
-                isLoading = false
-            }
-        }
-    }
-}
-
-// MARK: - 精选推荐项（圆形图标+直播中标签）
-struct FeaturedChannelItem: View {
-    let channel: LiveChannel
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.15))
-                        .frame(width: 60, height: 60)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.orange.opacity(0.4), lineWidth: 1.5)
+                    Spacer()
+                } else if currentChannels.isEmpty {
+                    // 空状态
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "tv.slash")
+                            .font(.system(size: 48))
+                            .foregroundColor(Color(uiColor: .tertiaryLabel))
+                        Text("暂无频道数据")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color(uiColor: .secondaryLabel))
+                    }
+                    Spacer()
+                } else {
+                    // 频道网格
+                    ScrollView(showsIndicators: false) {
+                        LiveChannelGrid(
+                            channels: currentChannels,
+                            resolvedSources: resolvedSources,
+                            onChannelTap: { channel in
+                                playChannel(channel, routeIndex: 0)
+                            },
+                            onRouteTap: { channel in
+                                routePickerChannel = channel
+                                showRoutePicker = true
+                            }
                         )
-
-                    Text(channel.name.prefix(4))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.orange)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(width: 50)
-
-                    // 直播中标签
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Text("直播中")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color(hex: "FF6B00"))
-                                .cornerRadius(3)
-                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 20)
                     }
-                    .frame(width: 60, height: 60)
                 }
+            }
 
-                Text(channel.name)
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .frame(width: 70)
+            // 线路选择弹窗
+            if showRoutePicker, let channel = routePickerChannel {
+                LiveRoutePickerOverlay(
+                    channel: channel,
+                    sources: resolvedSources[channel.id] ?? [],
+                    isPresented: $showRoutePicker,
+                    onSelect: { index in
+                        showRoutePicker = false
+                        playChannel(channel, routeIndex: index)
+                    }
+                )
             }
         }
-        .buttonStyle(PlainButtonStyle())
+        .fullScreenCover(item: $selectedChannel) { channel in
+            LivePlayerView(channel: channel)
+        }
+        .onAppear {
+            // 首次加载当前分类的频道
+            loadChannelsIfNeeded(for: currentCategory)
+        }
+    }
+
+    // MARK: - 加载频道数据（带缓存）
+    private func loadChannelsIfNeeded(for category: LiveCategory) {
+        if channelsCache[category.id] != nil { return }
+        loadChannels(for: category)
+    }
+
+    private func loadChannels(for category: LiveCategory) {
+        loadingCategories.insert(category.id)
+        Task {
+            let result = await service.fetchChannels(tid: category.tid)
+            await MainActor.run {
+                channelsCache[category.id] = result
+                loadingCategories.remove(category.id)
+            }
+        }
+    }
+
+    // MARK: - 播放频道
+    private func playChannel(_ channel: LiveChannel, routeIndex: Int) {
+        // 如果已有解析的线路，直接播放
+        if let sources = resolvedSources[channel.id], !sources.isEmpty {
+            let idx = min(routeIndex, sources.count - 1)
+            var playChannel = channel
+            playChannel.sources = sources
+            selectedChannel = playChannel
+            return
+        }
+        // 否则先解析再播放
+        selectedChannel = channel
     }
 }
 
-// MARK: - 频道网格项（2列大图，参考截图）
-struct LiveChannelGridItem: View {
+// MARK: - 顶部分类标签栏（横向可滑动，选中项橙色下划线）
+struct LiveCategoryTabBar: View {
+    let categories: [LiveCategory]
+    let selectedIndex: Int
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 24) {
+                ForEach(Array(categories.enumerated()), id: \.element.id) { index, cat in
+                    Button(action: { onSelect(index) }) {
+                        VStack(spacing: 6) {
+                            Text(cat.name)
+                                .font(.system(size: 15, weight: index == selectedIndex ? .bold : .regular))
+                                .foregroundColor(index == selectedIndex ? Color(uiColor: .label) : Color(uiColor: .secondaryLabel))
+
+                            // 选中项橙色下划线
+                            Rectangle()
+                                .fill(index == selectedIndex ? Color.orange : Color.clear)
+                                .frame(width: 20, height: 3)
+                                .cornerRadius(1.5)
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+    }
+}
+
+// MARK: - 小分类圆形图标行（横向可滑动）
+struct LiveSubCategoryRow: View {
+    let channels: [LiveChannel]
+    let onSelect: (LiveChannel) -> Void
+
+    /// 最多展示前20个频道作为小分类入口
+    private var displayChannels: [LiveChannel] {
+        Array(channels.prefix(20))
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(displayChannels) { channel in
+                    Button(action: { onSelect(channel) }) {
+                        VStack(spacing: 6) {
+                            // 圆形图标
+                            ZStack {
+                                Circle()
+                                    .fill(Color.orange.opacity(0.12))
+                                    .frame(width: 50, height: 50)
+
+                                Text(channel.name.prefix(2))
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.orange)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                                    .frame(width: 40)
+                            }
+
+                            // 频道名称
+                            Text(channel.name)
+                                .font(.system(size: 11))
+                                .foregroundColor(Color(uiColor: .secondaryLabel))
+                                .lineLimit(1)
+                                .frame(width: 56)
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+}
+
+// MARK: - 频道网格（2列）
+struct LiveChannelGrid: View {
+    let channels: [LiveChannel]
+    let resolvedSources: [String: [String]]
+    let onChannelTap: (LiveChannel) -> Void
+    let onRouteTap: (LiveChannel) -> Void
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(channels) { channel in
+                LiveChannelCard(
+                    channel: channel,
+                    routeCount: max(1, (resolvedSources[channel.id] ?? []).count),
+                    onTap: { onChannelTap(channel) },
+                    onRouteTap: { onRouteTap(channel) }
+                )
+            }
+        }
+    }
+}
+
+// MARK: - 频道卡片（封面图 + logo + 名称 + 线路按钮）
+struct LiveChannelCard: View {
     let channel: LiveChannel
+    let routeCount: Int
     let onTap: () -> Void
-    @State private var thumbnail: UIImage?
+    let onRouteTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
-                // 视频缩略图区域
-                ZStack {
+                // 16:9 封面图区域
+                ZStack(alignment: .bottomLeading) {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color(uiColor: .secondarySystemBackground))
                         .aspectRatio(16/9, contentMode: .fit)
 
-                    if let thumbnail = thumbnail {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(16/9, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        // 占位图
-                        VStack(spacing: 4) {
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(.gray.opacity(0.5))
-                        }
-                    }
+                    // 占位图标
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(Color(uiColor: .tertiaryLabel))
 
                     // 直播中角标
                     VStack {
                         HStack {
                             Spacer()
-                            Text("直播中")
+                            Text("直播")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
-                                .background(Color(hex: "FF6B00").opacity(0.9))
+                                .background(Color.orange.opacity(0.85))
                                 .cornerRadius(4)
                                 .padding(6)
                         }
                         Spacer()
                     }
-                }
 
-                // 频道信息
-                HStack(spacing: 6) {
-                    // 小台标
+                    // 左下角频道logo小圆
                     ZStack {
                         Circle()
-                            .fill(Color.orange.opacity(0.15))
-                            .frame(width: 22, height: 22)
+                            .fill(Color.orange.opacity(0.9))
+                            .frame(width: 24, height: 24)
 
                         Text(channel.name.prefix(1))
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.orange)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
                     }
+                    .padding(6)
+                }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(channel.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-
-                        Text("精彩节目热播中")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
-                            .lineLimit(1)
-                    }
+                // 频道名称 + 线路按钮
+                HStack {
+                    Text(channel.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(uiColor: .label))
+                        .lineLimit(1)
 
                     Spacer()
+
+                    // 右下角线路选择小按钮
+                    Button(action: onRouteTap) {
+                        Text("线路\(routeCount)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color(uiColor: .secondaryLabel))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(uiColor: .tertiarySystemFill))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
         }
@@ -397,7 +340,97 @@ struct LiveChannelGridItem: View {
     }
 }
 
-// MARK: - 直播播放器（简化版）
+// MARK: - 线路选择弹窗（小巧长方形，居中显示）
+struct LiveRoutePickerOverlay: View {
+    let channel: LiveChannel
+    let sources: [String]
+    @Binding var isPresented: Bool
+    let onSelect: (Int) -> Void
+
+    /// 显示的线路数量（至少1条默认线路）
+    private var routeCount: Int {
+        max(1, sources.count)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // 半透明背景
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isPresented = false
+                        }
+                    }
+
+                // 弹窗内容
+                VStack(spacing: 0) {
+                    // 标题
+                    HStack {
+                        Text("选择线路")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(uiColor: .label))
+                        Spacer()
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isPresented = false
+                            }
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color(uiColor: .secondaryLabel))
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                    Divider().background(Color(uiColor: .separator))
+
+                    // 线路列表
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(0..<routeCount, id: \.self) { index in
+                                Button(action: {
+                                    onSelect(index)
+                                }) {
+                                    HStack {
+                                        Text("线路\(index + 1)")
+                                            .font(.system(size: 14, weight: .regular))
+                                            .foregroundColor(Color(uiColor: .label))
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(Color(uiColor: .tertiaryLabel))
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                if index < routeCount - 1 {
+                                    Divider()
+                                        .background(Color(uiColor: .separator))
+                                        .padding(.leading, 14)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 200)
+                }
+                .frame(width: min(geometry.size.width * 0.55, 220))
+                .background(Color(uiColor: .secondarySystemBackground))
+                .cornerRadius(12)
+                .shadow(color: .black.opacity(0.3), radius: 16, x: 0, y: 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+            .animation(.easeInOut(duration: 0.2), value: isPresented)
+        }
+    }
+}
+
+// MARK: - 直播播放器（全屏播放）
 struct LivePlayerView: View {
     let channel: LiveChannel
     @Environment(\.dismiss) private var dismiss
@@ -405,11 +438,19 @@ struct LivePlayerView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
 
+    /// 播放地址：优先使用频道已解析的线路，否则走默认解析
+    private var playAddress: String? {
+        if !channel.sources.isEmpty {
+            return channel.sources[0]
+        }
+        return m3u8URL
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let urlString = m3u8URL, let url = URL(string: urlString) {
+            if let urlString = playAddress, let url = URL(string: urlString) {
                 VideoPlayer(player: AVPlayer(url: url))
                     .ignoresSafeArea()
             } else if let errorMessage {
@@ -429,7 +470,7 @@ struct LivePlayerView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 30)
                     .padding(.vertical, 10)
-                    .background(Color(hex: "FF6B00"))
+                    .background(Color.orange)
                     .cornerRadius(8)
                 }
             } else if isLoading {
@@ -472,7 +513,12 @@ struct LivePlayerView: View {
             }
         }
         .onAppear {
-            loadStream()
+            // 如果频道已有线路，直接使用
+            if channel.sources.isEmpty {
+                loadStream()
+            } else {
+                isLoading = false
+            }
         }
     }
 
