@@ -402,6 +402,8 @@
 				A10138 /* SiteDiagnostics.swift in Sources */,
 				A10139 /* SiteDiagnosticsView.swift in Sources */,
 				A10140 /* WKWebViewParser.swift in Sources */,
+				A10142 /* LiveTVView.swift in Sources */,
+				A10143 /* LiveTVService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -426,8 +428,6 @@
 				A10013 /* Assets.xcassets in Resources */,
 				A10020 /* js in Resources */,
 				A10141 /* ibox_sources.json in Resources */,
-				A10142 /* LiveTVView.swift in Sources */,
-				A10143 /* LiveTVService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
