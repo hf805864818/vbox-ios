@@ -221,7 +221,7 @@ struct CategoryDetailView: View {
             case "documentary", "纪录片":
                 return try await doubanService.fetchHotMovies(start: start, count: count)
             case "live", "直播":
-                return try await doubanService.fetchHotMovies(start: start, count: count)
+                return []
             case "music", "音乐":
                 return try await doubanService.fetchHotMovies(start: start, count: count)
             case "sports", "体育":
