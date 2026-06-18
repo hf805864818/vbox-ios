@@ -2744,10 +2744,10 @@ struct PlayerContainerView: View {
             }
             
             // 弹窗层 - 独立于控制栏，即使控制栏隐藏也能显示
-            // 弹窗 - 倍数（竖屏：固定在右下角按钮上方 / 横屏：居中弹窗）
+            // 弹窗 - 倍数（竖屏：固定在右下角进度条上方 / 横屏：居中弹窗）
             Group {
                 if playerState.isPortrait && playerState.showSettings {
-                    // 竖屏：倍数弹窗固定在右下角按钮上方，不推高进度条
+                    // 竖屏：倍数弹窗固定在进度条上方，屏幕右侧
                     GeometryReader { geo in
                         PlayerSettingsPanelV2(
                             isPresented: $playerState.showSettings,
@@ -2758,12 +2758,14 @@ struct PlayerContainerView: View {
                         )
                         .environmentObject(settings)
                         .frame(width: 130)
-                        .position(x: geo.size.width - 60, y: geo.size.height - 100)
+                        // 进度条大约在屏幕底部往上 90pt 的位置，弹窗放在进度条上方 20pt
+                        .position(x: geo.size.width - 80, y: geo.size.height - 160)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.8)),
                             removal: .opacity.combined(with: .scale(scale: 0.9))
                         ))
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !playerState.isPortrait && playerState.showSettings {
                     SmallPopupView(isPresented: $playerState.showSettings) {
                         PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in

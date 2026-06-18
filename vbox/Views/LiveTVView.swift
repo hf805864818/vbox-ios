@@ -557,11 +557,13 @@ struct EmptyStateView: View {
                     Text("重新加载")
                 }
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(.orange)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
-                .background(Color.orange)
-                .cornerRadius(24)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color.orange, lineWidth: 1)
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
