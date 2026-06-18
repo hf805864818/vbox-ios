@@ -19,46 +19,30 @@ struct MainTabView: View {
                     }
                     .tag(0)
 
-                NavigationView {
-                    DoubanHomeView()
-                }
-                .tabItem {
-                    Image(systemName: selectedTab == 1 ? "film.fill" : "film")
-                    Text("豆瓣")
-                }
-                .tag(1)
-
                 SearchView()
                     .tabItem {
-                        Image(systemName: selectedTab == 2 ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
+                        Image(systemName: selectedTab == 1 ? "magnifyingglass.circle.fill" : "magnifyingglass.circle")
                         Text("搜索")
                     }
-                    .tag(2)
+                    .tag(1)
 
                 LiveTVView()
                     .tabItem {
-                        Image(systemName: selectedTab == 3 ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
+                        Image(systemName: selectedTab == 2 ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
                         Text("直播")
                     }
-                    .tag(3)
-
-                CategoryView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 4 ? "square.grid.3x3.fill" : "square.grid.3x3")
-                        Text("分类")
-                    }
-                    .tag(4)
+                    .tag(2)
 
                 ProfileView()
                     .tabItem {
-                        Image(systemName: selectedTab == 5 ? "person.fill" : "person")
-                        Text("我的")
+                        Image(systemName: selectedTab == 3 ? "person.fill" : "person")
+                        Text("设置")
                     }
-                    .tag(5)
+                    .tag(3)
             }
             .accentColor(Color(hex: "E11D48"))
 
-            // 底部毛玻璃导航栏
+            // 底部悬浮半圆导航栏
             GlassBottomTabBar(selectedTab: $selectedTab)
         }
         .ignoresSafeArea(.keyboard)
@@ -70,7 +54,7 @@ struct MainTabView: View {
         }
         .onChange(of: settings.searchRequestId) { _ in
             guard !settings.searchQuery.isEmpty else { return }
-            selectedTab = 2
+            selectedTab = 1
         }
         .onChange(of: selectedTab) { newValue in
             guard tabHistory.last != newValue else { return }
@@ -101,11 +85,9 @@ struct GlassBottomTabBar: View {
 
     private let tabs: [(icon: String, iconFilled: String, title: String)] = [
         ("house", "house.fill", "首页"),
-        ("film", "film.fill", "豆瓣"),
         ("magnifyingglass.circle", "magnifyingglass.circle.fill", "搜索"),
         ("antenna.radiowaves.left.and.right", "dot.radiowaves.left.and.right", "直播"),
-        ("square.grid.3x3", "square.grid.3x3.fill", "分类"),
-        ("person", "person.fill", "我的")
+        ("person", "person.fill", "设置")
     ]
 
     var body: some View {

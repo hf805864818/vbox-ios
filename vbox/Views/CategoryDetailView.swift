@@ -232,23 +232,29 @@ struct CategoryDetailView: View {
         }
     }
 
-    /// 通过订阅源搜索获取分类数据
+    /// 通过订阅源分类接口获取数据（不是搜索）
     private func fetchSubscriptionCategoryData(keyword: String, start: Int, count: Int) async throws -> [DoubanSubject] {
         let spider = SpiderManager.shared
-        var allItems: [VodItem] = []
-
-        // 使用流式搜索收集结果
-        await spider.searchStream(keyword: keyword, onBatch: { items in
-            allItems.append(contentsOf: items)
-        })
-
-        // 分页处理
-        let endIndex = min(start + count, allItems.count)
-        guard start < allItems.count else { return [] }
-        let pageItems = Array(allItems[start..<endIndex])
-
-        // 将 VodItem 转换为 DoubanSubject
-        return pageItems.map { item in
+        
+        // 映射 categoryType 到订阅源分类 typeId
+        let categoryTypeId: String
+        switch categoryType {
+        case "movie", "电影": categoryTypeId = "movie"
+        case "tv", "电视剧", "剧集": categoryTypeId = "tv"
+        case "variety", "综艺": categoryTypeId = "variety"
+        case "animation", "动漫": categoryTypeId = "anime"
+        case "documentary", "纪录片": categoryTypeId = "documentary"
+        case "hot", "热门": categoryTypeId = "hot"
+        case "top250", "榜单": categoryTypeId = "top"
+        case "live", "直播": categoryTypeId = "live"
+        case "music", "音乐": categoryTypeId = "music"
+        case "sports", "体育": categoryTypeId = "sports"
+        default: categoryTypeId = categoryType
+        }
+        
+        let items = await spider.fetchCategoryContent(categoryTypeId: categoryTypeId, page: (start / count) + 1)
+        
+        return items.map { item in
             DoubanSubject(
                 id: item.vodId,
                 title: item.vodName,

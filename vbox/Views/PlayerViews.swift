@@ -88,11 +88,12 @@ struct VideoDetailView: View {
             await MainActor.run {
                 hasLoadedDetail = true
                 if let detail, detail.vodPlayUrl?.isEmpty == false {
-                    detailVideo = detail
-                    // 重新初始化播放源（用新数据）
-                    let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
-                    allSources = sources
-                    selectedSourceIndex = 0
+                    // 仅在初始 allSources 为空时更新，避免闪跳
+                    if allSources.isEmpty {
+                        let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                        allSources = sources
+                        selectedSourceIndex = 0
+                    }
                 }
                 isLoadingDetail = false
             }
@@ -390,21 +391,28 @@ struct VideoDetailView: View {
             .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
             .ignoresSafeArea()
 
-            // MARK: - 底部操作栏
+            // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
             VStack(spacing: 0) {
-                Divider()
+                Spacer()
                 HStack(spacing: 0) {
                     BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
                     BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
                     BottomBarButton(icon: "square.and.arrow.down", title: "下载") { }
                     BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
                 }
-                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
                 .background(
-                    settings.usesVisualSkin
-                    ? Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.3 : 0.7)
-                    : Color(uiColor: .systemBackground)
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .overlay(
+                            Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        )
                 )
+                .clipShape(Capsule())
+                .padding(.bottom, 20)
             }
         }
         // 播放器
