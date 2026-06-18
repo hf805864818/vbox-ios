@@ -260,6 +260,106 @@ class DoubanService: ObservableObject {
             vodYear: subject.year
         )
     }
+
+    // MARK: - 演职人员搜索
+
+    /// 根据作品名称搜索演职人员信息
+    func fetchCredits(for workName: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
+        // 1. 先搜索作品获取 ID
+        guard let searchURL = URL(string: "\(baseURL)/search?q=\(workName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workName)&type=movie") else {
+            return ([], [], [])
+        }
+
+        do {
+            let (data, _) = try await session.data(from: searchURL)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let items = json["items"] as? [[String: Any]],
+               let first = items.first,
+               let targetId = first["id"] as? String ?? first["target_id"] as? String {
+                return await fetchCreditsById(targetId)
+            }
+        } catch {
+            print("[DoubanService] 搜索作品失败: \(error)")
+        }
+
+        // 搜索失败时尝试直接用名称匹配
+        return await fetchCreditsByName(workName)
+    }
+
+    private func fetchCreditsById(_ id: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
+        let url = URL(string: "\(baseURL)/movie/\(id)?apikey=0b2bdeda43b5688921839c8ecb20399b")!
+        do {
+            let (data, _) = try await session.data(from: url)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+            var actors: [DoubanCelebrity] = []
+            var directors: [DoubanCelebrity] = []
+            var writers: [DoubanCelebrity] = []
+
+            if let casts = json?["casts"] as? [[String: Any]] {
+                actors = casts.compactMap { dict in
+                    guard let name = dict["name"] as? String else { return nil }
+                    return DoubanCelebrity(
+                        id: dict["id"] as? String ?? UUID().uuidString,
+                        name: name,
+                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        roles: nil,
+                        character: dict["character"] as? String ?? dict["name"] as? String
+                    )
+                }
+            }
+
+            if let dirs = json?["directors"] as? [[String: Any]] {
+                directors = dirs.compactMap { dict in
+                    guard let name = dict["name"] as? String else { return nil }
+                    return DoubanCelebrity(
+                        id: dict["id"] as? String ?? UUID().uuidString,
+                        name: name,
+                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        roles: ["导演"],
+                        character: nil
+                    )
+                }
+            }
+
+            if let wrs = json?["writers"] as? [[String: Any]] {
+                writers = wrs.compactMap { dict in
+                    guard let name = dict["name"] as? String else { return nil }
+                    return DoubanCelebrity(
+                        id: dict["id"] as? String ?? UUID().uuidString,
+                        name: name,
+                        cover_url: dict["avatars"] as? [String: Any] ?? ["small": dict["avatar"] as? String],
+                        roles: ["编剧"],
+                        character: nil
+                    )
+                }
+            }
+
+            return (actors, directors, writers)
+        } catch {
+            print("[DoubanService] 获取演职人员失败: \(error)")
+            return ([], [], [])
+        }
+    }
+
+    private func fetchCreditsByName(_ name: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
+        // 兜底：尝试搜索并解析第一个结果
+        guard let url = URL(string: "\(baseURL)/search/movie?q=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)&count=1") else {
+            return ([], [], [])
+        }
+        do {
+            let (data, _) = try await session.data(from: url)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let subjects = json["subjects"] as? [[String: Any]],
+               let first = subjects.first,
+               let id = first["id"] as? String {
+                return await fetchCreditsById(id)
+            }
+        } catch {
+            print("[DoubanService] 名称搜索演职人员失败: \(error)")
+        }
+        return ([], [], [])
+    }
 }
 
 // MARK: - Douban Error
