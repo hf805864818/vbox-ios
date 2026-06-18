@@ -48,10 +48,13 @@ class SubscriptionManager: ObservableObject {
             activeURLIndex = max(0, configURLs.count - 1)
             defaults.set(activeURLIndex, forKey: activeKey)
         }
-        // 如果删除的是当前激活的订阅源或所有订阅源已清空，重置缓存
+        // 如果删除的是当前激活的订阅源或所有订阅源已清空，彻底清空缓存
         if wasActive || configURLs.isEmpty {
             config = nil
             isLoaded = false
+            parses = []
+            // 删除 UserDefaults 中的缓存，防止重启后恢复
+            defaults.removeObject(forKey: cacheKey)
         }
     }
 
