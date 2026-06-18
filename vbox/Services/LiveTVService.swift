@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import JavaScriptCore
 
 // MARK: - 直播源类型
 enum LiveSourceType: Identifiable, Equatable, Codable {
@@ -893,7 +894,7 @@ class LiveTVService: ObservableObject {
             return streams
         }
 
-        // 默认源：从 iptv807.com 播放页解析
+        // 默认源：从 iptv807.com 播放页解析（JavaScriptCore 解密）
         guard let url = URL(string: channel.playURL) else { return [] }
 
         do {
@@ -902,17 +903,20 @@ class LiveTVService: ObservableObject {
 
             print("[LiveTV] 播放页HTML长度: \(html.count), channelId=\(channel.channelId)")
 
-            var allSources: [String] = []
+            // 使用 JavaScriptCore 解密 iptv807.com 的加密播放地址
+            let sources = decryptIPTV807Sources(from: html)
+            if !sources.isEmpty {
+                if let first = sources.first {
+                    m3u8Cache[channel.id] = first
+                }
+                print("[LiveTV] JavaScriptCore 解密到 \(sources.count) 个线路")
+                return sources
+            }
 
-            // 匹配模式：先匹配 m3u8，再匹配其他视频格式
+            // 备用：正则匹配（可能匹配不到，因为地址是加密的）
+            var allSources: [String] = []
             let patterns: [(String, String)] = [
-                (#"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
-                (#"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
                 (#"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#, "m3u8"),
-                (#"var\s+url\s*=\s*["']([^"']+)["']"#, "any"),
-                (#"player\s*\(\s*["']([^"']+)["']"#, "any"),
-                (#"file\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
-                (#"source\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
                 (#"(https?://[^\s"'<>]+\.(mp4|flv|ts)[^\s"'<>]*)"#, "video"),
             ]
 
@@ -924,8 +928,6 @@ class LiveTVService: ObservableObject {
                               let range = Range(match.range(at: 1), in: html) else { continue }
                         var streamUrl = String(html[range])
                         if streamUrl.hasPrefix("//") { streamUrl = "https:" + streamUrl }
-                        else if streamUrl.hasPrefix("/") { streamUrl = baseURL + streamUrl }
-                        else if !streamUrl.hasPrefix("http") { streamUrl = baseURL + "/" + streamUrl }
                         if !allSources.contains(streamUrl) {
                             allSources.append(streamUrl)
                         }
@@ -933,23 +935,6 @@ class LiveTVService: ObservableObject {
                 }
             }
 
-            // 如果都没找到，尝试iframe中的URL
-            if allSources.isEmpty {
-                let iframePattern = #"<iframe[^>]+src=["']([^"']+)["']"#
-                if let regex = try? NSRegularExpression(pattern: iframePattern, options: []),
-                   let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
-                   match.numberOfRanges >= 2,
-                   let range = Range(match.range(at: 1), in: html) {
-                    let iframeSrc = String(html[range])
-                    if !allSources.contains(iframeSrc) {
-                        allSources.append(iframeSrc)
-                    }
-                }
-            }
-
-            print("[LiveTV] 解析到 \(allSources.count) 个线路, channelId=\(channel.channelId)")
-
-            // 缓存第一个
             if let first = allSources.first {
                 m3u8Cache[channel.id] = first
             }
@@ -957,6 +942,119 @@ class LiveTVService: ObservableObject {
         } catch {
             print("[LiveTV] 解析线路失败: \(error)")
             return []
+        }
+    }
+
+    // MARK: - iptv807.com JavaScriptCore 解密
+    private func decryptIPTV807Sources(from html: String) -> [String] {
+        // 提取加密变量
+        guard let tujbg = extractJSVar("tujbg", from: html),
+              let qcosi = extractJSVar("qcosi", from: html),
+              let nbojk = extractJSVar("nbojk", from: html),
+              let bglxn = extractJSVar("bglxn", from: html) else {
+            print("[LiveTV] 无法提取加密变量")
+            return []
+        }
+
+        // 提取 select option 的加密 value
+        let optionValues = extractSelectOptions(from: html)
+        guard !optionValues.isEmpty else {
+            print("[LiveTV] 无法提取线路选项")
+            return []
+        }
+
+        // 构建解密 JavaScript 代码
+        let jsCode = """
+        function ofmci(str) {
+            var output = "";
+            var chr1, chr2, chr3, enc1, enc2, enc3, enc4;
+            var i = 0;
+            var _keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+            str = str.replace(/[^A-Za-z0-9+/=]/g, "");
+            while (i < str.length) {
+                enc1 = _keyStr.indexOf(str.charAt(i++));
+                enc2 = _keyStr.indexOf(str.charAt(i++));
+                enc3 = _keyStr.indexOf(str.charAt(i++));
+                enc4 = _keyStr.indexOf(str.charAt(i++));
+                chr1 = (enc1 << 2) | (enc2 >> 4);
+                chr2 = ((enc2 & 15) << 4) | (enc3 >> 4);
+                chr3 = ((enc3 & 3) << 6) | enc4;
+                output += String.fromCharCode(chr1);
+                if (enc3 != 64) output += String.fromCharCode(chr2);
+                if (enc4 != 64) output += String.fromCharCode(chr3);
+            }
+            return output;
+        }
+
+        function zvmsy(input, key) {
+            var decoded = ofmci(input);
+            var result = "";
+            var fullKey = key + "4d5d89d25eb9a547";
+            for (var i = 0; i < decoded.length; i++) {
+                result += String.fromCharCode(decoded.charCodeAt(i) ^ fullKey.charCodeAt(i % fullKey.length));
+            }
+            return ofmci(result);
+        }
+
+        function xietr(yxp) {
+            yxp = yxp.split("").reverse().join("");
+            yxp = zvmsy(yxp, "\(qcosi)");
+            yxp = yxp.replace("token=\(nbojk)", "token=\(bglxn)");
+            yxp = yxp.replace("\(qcosi)", "");
+            return yxp;
+        }
+
+        var results = [];
+        var options = \(optionValues.toJSONEncodedString());
+        for (var i = 0; i < options.length; i++) {
+            try {
+                var decrypted = xietr(options[i]);
+                if (decrypted.indexOf("http") >= 0) {
+                    results.push(decrypted);
+                }
+            } catch(e) {}
+        }
+        JSON.stringify(results);
+        """
+
+        guard let context = JSContext() else {
+            print("[LiveTV] 无法创建 JSContext")
+            return []
+        }
+
+        let result = context.evaluateScript(jsCode)
+        guard let resultStr = result?.toString(),
+              let data = resultStr.data(using: .utf8),
+              let urls = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+            print("[LiveTV] JSContext 解密失败: \(result?.toString() ?? "nil")")
+            return []
+        }
+
+        return urls
+    }
+
+    // 从 HTML 中提取 JavaScript 变量值
+    private func extractJSVar(_ name: String, from html: String) -> String? {
+        // 匹配 var name = "value" 或 var name="value"
+        let pattern = #"var\s+\(name)\s*=\s*["']([^"']+)["']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
+              match.numberOfRanges >= 2,
+              let range = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return String(html[range])
+    }
+
+    // 从 HTML 中提取 <select> 的 option value 列表
+    private func extractSelectOptions(from html: String) -> [String] {
+        let pattern = #"<option\s+value=["']([^"']+)["']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+        let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+        return matches.compactMap { match -> String? in
+            guard match.numberOfRanges >= 2,
+                  let range = Range(match.range(at: 1), in: html) else { return nil }
+            return String(html[range])
         }
     }
 
@@ -1126,5 +1224,21 @@ class LiveTVService: ObservableObject {
         } catch {
             print("[LiveTV] 获取订阅源失败: \(error)")
         }
+    }
+}
+
+// MARK: - Array JSON 编码扩展
+extension Array where Element == String {
+    func toJSONEncodedString() -> String {
+        let parts = self.map { s -> String in
+            // 转义双引号和反斜杠
+            let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+                .replacingOccurrences(of: "\t", with: "\\t")
+            return "\"\(escaped)\""
+        }
+        return "[\(parts.joined(separator: ","))]"
     }
 }
