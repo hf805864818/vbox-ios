@@ -169,6 +169,8 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return "tv"
+        case .cctvLive:
+            return "antenna.radiowaves.left.and.right"
         case .subscribe:
             return "doc.text"
         case .custom:
@@ -180,6 +182,8 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return .blue
+        case .cctvLive:
+            return .red
         case .subscribe:
             return .green
         case .custom:
@@ -191,6 +195,8 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return "默认源"
+        case .cctvLive:
+            return "央视源"
         case .subscribe:
             return "订阅源"
         case .custom:
@@ -229,12 +235,22 @@ struct LiveTVView: View {
     @State private var showFileImporter = false
 
     private var isDefaultSource: Bool {
-        if case .defaultIPTV = service.currentSource { return true }
+        return service.currentSource.isDefault
+    }
+
+    private var isCCTVSource: Bool {
+        if case .cctvLive = service.currentSource { return true }
         return false
     }
 
     private var currentCategories: [LiveCategory] {
-        if isDefaultSource {
+        if isCCTVSource {
+            // 央视源：只有央视和国际两个分类
+            return [
+                LiveCategory(id: "ys", name: "央视", tid: "ys", icon: "antenna.radiowaves.left.and.right"),
+                LiveCategory(id: "gt", name: "国际", tid: "gt", icon: "globe.asia.australia"),
+            ]
+        } else if isDefaultSource {
             return service.categories
         } else {
             // 订阅源/自定义源：使用分组作为分类
@@ -283,12 +299,10 @@ struct LiveTVView: View {
                             resetHideTimer()
                         }) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 14))
-                                .foregroundColor(.white)
-                                .frame(width: 38, height: 38)
-                                .background(Color.orange)
+                                .font(.system(size: 12))
+                                .foregroundColor(.accentColor)
+                                .frame(width: 30, height: 30)
                                 .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                         }
                         .padding(.trailing, 16)
                         .padding(.bottom, 80) // 向上移动避免底栏遮挡
@@ -335,7 +349,11 @@ struct LiveTVView: View {
                         service.removeCustomSource(at: index)
                     },
                     onImportLocal: {
-                        showFileImporter = true
+                        // 先关闭 sheet，再弹出 fileImporter
+                        showSourcePicker = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            showFileImporter = true
+                        }
                     }
                 )
                 .presentationDetents([.medium])

@@ -4,6 +4,7 @@ import SwiftUI
 // MARK: - 直播源类型
 enum LiveSourceType: Identifiable, Equatable, Codable {
     case defaultIPTV      // iptv807.com
+    case cctvLive         // 央视直播 (tv.cctv.com)
     case subscribe(name: String, url: String)  // 订阅配置中的源
     case custom(name: String, url: String)     // 用户自定义源
 
@@ -11,6 +12,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return "default_iptv"
+        case .cctvLive:
+            return "default_cctv"
         case .subscribe(let name, let url):
             return "subscribe_\(name)_\(url)"
         case .custom(let name, let url):
@@ -22,6 +25,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return "默认源 (iptv807.com)"
+        case .cctvLive:
+            return "央视直播 (CCTV)"
         case .subscribe(let name, _):
             return name
         case .custom(let name, _):
@@ -31,7 +36,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var sourceURL: String? {
         switch self {
-        case .defaultIPTV:
+        case .defaultIPTV, .cctvLive:
             return nil
         case .subscribe(_, let url):
             return url
@@ -41,8 +46,12 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     }
 
     var isDefault: Bool {
-        if case .defaultIPTV = self { return true }
-        return false
+        switch self {
+        case .defaultIPTV, .cctvLive:
+            return true
+        case .subscribe, .custom:
+            return false
+        }
     }
 
     // MARK: - Codable
@@ -51,7 +60,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     }
 
     enum SourceKind: String, Codable {
-        case defaultIPTV, subscribe, custom
+        case defaultIPTV, cctvLive, subscribe, custom
     }
 
     func encode(to encoder: Encoder) throws {
@@ -59,6 +68,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             try container.encode(SourceKind.defaultIPTV, forKey: .type)
+        case .cctvLive:
+            try container.encode(SourceKind.cctvLive, forKey: .type)
         case .subscribe(let name, let url):
             try container.encode(SourceKind.subscribe, forKey: .type)
             try container.encode(name, forKey: .name)
@@ -76,6 +87,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch kind {
         case .defaultIPTV:
             self = .defaultIPTV
+        case .cctvLive:
+            self = .cctvLive
         case .subscribe:
             let name = try container.decode(String.self, forKey: .name)
             let url = try container.decode(String.self, forKey: .url)
@@ -92,6 +105,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch type {
         case "defaultIPTV":
             self = .defaultIPTV
+        case "cctvLive":
+            self = .cctvLive
         case "subscribe":
             guard let name = dictionary["name"], let url = dictionary["url"] else { return nil }
             self = .subscribe(name: name, url: url)
@@ -107,6 +122,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return ["type": "defaultIPTV"]
+        case .cctvLive:
+            return ["type": "cctvLive"]
         case .subscribe(let name, let url):
             return ["type": "subscribe", "name": name, "url": url]
         case .custom(let name, let url):
@@ -216,7 +233,7 @@ class LiveTVService: ObservableObject {
 
     /// 所有可用源列表
     var availableSources: [LiveSourceType] {
-        var sources: [LiveSourceType] = [.defaultIPTV]
+        var sources: [LiveSourceType] = [.defaultIPTV, .cctvLive]
         // 可以从配置文件读取的订阅源
         sources.append(contentsOf: configSubscribeSources)
         // 用户自定义源
@@ -319,6 +336,7 @@ class LiveTVService: ObservableObject {
                 }
             }
         }
+        // defaultIPTV 和 cctvLive 不需要额外加载
     }
 
     /// 添加自定义源
@@ -404,6 +422,8 @@ class LiveTVService: ObservableObject {
         switch currentSource {
         case .defaultIPTV:
             return await fetchDefaultChannels(tid: tid)
+        case .cctvLive:
+            return await fetchCCTVChannels(tid: tid)
         case .subscribe, .custom:
             return await fetchSubscribeChannelsForTid(tid: tid)
         }
@@ -452,6 +472,104 @@ class LiveTVService: ObservableObject {
             print("[LiveTV] 获取频道失败: \(error)")
             return []
         }
+    }
+
+    // MARK: - 央视直播频道获取
+    private func fetchCCTVChannels(tid: String) async -> [LiveChannel] {
+        // 央视频道数据（内置）
+        let cctvChannels: [(id: String, name: String, streamId: String, logo: String)] = [
+            ("cctv_1", "CCTV-1 综合", "cctv1", "CCTV1"),
+            ("cctv_2", "CCTV-2 财经", "cctv2", "CCTV2"),
+            ("cctv_3", "CCTV-3 综艺", "cctv3", "CCTV3"),
+            ("cctv_4", "CCTV-4 中文国际", "cctv4", "CCTV4"),
+            ("cctv_5", "CCTV-5 体育", "cctv5", "CCTV5"),
+            ("cctv_5p", "CCTV-5+ 体育赛事", "cctv5plus", "CCTV5PLUS"),
+            ("cctv_6", "CCTV-6 电影", "cctv6", "CCTV6"),
+            ("cctv_7", "CCTV-7 国防军事", "cctv7", "CCTV7"),
+            ("cctv_8", "CCTV-8 电视剧", "cctv8", "CCTV8"),
+            ("cctv_9", "CCTV-9 纪录", "cctv9", "CCTV9"),
+            ("cctv_10", "CCTV-10 科教", "cctv10", "CCTV10"),
+            ("cctv_11", "CCTV-11 戏曲", "cctv11", "CCTV11"),
+            ("cctv_12", "CCTV-12 社会与法", "cctv12", "CCTV12"),
+            ("cctv_13", "CCTV-13 新闻", "cctv13", "CCTV13"),
+            ("cctv_14", "CCTV-14 少儿", "cctv14", "CCTV14"),
+            ("cctv_15", "CCTV-15 音乐", "cctv15", "CCTV15"),
+            ("cctv_16", "CCTV-16 奥林匹克", "cctv16", "CCTV16"),
+            ("cctv_17", "CCTV-17 农业农村", "cctv17", "CCTV17"),
+            ("cctv_news", "CCTV-新闻", "cctvnews", "CCTVNEWS"),
+            ("cgtn", "CGTN 英语", "cgtn", "CGTN"),
+            ("cgtn_doc", "CGTN 纪录", "cgtn Documentary", "CGTNDOC"),
+            ("cgtn_fr", "CGTN 法语", "cgtn-f", "CGTNFR"),
+            ("cgtn_es", "CGTN 西班牙语", "cgtn-e", "CGTNES"),
+            ("cgtn_ar", "CGTN 阿拉伯语", "cgtn-a", "CGTNAR"),
+            ("cgtn_ru", "CGTN 俄语", "cgtn-r", "CGTNRU"),
+        ]
+
+        // 央视分类映射
+        let cctvCategoryMap: [String: [(String, String, String, String)]] = {
+            var map: [String: [(String, String, String, String)]] = [:]
+            for ch in cctvChannels {
+                let category: String
+                if ch.streamId.hasPrefix("cgtn") {
+                    category = "gt"  // 港澳台/国际
+                } else {
+                    category = "ys"  // 央视
+                }
+                map[category, default: []].append((ch.id, ch.name, ch.streamId, ch.logo))
+            }
+            return map
+        }()
+
+        guard let channels = cctvCategoryMap[tid] else { return [] }
+
+        return channels.map { ch in
+            LiveChannel(
+                id: ch.0,
+                name: ch.1,
+                tid: tid,
+                channelId: ch.2,
+                token: "",
+                logo: nil,
+                sources: []  // 播放时动态解析
+            )
+        }
+    }
+
+    // MARK: - 央视直播流地址解析
+    func resolveCCTVStream(channelId: String) async -> [String] {
+        // 中国移动IPTV源（公开可用）
+        let streamMap: [String: String] = [
+            "cctv1": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226016/index.m3u8",
+            "cctv2": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225588/index.m3u8",
+            "cctv3": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226021/index.m3u8",
+            "cctv4": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226428/index.m3u8",
+            "cctv5": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226019/index.m3u8",
+            "cctv5plus": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225603/index.m3u8",
+            "cctv6": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226010/index.m3u8",
+            "cctv7": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225733/index.m3u8",
+            "cctv8": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226008/index.m3u8",
+            "cctv9": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225734/index.m3u8",
+            "cctv10": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225730/index.m3u8",
+            "cctv11": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225597/index.m3u8",
+            "cctv12": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225731/index.m3u8",
+            "cctv13": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226011/index.m3u8",
+            "cctv14": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225732/index.m3u8",
+            "cctv15": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225601/index.m3u8",
+            "cctv16": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226100/index.m3u8",
+            "cctv17": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221225765/index.m3u8",
+            "cctvnews": "http://ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226580/index.m3u8",
+        ]
+
+        if let url = streamMap[channelId] {
+            return [url]
+        }
+
+        // CGTN 等国际频道使用备用源
+        if channelId.hasPrefix("cgtn") {
+            return ["https://news.cgtn.com/resource/live/english/cgtn-news.m3u8"]
+        }
+
+        return []
     }
 
     // MARK: - 订阅源频道获取（按分类过滤）
@@ -758,7 +876,6 @@ class LiveTVService: ObservableObject {
     func resolveAllSources(channel: LiveChannel) async -> [String] {
         // 先查缓存
         if let cached = m3u8Cache[channel.id], !cached.isEmpty {
-            // 如果只有一个缓存，直接返回
             return [cached]
         }
 
@@ -767,37 +884,70 @@ class LiveTVService: ObservableObject {
             return channel.sources
         }
 
+        // 如果是央视源，使用央视专用解析
+        if case .cctvLive = currentSource {
+            let streams = await resolveCCTVStream(channelId: channel.channelId)
+            if let first = streams.first {
+                m3u8Cache[channel.id] = first
+            }
+            return streams
+        }
+
+        // 默认源：从 iptv807.com 播放页解析
         guard let url = URL(string: channel.playURL) else { return [] }
 
         do {
             let (data, _) = try await session.data(from: url)
             guard let html = String(data: data, encoding: .utf8) else { return [] }
 
+            print("[LiveTV] 播放页HTML长度: \(html.count), channelId=\(channel.channelId)")
+
             var allSources: [String] = []
-            let patterns = [
-                #"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#,
-                #"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#,
-                #"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#,
-                #"var\s+url\s*=\s*["']([^"']+)["']"#,
-                #"player\s*\(\s*["']([^"']+)["']"#
+
+            // 匹配模式：先匹配 m3u8，再匹配其他视频格式
+            let patterns: [(String, String)] = [
+                (#"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
+                (#"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
+                (#"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#, "m3u8"),
+                (#"var\s+url\s*=\s*["']([^"']+)["']"#, "any"),
+                (#"player\s*\(\s*["']([^"']+)["']"#, "any"),
+                (#"file\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
+                (#"source\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#, "m3u8"),
+                (#"(https?://[^\s"'<>]+\.(mp4|flv|ts)[^\s"'<>]*)"#, "video"),
             ]
 
-            for pattern in patterns {
+            for (pattern, _) in patterns {
                 if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
                     let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
                     for match in matches {
                         guard match.numberOfRanges >= 2,
                               let range = Range(match.range(at: 1), in: html) else { continue }
-                        var m3u8 = String(html[range])
-                        if m3u8.hasPrefix("//") { m3u8 = "https:" + m3u8 }
-                        else if m3u8.hasPrefix("/") { m3u8 = baseURL + m3u8 }
-                        else if !m3u8.hasPrefix("http") { m3u8 = baseURL + "/" + m3u8 }
-                        if m3u8.contains(".m3u8") && !allSources.contains(m3u8) {
-                            allSources.append(m3u8)
+                        var streamUrl = String(html[range])
+                        if streamUrl.hasPrefix("//") { streamUrl = "https:" + streamUrl }
+                        else if streamUrl.hasPrefix("/") { streamUrl = baseURL + streamUrl }
+                        else if !streamUrl.hasPrefix("http") { streamUrl = baseURL + "/" + streamUrl }
+                        if !allSources.contains(streamUrl) {
+                            allSources.append(streamUrl)
                         }
                     }
                 }
             }
+
+            // 如果都没找到，尝试iframe中的URL
+            if allSources.isEmpty {
+                let iframePattern = #"<iframe[^>]+src=["']([^"']+)["']"#
+                if let regex = try? NSRegularExpression(pattern: iframePattern, options: []),
+                   let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
+                   match.numberOfRanges >= 2,
+                   let range = Range(match.range(at: 1), in: html) {
+                    let iframeSrc = String(html[range])
+                    if !allSources.contains(iframeSrc) {
+                        allSources.append(iframeSrc)
+                    }
+                }
+            }
+
+            print("[LiveTV] 解析到 \(allSources.count) 个线路, channelId=\(channel.channelId)")
 
             // 缓存第一个
             if let first = allSources.first {
