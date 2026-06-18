@@ -660,6 +660,7 @@ struct SearchView: View {
     @State private var selectedDoubanTab = 0
     @State private var doubanSubjects: [String: [DoubanSubject]] = [:]
     @State private var searchDebugLogs: [String] = []
+    @State private var searchTask: Task<Void, Never>?
     @State private var doubanLoading = false
     @State private var hasLoadedDefaultData = false
     
@@ -681,6 +682,16 @@ struct SearchView: View {
                                 resetSearchState()
                             }
                         }
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                            resetSearchState()
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .font(.system(size: 16))
+                        }
+                    }
                 }
                 .padding(10)
                 .background(Color.gray.opacity(0.1))
@@ -798,14 +809,6 @@ struct SearchView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
-            .refreshable {
-                if isSearching {
-                    performSearch()
-                } else {
-                    await loadSearchHistory()
-                    await loadDoubanData(force: true)
-                }
-            }
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onChange(of: settings.searchRequestId) { _ in
@@ -824,6 +827,13 @@ struct SearchView: View {
                 }
             }
             // 从详情页返回时：不做任何操作，保持现有搜索结果
+        }
+        .onDisappear {
+            // 离开搜索页时停止搜索
+            searchTask?.cancel()
+            searchTask = nil
+            isSearching = false
+            isSearchLoading = false
         }
     }
     
@@ -965,7 +975,9 @@ struct SearchView: View {
         let keyword = searchText
         addSearchLog("🔍 开始搜索: \(keyword)")
         
-        Task {
+        // 取消之前的搜索任务
+        searchTask?.cancel()
+        searchTask = Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
                     await self.spiderManager.searchStream(keyword: keyword, onBatch: { batch in
