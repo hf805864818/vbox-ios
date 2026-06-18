@@ -1070,6 +1070,10 @@ globalThis.__JS_SPIDER__ = _spider;
     func removeSubscriptionURL(_ url: String) {
         subManager.removeURL(url)
         savedURLs = subManager.configURLs
+        // 清除残留数据：如果删除的是当前激活的订阅源，重新加载站点
+        Task { [self] in
+            await loadSitesFromSubscription()
+        }
     }
 
     /// 原生搜索 — 直接 HTTP 调可用 API，不经过 QuickJS

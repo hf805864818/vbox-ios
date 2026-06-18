@@ -41,11 +41,17 @@ class SubscriptionManager: ObservableObject {
 
     /// 删除指定订阅源
     func removeURL(_ url: String) {
+        let wasActive = (configURLs[safe: activeURLIndex] == url)
         configURLs.removeAll { $0 == url }
         defaults.set(configURLs, forKey: urlsKey)
         if activeURLIndex >= configURLs.count {
             activeURLIndex = max(0, configURLs.count - 1)
             defaults.set(activeURLIndex, forKey: activeKey)
+        }
+        // 如果删除的是当前激活的订阅源或所有订阅源已清空，重置缓存
+        if wasActive || configURLs.isEmpty {
+            config = nil
+            isLoaded = false
         }
     }
 
