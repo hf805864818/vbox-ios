@@ -41,7 +41,7 @@ class SubscriptionManager: ObservableObject {
 
     /// 删除指定订阅源
     func removeURL(_ url: String) {
-        let wasActive = (configURLs[safe: activeURLIndex] == url)
+        let wasActive = (activeURLIndex >= 0 && activeURLIndex < configURLs.count && configURLs[activeURLIndex] == url)
         configURLs.removeAll { $0 == url }
         defaults.set(configURLs, forKey: urlsKey)
         if activeURLIndex >= configURLs.count {
