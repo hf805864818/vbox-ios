@@ -27,6 +27,23 @@ struct LiveCategory: Identifiable {
     let name: String
     let tid: String
     let icon: String
+
+    var tintColor: Color {
+        switch id {
+        case "itv": return Color.blue
+        case "ty": return Color.green
+        case "ys": return Color.red
+        case "ws": return Color.orange
+        case "gt": return Color.purple
+        case "movie": return Color.pink
+        case "migu": return Color.cyan
+        case "fjitv", "hlitv": return Color.teal
+        case "ipv6": return Color.indigo
+        default: return Color.gray
+        }
+    }
+
+    var backgroundColor: Color { tintColor }
 }
 
 // MARK: - 直播服务
