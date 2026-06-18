@@ -124,23 +124,23 @@ struct EpisodePickerPanelV2: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !playerState.baiduFileList.isEmpty {
+            if !playerState.episodeItems.isEmpty {
                 // 河马剧场风格：浅蓝色按钮网格
                 ScrollView(showsIndicators: true) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                        ForEach(Array(playerState.baiduFileList.enumerated()), id: \.offset) { idx, file in
+                        ForEach(playerState.episodeItems) { episode in
                             Button(action: {
-                                playerState.switchBaiduFile(index: idx)
+                                playerState.switchToEpisode(index: episode.id)
                                 isPresented = false
                             }) {
                                 HStack(spacing: 6) {
-                                    Text(episodeName(file.name, index: idx))
-                                        .font(.system(size: 13, weight: idx == playerState.currentEpisodeIndex ? .semibold : .regular))
-                                        .foregroundColor(idx == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
+                                    Text(episodeDisplayName(episode.name, index: episode.id))
+                                        .font(.system(size: 13, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
+                                        .foregroundColor(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.7)
                                     Spacer(minLength: 0)
-                                    if idx == playerState.currentEpisodeIndex {
+                                    if episode.id == playerState.currentEpisodeIndex {
                                         Image(systemName: "play.circle.fill")
                                             .font(.system(size: 12))
                                             .foregroundColor(Color(hex: "2196F3"))
@@ -150,7 +150,7 @@ struct EpisodePickerPanelV2: View {
                                 .padding(.vertical, 12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .fill(idx == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
+                                        .fill(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
                                 )
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
@@ -170,12 +170,12 @@ struct EpisodePickerPanelV2: View {
         }
     }
 
-    private func episodeName(_ name: String, index: Int) -> String {
+    private func episodeDisplayName(_ name: String, index: Int) -> String {
         let cleaned = (name as NSString).deletingPathExtension
         if cleaned.count > 8 {
             return "第\(index + 1)集"
         }
-        return cleaned
+        return cleaned.isEmpty ? "第\(index + 1)集" : cleaned
     }
 }
 

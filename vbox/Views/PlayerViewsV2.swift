@@ -319,6 +319,30 @@ struct VideoPlayerViewV2: View {
     }
 }
 
+// MARK: - 通用集数项
+struct EpisodeItem: Identifiable {
+    let id: Int
+    let name: String
+    let url: String
+    /// 资源类型标记（用于切集时选择不同播放逻辑）
+    var sourceType: EpisodeSourceType
+    /// 百度文件索引（仅百度网盘使用）
+    var baiduFileIndex: Int?
+    /// 夸克文件索引（仅夸克网盘使用）
+    var quarkFileIndex: Int?
+    /// 播放头信息
+    var headers: [String: String] = [:]
+    /// 是否需要兼容内核
+    var useCompatibility: Bool = false
+
+    enum EpisodeSourceType: String {
+        case normal = "normal"       // 普通资源
+        case baidu = "baidu"         // 百度网盘
+        case quark = "quark"         // 夸克网盘
+        case drive = "drive"        // 其他网盘
+    }
+}
+
 // MARK: - 播放器状态管理
 class PlayerState: ObservableObject {
     /// 弹幕预设颜色表
@@ -423,6 +447,10 @@ class PlayerState: ObservableObject {
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     @Published var baiduCachedTimeRanges: [(start: Double, end: Double)] = []
+    
+    // 通用集数列表（所有资源类型共用）
+    @Published var episodeItems: [EpisodeItem] = []
+    
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
     // 夸克网盘多文件列表
@@ -635,6 +663,23 @@ class PlayerState: ObservableObject {
             return
         }
         switchBaiduFile(index: next)
+    }
+    
+    /// 是否有下一集（通用）
+    var hasNextEpisode: Bool {
+        if !episodeItems.isEmpty {
+            return currentEpisodeIndex + 1 < episodeItems.count
+        }
+        return currentEpisodeIndex + 1 < baiduFileList.count
+    }
+    
+    /// 播放下一集（通用）
+    func playNextEpisode() {
+        if !episodeItems.isEmpty {
+            switchToEpisode(index: currentEpisodeIndex + 1)
+        } else {
+            playNextBaiduFile()
+        }
     }
 
     func togglePlayback(player: AVPlayer?) {
@@ -1276,6 +1321,10 @@ class PlayerState: ObservableObject {
                     baiduShareURL = urlString
                     baiduBduss = pair.web.value
                     baiduPcsCookie = pair.pcs?.value ?? ""
+                    // 填充通用集数列表
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.name, url: "", sourceType: .baidu, baiduFileIndex: idx)
+                    }
                 }
                 guard let firstFile = files.first else {
                     await MainActor.run {
@@ -1336,6 +1385,10 @@ class PlayerState: ObservableObject {
                     quarkFileList = files
                     quarkShareURL = urlString
                     quarkCookie = token.value
+                    // 填充通用集数列表
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: "\(urlString)/\(f.fid)", sourceType: .quark, quarkFileIndex: idx)
+                    }
                 }
                 
                 // 播放第一个文件
@@ -1973,6 +2026,9 @@ class PlayerState: ObservableObject {
         
         // 先直接用已有地址尝试播放（如果有）
         if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
+            // 解析普通资源多集数据，填充通用集数列表
+            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
+            
             let firstUrl = extractBestPlayableUrl(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
             let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if !firstUrlClean.isEmpty {
@@ -1988,6 +2044,8 @@ class PlayerState: ObservableObject {
             if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName),
                let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
                 log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
+                // 后台详情返回后也更新集数列表
+                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
                 let newBest = extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
                 if !newBest.isEmpty {
                     await MainActor.run {
@@ -2303,6 +2361,121 @@ class PlayerState: ObservableObject {
             urls = [playUrl]
         }
         return urls.filter { !$0.isEmpty }
+    }
+    
+    /// 解析普通资源多集数据，填充通用集数列表 episodeItems
+    private func parseNormalEpisodes(playFrom: String, playUrl: String) {
+        // 如果已经有百度/夸克集数，不覆盖
+        guard episodeItems.isEmpty else { return }
+        
+        // 确定使用哪个源的URL块
+        let urlBlock: String
+        if playUrl.contains("$$$") {
+            // 多源：取第一个有http的源
+            let froms = playFrom.components(separatedBy: "$$$")
+            let urlBlocks = playUrl.components(separatedBy: "$$$")
+            var bestBlock = urlBlocks.first ?? ""
+            for i in 0..<min(froms.count, urlBlocks.count) {
+                let block = urlBlocks[i]
+                let firstUrl = extractFirstEpisodeUrl(block)
+                if firstUrl.hasPrefix("http") {
+                    bestBlock = block
+                    break
+                }
+            }
+            urlBlock = bestBlock
+        } else {
+            urlBlock = playUrl
+        }
+        
+        // 解析集数
+        var items: [EpisodeItem] = []
+        if urlBlock.contains("#") {
+            let parts = urlBlock.components(separatedBy: "#")
+            for (idx, part) in parts.enumerated() {
+                let trimmed = part.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { continue }
+                let name: String
+                let url: String
+                if let range = trimmed.range(of: "$") {
+                    name = String(trimmed[trimmed.startIndex..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    url = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                } else {
+                    name = "第\(idx + 1)集"
+                    url = trimmed
+                }
+                guard !url.isEmpty else { continue }
+                items.append(EpisodeItem(
+                    id: idx,
+                    name: name.isEmpty ? "第\(idx + 1)集" : name,
+                    url: url,
+                    sourceType: .normal
+                ))
+            }
+        }
+        
+        if items.count > 1 {
+            log("[PlayerV2] 解析到 \(items.count) 集普通资源: \(items.map { $0.name }.joined(separator: ", "))")
+            episodeItems = items
+        }
+    }
+    
+    /// 通用切集方法（支持所有资源类型）
+    func switchToEpisode(index: Int) {
+        guard index >= 0, index < episodeItems.count else { return }
+        let episode = episodeItems[index]
+        currentEpisodeIndex = index
+        log("[PlayerV2] 切集: \(episode.name) (index=\(index), type=\(episode.sourceType))")
+        
+        currentTask?.cancel()
+        currentTask = Task { [weak self] in
+            guard let self = self else { return }
+            switch episode.sourceType {
+            case .normal:
+                // 普通资源：直接用URL播放
+                if let url = URL(string: episode.url) {
+                    await MainActor.run { self.initPlayer(url: url) }
+                }
+            case .baidu:
+                // 百度网盘：走原有切换逻辑
+                if let baiduIdx = episode.baiduFileIndex {
+                    await MainActor.run { self.switchBaiduFile(index: baiduIdx) }
+                }
+            case .quark:
+                // 夸克网盘：解析并播放
+                await self.playQuarkEpisode(episode: episode)
+            case .drive:
+                // 其他网盘
+                if let url = URL(string: episode.url) {
+                    await MainActor.run { self.playDriveVideo(url: url, headers: episode.headers) }
+                }
+            }
+        }
+    }
+    
+    /// 播放夸克网盘指定集数
+    private func playQuarkEpisode(episode: EpisodeItem) async {
+        guard let quarkIdx = episode.quarkFileIndex,
+              quarkIdx < quarkFileList.count else { return }
+        let file = quarkFileList[quarkIdx]
+        let shareURL = quarkShareURL
+        guard !shareURL.isEmpty else { return }
+        
+        log("[Quark] 切集播放: \(file.fileName)")
+        await MainActor.run { isLoading = true }
+        do {
+            let result = try await CloudDriveManager.shared.resolvePlayURL(from: "\(shareURL)/\(file.fid)")
+            await MainActor.run {
+                playResolvedDriveVideo(result)
+                currentEpisodeIndex = episode.id
+            }
+        } catch {
+            log("[Quark] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                loadError = "夸克切集失败: \(error.localizedDescription)"
+                isLoading = false
+            }
+        }
     }
     
     private func initPlayer(url: URL, noReferer: Bool = false) {
@@ -2895,14 +3068,14 @@ struct PortraitBottomBar: View {
                 .disabled(player == nil && playerState.compatibilityURL == nil)
                 .buttonStyle(PlainButtonStyle())
 
-                Button(action: { playerState.playNextBaiduFile() }) {
+                Button(action: { playerState.playNextEpisode() }) {
                     Image(systemName: "forward.end.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
+                        .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
                         .frame(width: 56, height: 44)
                         .contentShape(Rectangle())
                 }
-                .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
+                .disabled(!playerState.hasNextEpisode)
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
@@ -2978,13 +3151,13 @@ struct LandscapeBottomBar: View {
             }
             .disabled(player == nil && playerState.compatibilityURL == nil)
 
-            Button(action: { playerState.playNextBaiduFile() }) {
+            Button(action: { playerState.playNextEpisode() }) {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(playerState.currentEpisodeIndex + 1 < playerState.baiduFileList.count ? .white : .gray)
+                    .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
                     .frame(width: 44, height: 44)
             }
-            .disabled(playerState.currentEpisodeIndex + 1 >= playerState.baiduFileList.count)
+            .disabled(!playerState.hasNextEpisode)
 
             Spacer()
 
@@ -3000,7 +3173,7 @@ struct LandscapeBottomBar: View {
             }
 
             Button(action: { playerState.showQualityPicker = true }) {
-                Text(playerState.baiduFileList.isEmpty ? "高清" : "原画")
+                Text(playerState.episodeItems.isEmpty && playerState.baiduFileList.isEmpty ? "高清" : "原画")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
