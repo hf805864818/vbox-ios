@@ -103,5 +103,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: vbox-ipa
+          name: vbox-ipa-debug
           path: build/*.ipa
