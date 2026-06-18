@@ -58,13 +58,10 @@ struct CategoryDetailView: View {
             // 内容区域
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 16) {
-                    if isLoading && filteredSubjects.isEmpty && subscriptionSites.isEmpty {
+                    if isLoading && filteredSubjects.isEmpty {
                         CategoryLoadingView()
                     } else if let error = errorMessage {
                         CategoryErrorView(message: error, retryAction: loadData)
-                    } else if hasSubscription {
-                        // 订阅源模式：显示站点列表
-                        SubscriptionSiteGrid(sites: subscriptionSites, settings: settings)
                     } else if filteredSubjects.isEmpty {
                         CategoryEmptyView(categoryName: categoryName)
                     } else {
@@ -87,9 +84,7 @@ struct CategoryDetailView: View {
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onAppear {
             checkSubscription()
-            if subjects.isEmpty && !hasSubscription {
-                loadData()
-            }
+            loadData()
         }
         .onChange(of: selectedGenre) { _ in applyFilters() }
         .onChange(of: selectedYear) { _ in applyFilters() }
@@ -100,25 +95,6 @@ struct CategoryDetailView: View {
         let spider = SpiderManager.shared
         let sub = spider.subManager
         hasSubscription = sub.isLoaded && !sub.allSites.isEmpty
-        if hasSubscription {
-            // 过滤出当前分类相关的站点
-            subscriptionSites = sub.allSites.filter { site in
-                let name = site.name.lowercased()
-                let type = categoryType.lowercased()
-                switch type {
-                case "movie", "电影":
-                    return name.contains("电影") || name.contains("影视") || site.type == 1
-                case "tv", "电视剧", "剧集":
-                    return name.contains("剧") || name.contains("电视") || name.contains("影视") || site.type == 1
-                case "variety", "综艺":
-                    return name.contains("综艺") || name.contains("影视") || site.type == 1
-                case "animation", "动漫":
-                    return name.contains("动漫") || name.contains("动画") || name.contains("影视") || site.type == 1
-                default:
-                    return site.type == 1
-                }
-            }
-        }
     }
 
     private func loadData() {
@@ -171,6 +147,19 @@ struct CategoryDetailView: View {
         }
     }
 
+    /// 获取分类关键词（用于订阅源搜索）
+    private var categorySearchKeyword: String {
+        switch categoryType {
+        case "movie", "电影": return "电影"
+        case "tv", "电视剧", "剧集": return "电视剧"
+        case "variety", "综艺": return "综艺"
+        case "animation", "动漫": return "动漫"
+        case "documentary", "纪录片": return "纪录片"
+        case "hot", "热门": return "热门"
+        default: return categoryName
+        }
+    }
+
     private func applyFilters() {
         var result = subjects
 
@@ -211,29 +200,67 @@ struct CategoryDetailView: View {
     }
 
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
-        switch categoryType {
-        case "movie", "电影":
-            return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "tv", "电视剧", "剧集":
-            return try await doubanService.fetchHotTV(start: start, count: count)
-        case "variety", "综艺":
-            return try await doubanService.fetchHotVariety(start: start, count: count)
-        case "top250", "榜单":
-            return try await doubanService.fetchTop250(start: start, count: count)
-        case "animation", "动漫":
-            return try await doubanService.fetchHotAnimation(start: start, count: count)
-        case "hot", "热门":
-            return try await doubanService.fetchRecommendFeed(start: start, count: count)
-        case "documentary", "纪录片":
-            return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "live", "直播":
-            return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "music", "音乐":
-            return try await doubanService.fetchHotMovies(start: start, count: count)
-        case "sports", "体育":
-            return try await doubanService.fetchHotMovies(start: start, count: count)
-        default:
-            return []
+        if hasSubscription {
+            // 有订阅源时：通过 SpiderManager 搜索该分类关键词获取数据
+            return try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
+        } else {
+            // 无订阅源时：显示豆瓣默认数据
+            switch categoryType {
+            case "movie", "电影":
+                return try await doubanService.fetchHotMovies(start: start, count: count)
+            case "tv", "电视剧", "剧集":
+                return try await doubanService.fetchHotTV(start: start, count: count)
+            case "variety", "综艺":
+                return try await doubanService.fetchHotVariety(start: start, count: count)
+            case "top250", "榜单":
+                return try await doubanService.fetchTop250(start: start, count: count)
+            case "animation", "动漫":
+                return try await doubanService.fetchHotAnimation(start: start, count: count)
+            case "hot", "热门":
+                return try await doubanService.fetchRecommendFeed(start: start, count: count)
+            case "documentary", "纪录片":
+                return try await doubanService.fetchHotMovies(start: start, count: count)
+            case "live", "直播":
+                return try await doubanService.fetchHotMovies(start: start, count: count)
+            case "music", "音乐":
+                return try await doubanService.fetchHotMovies(start: start, count: count)
+            case "sports", "体育":
+                return try await doubanService.fetchHotMovies(start: start, count: count)
+            default:
+                return []
+            }
+        }
+    }
+
+    /// 通过订阅源搜索获取分类数据
+    private func fetchSubscriptionCategoryData(keyword: String, start: Int, count: Int) async throws -> [DoubanSubject] {
+        let spider = SpiderManager.shared
+        var allItems: [VodItem] = []
+
+        // 使用流式搜索收集结果
+        await spider.searchStream(keyword: keyword, onBatch: { items in
+            allItems.append(contentsOf: items)
+        })
+
+        // 分页处理
+        let endIndex = min(start + count, allItems.count)
+        guard start < allItems.count else { return [] }
+        let pageItems = Array(allItems[start..<endIndex])
+
+        // 将 VodItem 转换为 DoubanSubject
+        return pageItems.map { item in
+            DoubanSubject(
+                id: item.vodId,
+                title: item.vodName,
+                cover_url: item.vodPic,
+                rating: nil,
+                year: item.vodYear,
+                genres: nil,
+                card_subtitle: item.vodRemarks,
+                intro: nil,
+                photos_gadget: nil,
+                cover: nil
+            )
         }
     }
 }
