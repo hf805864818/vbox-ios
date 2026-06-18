@@ -2,30 +2,119 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
-// MARK: - 视频详情视图
+// MARK: - 演职人员模型
+struct DoubanCelebrity: Codable, Identifiable {
+    let id: String
+    let name: String
+    let cover_url: String?
+    let roles: [String]?
+    let character: String?
+    
+    var avatarURL: String? {
+        guard let url = cover_url else { return nil }
+        if url.hasPrefix("//") { return "https:" + url }
+        if !url.hasPrefix("http") { return "https://" + url }
+        return url
+    }
+    
+    var roleText: String {
+        if let char = character, !char.isEmpty { return "饰 \(char)" }
+        if let roles = roles, !roles.isEmpty { return roles.joined(separator: " / ") }
+        return ""
+    }
+}
+
+struct DoubanCreditsResponse: Codable {
+    let actors: [DoubanCelebrity]?
+    let directors: [DoubanCelebrity]?
+    let writers: [DoubanCelebrity]?
+}
+
+// MARK: - 视频详情视图 (新版：底栏 + 演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
+
+    // 播放器
     @State private var showPlayer = false
-    @State private var isFavorite = false
-    @State private var panLinks: [(url: String, name: String)] = []
-    @State private var isLoadingPan = false
     @State private var selectedPanVideo: VodItem?
     @State private var selectedEpisodeVideo: VodItem?
+
+    // 网盘
+    @State private var panLinks: [(url: String, name: String)] = []
+    @State private var isLoadingPan = false
+
+    // 详情数据（加载完成后不再变化，避免闪跳）
     @State private var detailVideo: VodItem?
     @State private var isLoadingDetail = false
-    @Environment(\.dismiss) private var dismiss
+    @State private var hasLoadedDetail = false
+
+    // 播放源（使用 @State 缓存，避免计算属性频繁变化）
+    @State private var allSources: [(name: String, episodes: [(name: String, url: String)])] = []
+    @State private var selectedSourceIndex = 0
+
+    // 演职人员
+    @State private var actors: [DoubanCelebrity] = []
+    @State private var directors: [DoubanCelebrity] = []
+    @State private var writers: [DoubanCelebrity] = []
+    @State private var isLoadingCredits = false
+
+    // 底栏选集弹窗
+    @State private var showEpisodeSheet = false
 
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
     private var displayVideo: VodItem { detailVideo ?? video }
-    @State private var selectedSourceIndex = 0
-    private var allSources: [(name: String, episodes: [(name: String, url: String)])] { parseAllSources(from: displayVideo.vodPlayUrl, playFrom: displayVideo.vodPlayFrom) }
+
     private var episodes: [(name: String, url: String)] {
         guard !allSources.isEmpty else { return [] }
         let idx = min(selectedSourceIndex, allSources.count - 1)
         return allSources[idx].episodes
     }
 
+    // MARK: - 初始化播放源（只执行一次，避免闪跳）
+    private func initializeSources() {
+        let sources = parseAllSources(from: displayVideo.vodPlayUrl, playFrom: displayVideo.vodPlayFrom)
+        allSources = sources
+        selectedSourceIndex = 0
+    }
+
+    // MARK: - 加载真实详情
+    private func loadRealDetailIfNeeded() {
+        guard !hasLoadedDetail, !isLoadingDetail else { return }
+        isLoadingDetail = true
+        Task {
+            let detail = await SpiderManager.shared.nativeDetail(ids: video.vodId, name: video.vodName)
+            await MainActor.run {
+                hasLoadedDetail = true
+                if let detail, detail.vodPlayUrl?.isEmpty == false {
+                    detailVideo = detail
+                    // 重新初始化播放源（用新数据）
+                    let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                    allSources = sources
+                    selectedSourceIndex = 0
+                }
+                isLoadingDetail = false
+            }
+        }
+    }
+
+    // MARK: - 加载演职人员
+    private func loadCredits() {
+        guard actors.isEmpty, directors.isEmpty, !isLoadingCredits else { return }
+        isLoadingCredits = true
+        Task {
+            let result = await DoubanService.shared.fetchCredits(for: video.vodName)
+            await MainActor.run {
+                actors = result.actors
+                directors = result.directors
+                writers = result.writers
+                isLoadingCredits = false
+            }
+        }
+    }
+
+    // MARK: - 网盘
     private func loadPanLinks() {
         guard panLinks.isEmpty, !isLoadingPan else { return }
         isLoadingPan = true
@@ -38,6 +127,12 @@ struct VideoDetailView: View {
         }
     }
 
+    private func playPanLink(_ link: (url: String, name: String)) {
+        selectedPanVideo = VodItem(vodId: link.url, vodName: "\(video.vodName) - \(link.name)",
+                                    vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
+    }
+
+    // MARK: - 播放
     private func handlePlay() {
         if isCloudVideo {
             if !panLinks.isEmpty {
@@ -56,30 +151,37 @@ struct VideoDetailView: View {
         } else { showPlayer = true }
     }
 
-    private func playPanLink(_ link: (url: String, name: String)) {
-        selectedPanVideo = VodItem(vodId: link.url, vodName: "\(video.vodName) - \(link.name)",
-                                    vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
-    }
-
-    private func loadRealDetailIfNeeded() {
-        guard detailVideo == nil, !isLoadingDetail else { return }
-        isLoadingDetail = true
-        Task {
-            let detail = await SpiderManager.shared.nativeDetail(ids: video.vodId, name: video.vodName)
-            await MainActor.run {
-                if let detail, detail.vodPlayUrl?.isEmpty == false {
-                    detailVideo = detail
-                }
-                isLoadingDetail = false
-            }
+    // MARK: - 分享
+    private func handleShare() {
+        let text = "\(displayVideo.vodName)\n\(displayVideo.vodContent ?? "")"
+        let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            rootVC.present(activityVC, animated: true)
         }
     }
 
-    /// 解析所有播放源线路（不丢弃任何源）
+    // MARK: - 选集
+    private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
+        selectedEpisodeVideo = VodItem(
+            vodId: displayVideo.vodId,
+            vodName: "\(displayVideo.vodName) \(episode.name)",
+            vodPic: displayVideo.vodPic,
+            vodRemarks: episode.name,
+            vodYear: displayVideo.vodYear,
+            vodArea: displayVideo.vodArea,
+            vodDirector: displayVideo.vodDirector,
+            vodActor: displayVideo.vodActor,
+            vodContent: displayVideo.vodContent,
+            vodPlayFrom: displayVideo.vodPlayFrom,
+            vodPlayUrl: episode.url
+        )
+    }
+
+    // MARK: - 解析播放源
     private func parseAllSources(from raw: String?, playFrom: String?) -> [(name: String, episodes: [(name: String, url: String)])] {
         guard let raw, !raw.isEmpty else { return [] }
-        
-        // 网盘 JSON 格式: [{"url":"https://pan.quark.cn/s/xxx","name":"夸克网盘"}, ...]
+
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("[") {
             guard let data = trimmed.data(using: .utf8),
@@ -94,10 +196,10 @@ struct VideoDetailView: View {
             guard !episodes.isEmpty else { return [] }
             return [("网盘资源", episodes)]
         }
-        
+
         let urlGroups = raw.components(separatedBy: "$$$")
         let nameGroups = playFrom?.components(separatedBy: "$$$") ?? []
-        
+
         var sources: [(name: String, episodes: [(name: String, url: String)])] = []
         for (idx, group) in urlGroups.enumerated() {
             let eps = parseGroupEpisodes(group)
@@ -105,7 +207,6 @@ struct VideoDetailView: View {
             let sourceName = (idx < nameGroups.count && !nameGroups[idx].isEmpty) ? nameGroups[idx] : "线路\(idx + 1)"
             sources.append((name: sourceName, episodes: eps))
         }
-        // 排序：m3u8标识的源优先，yun标识的源置后
         sources.sort { a, b in
             let aIsM3u8 = a.name.lowercased().contains("m3u8")
             let bIsM3u8 = b.name.lowercased().contains("m3u8")
@@ -144,19 +245,21 @@ struct VideoDetailView: View {
         return .gray
     }
 
+    // MARK: - Body
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if settings.usesLiquidSkin {
-                AppLiquidBackground()
-                    .ignoresSafeArea()
-            } else if settings.usesFrostedSkin {
-                AppFrostedBackground()
-                    .ignoresSafeArea()
-            } else {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
+        ZStack(alignment: .bottom) {
+            // 背景
+            Group {
+                if settings.usesLiquidSkin {
+                    AppLiquidBackground().ignoresSafeArea()
+                } else if settings.usesFrostedSkin {
+                    AppFrostedBackground().ignoresSafeArea()
+                } else {
+                    Color(uiColor: .systemBackground).ignoresSafeArea()
+                }
             }
 
+            // 内容
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     // 封面
@@ -186,19 +289,23 @@ struct VideoDetailView: View {
                             TagLabel(text: displayVideo.vodYear ?? "")
                         }
 
-                        HStack(spacing: 16) {
-                            ActionButton(icon: "play.fill", title: "播放") { handlePlay() }
-                            ActionButton(icon: "list.bullet", title: "选集") {}
-                            ActionButton(icon: "square.and.arrow.down", title: "下载") {}
-                            ActionButton(icon: "square.and.arrow.up", title: "分享") {}
-                        }
-
+                        // 剧情简介
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
                             Text(displayVideo.vodContent ?? "暂无简介").font(.system(size: 14)).foregroundColor(.secondary).lineSpacing(4)
                         }
 
-                        // 网盘资源展示
+                        // 演职人员
+                        if !actors.isEmpty || !directors.isEmpty || isLoadingCredits {
+                            CreditsSection(
+                                actors: actors,
+                                directors: directors,
+                                writers: writers,
+                                isLoading: isLoadingCredits
+                            )
+                        }
+
+                        // 网盘资源
                         if isCloudVideo {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
@@ -231,6 +338,7 @@ struct VideoDetailView: View {
                             }.padding(.vertical, 8)
                         }
 
+                        // 剧集列表
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 Text("剧集列表").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
@@ -241,7 +349,7 @@ struct VideoDetailView: View {
                                     Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集").font(.system(size: 12)).foregroundColor(.gray)
                                 }
                             }
-                            
+
                             // 多线路切换
                             if allSources.count > 1 {
                                 ScrollView(.horizontal, showsIndicators: false) {
@@ -264,21 +372,9 @@ struct VideoDetailView: View {
                                     }
                                 }
                             }
-                            
+
                             EpisodeGridView(episodes: episodes) { episode in
-                                selectedEpisodeVideo = VodItem(
-                                    vodId: displayVideo.vodId,
-                                    vodName: "\(displayVideo.vodName) \(episode.name)",
-                                    vodPic: displayVideo.vodPic,
-                                    vodRemarks: episode.name,
-                                    vodYear: displayVideo.vodYear,
-                                    vodArea: displayVideo.vodArea,
-                                    vodDirector: displayVideo.vodDirector,
-                                    vodActor: displayVideo.vodActor,
-                                    vodContent: displayVideo.vodContent,
-                                    vodPlayFrom: displayVideo.vodPlayFrom,
-                                    vodPlayUrl: episode.url
-                                )
+                                handleEpisodeSelect(episode)
                             }
                         }.padding(.top, 8)
                     }
@@ -293,18 +389,230 @@ struct VideoDetailView: View {
             }
             .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
             .ignoresSafeArea()
-            // 普通视频 → 新版播放器
-            .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
-            // 网盘资源 → 新版播放器（构造 VodItem 传入）
-            .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
-            .fullScreenCover(item: $selectedEpisodeVideo) { epVideo in VideoPlayerViewV2(video: epVideo) }
-            .onAppear {
-                if isCloudVideo { loadPanLinks() }
-                loadRealDetailIfNeeded()
-            }
 
+            // MARK: - 底部操作栏
+            VStack(spacing: 0) {
+                Divider()
+                HStack(spacing: 0) {
+                    BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
+                    BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
+                    BottomBarButton(icon: "square.and.arrow.down", title: "下载") { }
+                    BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
+                }
+                .padding(.vertical, 8)
+                .background(
+                    settings.usesVisualSkin
+                    ? Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.3 : 0.7)
+                    : Color(uiColor: .systemBackground)
+                )
+            }
+        }
+        // 播放器
+        .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
+        .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
+        .fullScreenCover(item: $selectedEpisodeVideo) { epVideo in VideoPlayerViewV2(video: epVideo) }
+        // 选集弹窗
+        .sheet(isPresented: $showEpisodeSheet) {
+            EpisodeSheetView(
+                sources: allSources,
+                selectedSourceIndex: $selectedSourceIndex,
+                onSelect: { episode in
+                    handleEpisodeSelect(episode)
+                    showEpisodeSheet = false
+                }
+            )
+        }
+        .onAppear {
+            initializeSources()
+            if isCloudVideo { loadPanLinks() }
+            loadRealDetailIfNeeded()
+            loadCredits()
         }
         .edgeSwipeBack { dismiss() }
+    }
+}
+
+// MARK: - 底部栏按钮
+struct BottomBarButton: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(LinearGradient(colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")], startPoint: .top, endPoint: .bottom))
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - 选集弹窗
+struct EpisodeSheetView: View {
+    let sources: [(name: String, episodes: [(name: String, url: String)])]
+    @Binding var selectedSourceIndex: Int
+    let onSelect: ((name: String, url: String)) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // 线路切换
+                if sources.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(sources.enumerated()), id: \.offset) { idx, source in
+                                Button(action: { selectedSourceIndex = idx }) {
+                                    Text(source.name)
+                                        .font(.system(size: 13, weight: idx == selectedSourceIndex ? .semibold : .medium))
+                                        .foregroundColor(idx == selectedSourceIndex ? .white : .primary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(idx == selectedSourceIndex ? Color(hex: "E11D48") : Color(uiColor: .secondarySystemGroupedBackground))
+                                        )
+                                }.buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    Divider().padding(.horizontal, 16)
+                }
+
+                // 集数列表
+                ScrollView {
+                    let currentEpisodes = selectedSourceIndex < sources.count ? sources[selectedSourceIndex].episodes : []
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                        ForEach(Array(currentEpisodes.enumerated()), id: \.offset) { _, episode in
+                            Button(action: { onSelect(episode) }) {
+                                Text(episode.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                                    .foregroundColor(.primary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                    .cornerRadius(10)
+                            }.buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            .navigationTitle("选集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 演职人员区块
+struct CreditsSection: View {
+    let actors: [DoubanCelebrity]
+    let directors: [DoubanCelebrity]
+    let writers: [DoubanCelebrity]
+    let isLoading: Bool
+    @State private var selectedTab = 0
+    private let tabs = ["全部", "主演", "导演", "编剧"]
+
+    private var displayList: [DoubanCelebrity] {
+        switch selectedTab {
+        case 1: return actors
+        case 2: return directors
+        case 3: return writers
+        default: return actors + directors + writers
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("演职人员").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
+
+            // Tab 切换
+            HStack(spacing: 16) {
+                ForEach(Array(tabs.enumerated()), id: \.offset) { idx, tab in
+                    Button(action: { selectedTab = idx }) {
+                        Text(tab)
+                            .font(.system(size: 14, weight: selectedTab == idx ? .semibold : .medium))
+                            .foregroundColor(selectedTab == idx ? Color(hex: "E11D48") : .gray)
+                    }.buttonStyle(PlainButtonStyle())
+                }
+                Spacer()
+            }
+
+            if isLoading && displayList.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView().scaleEffect(0.8)
+                    Spacer()
+                }
+                .padding(.vertical, 20)
+            } else if displayList.isEmpty {
+                Text("暂无演职人员信息")
+                    .font(.system(size: 13))
+                    .foregroundColor(.gray)
+                    .padding(.vertical, 12)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(displayList) { person in
+                            VStack(spacing: 6) {
+                                if let urlStr = person.avatarURL,
+                                   let url = URL(string: urlStr) {
+                                    AsyncImage(url: url) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().aspectRatio(contentMode: .fill)
+                                        case .failure, .empty:
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    .frame(width: 70, height: 70)
+                                    .clipShape(Circle())
+                                } else {
+                                    Circle()
+                                        .fill(Color.gray.opacity(0.3))
+                                        .frame(width: 70, height: 70)
+                                        .overlay(Image(systemName: "person.fill").foregroundColor(.gray))
+                                }
+
+                                Text(person.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .frame(width: 70)
+
+                                if !person.roleText.isEmpty {
+                                    Text(person.roleText)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+                                        .lineLimit(1)
+                                        .frame(width: 70)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
     }
 }
 
@@ -312,10 +620,12 @@ struct VideoDetailView: View {
 struct TagLabel: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.secondary)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
-            .clipShape(Capsule())
+        if !text.isEmpty {
+            Text(text).font(.system(size: 12, weight: .medium)).foregroundColor(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
+                .clipShape(Capsule())
+        }
     }
 }
 
