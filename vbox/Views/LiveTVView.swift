@@ -58,7 +58,14 @@ struct LiveSourcePickerView: View {
                     }
 
                     if let onImportLocal = onImportLocal {
-                        Button(action: { onImportLocal() }) {
+                        Button(action: {
+                            // 先关闭 sheet，再弹出 fileImporter
+                            dismiss()
+                            // 延迟后弹出文件选择器
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                onImportLocal()
+                            }
+                        }) {
                             HStack {
                                 Image(systemName: "folder.fill")
                                     .foregroundColor(.blue)
@@ -128,7 +135,6 @@ struct SourceRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // 类型图标
             ZStack {
                 Circle()
                     .fill(typeColor.opacity(0.15))
@@ -170,8 +176,6 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return "tv"
-        case .cctvLive:
-            return "antenna.radiowaves.left.and.right"
         case .subscribe:
             return "doc.text"
         case .custom:
@@ -183,8 +187,6 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return .blue
-        case .cctvLive:
-            return .red
         case .subscribe:
             return .green
         case .custom:
@@ -196,8 +198,6 @@ struct SourceRowView: View {
         switch source {
         case .defaultIPTV:
             return "默认源"
-        case .cctvLive:
-            return "央视源"
         case .subscribe:
             return "订阅源"
         case .custom:
@@ -236,12 +236,12 @@ struct LiveTVView: View {
     @State private var showFileImporter = false
 
     private var isDefaultSource: Bool {
-        return service.currentSource.isDefault
+        if case .defaultIPTV = service.currentSource { return true }
+        return false
     }
 
     private var currentCategories: [LiveCategory] {
         if isDefaultSource {
-            // 默认源现在也是远程M3U订阅，使用内置固定分类
             return service.categories
         } else {
             // 订阅源/自定义源：使用分组作为分类
@@ -285,12 +285,12 @@ struct LiveTVView: View {
                                 resetHideTimer()
                             }
                             .padding(.trailing, 16)
-                            .padding(.bottom, 80) // 向上移动避免底栏遮挡
+                            .padding(.bottom, 80)
                             .opacity(isFloatingButtonVisible ? 1 : 0)
                             .animation(.easeInOut(duration: 0.3), value: isFloatingButtonVisible)
                     }
                 }
-                .allowsHitTesting(isFloatingButtonVisible) // 隐藏时不拦截触摸
+                .allowsHitTesting(isFloatingButtonVisible)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -313,7 +313,6 @@ struct LiveTVView: View {
                     onSelect: { source in
                         service.switchSource(to: source)
                         showSourcePicker = false
-                        // 刷新当前页面数据
                         channelsCache.removeAll()
                         loadChannelsIfNeeded(for: currentCategory)
                     },
@@ -324,11 +323,7 @@ struct LiveTVView: View {
                         service.removeCustomSource(at: index)
                     },
                     onImportLocal: {
-                        // 先关闭 sheet，再弹出 fileImporter
-                        showSourcePicker = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            showFileImporter = true
-                        }
+                        showFileImporter = true
                     }
                 )
                 .presentationDetents([.medium])
@@ -356,7 +351,6 @@ struct LiveTVView: View {
                 hideTimer = nil
             }
             .onChange(of: service.currentSource) { _ in
-                // 源切换时重新计算分组和加载数据
                 updateSubscribeGroups()
                 channelsCache.removeAll()
                 if let first = currentCategories.first {
@@ -404,32 +398,24 @@ struct LiveTVView: View {
             }
             print("[LiveTV] 选中文件: \(url)")
 
-            // 获取对文件的访问权限
             let accessGranted = url.startAccessingSecurityScopedResource()
             print("[LiveTV] 安全域访问权限: \(accessGranted)")
             defer { url.stopAccessingSecurityScopedResource() }
 
             do {
-                // 尝试多种编码读取
                 let content: String
                 if let utf8Content = try? String(contentsOf: url, encoding: .utf8) {
                     content = utf8Content
                 } else {
-                    // 尝试自动检测编码
                     let data = try Data(contentsOf: url)
-                    if let detected = String(data: data, encoding: .utf8) {
-                        content = detected
-                    } else {
-                        content = String(data: data, encoding: .ascii) ?? ""
-                    }
+                    content = String(data: data, encoding: .ascii) ?? ""
                 }
 
                 let fileName = url.deletingPathExtension().lastPathComponent
                 print("[LiveTV] 文件名: \(fileName), 内容长度: \(content.count)")
 
-                // 根据内容判断格式并解析
-                let parsed: [SubscribeChannel]
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let parsed: [SubscribeChannel]
                 if trimmed.hasPrefix("#EXTM3U") {
                     print("[LiveTV] 检测到 M3U 格式")
                     parsed = service.parseM3U(content: content)
@@ -441,14 +427,15 @@ struct LiveTVView: View {
                 print("[LiveTV] 解析到 \(parsed.count) 个频道")
 
                 if !parsed.isEmpty {
-                    // 将解析到的频道添加为自定义源
                     service.addLocalChannels(name: fileName, channels: parsed)
-                    // 自动切换到导入的源
                     let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
                     service.switchSource(to: customSource)
-                    // 刷新频道列表
                     channelsCache.removeAll()
-                    loadChannelsIfNeeded(for: currentCategory)
+                    updateSubscribeGroups()
+                    if let first = currentCategories.first {
+                        currentCategory = first.id
+                        loadChannelsIfNeeded(for: first.id, forceReload: true)
+                    }
                     print("[LiveTV] 导入成功，已切换到源: \(fileName)")
                 } else {
                     print("[LiveTV] 文件内容解析为空")
@@ -467,7 +454,6 @@ struct LiveTVView: View {
             subscribeGroups = []
             return
         }
-        // 从 subscribeChannels 中提取所有 group
         let groups = Set(service.subscribeChannels.compactMap { $0.group })
         subscribeGroups = Array(groups).sorted()
         if !subscribeGroups.isEmpty && !subscribeGroups.contains(currentSubscribeGroup) {
@@ -549,7 +535,6 @@ struct LiveTVView: View {
         isLoading = true
 
         Task {
-            // 如果是订阅源，先确保分组数据已更新
             if !isDefaultSource && subscribeGroups.isEmpty {
                 await MainActor.run {
                     updateSubscribeGroups()
@@ -604,7 +589,6 @@ struct ChannelCard: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            // 频道图标
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.orange.opacity(0.1))
@@ -628,7 +612,6 @@ struct ChannelCard: View {
                 }
             }
 
-            // 频道信息
             VStack(alignment: .leading, spacing: 4) {
                 Text(channel.name)
                     .font(.system(size: 16, weight: .semibold))
@@ -648,7 +631,6 @@ struct ChannelCard: View {
 
             Spacer()
 
-            // 播放按钮
             Image(systemName: "play.circle.fill")
                 .font(.system(size: 32))
                 .foregroundColor(.orange)
@@ -660,7 +642,6 @@ struct ChannelCard: View {
                 .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
         )
         .onAppear {
-            // 预解析线路数量
             Task {
                 isResolving = true
                 let sources = await service.resolveAllSources(channel: channel)
@@ -737,7 +718,6 @@ struct LivePlayerSheet: View {
     @State private var currentRouteIndex = 0
 
     // 跳转到主播放器
-    @State private var showFullScreenPlayer = false
     @State private var fullScreenVideo: VodItem?
 
     var body: some View {
@@ -777,13 +757,11 @@ struct LivePlayerSheet: View {
                             .foregroundColor(.orange)
                         }
                     }
-
-
                 }
 
                 // 下半部分：频道信息和线路列表
                 VStack(spacing: 16) {
-                    // 频道名称
+                    // 频道名称 + 全屏按钮
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(channel.name)
@@ -798,14 +776,14 @@ struct LivePlayerSheet: View {
                         }
                         Spacer()
 
+                        // 全屏按钮
                         if player != nil {
-                            Button(action: {
-                                openFullScreenPlayer()
-                            }) {
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.orange)
-                            }
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 18))
+                                .foregroundColor(.accentColor)
+                                .onTapGesture {
+                                    openFullScreenPlayer()
+                                }
                         }
 
                         if availableRoutes.count > 1 {
@@ -838,12 +816,10 @@ struct LivePlayerSheet: View {
                             LazyVStack(spacing: 8) {
                                 ForEach(0..<availableRoutes.count, id: \.self) { index in
                                     Button(action: {
-                                        // 点击线路 -> 跳转到主播放器
                                         currentRouteIndex = index
                                         openFullScreenPlayer(routeIndex: index)
                                     }) {
                                         HStack(spacing: 12) {
-                                            // 线路编号
                                             ZStack {
                                                 Circle()
                                                     .fill(index == currentRouteIndex ? Color.accentColor : Color(.systemGray4))
@@ -853,7 +829,6 @@ struct LivePlayerSheet: View {
                                                     .foregroundColor(.white)
                                             }
 
-                                            // 线路信息
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text("线路 \(index + 1)")
                                                     .font(.system(size: 15, weight: .medium))
@@ -918,14 +893,11 @@ struct LivePlayerSheet: View {
         }
     }
 
-    // MARK: - 打开全屏播放器
     private func openFullScreenPlayer(routeIndex: Int? = nil) {
         let idx = routeIndex ?? currentRouteIndex
         guard idx < availableRoutes.count else { return }
 
         let urlString = availableRoutes[idx]
-        // 构造 VodItem 传给主播放器
-        // vodPlayUrl 格式: "线路名$url"
         let playUrl = "线路\(idx + 1)$\(urlString)"
         fullScreenVideo = VodItem(
             vodId: channel.id,
@@ -937,7 +909,6 @@ struct LivePlayerSheet: View {
         )
     }
 
-    // MARK: - 截断URL显示
     private func truncateURL(_ url: String) -> String {
         if url.count > 50 {
             let start = url.prefix(25)
@@ -947,7 +918,6 @@ struct LivePlayerSheet: View {
         return url
     }
 
-    // MARK: - 加载预览播放器
     private func loadPlayer() {
         isLoading = true
         errorMessage = nil
@@ -1009,7 +979,6 @@ struct EPGSheetView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 日期选择
                 Picker("日期", selection: $selectedDay) {
                     ForEach(dayOptions, id: \.0) { value, label in
                         Text(label).tag(value)

@@ -1,20 +1,19 @@
 import Foundation
 import SwiftUI
-import JavaScriptCore
 
 // MARK: - 直播源类型
 enum LiveSourceType: Identifiable, Equatable, Codable {
-    case defaultIPTV      // iptv807.com
-    case cctvLive         // 央视直播 (tv.cctv.com)
+    case defaultIPTV      // 默认源一 (APTV)
+    case defaultIPTV2     // 默认源二 (YueChan)
     case subscribe(name: String, url: String)  // 订阅配置中的源
     case custom(name: String, url: String)     // 用户自定义源
 
     var id: String {
         switch self {
         case .defaultIPTV:
-            return "default_iptv"
-        case .cctvLive:
-            return "default_cctv"
+            return "default_iptv_1"
+        case .defaultIPTV2:
+            return "default_iptv_2"
         case .subscribe(let name, let url):
             return "subscribe_\(name)_\(url)"
         case .custom(let name, let url):
@@ -25,8 +24,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     var displayName: String {
         switch self {
         case .defaultIPTV:
-            return "默认源一 (APTV)"
-        case .cctvLive:
+            return "默认源一 (IPv4多线路)"
+        case .defaultIPTV2:
             return "默认源二 (YueChan)"
         case .subscribe(let name, _):
             return name
@@ -38,8 +37,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     var sourceURL: String? {
         switch self {
         case .defaultIPTV:
-            return "https://gh.aptv.app/https://raw.githubusercontent.com/Kimentanm/aptv/master/m3u/iptv.m3u"
-        case .cctvLive:
+            return "https://raw.githubusercontent.com/bjzhou/iptv-collector/output/iptv.m3u"
+        case .defaultIPTV2:
             return "https://raw.githubusercontent.com/YueChan/Live/refs/heads/main/APTV.m3u"
         case .subscribe(_, let url):
             return url
@@ -50,7 +49,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var isDefault: Bool {
         switch self {
-        case .defaultIPTV, .cctvLive:
+        case .defaultIPTV, .defaultIPTV2:
             return true
         case .subscribe, .custom:
             return false
@@ -63,22 +62,22 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     }
 
     enum SourceKind: String, Codable {
-        case defaultIPTV, cctvLive, subscribe, custom
+        case defaultIPTV, defaultIPTV2, subscribe, custom
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .defaultIPTV:
-            try container.encode(SourceKind.defaultIPTV, forKey: .type)
-        case .cctvLive:
-            try container.encode(SourceKind.cctvLive, forKey: .type)
+            try container.encode(SourceKind.defaultIPTV.rawValue, forKey: .type)
+        case .defaultIPTV2:
+            try container.encode(SourceKind.defaultIPTV2.rawValue, forKey: .type)
         case .subscribe(let name, let url):
-            try container.encode(SourceKind.subscribe, forKey: .type)
+            try container.encode(SourceKind.subscribe.rawValue, forKey: .type)
             try container.encode(name, forKey: .name)
             try container.encode(url, forKey: .url)
         case .custom(let name, let url):
-            try container.encode(SourceKind.custom, forKey: .type)
+            try container.encode(SourceKind.custom.rawValue, forKey: .type)
             try container.encode(name, forKey: .name)
             try container.encode(url, forKey: .url)
         }
@@ -86,12 +85,12 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try container.decode(SourceKind.self, forKey: .type)
-        switch kind {
+        let type = try container.decode(SourceKind.self, forKey: .type)
+        switch type {
         case .defaultIPTV:
             self = .defaultIPTV
-        case .cctvLive:
-            self = .cctvLive
+        case .defaultIPTV2:
+            self = .defaultIPTV2
         case .subscribe:
             let name = try container.decode(String.self, forKey: .name)
             let url = try container.decode(String.self, forKey: .url)
@@ -102,14 +101,17 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
             self = .custom(name: name, url: url)
         }
     }
+}
 
+// MARK: - LiveSourceType 字典初始化扩展
+extension LiveSourceType {
     init?(dictionary: [String: String]) {
         guard let type = dictionary["type"] else { return nil }
         switch type {
         case "defaultIPTV":
             self = .defaultIPTV
-        case "cctvLive":
-            self = .cctvLive
+        case "defaultIPTV2":
+            self = .defaultIPTV2
         case "subscribe":
             guard let name = dictionary["name"], let url = dictionary["url"] else { return nil }
             self = .subscribe(name: name, url: url)
@@ -125,8 +127,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return ["type": "defaultIPTV"]
-        case .cctvLive:
-            return ["type": "cctvLive"]
+        case .defaultIPTV2:
+            return ["type": "defaultIPTV2"]
         case .subscribe(let name, let url):
             return ["type": "subscribe", "name": name, "url": url]
         case .custom(let name, let url):
@@ -208,8 +210,6 @@ struct LiveCategory: Identifiable {
 // MARK: - 直播服务
 class LiveTVService: ObservableObject {
     static let shared = LiveTVService()
-
-    private let baseURL = "http://m.iptv807.com"
     private let session: URLSession
 
     /// M3U8缓存 [channelId: m3u8URL]
@@ -236,7 +236,7 @@ class LiveTVService: ObservableObject {
 
     /// 所有可用源列表
     var availableSources: [LiveSourceType] {
-        var sources: [LiveSourceType] = [.defaultIPTV, .cctvLive]
+        var sources: [LiveSourceType] = [.defaultIPTV, .defaultIPTV2]
         // 可以从配置文件读取的订阅源
         sources.append(contentsOf: configSubscribeSources)
         // 用户自定义源
@@ -376,14 +376,14 @@ class LiveTVService: ObservableObject {
 
     /// 保存本地频道到 UserDefaults
     private func saveLocalChannels() {
-        var dict: [String: [[String: Any]]] = [:]
+        var dict: [String: [[String: String?]]] = [:]
         for (key, channels) in localChannelsMap {
-            dict[key] = channels.map { channel in
-                var d: [String: Any] = ["name": channel.name, "url": channel.url]
-                if let group = channel.group { d["group"] = group }
-                if let logo = channel.logo { d["logo"] = logo }
-                return d
-            }
+            dict[key] = channels.map { [
+                "name": $0.name,
+                "url": $0.url,
+                "group": $0.group,
+                "logo": $0.logo
+            ]}
         }
         if let data = try? JSONSerialization.data(withJSONObject: dict) {
             UserDefaults.standard.set(data, forKey: "live_tv_local_channels")
@@ -393,19 +393,16 @@ class LiveTVService: ObservableObject {
     /// 从 UserDefaults 加载本地频道
     private func loadLocalChannels() {
         guard let data = UserDefaults.standard.data(forKey: "live_tv_local_channels"),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]] else {
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: String?]]] else {
             return
         }
         for (key, channelDicts) in dict {
             localChannelsMap[key] = channelDicts.compactMap { d in
-                guard let name = d["name"] as? String, let url = d["url"] as? String else {
-                    return nil
-                }
-                return SubscribeChannel(
-                    name: name,
-                    url: url,
-                    group: d["group"] as? String,
-                    logo: d["logo"] as? String
+                SubscribeChannel(
+                    name: d["name"] ?? "未知",
+                    url: d["url"] ?? "",
+                    group: d["group"] ?? nil,
+                    logo: d["logo"] ?? nil
                 )
             }
         }
@@ -413,22 +410,18 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 获取分类频道列表
     func fetchChannels(tid: String) async -> [LiveChannel] {
-        switch currentSource {
-        case .defaultIPTV, .cctvLive, .subscribe, .custom:
-            // 所有带URL的源都走订阅源解析逻辑
-            if let url = currentSource.sourceURL {
-                // 确保已加载订阅数据
-                if subscribeChannels.isEmpty {
-                    await fetchSubscribeChannels(url: url)
-                }
-                return await fetchSubscribeChannelsForTid(tid: tid)
+        // 所有源统一走订阅源解析逻辑
+        if let url = currentSource.sourceURL {
+            // 确保已加载订阅数据
+            if subscribeChannels.isEmpty {
+                await fetchSubscribeChannels(url: url)
             }
-            return []
+            return await fetchSubscribeChannelsForTid(tid: tid)
         }
+        return []
     }
 
-    // 默认源和央视源现在都是远程M3U订阅，频道获取统一走 fetchChannels -> fetchSubscribeChannelsForTid
-
+    // MARK: - 默认源频道获取（iptv807.com）
     // MARK: - 订阅源频道获取（按分类过滤）
     private func fetchSubscribeChannelsForTid(tid: String) async -> [LiveChannel] {
         // 如果 subscribeChannels 为空，先尝试获取
@@ -492,243 +485,6 @@ class LiveTVService: ObservableObject {
         }
     }
 
-    // MARK: - 解析频道列表（从HTML中提取）
-    private func parseChannels(from html: String, tid: String) -> [LiveChannel] {
-        var channels: [LiveChannel] = []
-
-        // 匹配模式: <a href="https://m.iptv807.com/?act=play&token=xxx&tid=ys&id=1">CCTV1综合</a>
-        let pattern = #"<a\s+href="https?://m\.iptv807\.com/\?act=play&token=([^"]+)&tid=([^"]+)&id=([^"]+)"[^>]*>([^<]+)</a>"#
-
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-
-        for match in matches {
-            guard match.numberOfRanges >= 5 else { continue }
-
-            let token = String(html[Range(match.range(at: 1), in: html)!])
-            let matchTid = String(html[Range(match.range(at: 2), in: html)!])
-            let channelId = String(html[Range(match.range(at: 3), in: html)!])
-            let name = String(html[Range(match.range(at: 4), in: html)!])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // 只取当前分类的频道
-            guard matchTid == tid else { continue }
-
-            let channel = LiveChannel(
-                id: "\(tid)_\(channelId)",
-                name: name,
-                tid: tid,
-                channelId: channelId,
-                token: token,
-                logo: nil,
-                sources: []
-            )
-            channels.append(channel)
-        }
-
-        return channels
-    }
-
-    // MARK: - 备用解析方式（更宽松的匹配）
-    private func parseChannelsFallback(from html: String, tid: String) -> [LiveChannel] {
-        var channels: [LiveChannel] = []
-
-        // 方式1: 匹配任意包含 act=play 的链接
-        let pattern1 = #"<a\s[^>]*href=["']([^"']*act=play[^"']*)["'][^>]*>([^<]+)</a>"#
-        if let regex = try? NSRegularExpression(pattern: pattern1, options: [.caseInsensitive]) {
-            let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-            for match in matches {
-                guard match.numberOfRanges >= 3 else { continue }
-                let href = String(html[Range(match.range(at: 1), in: html)!])
-                let name = String(html[Range(match.range(at: 2), in: html)!])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                // 从 href 中提取参数
-                let params = extractParams(from: href)
-                let matchTid = params["tid"] ?? ""
-                let token = params["token"] ?? ""
-                let channelId = params["id"] ?? ""
-
-                guard matchTid == tid && !channelId.isEmpty else { continue }
-
-                let channel = LiveChannel(
-                    id: "\(tid)_\(channelId)",
-                    name: name,
-                    tid: tid,
-                    channelId: channelId,
-                    token: token,
-                    logo: nil,
-                    sources: []
-                )
-                channels.append(channel)
-            }
-        }
-
-        // 方式2: 匹配列表项中的链接
-        if channels.isEmpty {
-            let pattern2 = #"<li[^>]*>.*?<a\s[^>]*href=["']([^"']*tid=\(tid)[^"']*)["'][^>]*>([^<]+)</a>.*?</li>"#
-            if let regex = try? NSRegularExpression(pattern: pattern2, options: [.caseInsensitive, .dotMatchesLineSeparators]) {
-                let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-                for match in matches {
-                    guard match.numberOfRanges >= 3 else { continue }
-                    let href = String(html[Range(match.range(at: 1), in: html)!])
-                    let name = String(html[Range(match.range(at: 2), in: html)!])
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    let params = extractParams(from: href)
-                    let token = params["token"] ?? ""
-                    let channelId = params["id"] ?? ""
-
-                    guard !channelId.isEmpty else { continue }
-
-                    let channel = LiveChannel(
-                        id: "\(tid)_\(channelId)",
-                        name: name,
-                        tid: tid,
-                        channelId: channelId,
-                        token: token,
-                        logo: nil,
-                        sources: []
-                    )
-                    channels.append(channel)
-                }
-            }
-        }
-
-        return channels
-    }
-
-    // MARK: - Markdown 格式解析（itv等分类返回Markdown而非HTML）
-    private func parseChannelsMarkdown(from content: String, tid: String) -> [LiveChannel] {
-        var channels: [LiveChannel] = []
-
-        // 匹配 Markdown 链接: [频道名](URL)
-        // 格式: - [CCTV1综合](https://m.iptv807.com/?act=play&token=xxx&tid=itv&id=1)
-        let pattern = #"\[([^\]]+)\]\(([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
-        let matches = regex.matches(in: content, options: [], range: NSRange(content.startIndex..., in: content))
-
-        for match in matches {
-            guard match.numberOfRanges >= 3 else { continue }
-            let name = String(content[Range(match.range(at: 1), in: content)!])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let href = String(content[Range(match.range(at: 2), in: content)!])
-                .trimmingCharacters(in: .whitespaces)
-
-            // 从 href 中提取参数
-            let params = extractParams(from: href)
-            let matchTid = params["tid"] ?? ""
-            let token = params["token"] ?? ""
-            let channelId = params["id"] ?? ""
-
-            guard matchTid == tid && !channelId.isEmpty else { continue }
-
-            let channel = LiveChannel(
-                id: "\(tid)_\(channelId)",
-                name: name,
-                tid: tid,
-                channelId: channelId,
-                token: token,
-                logo: nil,
-                sources: []
-            )
-            channels.append(channel)
-        }
-
-        return channels
-    }
-
-    // MARK: - 从 URL 字符串中提取查询参数
-    private func extractParams(from urlString: String) -> [String: String] {
-        var params: [String: String] = [:]
-        guard let components = URLComponents(string: urlString) else {
-            // 尝试手动解析
-            let parts = urlString.components(separatedBy: "?")
-            guard parts.count > 1 else { return params }
-            let query = parts[1].components(separatedBy: "&")
-            for q in query {
-                let kv = q.components(separatedBy: "=")
-                if kv.count == 2 {
-                    params[kv[0]] = kv[1].removingPercentEncoding ?? kv[1]
-                }
-            }
-            return params
-        }
-        for item in components.queryItems ?? [] {
-            params[item.name] = item.value
-        }
-        return params
-    }
-
-    // MARK: - 解析M3U8播放地址
-    func resolveM3U8(channel: LiveChannel) async -> String? {
-        // 先查缓存
-        if let cached = m3u8Cache[channel.id] { return cached }
-
-        // 如果是订阅源，直接返回已有 source
-        if !channel.sources.isEmpty {
-            m3u8Cache[channel.id] = channel.sources.first
-            return channel.sources.first
-        }
-
-        guard let url = URL(string: channel.playURL) else { return nil }
-
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let html = String(data: data, encoding: .utf8) else { return nil }
-
-            // 提取所有匹配的URL作为多线路
-            var allSources: [String] = []
-            let patterns = [
-                #"src\s*=\s*["']([^"']+\.m3u8[^"']*)["']"#,
-                #"url\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']"#,
-                #"(https?://[^\s"'<>]+\.m3u8[^\s"'<>]*)"#,
-                #"var\s+url\s*=\s*["']([^"']+)["']"#,
-                #"player\s*\(\s*["']([^"']+)["']"#
-            ]
-
-            for pattern in patterns {
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                    let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
-                    for match in matches {
-                        guard match.numberOfRanges >= 2,
-                              let range = Range(match.range(at: 1), in: html) else { continue }
-                        var m3u8 = String(html[range])
-                        // 处理相对路径
-                        if m3u8.hasPrefix("//") { m3u8 = "https:" + m3u8 }
-                        else if m3u8.hasPrefix("/") { m3u8 = baseURL + m3u8 }
-                        else if !m3u8.hasPrefix("http") { m3u8 = baseURL + "/" + m3u8 }
-                        if m3u8.contains(".m3u8") && !allSources.contains(m3u8) {
-                            allSources.append(m3u8)
-                        }
-                    }
-                }
-            }
-
-            // 如果都没找到，尝试iframe
-            let iframePattern = #"<iframe[^>]+src=["']([^"']+)["']"#
-            if let regex = try? NSRegularExpression(pattern: iframePattern, options: []),
-               let match = regex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..., in: html)),
-               match.numberOfRanges >= 2,
-               let range = Range(match.range(at: 1), in: html) {
-                let iframeSrc = String(html[range])
-                if iframeSrc.contains(".m3u8") && !allSources.contains(iframeSrc) {
-                    allSources.append(iframeSrc)
-                }
-            }
-
-            // 缓存第一个线路
-            if let first = allSources.first {
-                m3u8Cache[channel.id] = first
-                return first
-            }
-            return nil
-        } catch {
-            print("[LiveTV] 解析M3U8失败: \(error)")
-            return nil
-        }
-    }
-
     // MARK: - 解析频道所有可用线路
     func resolveAllSources(channel: LiveChannel) async -> [String] {
         // 先查缓存
@@ -742,6 +498,12 @@ class LiveTVService: ObservableObject {
                 m3u8Cache[channel.id] = first
             }
             return channel.sources
+        }
+
+        // 如果频道有 playURL，尝试直接返回
+        if !channel.playURL.isEmpty, channel.playURL.hasPrefix("http") {
+            m3u8Cache[channel.id] = channel.playURL
+            return [channel.playURL]
         }
 
         return []
@@ -913,21 +675,5 @@ class LiveTVService: ObservableObject {
         } catch {
             print("[LiveTV] 获取订阅源失败: \(error)")
         }
-    }
-}
-
-// MARK: - Array JSON 编码扩展
-extension Array where Element == String {
-    func toJSONEncodedString() -> String {
-        let parts = self.map { s -> String in
-            // 转义双引号和反斜杠
-            let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
-                .replacingOccurrences(of: "\t", with: "\\t")
-            return "\"\(escaped)\""
-        }
-        return "[\(parts.joined(separator: ","))]"
     }
 }
