@@ -103,11 +103,6 @@ extension QJSSpiderEngine: SpiderEngineProtocol {
         return founded
     }
 
-    func callCategoryContent(tid: String, pg: Int, extend: String = "{}") throws -> CategoryContentResult {
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.categoryContent('\(tid)',\(pg),'\(extend)'))"
-        return try decodeResult(script)
-    }
-
     private func decodeResult<T: Codable>(_ script: String) throws -> T {
         guard let result = evaluateJS(script) else {
             throw QJSError(message: "JS 返回 nil")
