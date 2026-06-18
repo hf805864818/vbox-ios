@@ -2743,9 +2743,27 @@ struct PlayerContainerView: View {
             }
             
             // 弹窗层 - 独立于控制栏，即使控制栏隐藏也能显示
-            // 弹窗 - 倍数（竖屏由SpeedAnchorButton在按钮上方弹出，横屏用小弹窗）
+            // 弹窗 - 倍数（竖屏：固定在右下角按钮上方 / 横屏：居中弹窗）
             Group {
-                if !playerState.isPortrait && playerState.showSettings {
+                if playerState.isPortrait && playerState.showSettings {
+                    // 竖屏：倍数弹窗固定在右下角按钮上方，不推高进度条
+                    GeometryReader { geo in
+                        PlayerSettingsPanelV2(
+                            isPresented: $playerState.showSettings,
+                            speed: $playerState.playbackSpeed,
+                            onSpeedChange: { speed in
+                                playerState.changePlaybackSpeed(speed)
+                            }
+                        )
+                        .environmentObject(settings)
+                        .frame(width: 130)
+                        .position(x: geo.size.width - 60, y: geo.size.height - 100)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                            removal: .opacity.combined(with: .scale(scale: 0.9))
+                        ))
+                    }
+                } else if !playerState.isPortrait && playerState.showSettings {
                     SmallPopupView(isPresented: $playerState.showSettings) {
                         PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
                             playerState.changePlaybackSpeed(speed)
@@ -3050,87 +3068,65 @@ struct PlayerProgressBar: View {
 struct PortraitBottomBar: View {
     let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
-    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // 底层：按钮栏
-            HStack(spacing: 0) {
-                Button(action: { playerState.togglePlayback(player: player) }) {
-                    Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
-                        .frame(width: 56, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(player == nil && playerState.compatibilityURL == nil)
-                .buttonStyle(PlainButtonStyle())
-
-                Button(action: { playerState.playNextEpisode() }) {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
-                        .frame(width: 56, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!playerState.hasNextEpisode)
-                .buttonStyle(PlainButtonStyle())
-
-                Spacer()
-
-                // 选集按钮
-                Button(action: { playerState.showEpisodePicker = true }) {
-                    VStack(spacing: 2) {
-                        Image(systemName: "list.bullet")
-                            .font(.system(size: 18))
-                        Text("选集")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundColor(.white)
+        HStack(spacing: 0) {
+            Button(action: { playerState.togglePlayback(player: player) }) {
+                Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
                     .frame(width: 56, height: 44)
                     .contentShape(Rectangle())
-                }
-                .buttonStyle(PlainButtonStyle())
+            }
+            .disabled(player == nil && playerState.compatibilityURL == nil)
+            .buttonStyle(PlainButtonStyle())
 
-                // 倍数按钮 - 使用更协调的图标
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        playerState.showSettings.toggle()
-                    }
-                }) {
-                    VStack(spacing: 2) {
-                        Image(systemName: "speedometer")
-                            .font(.system(size: 18))
-                        Text("倍数")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundColor(playerState.showSettings ? Color(hex: "2196F3") : .white)
+            Button(action: { playerState.playNextEpisode() }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
                     .frame(width: 56, height: 44)
                     .contentShape(Rectangle())
+            }
+            .disabled(!playerState.hasNextEpisode)
+            .buttonStyle(PlainButtonStyle())
+
+            Spacer()
+
+            // 选集按钮
+            Button(action: { playerState.showEpisodePicker = true }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 18))
+                    Text("选集")
+                        .font(.system(size: 10, weight: .medium))
                 }
-                .buttonStyle(PlainButtonStyle())
+                .foregroundColor(.white)
+                .frame(width: 56, height: 44)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 12)
-            
-            // 上层：倍数弹窗 - 固定在按钮上方，不扰乱布局
-            if playerState.showSettings {
-                PlayerSettingsPanelV2(
-                    isPresented: $playerState.showSettings,
-                    speed: $playerState.playbackSpeed,
-                    onSpeedChange: { speed in
-                        playerState.changePlaybackSpeed(speed)
-                    }
-                )
-                .environmentObject(settings)
-                .frame(width: 130)
-                .offset(x: 60, y: -50)  // 向右上方偏移，位于倍数按钮上方
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.8)),
-                    removal: .opacity.combined(with: .scale(scale: 0.9))
-                ))
+            .buttonStyle(PlainButtonStyle())
+
+            // 倍数按钮
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    playerState.showSettings.toggle()
+                }
+            }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 18))
+                    Text("倍数")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(playerState.showSettings ? Color(hex: "2196F3") : .white)
+                .frame(width: 56, height: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
         }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 12)
     }
 }
 
