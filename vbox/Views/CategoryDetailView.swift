@@ -40,8 +40,8 @@ struct CategoryDetailView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
-            // 筛选器区域（豆瓣模式下显示）
-            if !hasSubscription {
+            // 筛选器区域（有订阅源时显示）
+            if hasSubscription {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         FilterChip(title: "类型", options: genres, selection: $selectedGenre)
@@ -251,7 +251,7 @@ struct SubscriptionSiteGrid: View {
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(sites) { site in
+            ForEach(Array(sites.enumerated()), id: \.offset) { _, site in
                 Button(action: {
                     settings.triggerSearch(site.name)
                 }) {
