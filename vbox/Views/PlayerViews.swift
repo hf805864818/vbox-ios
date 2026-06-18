@@ -379,9 +379,9 @@ struct VideoDetailView: View {
                 .background(
                     Capsule()
                         .fill(.ultraThinMaterial)
-                        .background(Capsule().fill(Color.black.opacity(0.6)))
+                        .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
                         .overlay(
-                            Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1)
+                            Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
                         )
                 )
                 .clipShape(Capsule())
@@ -392,7 +392,7 @@ struct VideoDetailView: View {
         .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
         .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
         .fullScreenCover(item: $selectedEpisodeVideo) { epVideo in VideoPlayerViewV2(video: epVideo) }
-        // 选集弹窗
+        // 选集弹窗（半屏）
         .sheet(isPresented: $showEpisodeSheet) {
             EpisodeSheetView(
                 sources: allSources,
@@ -402,6 +402,8 @@ struct VideoDetailView: View {
                     showEpisodeSheet = false
                 }
             )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onAppear {
             initializeSources()
