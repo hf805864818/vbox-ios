@@ -105,6 +105,18 @@ struct VideoDetailView: View {
             let sourceName = (idx < nameGroups.count && !nameGroups[idx].isEmpty) ? nameGroups[idx] : "线路\(idx + 1)"
             sources.append((name: sourceName, episodes: eps))
         }
+        // 排序：m3u8标识的源优先，yun标识的源置后
+        sources.sort { a, b in
+            let aIsM3u8 = a.name.lowercased().contains("m3u8")
+            let bIsM3u8 = b.name.lowercased().contains("m3u8")
+            let aIsYun = a.name.lowercased().contains("yun")
+            let bIsYun = b.name.lowercased().contains("yun")
+            if aIsM3u8 && !bIsM3u8 { return true }
+            if !aIsM3u8 && bIsM3u8 { return false }
+            if aIsYun && !bIsYun { return false }
+            if !aIsYun && bIsYun { return true }
+            return false
+        }
         return sources
     }
 

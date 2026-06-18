@@ -687,10 +687,11 @@ struct SearchView: View {
                             searchText = ""
                             resetSearchState()
                         }) {
-                            Image(systemName: "xmark.circle.fill")
+                            Image(systemName: "xmark")
                                 .foregroundColor(.gray)
-                                .font(.system(size: 16))
+                                .font(.system(size: 14, weight: .medium))
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 .padding(10)

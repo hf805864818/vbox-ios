@@ -97,8 +97,8 @@ struct SettingsView: View {
 
     private var skinSettingsSection: some View {
         SettingsSection(title: "皮肤") {
-            VStack(alignment: .leading, spacing: 12) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
                     ForEach(AppSkinMode.allCases) { mode in
                         SkinModeButton(
                             mode: mode,
@@ -113,22 +113,22 @@ struct SettingsView: View {
                 }
 
                 Toggle(isOn: $settings.skinFollowsSystem) {
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("黑暗/浅色跟随手机外观")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.primary)
-                        Text("开启后会随系统外观切换；手动点击黑暗模式或浅色模式会立即生效，并自动关闭跟随系统。")
-                            .font(.system(size: 12))
+                        Text("开启后随系统外观切换")
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
                 }
                 .disabled(settings.skinMode == .liquid || settings.skinMode == .frosted)
                 .opacity((settings.skinMode == .liquid || settings.skinMode == .frosted) ? 0.55 : 1)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(settings.usesVisualSkin ? 0.42 : 1))
             )
         }
@@ -855,28 +855,28 @@ struct SkinModeButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 4) {
                 Image(systemName: mode.icon)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                 Text(mode.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                 Text(mode.subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundColor(isSelected ? selectedSubtitleColor : .secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .foregroundColor(isSelected ? selectedTextColor : .primary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
             .background(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(isSelected ? selectedGradient : inactiveBackground)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(isSelected ? Color(uiColor: .systemBackground).opacity(0.45) : Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
             )
         }
