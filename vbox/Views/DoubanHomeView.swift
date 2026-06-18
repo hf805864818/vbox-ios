@@ -73,41 +73,35 @@ struct DoubanHomeView: View {
     private func loadData() {
         isLoading = true
         Task {
-            do {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    var banner: [DoubanSubject] = []
-                    var movies: [DoubanSubject] = []
-                    var tv: [DoubanSubject] = []
-                    var variety: [DoubanSubject] = []
-                    var top: [DoubanSubject] = []
-                    var showing: [DoubanSubject] = []
-                    var hotGaia: [DoubanSubject] = []
-                    var american: [DoubanSubject] = []
+            // 独立加载每个分类，一个失败不影响其他
+            async let banner = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+            async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
+            async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
+            async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
+            async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+            async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
+            async let hotGaia = fetchSafely { try await doubanService.fetchHotGaia(start: 0, count: 10) }
+            async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
 
-                    group.addTask { banner = try await doubanService.fetchTop250(start: 0, count: 10) }
-                    group.addTask { movies = try await doubanService.fetchHotMovies(start: 0, count: 10) }
-                    group.addTask { tv = try await doubanService.fetchHotTV(start: 0, count: 10) }
-                    group.addTask { variety = try await doubanService.fetchHotVariety(start: 0, count: 10) }
-                    group.addTask { top = try await doubanService.fetchTop250(start: 0, count: 10) }
-                    group.addTask { showing = try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
-                    group.addTask { hotGaia = try await doubanService.fetchHotGaia(start: 0, count: 10) }
-                    group.addTask { american = try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+            bannerSubjects = await banner
+            hotMovies = await movies
+            hotTV = await tv
+            hotVariety = await variety
+            top250 = await top
+            showingMovies = await showing
+            hotGaiaMovies = await hotGaia
+            americanTV = await american
 
-                    try await group.waitForAll()
-
-                    bannerSubjects = banner
-                    hotMovies = movies
-                    hotTV = tv
-                    hotVariety = variety
-                    top250 = top
-                    showingMovies = showing
-                    hotGaiaMovies = hotGaia
-                    americanTV = american
-                }
-            } catch {
-                print("Douban API error: \(error)")
-            }
             isLoading = false
+        }
+    }
+
+    private func fetchSafely(_ operation: @escaping () async throws -> [DoubanSubject]) async -> [DoubanSubject] {
+        do {
+            return try await operation()
+        } catch {
+            print("[DoubanHome] 加载失败: \(error)")
+            return []
         }
     }
 }
