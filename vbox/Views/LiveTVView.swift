@@ -778,26 +778,7 @@ struct LivePlayerSheet: View {
                         }
                     }
 
-                    // 全屏按钮（右上角）
-                    if player != nil {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                Button(action: {
-                                    openFullScreenPlayer()
-                                }) {
-                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(Circle().fill(Color.black.opacity(0.5)))
-                                }
-                                .padding(.trailing, 8)
-                                .padding(.top, 8)
-                            }
-                            Spacer()
-                        }
-                    }
+
                 }
 
                 // 下半部分：频道信息和线路列表
@@ -816,6 +797,16 @@ struct LivePlayerSheet: View {
                             }
                         }
                         Spacer()
+
+                        if player != nil {
+                            Button(action: {
+                                openFullScreenPlayer()
+                            }) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.orange)
+                            }
+                        }
 
                         if availableRoutes.count > 1 {
                             Text("共 \(availableRoutes.count) 条线路")
