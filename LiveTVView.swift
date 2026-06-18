@@ -807,7 +807,7 @@ struct SystemPlayerViewController: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = true
-        controller.entersFullScreenWhenPlaybackEnds = false
+        controller.exitsFullScreenWhenPlaybackEnds = false
         return controller
     }
 

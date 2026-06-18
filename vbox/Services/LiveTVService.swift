@@ -186,7 +186,7 @@ struct LiveChannel: Identifiable, Codable {
 }
 
 // MARK: - 直播分类
-struct LiveCategory: Identifiable {
+struct LiveCategory: Identifiable, Equatable {
     let id: String
     let name: String
     let tid: String

@@ -1,0 +1,8 @@
+2026-06-18T23:24:24.9680000Z Evaluating build.if
+2026-06-18T23:24:24.9680000Z Evaluating: success()
+2026-06-18T23:24:24.9680000Z Result: true
+2026-06-18T23:24:24.9710000Z Requested labels: macos-15
+2026-06-18T23:24:24.9710000Z Job defined at: hf805864818/vbox-ios/.github/workflows/build-ipa.yml@refs/heads/main
+2026-06-18T23:24:24.9710000Z Waiting for a runner to pick up this job...
+2026-06-18T23:24:25.4770000Z Job is waiting for a hosted runner to come online.
+2026-06-18T23:24:25.4770000Z Job is about to start running on the hosted runner: GitHub Actions 1000001572
