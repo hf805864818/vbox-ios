@@ -2446,7 +2446,7 @@ class PlayerState: ObservableObject {
                 await self.playQuarkEpisode(episode: episode)
             case .drive:
                 // 其他网盘
-                await MainActor.run { self.playDriveVideo(url: episode.url, headers: episode.headers) }
+                await self.playDriveVideo(url: episode.url, headers: episode.headers)
             }
         }
     }
