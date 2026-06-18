@@ -287,12 +287,10 @@ struct LiveTVView: View {
                     EmptyView()
                 }
             }
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.item],
-                allowsMultipleSelection: false
-            ) { result in
-                handleFileImport(result: result)
+            .sheet(isPresented: $showFileImporter) {
+                DocumentPickerView { url in
+                    handleDocumentPick(url: url)
+                }
             }
             .sheet(isPresented: $showSourcePicker) {
                 LiveSourcePickerView(
@@ -332,7 +330,7 @@ struct LiveTVView: View {
             }
             .onAppear {
                 if currentCategory.isEmpty, let first = currentCategories.first {
-                    currentCategory = first.id
+                    currentCategory = first.tid
                 }
                 loadChannelsIfNeeded(for: currentCategory)
                 startHideTimer()
@@ -346,15 +344,15 @@ struct LiveTVView: View {
                 subCategories = []
                 currentSubCategory = ""
                 if let first = currentCategories.first {
-                    currentCategory = first.id
-                    loadChannelsIfNeeded(for: first.id)
+                    currentCategory = first.tid
+                    loadChannelsIfNeeded(for: first.tid)
                 }
             }
             .onChange(of: service.dynamicCategories) { _ in
-                if !currentCategories.contains(where: { $0.id == currentCategory }) {
+                if !currentCategories.contains(where: { $0.tid == currentCategory }) {
                     if let first = currentCategories.first {
-                        currentCategory = first.id
-                        loadChannelsIfNeeded(for: first.id)
+                        currentCategory = first.tid
+                        loadChannelsIfNeeded(for: first.tid)
                     }
                 }
             }
@@ -387,65 +385,59 @@ struct LiveTVView: View {
         }
     }
 
-    // MARK: - 处理本地文件导入
-    private func handleFileImport(result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            print("[LiveTV] fileImporter 成功返回 \(urls.count) 个文件")
-            guard let url = urls.first else {
-                print("[LiveTV] 没有选中文件")
-                return
+    // MARK: - 处理本地文件导入（DocumentPicker）
+    private func handleDocumentPick(url: URL?) {
+        guard let url = url else {
+            print("[LiveTV] 没有选中文件")
+            return
+        }
+        print("[LiveTV] 选中文件: \(url)")
+
+        let accessGranted = url.startAccessingSecurityScopedResource()
+        print("[LiveTV] 安全域访问权限: \(accessGranted)")
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        do {
+            let content: String
+            if let utf8Content = try? String(contentsOf: url, encoding: .utf8) {
+                content = utf8Content
+            } else {
+                let data = try Data(contentsOf: url)
+                content = String(data: data, encoding: .ascii) ?? ""
             }
-            print("[LiveTV] 选中文件: \(url)")
 
-            let accessGranted = url.startAccessingSecurityScopedResource()
-            print("[LiveTV] 安全域访问权限: \(accessGranted)")
-            defer { url.stopAccessingSecurityScopedResource() }
+            let fileName = url.deletingPathExtension().lastPathComponent
+            print("[LiveTV] 文件名: \(fileName), 内容长度: \(content.count)")
 
-            do {
-                let content: String
-                if let utf8Content = try? String(contentsOf: url, encoding: .utf8) {
-                    content = utf8Content
-                } else {
-                    let data = try Data(contentsOf: url)
-                    content = String(data: data, encoding: .ascii) ?? ""
-                }
-
-                let fileName = url.deletingPathExtension().lastPathComponent
-                print("[LiveTV] 文件名: \(fileName), 内容长度: \(content.count)")
-
-                let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                let parsed: [SubscribeChannel]
-                if trimmed.hasPrefix("#EXTM3U") {
-                    print("[LiveTV] 检测到 M3U 格式")
-                    parsed = service.parseM3U(content: content)
-                } else {
-                    print("[LiveTV] 按 TXT 格式解析")
-                    parsed = service.parseTXT(content: content)
-                }
-
-                print("[LiveTV] 解析到 \(parsed.count) 个频道")
-
-                if !parsed.isEmpty {
-                    service.addLocalChannels(name: fileName, channels: parsed)
-                    let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
-                    service.switchSource(to: customSource)
-                    channelsCache.removeAll()
-                    subCategories = []
-                    currentSubCategory = ""
-                    if let first = currentCategories.first {
-                        currentCategory = first.id
-                        loadChannelsIfNeeded(for: first.id, forceReload: true)
-                    }
-                    print("[LiveTV] 导入成功，已切换到源: \(fileName)")
-                } else {
-                    print("[LiveTV] 文件内容解析为空")
-                }
-            } catch {
-                print("[LiveTV] 读取文件失败: \(error)")
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsed: [SubscribeChannel]
+            if trimmed.hasPrefix("#EXTM3U") {
+                print("[LiveTV] 检测到 M3U 格式")
+                parsed = service.parseM3U(content: content)
+            } else {
+                print("[LiveTV] 按 TXT 格式解析")
+                parsed = service.parseTXT(content: content)
             }
-        case .failure(let error):
-            print("[LiveTV] fileImporter 失败: \(error)")
+
+            print("[LiveTV] 解析到 \(parsed.count) 个频道")
+
+            if !parsed.isEmpty {
+                service.addLocalChannels(name: fileName, channels: parsed)
+                let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
+                service.switchSource(to: customSource)
+                channelsCache.removeAll()
+                subCategories = []
+                currentSubCategory = ""
+                if let first = currentCategories.first {
+                    currentCategory = first.tid
+                    loadChannelsIfNeeded(for: first.tid, forceReload: true)
+                }
+                print("[LiveTV] 导入成功，已切换到源: \(fileName)")
+            } else {
+                print("[LiveTV] 文件内容解析为空")
+            }
+        } catch {
+            print("[LiveTV] 读取文件失败: \(error)")
         }
     }
 
@@ -456,13 +448,13 @@ struct LiveTVView: View {
                 ForEach(currentCategories) { category in
                     CategoryTabButton(
                         category: category,
-                        isSelected: currentCategory == category.id
+                        isSelected: currentCategory == category.tid
                     ) {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            currentCategory = category.id
+                            currentCategory = category.tid
                             currentSubCategory = ""
                         }
-                        loadChannelsIfNeeded(for: category.id)
+                        loadChannelsIfNeeded(for: category.tid)
                     }
                 }
             }
@@ -1204,6 +1196,46 @@ struct EPGSheetView: View {
                 programs = result
                 isLoading = false
             }
+        }
+    }
+}
+
+// MARK: - 文件选择器（UIDocumentPickerViewController 封装）
+struct DocumentPickerView: UIViewControllerRepresentable {
+    let onPick: (URL?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, dismiss: dismiss)
+    }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL?) -> Void
+        let dismiss: DismissAction
+
+        init(onPick: @escaping (URL?) -> Void, dismiss: DismissAction) {
+            self.onPick = onPick
+            self.dismiss = dismiss
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.onPick(urls.first)
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            dismiss()
         }
     }
 }
