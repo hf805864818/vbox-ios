@@ -398,9 +398,11 @@ class LiveTVService: ObservableObject {
         }
         for (key, channelDicts) in dict {
             localChannelsMap[key] = channelDicts.compactMap { d in
-                SubscribeChannel(
-                    name: d["name"] ?? "未知",
-                    url: d["url"] ?? "",
+                let nameVal = d["name"] ?? "未知"
+                let urlVal = d["url"] ?? ""
+                return SubscribeChannel(
+                    name: nameVal,
+                    url: urlVal,
                     group: d["group"] ?? nil,
                     logo: d["logo"] ?? nil
                 )
@@ -511,15 +513,8 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 获取回看节目单
     func fetchEPG(channel: LiveChannel, day: String) async -> [(time: String, title: String)] {
-        guard let url = URL(string: "\(baseURL)/?act=play&playtype=lookback&day=\(day)&token=\(channel.token)&tid=\(channel.tid)&id=\(channel.channelId)") else { return [] }
-
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
-            return parseEPG(from: html)
-        } catch {
-            return []
-        }
+        // 回看功能需要源支持，当前M3U订阅源不支持回看
+        return []
     }
 
     private func parseEPG(from html: String) -> [(time: String, title: String)] {
