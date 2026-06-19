@@ -71,7 +71,7 @@ struct DanmakuOverlayViewV2: View {
     var body: some View {
         GeometryReader { geo in
             let maxAreaHeight = geo.size.height * area
-            let laneHeight = fontSize + 18
+            let laneHeight = fontSize + 22
             // 预计算共享值，减少每帧重复计算
             let screenW = geo.size.width
             ForEach(items) { item in
@@ -86,7 +86,7 @@ struct DanmakuOverlayViewV2: View {
                     Text(item.content)
                         .font(.system(size: fontSize, weight: .semibold))
                         .foregroundColor(Color(hexRGB: item.color).opacity(opacity))
-                        .shadow(color: .black.opacity(0.7), radius: 1, x: 1, y: 1)
+                        .shadow(color: .black.opacity(0.5), radius: 1, x: 1, y: 1)
                         // 使用offset替代position，减少布局计算开销
                         .offset(
                             x: screenW - progress * (screenW + textWidth),
@@ -98,6 +98,7 @@ struct DanmakuOverlayViewV2: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
+        .drawingGroup() // 开启 Metal 离屏渲染，大幅提升弹幕滚动流畅度
     }
 }
 

@@ -953,11 +953,11 @@ class PlayerState: ObservableObject {
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
         // 缩小时间窗口，减少单次发射量
-        let windowStart = max(0, time - 0.08)
-        let windowEnd = time + 0.18
+        let windowStart = max(0, time - 0.05)
+        let windowEnd = time + 0.12
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(4)
+            .prefix(3)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -967,7 +967,7 @@ class PlayerState: ObservableObject {
         let baseDuration = 8.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
         // 动态计算轨道数：根据字体大小和显示区域，增加轨道间距
-        let laneHeight = danmakuFontSize + 18
+        let laneHeight = danmakuFontSize + 22
         let maxAreaHeight = 400 * danmakuArea
         let maxLanes = max(4, Int(maxAreaHeight / laneHeight))
 
@@ -978,7 +978,7 @@ class PlayerState: ObservableObject {
 
         let appended = newItems.map { item in
             // 寻找可用轨道（该轨道上前一条弹幕已进入足够时间，拉开间距）
-            let minGap: Double = 2.0 // 同轨道弹幕最小时间间隔（秒），增大间距减少拥挤
+            let minGap: Double = 2.5 // 同轨道弹幕最小时间间隔（秒），进一步增大间距
             var assignedLane = 0
             var foundLane = false
             for lane in 0..<maxLanes {
@@ -2979,8 +2979,8 @@ struct PlayerContainerView: View {
             }
             .ignoresSafeArea()
 
-            // 控制层 - 始终显示，只是控制栏可以隐藏/显示
-            if playerState.showControls {
+            // 控制层 - 锁屏时始终显示（仅锁屏按钮），非锁屏时受 showControls 控制
+            if playerState.showControls || playerState.isOrientationLocked {
                 PlayerControlsView(
                     player: player,
                     playerState: playerState,
@@ -3316,33 +3316,48 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 8) {
-                Button(action: { onDismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
+            if !isPortrait && playerState.isOrientationLocked {
+                // 锁屏状态下：只显示锁屏按钮，居中显示
+                Button(action: {
+                    playerState.isOrientationLocked.toggle()
+                    OrientationHelper.unlockOrientation()
+                }) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
-
-                if !isPortrait {
-                    // 锁定按钮（左侧返回键下方）
-                    Button(action: {
-                        playerState.isOrientationLocked.toggle()
-                        if playerState.isOrientationLocked {
-                            OrientationHelper.lockOrientation(.landscape)
-                        } else {
-                            OrientationHelper.unlockOrientation()
-                        }
-                    }) {
-                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 18, weight: .semibold))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button(action: { onDismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(PlainButtonStyle())
+
+                    if !isPortrait {
+                        // 锁定按钮（左侧返回键下方，垂直居中）
+                        Button(action: {
+                            playerState.isOrientationLocked.toggle()
+                            if playerState.isOrientationLocked {
+                                OrientationHelper.lockOrientation(.landscape)
+                            } else {
+                                OrientationHelper.unlockOrientation()
+                            }
+                        }) {
+                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
             }
 
@@ -3538,7 +3553,9 @@ struct LandscapeBottomBar: View {
                     .font(.system(size: 22))
                     .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
             .disabled(player == nil && playerState.compatibilityURL == nil)
 
             Button(action: { playerState.playNextEpisode() }) {
@@ -3546,7 +3563,9 @@ struct LandscapeBottomBar: View {
                     .font(.system(size: 20))
                     .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
             .disabled(!playerState.hasNextEpisode)
 
             Spacer()
@@ -3561,7 +3580,9 @@ struct LandscapeBottomBar: View {
                 }
                 .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
             // 清晰度按钮
             Button(action: { playerState.showQualityPicker.toggle() }) {
@@ -3569,7 +3590,9 @@ struct LandscapeBottomBar: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
             // 内核按钮
             Button(action: { playerState.showEnginePicker.toggle() }) {
@@ -3583,7 +3606,9 @@ struct LandscapeBottomBar: View {
                 }
                 .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
                 .frame(width: 56, height: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
             // 选集按钮
             Button(action: { playerState.showEpisodePicker.toggle() }) {
@@ -3595,7 +3620,9 @@ struct LandscapeBottomBar: View {
                 }
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
 
             // 倍数按钮
             Button(action: { playerState.showSettings.toggle() }) {
@@ -3603,7 +3630,9 @@ struct LandscapeBottomBar: View {
                     .font(.system(size: 20))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 20)
@@ -3628,18 +3657,21 @@ struct PlayerControlsView: View {
 
             Spacer()
 
-            VStack(spacing: 0) {
-                PlayerProgressBar(isPortrait: playerState.isPortrait, playerState: playerState)
+            // 锁屏状态下隐藏底部控制栏和进度条
+            if !playerState.isOrientationLocked {
+                VStack(spacing: 0) {
+                    PlayerProgressBar(isPortrait: playerState.isPortrait, playerState: playerState)
 
-                if playerState.isPortrait {
-                    PortraitBottomBar(player: player, playerState: playerState)
-                } else {
-                    LandscapeBottomBar(player: player, playerState: playerState)
+                    if playerState.isPortrait {
+                        PortraitBottomBar(player: player, playerState: playerState)
+                    } else {
+                        LandscapeBottomBar(player: player, playerState: playerState)
+                    }
                 }
+                .background(
+                    Color.clear
+                )
             }
-            .background(
-                Color.clear
-            )
         }
         .onAppear {
             updateOrientation()
