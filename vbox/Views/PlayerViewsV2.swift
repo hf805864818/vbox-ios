@@ -3330,69 +3330,86 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            // 左侧：返回键 + 锁屏键（垂直排列）
-            VStack(alignment: .leading, spacing: 0) {
-                Button(action: { onDismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
+            // 锁屏状态下：只显示锁屏按钮（左侧垂直居中）
+            if !isPortrait && playerState.isOrientationLocked {
+                Spacer()
+                Button(action: {
+                    playerState.isOrientationLocked.toggle()
+                    OrientationHelper.unlockOrientation()
+                }) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
+                Spacer()
+            } else {
+                // 未锁屏状态：显示返回键 + 锁屏键 + 右侧功能按钮
+                VStack(alignment: .leading, spacing: 0) {
+                    Button(action: { onDismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
 
+                    if !isPortrait {
+                        Spacer(minLength: 55)
+                        // 锁定按钮（左侧返回键下方）
+                        Button(action: {
+                            playerState.isOrientationLocked.toggle()
+                            if playerState.isOrientationLocked {
+                                OrientationHelper.lockOrientation(.landscape)
+                            } else {
+                                OrientationHelper.unlockOrientation()
+                            }
+                        }) {
+                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+
+                Spacer()
+
+                // 右侧：小窗口/投屏/屏幕拉伸
                 if !isPortrait {
-                    Spacer(minLength: 55)
-                    // 锁定按钮（左侧返回键下方，垂直居中）
+                    Button(action: { onTogglePiP() }) {
+                        Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // 投送按键（AirPlay）
+                    AirPlayViewV2()
+                        .frame(width: 44, height: 44)
+
                     Button(action: {
-                        playerState.isOrientationLocked.toggle()
-                        if playerState.isOrientationLocked {
-                            OrientationHelper.lockOrientation(.landscape)
-                        } else {
-                            OrientationHelper.unlockOrientation()
+                        let allModes = PlayerState.VideoGravityMode.allCases
+                        if let idx = allModes.firstIndex(of: playerState.videoGravity) {
+                            playerState.videoGravity = allModes[(idx + 1) % allModes.count]
                         }
                     }) {
-                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 18, weight: .semibold))
+                        Image(systemName: playerState.videoGravity.icon)
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-
-            Spacer()
-
-            // 右侧：小窗口/投屏/屏幕拉伸（始终显示，不受锁屏影响）
-            if !isPortrait {
-                Button(action: { onTogglePiP() }) {
-                    Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                // 投送按键（AirPlay）
-                AirPlayViewV2()
-                    .frame(width: 44, height: 44)
-
-                Button(action: {
-                    let allModes = PlayerState.VideoGravityMode.allCases
-                    if let idx = allModes.firstIndex(of: playerState.videoGravity) {
-                        playerState.videoGravity = allModes[(idx + 1) % allModes.count]
-                    }
-                }) {
-                    Image(systemName: playerState.videoGravity.icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, isPortrait ? 12 : 16)
