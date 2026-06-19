@@ -2768,7 +2768,7 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !playerState.isPortrait && playerState.showSettings {
                     SmallPopupView(isPresented: $playerState.showSettings) {
-                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, onSpeedChange: { speed in
+                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, isPortrait: false, onSpeedChange: { speed in
                             playerState.changePlaybackSpeed(speed)
                         })
                     }
@@ -2778,11 +2778,11 @@ struct PlayerContainerView: View {
             Group {
                 if playerState.isPortrait && playerState.showEpisodePicker {
                     PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: true)
                     }
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
                     SmallPopupView(isPresented: $playerState.showEpisodePicker) {
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker)
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
                     }
                 }
             }
@@ -3831,7 +3831,7 @@ struct SmallPopupView<Content: View>: View {
                         }
 
                     content
-                        .frame(width: min(geometry.size.width * 0.5, 200), height: min(geometry.size.height * 0.55, 420))
+                        .frame(width: min(geometry.size.width * 0.5, 300), height: min(geometry.size.height * 0.55, 420))
                         .background(Color(uiColor: .secondarySystemBackground))
                         .cornerRadius(10)
                         .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
@@ -3914,6 +3914,7 @@ struct SidePanelView<Content: View>: View {
 struct PlayerSettingsPanelV2: View {
     @Binding var isPresented: Bool
     @Binding var speed: Double
+    var isPortrait: Bool = true
     var onSpeedChange: (Double) -> Void
     @EnvironmentObject private var settings: AppSettings
 
@@ -3945,6 +3946,17 @@ struct PlayerSettingsPanelV2: View {
     }
 
     var body: some View {
+        if isPortrait {
+            // 竖屏：垂直列表
+            portraitLayout
+        } else {
+            // 横屏：水平一行排列
+            landscapeLayout
+        }
+    }
+
+    // MARK: - 竖屏布局（垂直列表）
+    private var portraitLayout: some View {
         VStack(spacing: 0) {
             ForEach(speeds, id: \.self) { s in
                 Button(action: {
@@ -3979,6 +3991,49 @@ struct PlayerSettingsPanelV2: View {
                 }
             }
         }
+        .background(panelBackground)
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
+    }
+
+    // MARK: - 横屏布局（水平一行）
+    private var landscapeLayout: some View {
+        HStack(spacing: 6) {
+            ForEach(speeds, id: \.self) { s in
+                Button(action: {
+                    speed = s
+                    onSpeedChange(s)
+                    isPresented = false
+                }) {
+                    VStack(spacing: 4) {
+                        let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
+                        Text(speedText + "x")
+                            .font(.system(size: 13, weight: speed == s ? .semibold : .regular))
+                            .foregroundColor(speed == s ? Color(hex: "2196F3") : textPrimary)
+                        if speed == s {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(Color(hex: "2196F3"))
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(speed == s ? Color(hex: "2196F3").opacity(0.15) : Color.clear)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(speed == s ? Color(hex: "2196F3").opacity(0.3) : (settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12)), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(8)
         .background(panelBackground)
         .cornerRadius(10)
         .overlay(
