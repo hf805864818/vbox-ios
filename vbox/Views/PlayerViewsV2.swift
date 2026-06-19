@@ -2788,8 +2788,8 @@ struct PlayerContainerView: View {
                         )
                         .environmentObject(settings)
                         .frame(width: 50)
-                        // 固定在底部栏"倍数"按钮（最右侧ellipsis）正上方
-                        .position(x: geo.size.width - 38, y: geo.size.height - 120)
+                        // 固定在进度条上方（底部栏约60pt + 间距）
+                        .position(x: geo.size.width - 38, y: geo.size.height - 160)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.8)),
                             removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -2828,7 +2828,8 @@ struct PlayerContainerView: View {
                                     .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                             )
                             .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                            // 固定在进度条上方
+                            .position(x: geo.size.width / 2, y: geo.size.height - 180)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3337,8 +3338,9 @@ struct PlayerControlsView: View {
 
     private func updateOrientation() {
         let newOrientation = UIDevice.current.orientation
-        // 竖屏判定：portrait / faceUp（平放）都算竖屏模式
-        let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown || newOrientation == .faceUp
+        // 忽略 faceUp / faceDown / unknown，保持当前方向不变
+        guard newOrientation.isPortrait || newOrientation.isLandscape else { return }
+        let newIsPortrait = newOrientation.isPortrait
         if newIsPortrait != playerState.isPortrait {
             playerState.isPortrait = newIsPortrait
             // 方向变化时关闭所有弹窗，避免横竖屏弹窗互相干扰
