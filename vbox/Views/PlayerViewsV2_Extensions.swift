@@ -60,7 +60,7 @@ struct GestureControlView: View {
     }
 }
 
-struct DanmakuOverlayViewV2: View {
+struct DanmakuOverlayViewV2: UIViewRepresentable {
     @Binding var showDanmaku: Bool
     let opacity: Double
     let fontSize: CGFloat
@@ -68,37 +68,88 @@ struct DanmakuOverlayViewV2: View {
     let currentTime: Double
     let items: [DanmakuRenderItem]
 
-    var body: some View {
-        GeometryReader { geo in
-            let maxAreaHeight = geo.size.height * area
-            let laneHeight = fontSize + 22
-            // 预计算共享值，减少每帧重复计算
-            let screenW = geo.size.width
-            ForEach(items) { item in
-                let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
-                // 使用更准确的字宽估算：中文按fontSize，英文按0.6倍
-                let textWidth = max(80, CGFloat(item.content.count) * fontSize * (item.content.isASCII ? 0.6 : 0.72))
-                // 只渲染在可见区域内的弹幕
-                let yPos = CGFloat(item.lane) * laneHeight + 20
-                let isVisible = yPos < maxAreaHeight && progress >= 0 && progress <= 1
+    func makeUIView(context: Context) -> DanmakuUIView {
+        let view = DanmakuUIView()
+        view.danmakuArea = area
+        view.danmakuFontSize = fontSize
+        view.danmakuOpacity = opacity
+        view.clipsToBounds = true
+        return view
+    }
 
-                if isVisible {
-                    Text(item.content)
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundColor(Color(hexRGB: item.color).opacity(opacity))
-                        .shadow(color: .black.opacity(0.5), radius: 1, x: 1, y: 1)
-                        // 使用offset替代position，减少布局计算开销
-                        .offset(
-                            x: screenW - progress * (screenW + textWidth),
-                            y: yPos
-                        )
-                        .fixedSize()
-                }
-            }
+    func updateUIView(_ uiView: DanmakuUIView, context: Context) {
+        uiView.danmakuArea = area
+        uiView.danmakuFontSize = fontSize
+        uiView.danmakuOpacity = opacity
+        uiView.updateItems(items, currentTime: currentTime)
+    }
+}
+
+// MARK: - UIKit 原生弹幕渲染视图，使用 CADisplayLink 驱动，避免 SwiftUI 布局开销
+class DanmakuUIView: UIView {
+    var danmakuArea: Double = 0.25
+    var danmakuFontSize: CGFloat = 16
+    var danmakuOpacity: Double = 1.0
+
+    private var textLayers: [CATextLayer] = []
+    private var lastItems: [DanmakuRenderItem] = []
+    private var lastTime: Double = -1
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    func updateItems(_ items: [DanmakuRenderItem], currentTime: Double) {
+        // 避免同一时间重复更新
+        guard items != lastItems || abs(currentTime - lastTime) > 0.01 else { return }
+        lastItems = items
+        lastTime = currentTime
+
+        let screenW = bounds.width
+        guard screenW > 0 else { return }
+
+        let laneHeight = danmakuFontSize + 22
+        let maxAreaHeight = bounds.height * danmakuArea
+
+        // 移除旧的 textLayer
+        for layer in textLayers {
+            layer.removeFromSuperlayer()
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .clipped()
-        .drawingGroup() // 开启 Metal 离屏渲染，大幅提升弹幕滚动流畅度
+        textLayers.removeAll()
+
+        // 为每条弹幕创建 CATextLayer
+        for item in items {
+            let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
+            let yPos = CGFloat(item.lane) * laneHeight + 20
+            guard yPos < maxAreaHeight && progress >= 0 && progress <= 1 else { continue }
+
+            let textWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
+            let xPos = screenW - progress * (screenW + textWidth)
+
+            let textLayer = CATextLayer()
+            textLayer.string = item.content
+            textLayer.font = UIFont.systemFont(ofSize: danmakuFontSize, weight: .semibold)
+            textLayer.fontSize = danmakuFontSize
+            textLayer.foregroundColor = UIColor(
+                red: Double((item.color >> 16) & 0xff) / 255.0,
+                green: Double((item.color >> 8) & 0xff) / 255.0,
+                blue: Double(item.color & 0xff) / 255.0,
+                alpha: danmakuOpacity
+            ).cgColor
+            textLayer.shadowColor = UIColor.black.withAlphaComponent(0.5).cgColor
+            textLayer.shadowOffset = CGSize(width: 1, height: 1)
+            textLayer.shadowRadius = 1
+            textLayer.shadowOpacity = 1
+            textLayer.frame = CGRect(x: xPos, y: yPos, width: textWidth + 40, height: danmakuFontSize + 10)
+            textLayer.contentsScale = UIScreen.main.scale
+
+            layer.addSublayer(textLayer)
+            textLayers.append(textLayer)
+        }
     }
 }
 
