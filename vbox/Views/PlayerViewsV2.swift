@@ -42,12 +42,20 @@ class OrientationHelper {
     
     static func rotateToLandscape() {
         // 方案1: UIDevice 私有API（最可靠）
-        // 根据当前设备方向决定向左还是向右横屏
+        // 支持左右两种横屏方向，根据设备当前方向自动选择
         let currentOrientation = UIDevice.current.orientation
         let targetOrientation: UIInterfaceOrientation
-        if currentOrientation == .landscapeLeft {
+        switch currentOrientation {
+        case .landscapeLeft:
+            // 设备左侧在下（home键在右）→ landscapeLeft
             targetOrientation = .landscapeLeft
-        } else {
+        case .landscapeRight:
+            // 设备右侧在下（home键在左）→ landscapeRight
+            targetOrientation = .landscapeRight
+        case .portrait, .portraitUpsideDown, .faceUp, .faceDown, .unknown:
+            // 默认向右横屏（home键在左）
+            targetOrientation = .landscapeRight
+        @unknown default:
             targetOrientation = .landscapeRight
         }
         UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
@@ -902,13 +910,14 @@ class PlayerState: ObservableObject {
         laneOccupancy = laneOccupancy.filter { $0.value > time }
         
         let appended = newItems.map { item in
-            // 寻找可用轨道（该轨道上前一条弹幕已离开足够距离）
-            let minGap: Double = 1.5 // 同轨道弹幕最小间隔（秒）
+            // 寻找可用轨道（该轨道上前一条弹幕已离开屏幕）
+            let minGap: Double = 2.0 // 同轨道弹幕最小间隔（秒）
             var assignedLane = 0
             var foundLane = false
             for lane in 0..<maxLanes {
-                if let lastTime = laneOccupancy[lane] {
-                    if time - lastTime >= minGap {
+                if let lastLeaveTime = laneOccupancy[lane] {
+                    // 前一条弹幕已离开足够时间后才允许新弹幕进入
+                    if time >= lastLeaveTime + minGap {
                         assignedLane = lane
                         foundLane = true
                         break
@@ -919,21 +928,22 @@ class PlayerState: ObservableObject {
                     break
                 }
             }
-            // 如果没有找到完全空闲的轨道，使用最少占用的轨道
+            // 如果没有找到完全空闲的轨道，使用最早释放的轨道
             if !foundLane {
-                var minOccupancy = Double.infinity
+                var earliestLeaveTime = Double.infinity
                 for lane in 0..<maxLanes {
-                    let occupancy = laneOccupancy[lane] ?? 0
-                    if occupancy < minOccupancy {
-                        minOccupancy = occupancy
+                    let leaveTime = laneOccupancy[lane] ?? 0
+                    if leaveTime < earliestLeaveTime {
+                        earliestLeaveTime = leaveTime
                         assignedLane = lane
                     }
                 }
             }
-            
+
             // 更新轨道占用时间（该弹幕预计离开时间 = 发射时间 + 持续时间）
-            laneOccupancy[assignedLane] = max(time, item.time) + duration
-            
+            let leaveTime = max(time, item.time) + duration
+            laneOccupancy[assignedLane] = leaveTime
+
             return DanmakuRenderItem(
                 id: item.id,
                 content: item.content,
@@ -2902,7 +2912,7 @@ struct PlayerContainerView: View {
                 }
             }
             .ignoresSafeArea()
-            
+
             // 控制层 - 始终显示，只是控制栏可以隐藏/显示
             if playerState.showControls {
                 PlayerControlsView(
@@ -2910,6 +2920,50 @@ struct PlayerContainerView: View {
                     playerState: playerState,
                     video: video
                 )
+            }
+
+            // 锁定按钮 - 独立于控制栏，始终可见（横屏时显示在左上角）
+            if !playerState.isPortrait {
+                VStack {
+                    HStack(spacing: 0) {
+                        // 返回键预留位置
+                        Spacer().frame(width: 44)
+
+                        // 锁定按钮（返回键与暂停键中间）
+                        Button(action: {
+                            playerState.isOrientationLocked.toggle()
+                            if playerState.isOrientationLocked {
+                                OrientationHelper.lockOrientation(.landscape)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        playerState.showControls = false
+                                    }
+                                }
+                            } else {
+                                OrientationHelper.unlockOrientation()
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showControls = true
+                                }
+                            }
+                        }) {
+                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .background(Color.black.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                    Spacer()
+                }
+                .ignoresSafeArea()
+                // 锁定后禁用点击（但仍显示）
+                .allowsHitTesting(!playerState.isOrientationLocked)
             }
             
             // 弹窗层 - 独立于控制栏，即使控制栏隐藏也能显示
@@ -2957,8 +3011,8 @@ struct PlayerContainerView: View {
                         )
                         .environmentObject(settings)
                         .frame(width: 50)
-                        // 固定在进度条上方（底部栏约60pt + 间距）
-                        .position(x: geo.size.width - 38, y: geo.size.height - 160)
+                        // 固定在进度条上方
+                        .position(x: geo.size.width - 38, y: geo.size.height - 200)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.8)),
                             removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -3274,30 +3328,6 @@ struct PlayerTopBarView: View {
                 }) {
                     Image(systemName: playerState.videoGravity.icon)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
-                }
-
-                Button(action: {
-                    playerState.isOrientationLocked.toggle()
-                    if playerState.isOrientationLocked {
-                        OrientationHelper.lockOrientation(.landscape)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                playerState.showControls = false
-                            }
-                        }
-                    } else {
-                        OrientationHelper.unlockOrientation()
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            playerState.showControls = true
-                        }
-                    }
-                }) {
-                    Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
                         .background(Color.black.opacity(0.3))
