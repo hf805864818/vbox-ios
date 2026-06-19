@@ -877,25 +877,29 @@ struct MiniPlayerView: View {
                             showFullScreen = true
                         }) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 14))
+                                .font(.system(size: 18))
                                 .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .padding(6)
+                        .padding(4)
                     }
 
                     Spacer()
 
                     // 底部：控制按钮行
-                    HStack(spacing: 10) {
+                    HStack(spacing: 20) {
                         // 播放/暂停
                         Button(action: {
                             isPlaying.toggle()
                             resetHideTimer()
                         }) {
                             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 20))
                                 .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
 
@@ -905,13 +909,15 @@ struct MiniPlayerView: View {
                             resetHideTimer()
                         }) {
                             Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 18))
                                 .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
@@ -946,6 +952,7 @@ struct MiniPlayerView: View {
 struct FullScreenPlayerView: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
+    @State private var showControls = false
 
     var body: some View {
         ZStack {
@@ -957,12 +964,37 @@ struct FullScreenPlayerView: View {
                 isMuted: .constant(false)
             )
 
-            // 点击关闭全屏
+            // 点击显示/隐藏控制条
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    dismiss()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showControls.toggle()
+                    }
                 }
+
+            // 右上角关闭按钮
+            if showControls {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            dismiss()
+                        }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.top, 8)
+                        .padding(.trailing, 8)
+                    }
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
         }
         .ignoresSafeArea()
         .statusBar(hidden: true)
