@@ -95,6 +95,15 @@ class PiPHelper: NSObject {
     
     private override init() { super.init() }
     
+    /// 保存 AVPlayerViewController 内部的 playerLayer 引用，供画中画使用
+    func setPlayerLayer(_ layer: AVPlayerLayer) {
+        // 如果 PiP 控制器已存在且使用的是旧 layer，需要重新创建
+        if pipPlayerLayer !== layer && pipController != nil {
+            cleanupPiPController()
+        }
+        pipPlayerLayer = layer
+    }
+    
     // MARK: - AVPlayer 原生画中画
     func setupPiP(for player: AVPlayer) {
         // 清理旧的 PiP 控制器
@@ -113,10 +122,19 @@ class PiPHelper: NSObject {
             print("[PiP] 音频会话激活失败: \(error.localizedDescription)")
         }
         
-        // 创建新的 playerLayer
-        let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
-        pipPlayerLayer = playerLayer
+        // 优先使用 AVPlayerViewController 内部的 playerLayer（已挂载在视图层级中）
+        let playerLayer: AVPlayerLayer
+        if let existingLayer = pipPlayerLayer {
+            playerLayer = existingLayer
+            print("[PiP] 复用 AVPlayerViewController 内部的 playerLayer")
+        } else {
+            // 回退：创建独立的 playerLayer
+            let newLayer = AVPlayerLayer(player: player)
+            newLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            pipPlayerLayer = newLayer
+            playerLayer = newLayer
+            print("[PiP] 创建独立 playerLayer（回退方案）")
+        }
         
         let pipContentSource = AVPictureInPictureController.ContentSource(playerLayer: playerLayer)
         
@@ -129,7 +147,6 @@ class PiPHelper: NSObject {
             DispatchQueue.main.async {
                 if let isPossible = change.newValue, isPossible {
                     print("[PiP] isPictureInPicturePossible 变为 true")
-                    // 一旦变为 true，立即尝试启动
                     self?.tryStartPiP()
                 }
                 NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
@@ -140,7 +157,6 @@ class PiPHelper: NSObject {
         if pipController?.isPictureInPicturePossible == true {
             tryStartPiP()
         } else {
-            // 延迟重试，最多等 3 秒
             schedulePiPStartRetry()
         }
     }
@@ -176,8 +192,7 @@ class PiPHelper: NSObject {
             pipStatusObserver = nil
         }
         pipController = nil
-        pipPlayerLayer?.player = nil
-        pipPlayerLayer = nil
+        // 注意：不释放 pipPlayerLayer，因为它属于 AVPlayerViewController 的视图层级
     }
     
     var isPiPPossible: Bool {
@@ -3818,6 +3833,12 @@ struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
         controller.player = player
         controller.showsPlaybackControls = false
         controller.videoGravity = videoGravity.avGravity
+        // 将 playerLayer 引用保存到 PiPHelper，供画中画使用
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let playerLayer = controller.view.layer.sublayers?.first(where: { $0 is AVPlayerLayer }) as? AVPlayerLayer {
+                PiPHelper.shared.setPlayerLayer(playerLayer)
+            }
+        }
         return controller
     }
 
