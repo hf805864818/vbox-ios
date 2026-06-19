@@ -20,9 +20,13 @@ struct GestureControlView: View {
     var body: some View {
         GeometryReader { geo in
             Color.clear.contentShape(Rectangle())
-                .onTapGesture(perform: onTap)
+                .onTapGesture {
+                    guard !playerState.isOrientationLocked else { return }
+                    onTap()
+                }
                 .gesture(DragGesture(minimumDistance: 14)
                     .onChanged { value in
+                        guard !playerState.isOrientationLocked else { return }
                         if !isDragging {
                             isDragging = true
                             startBrightness = playerState.brightness
