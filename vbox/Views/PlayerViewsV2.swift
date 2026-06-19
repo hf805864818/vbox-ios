@@ -2769,6 +2769,15 @@ struct PlayerContainerView: View {
                 } else if !playerState.isPortrait && playerState.showSettings {
                     // 横屏：小竖条弹窗，固定在底部栏"自动"按钮上方
                     GeometryReader { geo in
+                        // 点击空白区域关闭弹窗
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showSettings = false
+                                }
+                            }
+
                         PlayerSettingsPanelV2(
                             isPresented: $playerState.showSettings,
                             speed: $playerState.playbackSpeed,
@@ -2798,6 +2807,15 @@ struct PlayerContainerView: View {
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
                     // 横屏：小弹窗，宽度足够显示5列网格
                     GeometryReader { geo in
+                        // 点击空白区域关闭弹窗
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showEpisodePicker = false
+                                }
+                            }
+
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
                             .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 300))
                             .background(
@@ -3318,6 +3336,12 @@ struct PlayerControlsView: View {
         let newIsPortrait = newOrientation == .portrait || newOrientation == .portraitUpsideDown || newOrientation == .faceUp
         if newIsPortrait != playerState.isPortrait {
             playerState.isPortrait = newIsPortrait
+            // 方向变化时关闭所有弹窗，避免横竖屏弹窗互相干扰
+            playerState.showEpisodePicker = false
+            playerState.showSettings = false
+            playerState.showQualityPicker = false
+            playerState.showEnginePicker = false
+            playerState.showSubtitlePicker = false
         }
     }
 }
