@@ -3330,56 +3330,43 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            if !isPortrait && playerState.isOrientationLocked {
-                // 锁屏状态下：只显示锁屏按钮
-                Button(action: {
-                    playerState.isOrientationLocked.toggle()
-                    OrientationHelper.unlockOrientation()
-                }) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 18, weight: .semibold))
+            // 左侧：返回键 + 锁屏键（垂直排列）
+            VStack(alignment: .leading, spacing: 0) {
+                Button(action: { onDismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    Button(action: { onDismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
+
+                if !isPortrait {
+                    Spacer(minLength: 55)
+                    // 锁定按钮（左侧返回键下方，垂直居中）
+                    Button(action: {
+                        playerState.isOrientationLocked.toggle()
+                        if playerState.isOrientationLocked {
+                            OrientationHelper.lockOrientation(.landscape)
+                        } else {
+                            OrientationHelper.unlockOrientation()
+                        }
+                    }) {
+                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    if !isPortrait {
-                        Spacer(minLength: 55)
-                        // 锁定按钮（左侧返回键下方）
-                        Button(action: {
-                            playerState.isOrientationLocked.toggle()
-                            if playerState.isOrientationLocked {
-                                OrientationHelper.lockOrientation(.landscape)
-                            } else {
-                                OrientationHelper.unlockOrientation()
-                            }
-                        }) {
-                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
 
             Spacer()
 
-            if !isPortrait && !playerState.isOrientationLocked {
+            // 右侧：小窗口/投屏/屏幕拉伸（始终显示，不受锁屏影响）
+            if !isPortrait {
                 Button(action: { onTogglePiP() }) {
                     Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
                         .font(.system(size: 16, weight: .semibold))
