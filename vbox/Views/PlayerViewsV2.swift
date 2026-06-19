@@ -26,9 +26,19 @@ class OrientationHelper {
         currentOrientationMask = orientation
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
-            // 强制立即生效：通过发送设备旋转通知
-            let key = orientation == .landscape ? UIInterfaceOrientation.landscapeRight : UIInterfaceOrientation.portrait
-            UIDevice.current.setValue(key.rawValue, forKey: "orientation")
+            // 根据当前设备方向决定锁定哪个横屏方向
+            let currentDeviceOrientation = UIDevice.current.orientation
+            let targetOrientation: UIInterfaceOrientation
+            if orientation == .landscape {
+                if currentDeviceOrientation == .landscapeLeft {
+                    targetOrientation = .landscapeLeft
+                } else {
+                    targetOrientation = .landscapeRight
+                }
+            } else {
+                targetOrientation = .portrait
+            }
+            UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
             UINavigationController.attemptRotationToDeviceOrientation()
         }
     }
@@ -110,11 +120,16 @@ class PiPHelper: NSObject {
             }
         }
         
-        pipController?.startPictureInPicture()
+        // 延迟启动，等待isPictureInPicturePossible变为true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.pipController?.startPictureInPicture()
+        }
     }
     
     func stopPiP() {
         pipController?.stopPictureInPicture()
+        pipController = nil
+        pipStatusObserver = nil
     }
     
     var isPiPPossible: Bool {
@@ -882,42 +897,44 @@ class PlayerState: ObservableObject {
         return 1
     }
 
-    /// 轨道占用记录：[laneIndex: 最后一条弹幕的预计离开时间]
+    /// 轨道占用记录：[laneIndex: 该轨道上最后一条弹幕的进入时间]
     private var laneOccupancy: [Int: Double] = [:]
     
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
         // 缩小时间窗口，减少单次发射量
-        let windowStart = max(0, time - 0.2)
-        let windowEnd = time + 0.4
+        let windowStart = max(0, time - 0.15)
+        let windowEnd = time + 0.3
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(8)
+            .prefix(6)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
             emittedDanmakuIDs.insert(item.id)
         }
         // 弹幕持续时间：速度越快持续时间越短
-        let baseDuration = 7.0
+        let baseDuration = 8.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
         // 动态计算轨道数：根据字体大小和显示区域
-        let laneHeight = danmakuFontSize + 12
-        let maxAreaHeight = 400 * danmakuArea // 假设视频高度约400pt
-        let maxLanes = max(3, Int(maxAreaHeight / laneHeight))
+        let laneHeight = danmakuFontSize + 14
+        let maxAreaHeight = 400 * danmakuArea
+        let maxLanes = max(4, Int(maxAreaHeight / laneHeight))
         
-        // 清理已过期的轨道占用记录
-        laneOccupancy = laneOccupancy.filter { $0.value > time }
+        // 清理已过期的轨道占用记录（弹幕已离开屏幕）
+        laneOccupancy = laneOccupancy.filter { _, lastTime in
+            time - lastTime < duration
+        }
         
         let appended = newItems.map { item in
-            // 寻找可用轨道（该轨道上前一条弹幕已离开屏幕）
-            let minGap: Double = 2.0 // 同轨道弹幕最小间隔（秒）
+            // 寻找可用轨道（该轨道上前一条弹幕已进入足够时间，拉开间距）
+            let minGap: Double = 1.2 // 同轨道弹幕最小时间间隔（秒）
             var assignedLane = 0
             var foundLane = false
             for lane in 0..<maxLanes {
-                if let lastLeaveTime = laneOccupancy[lane] {
-                    // 前一条弹幕已离开足够时间后才允许新弹幕进入
-                    if time >= lastLeaveTime + minGap {
+                if let lastTime = laneOccupancy[lane] {
+                    // 前一条弹幕已进入超过minGap秒，新弹幕可以进入
+                    if time - lastTime >= minGap {
                         assignedLane = lane
                         foundLane = true
                         break
@@ -928,21 +945,20 @@ class PlayerState: ObservableObject {
                     break
                 }
             }
-            // 如果没有找到完全空闲的轨道，使用最早释放的轨道
+            // 如果没有找到完全空闲的轨道，使用间隔最大的轨道
             if !foundLane {
-                var earliestLeaveTime = Double.infinity
+                var maxGap: Double = -1
                 for lane in 0..<maxLanes {
-                    let leaveTime = laneOccupancy[lane] ?? 0
-                    if leaveTime < earliestLeaveTime {
-                        earliestLeaveTime = leaveTime
+                    let gap = time - (laneOccupancy[lane] ?? 0)
+                    if gap > maxGap {
+                        maxGap = gap
                         assignedLane = lane
                     }
                 }
             }
 
-            // 更新轨道占用时间（该弹幕预计离开时间 = 发射时间 + 持续时间）
-            let leaveTime = max(time, item.time) + duration
-            laneOccupancy[assignedLane] = leaveTime
+            // 更新轨道占用时间
+            laneOccupancy[assignedLane] = time
 
             return DanmakuRenderItem(
                 id: item.id,
@@ -2922,49 +2938,6 @@ struct PlayerContainerView: View {
                 )
             }
 
-            // 锁定按钮 - 独立于控制栏，始终可见（横屏时显示在左上角）
-            if !playerState.isPortrait {
-                VStack {
-                    HStack(spacing: 0) {
-                        // 返回键预留位置
-                        Spacer().frame(width: 44)
-
-                        // 锁定按钮（返回键与暂停键中间）
-                        Button(action: {
-                            playerState.isOrientationLocked.toggle()
-                            if playerState.isOrientationLocked {
-                                OrientationHelper.lockOrientation(.landscape)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        playerState.showControls = false
-                                    }
-                                }
-                            } else {
-                                OrientationHelper.unlockOrientation()
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    playerState.showControls = true
-                                }
-                            }
-                        }) {
-                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 44, height: 44)
-                                .background(Color.black.opacity(0.3))
-                                .clipShape(Circle())
-                        }
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                    Spacer()
-                }
-                .ignoresSafeArea()
-                // 锁定后禁用点击（但仍显示）
-                .allowsHitTesting(!playerState.isOrientationLocked)
-            }
             
             // 弹窗层 - 独立于控制栏，即使控制栏隐藏也能显示
             // 弹窗 - 倍数（竖屏：固定在右下角进度条上方 / 横屏：居中弹窗）
@@ -3051,8 +3024,8 @@ struct PlayerContainerView: View {
                                     .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                             )
                             .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                            // 固定在进度条上方
-                            .position(x: geo.size.width / 2, y: geo.size.height - 180)
+                            // 屏幕居中偏上（与弹幕弹窗同位置）
+                            .position(x: geo.size.width / 2, y: geo.size.height / 2 - 40)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3092,8 +3065,8 @@ struct PlayerContainerView: View {
                             )
                             .environmentObject(settings)
                             .frame(width: 70)
-                            // 清晰度按键在底部栏右侧第3个位置
-                            .position(x: geo.size.width - 200, y: geo.size.height - 160)
+                            // 固定在进度条上方（与倍数弹窗同位置区域）
+                            .position(x: geo.size.width - 38, y: geo.size.height - 200)
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -3182,8 +3155,8 @@ struct PlayerContainerView: View {
                                     .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                             )
                             .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
-                            // 内核按键在底部栏右侧第2个位置（从右数）
-                            .position(x: geo.size.width - 100, y: geo.size.height - 160)
+                            // 固定在进度条上方（与倍数弹窗同位置区域）
+                            .position(x: geo.size.width - 38, y: geo.size.height - 200)
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -3489,6 +3462,21 @@ struct LandscapeBottomBar: View {
 
     var body: some View {
         HStack(spacing: 20) {
+            // 锁定按钮（返回键与暂停键中间）
+            Button(action: {
+                playerState.isOrientationLocked.toggle()
+                if playerState.isOrientationLocked {
+                    OrientationHelper.lockOrientation(.landscape)
+                } else {
+                    OrientationHelper.unlockOrientation()
+                }
+            }) {
+                Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+            }
+
             Button(action: { playerState.togglePlayback(player: player) }) {
                 Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 22))
