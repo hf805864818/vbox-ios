@@ -174,7 +174,7 @@ struct SourceRowView: View {
 
     private var typeIcon: String {
             switch source {
-            case .defaultIPTV:
+            case .defaultIPTV, .defaultIPTV2:
                 return "tv"
             case .subscribe:
                 return "doc.text"
@@ -185,7 +185,7 @@ struct SourceRowView: View {
 
         private var typeColor: Color {
             switch source {
-            case .defaultIPTV:
+            case .defaultIPTV, .defaultIPTV2:
                 return .blue
             case .subscribe:
                 return .green
@@ -196,7 +196,7 @@ struct SourceRowView: View {
 
         private var typeLabel: String {
             switch source {
-            case .defaultIPTV:
+            case .defaultIPTV, .defaultIPTV2:
                 return "默认源"
             case .subscribe:
                 return "订阅源"

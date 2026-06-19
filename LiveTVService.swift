@@ -3,7 +3,8 @@ import SwiftUI
 
 // MARK: - 直播源类型
 enum LiveSourceType: Identifiable, Equatable, Codable {
-    case defaultIPTV      // 默认源 (IPv4多线路)
+    case defaultIPTV      // 默认源1 (IPv4多线路聚合)
+    case defaultIPTV2     // 默认源2 (运营商IPTV)
     case subscribe(name: String, url: String)  // 订阅配置中的源
     case custom(name: String, url: String)     // 用户自定义源
 
@@ -11,6 +12,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return "default_iptv_1"
+        case .defaultIPTV2:
+            return "default_iptv_2"
         case .subscribe(let name, let url):
             return "subscribe_\(name)_\(url)"
         case .custom(let name, let url):
@@ -21,7 +24,9 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     var displayName: String {
         switch self {
         case .defaultIPTV:
-            return "默认源 (IPv4多线路)"
+            return "默认源1 (IPv4多线路)"
+        case .defaultIPTV2:
+            return "默认源2 (运营商IPTV)"
         case .subscribe(let name, _):
             return name
         case .custom(let name, _):
@@ -33,6 +38,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             return "https://raw.githubusercontent.com/bjzhou/iptv-collector/output/iptv.m3u"
+        case .defaultIPTV2:
+            return "http://mg.earxo.com/itv_ANGEHPV3YLVD/m3u"
         case .subscribe(_, let url):
             return url
         case .custom(_, let url):
@@ -42,7 +49,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var isDefault: Bool {
         switch self {
-        case .defaultIPTV:
+        case .defaultIPTV, .defaultIPTV2:
             return true
         case .subscribe, .custom:
             return false
@@ -55,7 +62,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     }
 
     enum SourceKind: String, Codable {
-        case defaultIPTV, subscribe, custom
+        case defaultIPTV, defaultIPTV2, subscribe, custom
     }
 
     func encode(to encoder: Encoder) throws {
@@ -63,6 +70,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch self {
         case .defaultIPTV:
             try container.encode(SourceKind.defaultIPTV.rawValue, forKey: .type)
+        case .defaultIPTV2:
+            try container.encode(SourceKind.defaultIPTV2.rawValue, forKey: .type)
         case .subscribe(let name, let url):
             try container.encode(SourceKind.subscribe.rawValue, forKey: .type)
             try container.encode(name, forKey: .name)
@@ -80,6 +89,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         switch type {
         case .defaultIPTV:
             self = .defaultIPTV
+        case .defaultIPTV2:
+            self = .defaultIPTV2
         case .subscribe:
             let name = try container.decode(String.self, forKey: .name)
             let url = try container.decode(String.self, forKey: .url)
@@ -99,6 +110,8 @@ extension LiveSourceType {
         switch type {
         case "defaultIPTV":
             self = .defaultIPTV
+        case "defaultIPTV2":
+            self = .defaultIPTV2
         case "subscribe":
             guard let name = dictionary["name"], let url = dictionary["url"] else { return nil }
             self = .subscribe(name: name, url: url)
@@ -114,6 +127,8 @@ extension LiveSourceType {
         switch self {
         case .defaultIPTV:
             return ["type": "defaultIPTV"]
+        case .defaultIPTV2:
+            return ["type": "defaultIPTV2"]
         case .subscribe(let name, let url):
             return ["type": "subscribe", "name": name, "url": url]
         case .custom(let name, let url):
@@ -228,7 +243,7 @@ class LiveTVService: ObservableObject {
 
     /// 所有可用源列表
     var availableSources: [LiveSourceType] {
-        var sources: [LiveSourceType] = [.defaultIPTV]
+        var sources: [LiveSourceType] = [.defaultIPTV, .defaultIPTV2]
         // 可以从配置文件读取的订阅源
         sources.append(contentsOf: configSubscribeSources)
         // 用户自定义源
