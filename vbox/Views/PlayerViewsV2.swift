@@ -836,19 +836,55 @@ class PlayerState: ObservableObject {
 
     private func bestDanmakuQuery(video: VodItem, fileName: String) -> String {
         let candidate = (fileName as NSString).deletingPathExtension
-        if candidate.count >= 4, candidate != "baidu-stream", candidate != "quark-stream" {
+        // 网盘资源通常有真实文件名，优先使用
+        if candidate.count >= 4,
+           candidate != "baidu-stream",
+           candidate != "quark-stream",
+           candidate != "ali-stream",
+           !candidate.hasPrefix("http"),
+           !candidate.allSatisfy({ $0.isNumber }) {
             return candidate
+        }
+        // 切片资源或文件名不规范时，使用视频标题+集数组合
+        let episodeNum = extractEpisodeNumber(from: fileName)
+        if episodeNum > 1 {
+            return "\(video.vodName) E\(String(format: "%02d", episodeNum))"
         }
         return video.vodName
     }
+    
+    /// 从文件名提取集数（用于弹幕查询增强）
+    private func extractEpisodeNumber(from fileName: String) -> Int {
+        let name = (fileName as NSString).deletingPathExtension
+        let patterns = [
+            #"[Ee][Pp]?(\d{1,3})(?:\b|[^0-9])"#,
+            #"第\s*(\d{1,3})\s*[集话话期]"#,
+            #"\.(\d{1,3})\."#,
+            #"_(\d{1,3})_"#,
+            #"\s(\d{1,3})\s"#
+        ]
+        for pattern in patterns {
+            if let range = name.range(of: pattern, options: .regularExpression) {
+                let numStr = String(name[range]).filter { $0.isNumber }
+                if let num = Int(numStr), num > 0 {
+                    return num
+                }
+            }
+        }
+        return 1
+    }
 
+    /// 轨道占用记录：[laneIndex: 最后一条弹幕的预计离开时间]
+    private var laneOccupancy: [Int: Double] = [:]
+    
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
-        let windowStart = max(0, time - 0.4)
-        let windowEnd = time + 0.8
+        // 缩小时间窗口，减少单次发射量
+        let windowStart = max(0, time - 0.2)
+        let windowEnd = time + 0.4
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(12)
+            .prefix(8)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -857,14 +893,52 @@ class PlayerState: ObservableObject {
         // 弹幕持续时间：速度越快持续时间越短
         let baseDuration = 7.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
-        // 弹幕轨道数：区域越小轨道越少
-        let maxLanes = max(1, Int(ceil(Double(8) * danmakuArea)))
+        // 动态计算轨道数：根据字体大小和显示区域
+        let laneHeight = danmakuFontSize + 12
+        let maxAreaHeight = 400 * danmakuArea // 假设视频高度约400pt
+        let maxLanes = max(3, Int(maxAreaHeight / laneHeight))
+        
+        // 清理已过期的轨道占用记录
+        laneOccupancy = laneOccupancy.filter { $0.value > time }
+        
         let appended = newItems.map { item in
-            DanmakuRenderItem(
+            // 寻找可用轨道（该轨道上前一条弹幕已离开足够距离）
+            let minGap: Double = 1.5 // 同轨道弹幕最小间隔（秒）
+            var assignedLane = 0
+            var foundLane = false
+            for lane in 0..<maxLanes {
+                if let lastTime = laneOccupancy[lane] {
+                    if time - lastTime >= minGap {
+                        assignedLane = lane
+                        foundLane = true
+                        break
+                    }
+                } else {
+                    assignedLane = lane
+                    foundLane = true
+                    break
+                }
+            }
+            // 如果没有找到完全空闲的轨道，使用最少占用的轨道
+            if !foundLane {
+                var minOccupancy = Double.infinity
+                for lane in 0..<maxLanes {
+                    let occupancy = laneOccupancy[lane] ?? 0
+                    if occupancy < minOccupancy {
+                        minOccupancy = occupancy
+                        assignedLane = lane
+                    }
+                }
+            }
+            
+            // 更新轨道占用时间（该弹幕预计离开时间 = 发射时间 + 持续时间）
+            laneOccupancy[assignedLane] = max(time, item.time) + duration
+            
+            return DanmakuRenderItem(
                 id: item.id,
                 content: item.content,
                 time: max(time, item.time),
-                lane: abs(item.id) % maxLanes,
+                lane: assignedLane,
                 color: danmakuColorMode == 0 ? item.color : Self.presetColors[danmakuColorMode] ?? item.color,
                 duration: duration
             )
@@ -2944,19 +3018,54 @@ struct PlayerContainerView: View {
                     }
                 }
             }
-            // 侧边栏弹窗 - 弹幕设置
+            // 弹窗 - 弹幕设置（竖屏全屏，横屏小弹窗）
             Group {
-                if playerState.showDanmakuSettings {
-                    SidePanelView(isPresented: $playerState.showDanmakuSettings, title: "弹幕设置") {
+                if playerState.isPortrait && playerState.showDanmakuSettings {
+                    PortraitPopupView(isPresented: $playerState.showDanmakuSettings, title: "弹幕设置") {
                         DanmakuSettingsPanelV2(
                             showDanmaku: $playerState.showDanmaku,
                             opacity: $playerState.danmakuOpacity,
                             fontSize: $playerState.danmakuFontSize,
                             area: $playerState.danmakuArea,
                             speed: $playerState.danmakuSpeed,
-                            colorMode: $playerState.danmakuColorMode
+                            colorMode: $playerState.danmakuColorMode,
+                            isPortrait: true
                         )
                     }
+                } else if !playerState.isPortrait && playerState.showDanmakuSettings {
+                    GeometryReader { geo in
+                        // 点击空白区域关闭弹窗
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showDanmakuSettings = false
+                                }
+                            }
+
+                        DanmakuSettingsPanelV2(
+                            showDanmaku: $playerState.showDanmaku,
+                            opacity: $playerState.danmakuOpacity,
+                            fontSize: $playerState.danmakuFontSize,
+                            area: $playerState.danmakuArea,
+                            speed: $playerState.danmakuSpeed,
+                            colorMode: $playerState.danmakuColorMode,
+                            isPortrait: false
+                        )
+                        .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.55, 350))
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+                        .position(x: geo.size.width / 2, y: geo.size.height - 180)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             // 侧边栏弹窗 - 播放内核
@@ -4316,6 +4425,8 @@ struct DanmakuSettingsPanelV2: View {
     @Binding var area: Double
     @Binding var speed: Double
     @Binding var colorMode: Int
+    var isPortrait: Bool = true
+    @EnvironmentObject private var settings: AppSettings
 
     private let areaOptions: [(Double, String)] = [
         (0.25, "25%"),
@@ -4324,11 +4435,11 @@ struct DanmakuSettingsPanelV2: View {
         (1.0, "100%")
     ]
     private let speedOptions: [(Double, String)] = [
-        (0.5, "0.5x 慢"),
+        (0.5, "0.5x"),
         (0.75, "0.75x"),
-        (1.0, "1.0x 正常"),
+        (1.0, "1.0x"),
         (1.5, "1.5x"),
-        (2.0, "2.0x 快")
+        (2.0, "2.0x")
     ]
     private let colorOptions: [(mode: Int, color: Int, label: String)] = [
         (0, 16777215, "原始"),
@@ -4340,172 +4451,261 @@ struct DanmakuSettingsPanelV2: View {
         (6, 16761035, "粉色")
     ]
 
+    /// 自适应皮肤的面板背景色
+    private var panelBackground: Color {
+        if settings.usesLiquidSkin {
+            return Color(hex: "1A1A2E").opacity(0.88)
+        } else if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.8)
+    }
+
+    /// 自适应皮肤的文字颜色
+    private var textPrimary: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .label)
+        }
+        return .white.opacity(0.85)
+    }
+
+    private var textSecondary: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondaryLabel)
+        }
+        return .white.opacity(0.5)
+    }
+
+    /// 选中状态颜色
+    private var selectedColor: Color {
+        Color(hex: "00BEFF")
+    }
+
+    /// 未选中按钮背景
+    private var unselectedBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .tertiarySystemBackground)
+        }
+        return Color.white.opacity(0.15)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
+        ScrollView(showsIndicators: true) {
+            VStack(spacing: isPortrait ? 24 : 16) {
+                // 开启弹幕开关
                 HStack {
                     Text("开启弹幕")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
+                        .font(.system(size: isPortrait ? 16 : 14))
+                        .foregroundColor(textPrimary)
 
                     Spacer()
 
                     Toggle("弹幕", isOn: $showDanmaku)
                         .labelsHidden()
+                        .tint(selectedColor)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.horizontal, isPortrait ? 16 : 12)
+                .padding(.top, isPortrait ? 16 : 12)
 
-                VStack(spacing: 8) {
+                // 透明度滑块
+                VStack(spacing: 6) {
                     HStack {
                         Text("弹幕透明度")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
+                            .font(.system(size: isPortrait ? 16 : 14))
+                            .foregroundColor(textPrimary)
                         Spacer()
                         Text("\(Int(opacity * 100))%")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.7))
+                            .font(.system(size: isPortrait ? 14 : 12))
+                            .foregroundColor(textSecondary)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
 
                     Slider(value: $opacity, in: 0...1, step: 0.1)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, isPortrait ? 16 : 12)
+                        .tint(selectedColor)
                 }
 
-                VStack(spacing: 8) {
+                // 字体大小滑块
+                VStack(spacing: 6) {
                     HStack {
                         Text("弹幕字体大小")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
+                            .font(.system(size: isPortrait ? 16 : 14))
+                            .foregroundColor(textPrimary)
                         Spacer()
                         Text("\(Int(fontSize))px")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.7))
+                            .font(.system(size: isPortrait ? 14 : 12))
+                            .foregroundColor(textSecondary)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
 
                     Slider(value: $fontSize, in: 12...24, step: 1)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, isPortrait ? 16 : 12)
+                        .tint(selectedColor)
                 }
 
-                VStack(spacing: 8) {
+                // 显示区域选项
+                VStack(spacing: 6) {
                     HStack {
                         Text("弹幕显示区域")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
+                            .font(.system(size: isPortrait ? 16 : 14))
+                            .foregroundColor(textPrimary)
                         Spacer()
                         Text(areaOptions.first(where: { $0.0 == area })?.1 ?? "\(Int(area * 100))%")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.7))
+                            .font(.system(size: isPortrait ? 14 : 12))
+                            .foregroundColor(textSecondary)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
 
-                    HStack(spacing: 0) {
+                    HStack(spacing: isPortrait ? 0 : 4) {
                         ForEach(areaOptions, id: \.0) { option in
                             Button {
                                 area = option.0
                             } label: {
                                 Text(option.1)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(area == option.0 ? .white : .white.opacity(0.6))
+                                    .font(.system(size: isPortrait ? 13 : 11))
+                                    .foregroundColor(area == option.0 ? .white : textSecondary)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .padding(.vertical, isPortrait ? 8 : 6)
                                     .background(
                                         RoundedRectangle(cornerRadius: 6)
-                                            .fill(area == option.0 ? Color(hex: "00BEFF") : Color.white.opacity(0.15))
+                                            .fill(area == option.0 ? selectedColor : unselectedBackground)
                                     )
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
                 }
 
-                VStack(spacing: 8) {
+                // 速度选项
+                VStack(spacing: 6) {
                     HStack {
                         Text("弹幕显示速度")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
+                            .font(.system(size: isPortrait ? 16 : 14))
+                            .foregroundColor(textPrimary)
                         Spacer()
                         Text(speedOptions.first(where: { $0.0 == speed })?.1 ?? "\(speed)x")
-                            .font(.system(size: 14))
-                            .foregroundColor(.white.opacity(0.7))
+                            .font(.system(size: isPortrait ? 14 : 12))
+                            .foregroundColor(textSecondary)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
 
-                    HStack(spacing: 0) {
+                    HStack(spacing: isPortrait ? 0 : 4) {
                         ForEach(speedOptions, id: \.0) { option in
                             Button {
                                 speed = option.0
                             } label: {
                                 Text(option.1)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(speed == option.0 ? .white : .white.opacity(0.6))
+                                    .font(.system(size: isPortrait ? 12 : 11))
+                                    .foregroundColor(speed == option.0 ? .white : textSecondary)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .padding(.vertical, isPortrait ? 8 : 6)
                                     .background(
                                         RoundedRectangle(cornerRadius: 6)
-                                            .fill(speed == option.0 ? Color(hex: "00BEFF") : Color.white.opacity(0.15))
+                                            .fill(speed == option.0 ? selectedColor : unselectedBackground)
                                     )
                             }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
                 }
 
-                VStack(spacing: 8) {
+                // 颜色选项
+                VStack(spacing: 6) {
                     HStack {
                         Text("弹幕颜色")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
+                            .font(.system(size: isPortrait ? 16 : 14))
+                            .foregroundColor(textPrimary)
                         Spacer()
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isPortrait ? 16 : 12)
 
-                    HStack(spacing: 12) {
-                        ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
-                            Button {
-                                colorMode = option.mode
-                            } label: {
-                                Circle()
-                                    .fill(Color(hexRGB: option.color))
-                                    .frame(width: 32, height: 32)
-                                    .overlay(
+                    // 颜色圆圈 - 横屏时改为2行或缩小
+                    if isPortrait {
+                        HStack(spacing: 10) {
+                            ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
+                                colorButton(option: option)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+
+                        HStack(spacing: 0) {
+                            ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
+                                Button {
+                                    colorMode = option.mode
+                                } label: {
+                                    Text(option.label)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(colorMode == option.mode ? textPrimary : textSecondary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 4)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    } else {
+                        // 横屏：颜色选项改为紧凑布局
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                            ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
+                                Button {
+                                    colorMode = option.mode
+                                } label: {
+                                    HStack(spacing: 4) {
                                         Circle()
-                                            .stroke(colorMode == option.mode ? Color(hex: "00BEFF") : Color.white.opacity(0.3), lineWidth: colorMode == option.mode ? 3 : 1)
+                                            .fill(Color(hexRGB: option.color))
+                                            .frame(width: 16, height: 16)
+                                        Text(option.label)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(colorMode == option.mode ? textPrimary : textSecondary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(colorMode == option.mode ? selectedColor.opacity(0.2) : unselectedBackground)
                                     )
                                     .overlay(
-                                        Group {
-                                            if colorMode == option.mode {
-                                                Image(systemName: "checkmark")
-                                                    .font(.system(size: 12, weight: .bold))
-                                                    .foregroundColor(.white)
-                                            }
-                                        }
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(colorMode == option.mode ? selectedColor : Color.clear, lineWidth: 1)
                                     )
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                         }
+                        .padding(.horizontal, 12)
                     }
-                    .padding(.horizontal, 16)
-
-                    HStack(spacing: 0) {
-                        ForEach(Array(colorOptions.enumerated()), id: \.offset) { _, option in
-                            Button {
-                                colorMode = option.mode
-                            } label: {
-                                Text(option.label)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(colorMode == option.mode ? .white : .white.opacity(0.5))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 4)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
                 }
 
-                Spacer()
+                Spacer(minLength: 20)
             }
         }
+    }
+
+    @ViewBuilder
+    private func colorButton(option: (mode: Int, color: Int, label: String)) -> some View {
+        Button {
+            colorMode = option.mode
+        } label: {
+            Circle()
+                .fill(Color(hexRGB: option.color))
+                .frame(width: 28, height: 28)
+                .overlay(
+                    Circle()
+                        .stroke(colorMode == option.mode ? selectedColor : Color.white.opacity(0.3), lineWidth: colorMode == option.mode ? 3 : 1)
+                )
+                .overlay(
+                    Group {
+                        if colorMode == option.mode {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
