@@ -832,47 +832,21 @@ class PlayerLayerUIView: UIView {
     }
 }
 
-// MARK: - 小窗口播放器（使用AVPlayerLayer直接渲染，兼容性更好）
+// MARK: - 小窗口播放器（AVPlayerViewController 封装）
 struct MiniPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
 
-    func makeUIViewController(context: Context) -> UIViewController {
-        let controller = MiniPlayerViewController()
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
         controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspect
+        controller.view.backgroundColor = .black
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        if let miniController = uiViewController as? MiniPlayerViewController {
-            miniController.player = player
-        }
-    }
-}
-
-// MARK: - 自定义小窗口播放器控制器（使用AVPlayerLayer，避免AVPlayerViewController的兼容性问题）
-class MiniPlayerViewController: UIViewController {
-    var player: AVPlayer? {
-        didSet {
-            playerLayer?.player = player
-        }
-    }
-    private var playerLayer: AVPlayerLayer?
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-
-        let layer = AVPlayerLayer()
-        layer.videoGravity = .resizeAspect
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        playerLayer = layer
-        playerLayer?.player = player
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        playerLayer?.frame = view.bounds
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player = player
     }
 }
 
@@ -1138,28 +1112,11 @@ struct LivePlayerSheet: View {
         let urlString = availableRoutes[index]
         guard let url = URL(string: urlString) else { return }
 
-        // 使用 AVURLAsset 创建，添加 User-Agent 头，解决部分源有声音无画面问题
-        let headers = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-            "Accept": "*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9"
-        ]
-        let isMPEGTS = !urlString.hasSuffix(".m3u8") && !urlString.contains(".m3u8?")
-        var assetOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": headers]
-        if isMPEGTS {
-            assetOptions[AVURLAssetAllowsCellularAccessKey] = true
-        }
-        let asset = AVURLAsset(url: url, options: assetOptions)
-
-        let item = AVPlayerItem(asset: asset)
+        // 使用最简单的 AVPlayerItem 创建方式
+        let item = AVPlayerItem(url: url)
         item.preferredPeakBitRate = 3000000
-        item.preferredForwardBufferDuration = isMPEGTS ? 3 : 5
-        if #available(iOS 17.0, *) {
-            item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-        }
 
         let avPlayer = AVPlayer(playerItem: item)
-        avPlayer.allowsExternalPlayback = false
         avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
         self.supportsCatchup = catchupSupported
@@ -1225,57 +1182,12 @@ struct LivePlayerSheet: View {
 
             print("[LivePlayer] 预览播放: \(urlString)")
 
-            // 创建 AVURLAsset 并设置合适的初始化选项，解决某些视频有声音无画面问题
-            let asset: AVURLAsset
-            let headers = [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-                "Accept": "*/*",
-                "Accept-Language": "zh-CN,zh;q=0.9"
-            ]
-            // 对运营商IPTV源(MPEG-TS)使用更宽松的资源加载策略
-            let isMPEGTS = !urlString.hasSuffix(".m3u8") && !urlString.contains(".m3u8?")
-            var assetOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": headers]
-            if isMPEGTS {
-                // MPEG-TS流需要特殊处理，允许更长的超时和缓冲
-                assetOptions[AVURLAssetAllowsCellularAccessKey] = true
-            }
-            asset = AVURLAsset(url: url, options: assetOptions)
-
-            let item = AVPlayerItem(asset: asset)
-            // 兼容 MPEG-TS 单播流（无 .m3u8 后缀）
-            item.preferredPeakBitRate = 3000000 // 3Mbps
-            // 预加载视频轨道，确保画面能正确渲染
-            item.preferredForwardBufferDuration = isMPEGTS ? 3 : 5
-            // 针对直播流优化：允许在暂停时使用网络资源
-            if #available(iOS 17.0, *) {
-                item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-            }
+            // 使用最简单的 AVPlayerItem 创建方式，避免复杂配置导致兼容性问题
+            let item = AVPlayerItem(url: url)
+            item.preferredPeakBitRate = 3000000
 
             let avPlayer = AVPlayer(playerItem: item)
-            avPlayer.allowsExternalPlayback = false
             avPlayer.automaticallyWaitsToMinimizeStalling = false
-            // 设置音频会话为播放模式，避免音频独占导致画面不渲染
-            do {
-                let audioSession = AVAudioSession.sharedInstance()
-                try audioSession.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
-                try audioSession.setActive(true)
-            } catch {
-                print("[LivePlayer] 音频会话配置失败: \(error)")
-            }
-
-            // 监听播放器状态，处理视频轨道加载失败的情况
-            let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
-                if item.status == .failed {
-                    print("[LivePlayer] 播放失败: \(item.error?.localizedDescription ?? "未知错误")")
-                } else if item.status == .readyToPlay {
-                    // 检查视频轨道是否存在
-                    let videoTracks = item.asset.tracks(withMediaType: .video)
-                    print("[LivePlayer] 视频轨道数: \(videoTracks.count), presentationSize: \(item.presentationSize)")
-                    if videoTracks.isEmpty {
-                        print("[LivePlayer] 警告：无可用的视频轨道，可能只有音频")
-                    }
-                }
-            }
 
             await MainActor.run {
                 self.player = avPlayer
