@@ -326,7 +326,8 @@ class DoubanService: ObservableObject {
     }
 
     private func fetchCreditsById(_ id: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
-        let url = URL(string: "\(baseURL)/movie/\(id)")!
+        // 使用 /celebrities 接口获取完整演职人员信息（含头像、角色）
+        let url = URL(string: "\(baseURL)/movie/\(id)/celebrities")!
         do {
             let (data, _) = try await session.data(from: url)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -335,45 +336,30 @@ class DoubanService: ObservableObject {
             var directors: [DoubanCelebrity] = []
             var writers: [DoubanCelebrity] = []
 
-            if let casts = json?["casts"] as? [[String: Any]] {
-                actors = casts.compactMap { dict in
-                    guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = self.extractAvatarURL(from: dict)
-                    return DoubanCelebrity(
-                        id: dict["id"] as? String ?? UUID().uuidString,
-                        name: name,
-                        cover_url: avatarUrl,
-                        roles: nil,
-                        character: dict["character"] as? String ?? name
-                    )
-                }
+            // 解析演员
+            if let list = json?["actors"] as? [[String: Any]] {
+                actors = list.compactMap { parseCelebrity(from: $0, defaultRole: nil) }
             }
 
-            if let dirs = json?["directors"] as? [[String: Any]] {
-                directors = dirs.compactMap { dict in
-                    guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = self.extractAvatarURL(from: dict)
-                    return DoubanCelebrity(
-                        id: dict["id"] as? String ?? UUID().uuidString,
-                        name: name,
-                        cover_url: avatarUrl,
-                        roles: ["导演"],
-                        character: nil
-                    )
-                }
-            }
-
-            if let wrs = json?["writers"] as? [[String: Any]] {
-                writers = wrs.compactMap { dict in
-                    guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = self.extractAvatarURL(from: dict)
-                    return DoubanCelebrity(
-                        id: dict["id"] as? String ?? UUID().uuidString,
-                        name: name,
-                        cover_url: avatarUrl,
-                        roles: ["编剧"],
-                        character: nil
-                    )
+            // 解析导演（同时提取编剧角色）
+            if let list = json?["directors"] as? [[String: Any]] {
+                for dict in list {
+                    guard let person = parseCelebrity(from: dict, defaultRole: "导演") else { continue }
+                    directors.append(person)
+                    // 如果该导演同时也是编剧，单独加入编剧列表
+                    if let roles = dict["roles"] as? [String], roles.contains("编剧") {
+                        var writer = person
+                        writer = DoubanCelebrity(
+                            id: person.id,
+                            name: person.name,
+                            cover_url: person.cover_url,
+                            roles: ["编剧"],
+                            character: nil
+                        )
+                        if !writers.contains(where: { $0.id == writer.id }) {
+                            writers.append(writer)
+                        }
+                    }
                 }
             }
 
@@ -385,25 +371,31 @@ class DoubanService: ObservableObject {
         }
     }
 
-    /// 从豆瓣API字典中提取头像URL（支持多种字段格式）
-    private func extractAvatarURL(from dict: [String: Any]) -> String? {
-        // 1. 尝试 avatars 对象（标准格式）
-        if let avatars = dict["avatars"] as? [String: Any] {
-            if let large = avatars["large"] as? String, !large.isEmpty { return large }
-            if let medium = avatars["medium"] as? String, !medium.isEmpty { return medium }
-            if let small = avatars["small"] as? String, !small.isEmpty { return small }
+    /// 解析 celebrities 接口返回的演职人员字典
+    private func parseCelebrity(from dict: [String: Any], defaultRole: String?) -> DoubanCelebrity? {
+        guard let name = dict["name"] as? String else { return nil }
+        let id = dict["id"] as? String ?? UUID().uuidString
+        let avatarUrl = extractCelebrityAvatar(from: dict)
+        let character = dict["character"] as? String
+        let roles = dict["roles"] as? [String]
+        return DoubanCelebrity(
+            id: id,
+            name: name,
+            cover_url: avatarUrl,
+            roles: defaultRole.map { [$0] } ?? roles,
+            character: character
+        )
+    }
+
+    /// 从 celebrities 接口提取头像URL（avatar.large / avatar.normal）
+    private func extractCelebrityAvatar(from dict: [String: Any]) -> String? {
+        if let avatar = dict["avatar"] as? [String: Any] {
+            if let large = avatar["large"] as? String, !large.isEmpty { return large }
+            if let normal = avatar["normal"] as? String, !normal.isEmpty { return normal }
         }
-        // 2. 尝试单数 avatar 字段
+        // 兼容其他格式
         if let avatar = dict["avatar"] as? String, !avatar.isEmpty { return avatar }
-        // 3. 尝试 cover_url 字段
         if let cover = dict["cover_url"] as? String, !cover.isEmpty { return cover }
-        // 4. 尝试 img 字段
-        if let img = dict["img"] as? String, !img.isEmpty { return img }
-        // 5. 尝试 pic 对象
-        if let pic = dict["pic"] as? [String: Any] {
-            if let large = pic["large"] as? String, !large.isEmpty { return large }
-            if let normal = pic["normal"] as? String, !normal.isEmpty { return normal }
-        }
         return nil
     }
 
