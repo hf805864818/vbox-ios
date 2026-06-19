@@ -528,22 +528,13 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 解析频道所有可用线路
     func resolveAllSources(channel: LiveChannel) async -> [String] {
-        // 先查缓存
-        if let cached = m3u8Cache[channel.id], !cached.isEmpty {
-            return [cached]
-        }
-
         // 直接返回频道已有的 sources（M3U订阅源中已包含播放地址）
         if !channel.sources.isEmpty {
-            if let first = channel.sources.first {
-                m3u8Cache[channel.id] = first
-            }
             return channel.sources
         }
 
         // 如果频道有 playURL，尝试直接返回
         if !channel.playURL.isEmpty, channel.playURL.hasPrefix("http") {
-            m3u8Cache[channel.id] = channel.playURL
             return [channel.playURL]
         }
 

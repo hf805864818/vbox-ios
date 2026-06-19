@@ -329,6 +329,14 @@ struct LiveTVView: View {
                 Text(errorMessage ?? "未知错误")
             }
             .onAppear {
+                // 主动触发默认源加载
+                if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
+                    if let url = service.currentSource.sourceURL {
+                        Task {
+                            await service.fetchSubscribeChannels(url: url)
+                        }
+                    }
+                }
                 if currentCategory.isEmpty, let first = currentCategories.first {
                     currentCategory = first.tid
                 }
@@ -676,7 +684,6 @@ struct ChannelGridItem: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(.systemGray6))
-                    .aspectRatio(16/9, contentMode: .fit)
 
                 if let logo = channel.logo, let url = URL(string: logo) {
                     AsyncImage(url: url) { image in
@@ -696,29 +703,23 @@ struct ChannelGridItem: View {
                         .foregroundColor(.orange.opacity(0.6))
                 }
             }
+            .aspectRatio(16/9, contentMode: .fit)
             .clipped()
 
             // 频道名称 + 线路数
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(channel.name)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 4) {
-                    Text("\(routeCount)条线路")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-
-                    if isResolving {
-                        ProgressView()
-                            .scaleEffect(0.5)
-                    }
-                }
+                Text("\(routeCount)条线路")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -865,41 +866,39 @@ struct LivePlayerSheet: View {
                     if player != nil {
                         VStack {
                             HStack {
-                                // 左上角：线路切换按钮
-                                if availableRoutes.count > 1 {
-                                    Menu {
-                                        ForEach(0..<availableRoutes.count, id: \.self) { index in
-                                            Button(action: {
-                                                switchRoute(to: index)
-                                            }) {
-                                                HStack {
-                                                    Text("线路 \(index + 1)")
-                                                    if index == currentRouteIndex {
-                                                        Image(systemName: "checkmark")
-                                                    }
+                                // 左上角：线路切换按钮（始终显示）
+                                Menu {
+                                    ForEach(0..<availableRoutes.count, id: \.self) { index in
+                                        Button(action: {
+                                            switchRoute(to: index)
+                                        }) {
+                                            HStack {
+                                                Text("线路 \(index + 1)")
+                                                if index == currentRouteIndex {
+                                                    Image(systemName: "checkmark")
                                                 }
                                             }
                                         }
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "arrow.triangle.branch")
-                                                .font(.system(size: 12))
-                                            Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
-                                                .font(.system(size: 12, weight: .medium))
-                                        }
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(
-                                            Capsule()
-                                                .fill(Color.black.opacity(0.5))
-                                        )
                                     }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.triangle.branch")
+                                            .font(.system(size: 12))
+                                        Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.5))
+                                    )
                                 }
 
                                 Spacer()
 
-                                // 右上角：全屏按钮
+                                // 右上角：全屏按钮（始终显示）
                                 Button(action: {
                                     showSystemPlayer = true
                                 }) {
@@ -937,14 +936,12 @@ struct LivePlayerSheet: View {
                         }
                         Spacer()
 
-                        if availableRoutes.count > 1 {
-                            Text("共 \(availableRoutes.count) 条线路")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(Color(.systemGray5)))
-                        }
+                        Text("共 \(availableRoutes.count) 条线路")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color(.systemGray5)))
                     }
                     .padding(.horizontal, 16)
 
