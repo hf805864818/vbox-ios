@@ -446,7 +446,14 @@ class LiveTVService: ObservableObject {
         if dynamicCategories.isEmpty {
             if let url = currentSource.sourceURL {
                 if subscribeChannels.isEmpty {
-                    await fetchSubscribeChannels(url: url)
+                    // 本地源已从 localChannelsMap 同步加载，无需网络请求
+                    if url.hasPrefix("local://") {
+                        let localName = String(url.dropFirst(8))
+                        subscribeChannels = localChannelsMap[localName] ?? []
+                        buildDynamicCategories()
+                    } else {
+                        await fetchSubscribeChannels(url: url)
+                    }
                 }
             }
         }
@@ -606,6 +613,16 @@ class LiveTVService: ObservableObject {
                 if let commaIndex = line.lastIndex(of: ",") {
                     let nameStart = line.index(after: commaIndex)
                     name = String(line[nameStart...]).trimmingCharacters(in: .whitespaces)
+                }
+
+                // fallback: 从 tvg-name 提取
+                if name.isEmpty {
+                    if let nameRange = line.range(of: #"tvg-name="([^"]*)""#, options: .regularExpression) {
+                        let nameStr = String(line[nameRange])
+                        if let valRange = nameStr.range(of: #""([^"]*)""#, options: .regularExpression) {
+                            name = String(nameStr[valRange]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                        }
+                    }
                 }
 
                 // 下一行是 URL

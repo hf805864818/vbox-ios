@@ -431,15 +431,11 @@ struct LiveTVView: View {
 
             if !parsed.isEmpty {
                 service.addLocalChannels(name: fileName, channels: parsed)
-                let customSource = LiveSourceType.custom(name: fileName, url: "local://\(fileName)")
+                let urlString = "local://\(fileName)"
+                service.addCustomSource(name: fileName, url: urlString)
+                let customSource = LiveSourceType.custom(name: fileName, url: urlString)
                 service.switchSource(to: customSource)
-                channelsCache.removeAll()
-                subCategories = []
-                currentSubCategory = ""
-                if let first = currentCategories.first {
-                    currentCategory = first.tid
-                    loadChannelsIfNeeded(for: first.tid, forceReload: true)
-                }
+                // 依赖 onChange(of: service.currentSource) 自动刷新分类和频道
                 print("[LiveTV] 导入成功，已切换到源: \(fileName)")
             } else {
                 print("[LiveTV] 文件内容解析为空")
@@ -680,23 +676,30 @@ struct ChannelGridItem: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 封面图（16:9 比例）
+            // 封面图（固定 16:9 比例）
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(.systemGray6))
 
                 if let logo = channel.logo, let url = URL(string: logo) {
-                    AsyncImage(url: url) { image in
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    } placeholder: {
-                        Image(systemName: "tv.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.orange.opacity(0.6))
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                        case .failure:
+                            Image(systemName: "tv.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(.orange.opacity(0.6))
+                        @unknown default:
+                            EmptyView()
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     Image(systemName: "tv.fill")
                         .font(.system(size: 28))
@@ -818,16 +821,69 @@ struct LivePlayerSheet: View {
     @State private var availableRoutes: [String] = []
     @State private var currentRouteIndex = 0
 
-    // 全屏播放
-    @State private var showSystemPlayer = false
-
     // 线路选择菜单
     @State private var showRouteMenu = false
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 上半部分：小视频预览窗口（带叠加层）
+                // 顶部工具栏（在视频上方，不遮挡视频）
+                HStack {
+                    // 线路切换
+                    if !availableRoutes.isEmpty {
+                        Menu {
+                            ForEach(0..<availableRoutes.count, id: \.self) { index in
+                                Button(action: {
+                                    switchRoute(to: index)
+                                }) {
+                                    HStack {
+                                        Text("线路 \(index + 1)")
+                                        if index == currentRouteIndex {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 12))
+                                Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color(.systemGray5))
+                            )
+                        }
+                    }
+
+                    Spacer()
+
+                    // 全屏按钮
+                    if player != nil {
+                        Button(action: {
+                            enterFullScreen()
+                        }) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 16))
+                                .foregroundColor(.primary)
+                                .padding(8)
+                                .background(
+                                    Circle()
+                                        .fill(Color(.systemGray5))
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                // 小视频预览窗口
                 ZStack {
                     Color.black
                         .aspectRatio(16/9, contentMode: .fit)
@@ -860,62 +916,6 @@ struct LivePlayerSheet: View {
                             .font(.system(size: 14))
                             .foregroundColor(.orange)
                         }
-                    }
-
-                    // 叠加层：左上角线路切换 + 右上角全屏按钮
-                    if player != nil {
-                        VStack {
-                            HStack {
-                                // 左上角：线路切换按钮（始终显示）
-                                Menu {
-                                    ForEach(0..<availableRoutes.count, id: \.self) { index in
-                                        Button(action: {
-                                            switchRoute(to: index)
-                                        }) {
-                                            HStack {
-                                                Text("线路 \(index + 1)")
-                                                if index == currentRouteIndex {
-                                                    Image(systemName: "checkmark")
-                                                }
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "arrow.triangle.branch")
-                                            .font(.system(size: 12))
-                                        Text("线路 \(currentRouteIndex + 1)/\(availableRoutes.count)")
-                                            .font(.system(size: 12, weight: .medium))
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.black.opacity(0.5))
-                                    )
-                                }
-
-                                Spacer()
-
-                                // 右上角：全屏按钮（始终显示）
-                                Button(action: {
-                                    showSystemPlayer = true
-                                }) {
-                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(.white)
-                                        .padding(8)
-                                        .background(
-                                            Circle()
-                                                .fill(Color.black.opacity(0.5))
-                                        )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            Spacer()
-                        }
-                        .padding(8)
                     }
                 }
 
@@ -1027,12 +1027,6 @@ struct LivePlayerSheet: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $showSystemPlayer) {
-                if let player = player {
-                    SystemPlayerViewController(player: player)
-                        .ignoresSafeArea()
-                }
-            }
             .onAppear {
                 loadPlayer()
             }
@@ -1063,6 +1057,25 @@ struct LivePlayerSheet: View {
             return "\(start)...\(end)"
         }
         return url
+    }
+
+    private func enterFullScreen() {
+        guard let player = player else { return }
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.exitsFullScreenWhenPlaybackEnds = false
+
+        // 找到当前 window 的 rootViewController 并 present
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            // 找到最顶层的 presentedViewController
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+            topVC.present(controller, animated: true)
+        }
     }
 
     private func loadPlayer() {
