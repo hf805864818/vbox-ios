@@ -44,9 +44,9 @@ class OrientationHelper {
     }
 
     static func unlockOrientation() {
-        currentOrientationMask = .all
+        currentOrientationMask = [.portrait, .landscapeLeft, .landscapeRight]
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: [.portrait, .landscapeLeft, .landscapeRight]))
         }
     }
 
