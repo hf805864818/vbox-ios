@@ -1113,9 +1113,9 @@ struct LivePlayerSheet: View {
 
         let item = AVPlayerItem(url: url)
         item.preferredPeakBitRate = 3000000
-        item.automaticallyWaitsToMinimizeStalling = false
 
         let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
         self.supportsCatchup = catchupSupported
         avPlayer.play()
@@ -1183,9 +1183,9 @@ struct LivePlayerSheet: View {
             let item = AVPlayerItem(url: url)
             // 兼容 MPEG-TS 单播流（无 .m3u8 后缀）
             item.preferredPeakBitRate = 3000000 // 3Mbps
-            item.automaticallyWaitsToMinimizeStalling = false
 
             let avPlayer = AVPlayer(playerItem: item)
+            avPlayer.automaticallyWaitsToMinimizeStalling = false
 
             // 监听播放状态
             let timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: .main) { [weak avPlayer] _ in
