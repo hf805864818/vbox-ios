@@ -3330,21 +3330,24 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            // 锁屏状态下：只显示锁屏按钮（左侧垂直居中）
+            // 锁屏状态下：只显示锁屏按钮（固定在左侧垂直居中）
             if !isPortrait && playerState.isOrientationLocked {
-                Spacer()
-                Button(action: {
-                    playerState.isOrientationLocked.toggle()
-                    OrientationHelper.unlockOrientation()
-                }) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                VStack {
+                    Spacer()
+                    Button(action: {
+                        playerState.isOrientationLocked.toggle()
+                        OrientationHelper.unlockOrientation()
+                    }) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Spacer()
                 }
-                .buttonStyle(PlainButtonStyle())
-                Spacer()
+                .frame(width: 44)
             } else {
                 // 未锁屏状态：显示返回键 + 锁屏键 + 右侧功能按钮
                 VStack(alignment: .leading, spacing: 0) {
