@@ -1191,43 +1191,48 @@ struct SearchHistoryDeleteButton: View {
 struct SearchResultsView: View {
     let results: [VodItem]
     @EnvironmentObject private var settings: AppSettings
-    @State private var selectedVideoName: String? = nil
+    @State private var selectedSource: String? = nil
     @State private var selectedVideo: VodItem? = nil
 
-    /// 按剧名聚合：同一部剧的所有源结果放在一起
-    private var groupedByName: [(name: String, videos: [VodItem])] {
+    /// 按源分组（规范化源名称避免重复分组）
+    private var grouped: [(source: String, videos: [VodItem])] {
         var dict: [String: [VodItem]] = [:]
         for video in results {
-            let name = video.vodName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if dict[name] == nil { dict[name] = [] }
-            dict[name]?.append(video)
+            let rawSource = video.vodRemarks?.isEmpty == false ? video.vodRemarks ?? "" : "搜索结果"
+            let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            if dict[source] == nil { dict[source] = [] }
+            dict[source]?.append(video)
         }
-        // 按源数量降序排列，源多的排在前面
-        return dict.map { (name: $0.key, videos: $0.value) }
-            .sorted { $0.videos.count > $1.videos.count }
+        return dict.map { (source: $0.key, videos: $0.value) }.sorted { $0.videos.count > $1.videos.count }
     }
 
-    private var videoNames: [String] { groupedByName.map { $0.name } }
+    private var sources: [String] { grouped.map { $0.source } }
 
+    /// 当前选中源的结果，按剧名排序（让同一部剧挨在一起）
     private var currentVideos: [VodItem] {
-        let sel = selectedVideoName ?? videoNames.first ?? ""
-        return groupedByName.first(where: { $0.name == sel })?.videos ?? []
+        let sel = selectedSource ?? sources.first ?? ""
+        let videos = grouped.first(where: { $0.source == sel })?.videos ?? []
+        // 按剧名字母顺序排序，让同一部剧的不同集/版本挨在一起
+        return videos.sorted {
+            $0.vodName.localizedCompare($1.vodName) == .orderedAscending
+        }
     }
 
     var body: some View {
         Group {
-            if groupedByName.count <= 1 {
+            if grouped.count <= 1 {
                 singleColumnList(results)
             } else {
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
-                        // 左侧：剧名列表
+                        // 左侧：资源站列表
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 2) {
-                                ForEach(videoNames, id: \.self) { name in
-                                    let sel = (selectedVideoName ?? videoNames.first ?? "") == name
-                                    Button(action: { selectedVideoName = name }) {
-                                        VideoNameLabel(name: name, sourceCount: groupedByName.first(where: { $0.name == name })?.videos.count ?? 0, isSelected: sel)
+                                ForEach(sources, id: \.self) { name in
+                                    let sel = (selectedSource ?? sources.first ?? "") == name
+                                    Button(action: { selectedSource = name }) {
+                                        SourceNameLabel(name: name, isSelected: sel)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.vertical, 10)
                                             .padding(.horizontal, 7)
@@ -1240,12 +1245,12 @@ struct SearchResultsView: View {
                             .padding(.vertical, 6)
                             .padding(.horizontal, 6)
                         }
-                        .frame(width: min(120, max(108, geometry.size.width * 0.28)))
+                        .frame(width: min(108, max(98, geometry.size.width * 0.23)))
                         .background(searchPanelBackground)
 
                         Divider().background(settings.usesVisualSkin ? Color.white.opacity(0.22) : Color.gray.opacity(0.3))
 
-                        // 右侧：该剧的所有源结果
+                        // 右侧：该资源站的结果（按剧名排序）
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 12) {
                                 ForEach(currentVideos) { item in
@@ -1260,7 +1265,7 @@ struct SearchResultsView: View {
                 .fullScreenCover(item: $selectedVideo) { video in
                     VideoDetailView(video: video)
                 }
-                .onAppear { if selectedVideoName == nil { selectedVideoName = videoNames.first } }
+                .onAppear { if selectedSource == nil { selectedSource = sources.first } }
             }
         }
     }
