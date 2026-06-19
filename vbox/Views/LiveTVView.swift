@@ -832,21 +832,29 @@ class PlayerLayerUIView: UIView {
     }
 }
 
-// MARK: - 小窗口播放器（隐藏控制条的AVPlayerViewController）
+// MARK: - 小窗口播放器（带控制按钮的AVPlayerViewController）
 struct MiniPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
+    @State private var controlVisible = false
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
-        controller.showsPlaybackControls = false
+        controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
         controller.view.backgroundColor = .black
+        // 确保控制视图可见
+        controller.view.isUserInteractionEnabled = true
         return controller
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         uiViewController.player = player
+        // 确保播放器视图层级正确，避免控制按钮被遮挡
+        DispatchQueue.main.async {
+            uiViewController.view.bringSubviewToFront(uiViewController.contentOverlayView)
+            uiViewController.showsPlaybackControls = true
+        }
     }
 }
 
@@ -895,28 +903,6 @@ struct LivePlayerSheet: View {
             VStack(spacing: 0) {
                 // 顶部工具栏（在视频上方，不遮挡视频）
                 HStack {
-                    // 回看按钮（仅运营商源显示）
-                    if supportsCatchup {
-                        Button(action: {
-                            showEPGSheet = true
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 12))
-                                Text("回看")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule()
-                                    .fill(Color(.systemGray5))
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-
                     // 线路切换
                     if !availableRoutes.isEmpty {
                         Menu {
@@ -971,50 +957,72 @@ struct LivePlayerSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
-                // 小视频预览窗口
-                ZStack {
-                    Color.black
-                        .aspectRatio(16/9, contentMode: .fit)
-
-                    if let player = player {
-                        MiniPlayerView(player: player)
+                // 小视频预览窗口（带回看按钮在左下角外侧）
+                ZStack(alignment: .bottomLeading) {
+                    // 播放器区域
+                    ZStack {
+                        Color.black
                             .aspectRatio(16/9, contentMode: .fit)
-                    } else if isLoading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(.white)
-                            Text("正在解析播放地址...")
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.8))
-                        }
-                    } else if let error = errorMessage {
-                        VStack(spacing: 12) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 36))
-                                .foregroundColor(.orange)
-                            Text(error)
-                                .font(.system(size: 13))
-                                .foregroundColor(.white.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                            Button("重试") {
-                                loadPlayer()
+
+                        if let player = player {
+                            MiniPlayerView(player: player)
+                                .aspectRatio(16/9, contentMode: .fit)
+                        } else if isLoading {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                    .scaleEffect(1.2)
+                                    .tint(.white)
+                                Text("正在解析播放地址...")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.8))
                             }
-                            .font(.system(size: 14))
-                            .foregroundColor(.orange)
+                        } else if let error = errorMessage {
+                            VStack(spacing: 12) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 36))
+                                    .foregroundColor(.orange)
+                                Text(error)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .multilineTextAlignment(.center)
+                                Button("重试") {
+                                    loadPlayer()
+                                }
+                                .font(.system(size: 14))
+                                .foregroundColor(.orange)
+                            }
                         }
+                    }
+
+                    // 回看按钮（放在小窗口外面左下角左侧，不遮挡小窗口）
+                    if supportsCatchup {
+                        Button(action: {
+                            showEPGSheet = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 12))
+                                Text("回看")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color(.systemGray5))
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.leading, 16)
+                        .padding(.bottom, 6)
                     }
                 }
 
                 // 下半部分：频道信息和线路列表
                 VStack(spacing: 16) {
-                    // 频道名称
+                    // 频道名称区域（仅保留线路数量信息，移除频道名称显示）
                     HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(channel.name)
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.primary)
-                        }
                         Spacer()
 
                         Text("共 \(availableRoutes.count) 条线路")
@@ -1129,8 +1137,15 @@ struct LivePlayerSheet: View {
         let urlString = availableRoutes[index]
         guard let url = URL(string: urlString) else { return }
 
-        let item = AVPlayerItem(url: url)
+        // 使用 AVURLAsset 创建，添加 User-Agent 头，解决部分源有声音无画面问题
+        let headers = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        ]
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+
+        let item = AVPlayerItem(asset: asset)
         item.preferredPeakBitRate = 3000000
+        item.preferredForwardBufferDuration = 5
 
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.automaticallyWaitsToMinimizeStalling = false
@@ -1198,12 +1213,35 @@ struct LivePlayerSheet: View {
 
             print("[LivePlayer] 预览播放: \(urlString)")
 
-            let item = AVPlayerItem(url: url)
+            // 创建 AVURLAsset 并设置合适的初始化选项，解决某些视频有声音无画面问题
+            let asset: AVURLAsset
+            let headers = [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+            ]
+            asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+
+            let item = AVPlayerItem(asset: asset)
             // 兼容 MPEG-TS 单播流（无 .m3u8 后缀）
             item.preferredPeakBitRate = 3000000 // 3Mbps
+            // 预加载视频轨道，确保画面能正确渲染
+            item.preferredForwardBufferDuration = 5
 
             let avPlayer = AVPlayer(playerItem: item)
             avPlayer.automaticallyWaitsToMinimizeStalling = false
+
+            // 监听播放器状态，处理视频轨道加载失败的情况
+            let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
+                if item.status == .failed {
+                    print("[LivePlayer] 播放失败: \(item.error?.localizedDescription ?? "未知错误")")
+                } else if item.status == .readyToPlay {
+                    // 检查视频轨道是否存在
+                    let videoTracks = item.asset.tracks(withMediaType: .video)
+                    print("[LivePlayer] 视频轨道数: \(videoTracks.count), presentationSize: \(item.presentationSize)")
+                    if videoTracks.isEmpty {
+                        print("[LivePlayer] 警告：无可用的视频轨道，可能只有音频")
+                    }
+                }
+            }
 
             await MainActor.run {
                 self.player = avPlayer
