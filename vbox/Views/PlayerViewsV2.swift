@@ -3266,14 +3266,35 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            Button(action: { onDismiss() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 8) {
+                Button(action: { onDismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if !isPortrait {
+                    // 锁定按钮（左侧返回键下方）
+                    Button(action: {
+                        playerState.isOrientationLocked.toggle()
+                        if playerState.isOrientationLocked {
+                            OrientationHelper.lockOrientation(.landscape)
+                        } else {
+                            OrientationHelper.unlockOrientation()
+                        }
+                    }) {
+                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
-            .buttonStyle(PlainButtonStyle())
 
             Spacer()
 
@@ -3462,21 +3483,6 @@ struct LandscapeBottomBar: View {
 
     var body: some View {
         HStack(spacing: 20) {
-            // 锁定按钮（返回键与暂停键中间）
-            Button(action: {
-                playerState.isOrientationLocked.toggle()
-                if playerState.isOrientationLocked {
-                    OrientationHelper.lockOrientation(.landscape)
-                } else {
-                    OrientationHelper.unlockOrientation()
-                }
-            }) {
-                Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-            }
-
             Button(action: { playerState.togglePlayback(player: player) }) {
                 Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 22))
@@ -3513,10 +3519,6 @@ struct LandscapeBottomBar: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                    )
             }
 
             // 内核按钮
@@ -3586,15 +3588,7 @@ struct PlayerControlsView: View {
                 }
             }
             .background(
-                playerState.isPortrait ? AnyView(Color.clear) : AnyView(LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0),
-                        Color.black.opacity(0.6),
-                        Color.black.opacity(0.8)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
+                Color.clear
             )
         }
         .onAppear {
