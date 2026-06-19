@@ -3331,7 +3331,7 @@ struct PlayerTopBarView: View {
     var body: some View {
         HStack {
             if !isPortrait && playerState.isOrientationLocked {
-                // 锁屏状态下：只显示锁屏按钮，居中显示
+                // 锁屏状态下：只显示锁屏按钮
                 Button(action: {
                     playerState.isOrientationLocked.toggle()
                     OrientationHelper.unlockOrientation()
@@ -3344,7 +3344,7 @@ struct PlayerTopBarView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
-                VStack(alignment: .leading, spacing: 55) {
+                VStack(alignment: .leading, spacing: 0) {
                     Button(action: { onDismiss() }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
@@ -3355,7 +3355,8 @@ struct PlayerTopBarView: View {
                     .buttonStyle(PlainButtonStyle())
 
                     if !isPortrait {
-                        // 锁定按钮（左侧返回键下方，垂直居中）
+                        Spacer(minLength: 55)
+                        // 锁定按钮（左侧返回键下方）
                         Button(action: {
                             playerState.isOrientationLocked.toggle()
                             if playerState.isOrientationLocked {
@@ -3373,6 +3374,7 @@ struct PlayerTopBarView: View {
                         .buttonStyle(PlainButtonStyle())
                     }
                 }
+                .frame(maxHeight: .infinity, alignment: .top)
             }
 
             Spacer()
