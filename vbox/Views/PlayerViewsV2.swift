@@ -3145,7 +3145,7 @@ struct PortraitBottomBar: View {
             Spacer()
 
             // 选集按钮
-            Button(action: { playerState.showEpisodePicker = true }) {
+            Button(action: { playerState.showEpisodePicker.toggle() }) {
                 VStack(spacing: 2) {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 18))
@@ -3217,7 +3217,7 @@ struct LandscapeBottomBar: View {
                 .frame(width: 44, height: 44)
             }
 
-            Button(action: { playerState.showQualityPicker = true }) {
+            Button(action: { playerState.showQualityPicker.toggle() }) {
                 Text(playerState.episodeItems.isEmpty && playerState.baiduFileList.isEmpty ? "高清" : "原画")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
@@ -3255,7 +3255,7 @@ struct LandscapeBottomBar: View {
                 .frame(width: 44, height: 44)
             }
 
-            Button(action: { playerState.showSettings = true }) {
+            Button(action: { playerState.showSettings.toggle() }) {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 20))
                     .foregroundColor(.white)
