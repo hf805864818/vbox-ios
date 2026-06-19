@@ -3093,7 +3093,7 @@ struct PlayerContainerView: View {
                                 .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                         )
                         .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                        .position(x: geo.size.width / 2, y: geo.size.height - 180)
+                        .position(x: geo.size.width / 2, y: geo.size.height / 2 - 40)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
