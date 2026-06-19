@@ -3031,10 +3031,10 @@ struct PlayerContainerView: View {
                             QualityPickerPanelV2(
                                 selectedQuality: $playerState.selectedQuality,
                                 isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                                isPortrait: false,
                                 onQualityChange: { index in
                                     playerState.changeQuality(index: index)
-                                },
-                                isPortrait: false
+                                }
                             )
                             .environmentObject(settings)
                             .frame(width: 70)
