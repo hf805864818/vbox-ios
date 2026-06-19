@@ -852,7 +852,9 @@ struct MiniPlayerView: UIViewControllerRepresentable {
         uiViewController.player = player
         // 确保播放器视图层级正确，避免控制按钮被遮挡
         DispatchQueue.main.async {
-            uiViewController.view.bringSubviewToFront(uiViewController.contentOverlayView)
+            if let overlayView = uiViewController.contentOverlayView {
+                uiViewController.view.bringSubviewToFront(overlayView)
+            }
             uiViewController.showsPlaybackControls = true
         }
     }
