@@ -71,10 +71,13 @@ struct DanmakuOverlayViewV2: View {
     var body: some View {
         GeometryReader { geo in
             let maxAreaHeight = geo.size.height * area
-            let laneHeight = fontSize + 12
+            let laneHeight = fontSize + 18
+            // 预计算共享值，减少每帧重复计算
+            let screenW = geo.size.width
             ForEach(items) { item in
                 let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
-                let textWidth = max(80, CGFloat(item.content.count) * fontSize * 0.72)
+                // 使用更准确的字宽估算：中文按fontSize，英文按0.6倍
+                let textWidth = max(80, CGFloat(item.content.count) * fontSize * (item.content.isASCII ? 0.6 : 0.72))
                 // 只渲染在可见区域内的弹幕
                 let yPos = CGFloat(item.lane) * laneHeight + 20
                 let isVisible = yPos < maxAreaHeight && progress >= 0 && progress <= 1
@@ -83,16 +86,24 @@ struct DanmakuOverlayViewV2: View {
                     Text(item.content)
                         .font(.system(size: fontSize, weight: .semibold))
                         .foregroundColor(Color(hexRGB: item.color).opacity(opacity))
-                        .shadow(color: .black.opacity(0.85), radius: 1, x: 1, y: 1)
-                        .position(
-                            x: geo.size.width + textWidth / 2 - progress * (geo.size.width + textWidth),
+                        .shadow(color: .black.opacity(0.7), radius: 1, x: 1, y: 1)
+                        // 使用offset替代position，减少布局计算开销
+                        .offset(
+                            x: screenW - progress * (screenW + textWidth),
                             y: yPos
                         )
+                        .fixedSize()
                 }
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
+    }
+}
+
+private extension String {
+    var isASCII: Bool {
+        allSatisfy { $0.isASCII }
     }
 }
 
