@@ -91,6 +91,7 @@ struct DanmakuOverlayViewV2: View {
 struct EpisodePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
     @Binding var isPresented: Bool
+    var isPortrait: Bool = true
     @EnvironmentObject private var settings: AppSettings
 
     /// 自适应皮肤的按钮背景色
@@ -127,46 +128,60 @@ struct EpisodePickerPanelV2: View {
             if !playerState.episodeItems.isEmpty {
                 // 河马剧场风格：浅蓝色按钮网格
                 ScrollView(showsIndicators: true) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                        ForEach(playerState.episodeItems) { episode in
-                            Button(action: {
-                                playerState.switchToEpisode(index: episode.id)
-                                isPresented = false
-                            }) {
-                                HStack(spacing: 6) {
-                                    Text(episodeDisplayName(episode.name, index: episode.id))
-                                        .font(.system(size: 13, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
-                                        .foregroundColor(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-                                    Spacer(minLength: 0)
-                                    if episode.id == playerState.currentEpisodeIndex {
-                                        Image(systemName: "play.circle.fill")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(Color(hex: "2196F3"))
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(buttonBorder, lineWidth: 0.5)
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
+                    if isPortrait {
+                        // 竖屏：3列网格
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                            episodeGridItems()
                         }
+                        .padding(14)
+                    } else {
+                        // 横屏：5列网格，更紧凑
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
+                            episodeGridItems()
+                        }
+                        .padding(10)
                     }
-                    .padding(14)
                 }
             } else {
                 Text("暂无集数信息")
                     .foregroundColor(textEmpty)
                     .padding(.vertical, 40)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func episodeGridItems() -> some View {
+        ForEach(playerState.episodeItems) { episode in
+            Button(action: {
+                playerState.switchToEpisode(index: episode.id)
+                isPresented = false
+            }) {
+                HStack(spacing: isPortrait ? 6 : 4) {
+                    Text(episodeDisplayName(episode.name, index: episode.id))
+                        .font(.system(size: isPortrait ? 13 : 11, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
+                        .foregroundColor(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Spacer(minLength: 0)
+                    if episode.id == playerState.currentEpisodeIndex {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: isPortrait ? 12 : 10))
+                            .foregroundColor(Color(hex: "2196F3"))
+                    }
+                }
+                .padding(.horizontal, isPortrait ? 12 : 8)
+                .padding(.vertical, isPortrait ? 12 : 8)
+                .background(
+                    RoundedRectangle(cornerRadius: isPortrait ? 8 : 6)
+                        .fill(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: isPortrait ? 8 : 6)
+                        .stroke(buttonBorder, lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
         }
     }
 
