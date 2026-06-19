@@ -2788,8 +2788,8 @@ struct PlayerContainerView: View {
                         )
                         .environmentObject(settings)
                         .frame(width: 50)
-                        // 固定在底部栏"自动"按钮上方（底部栏高约60pt，按钮在中间偏右）
-                        .position(x: geo.size.width / 2 + 60, y: geo.size.height - 120)
+                        // 固定在底部栏"倍数"按钮（最右侧ellipsis）正上方
+                        .position(x: geo.size.width - 38, y: geo.size.height - 120)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.8)),
                             removal: .opacity.combined(with: .scale(scale: 0.9))
