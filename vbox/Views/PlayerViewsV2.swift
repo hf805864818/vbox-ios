@@ -135,10 +135,28 @@ class PiPHelper: NSObject {
         containerView.layer.shadowOffset = CGSize(width: 0, height: 4)
         containerView.layer.shadowRadius = 12
         
-        // 从源视图截图作为占位（实际播放视图需要通过其他方式传递）
-        if let snapshot = sourceView.snapshotView(afterScreenUpdates: true) {
-            snapshot.frame = containerView.bounds
-            containerView.addSubview(snapshot)
+        // 将源视图的播放器层复制到浮动窗口中
+        // 找到sourceView中的播放器子视图并复制
+        let playerSubviews = sourceView.subviews.filter { subview in
+            // 识别播放器视图：通常是全屏的黑色背景视图或包含视频内容的视图
+            return subview.frame.equalTo(sourceView.bounds) || subview.backgroundColor == .black
+        }
+        if let playerView = playerSubviews.first {
+            // 创建截图作为初始显示
+            if let snapshot = playerView.snapshotView(afterScreenUpdates: true) {
+                snapshot.frame = containerView.bounds
+                snapshot.tag = 1001 // 标记为截图视图
+                containerView.addSubview(snapshot)
+            }
+            // 启动定时器更新截图，模拟视频播放效果
+            startSnapshotTimer(sourceView: playerView)
+        } else {
+            // 回退：使用整个sourceView的截图
+            if let snapshot = sourceView.snapshotView(afterScreenUpdates: true) {
+                snapshot.frame = containerView.bounds
+                snapshot.tag = 1001
+                containerView.addSubview(snapshot)
+            }
         }
         
         // 关闭按钮
@@ -228,6 +246,43 @@ class PiPHelper: NSObject {
         containerView.insertSubview(imageView, at: 0)
     }
     
+    // MARK: - 定时更新截图，模拟视频播放
+    private var snapshotTimer: Timer?
+    private weak var snapshotSourceView: UIView?
+    
+    private func startSnapshotTimer(sourceView: UIView) {
+        snapshotSourceView = sourceView
+        snapshotTimer?.invalidate()
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self, let sourceView = self.snapshotSourceView else { return }
+            // 更新截图
+            UIGraphicsBeginImageContextWithOptions(sourceView.bounds.size, false, 0)
+            sourceView.drawHierarchy(in: sourceView.bounds, afterScreenUpdates: false)
+            let image = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            
+            if let image = image, let containerView = self.floatingPlayerView {
+                // 更新已有的UIImageView
+                if let imageView = containerView.subviews.first(where: { $0 is UIImageView }) as? UIImageView {
+                    imageView.image = image
+                } else if let snapshotView = containerView.subviews.first(where: { $0.tag == 1001 }) {
+                    // 替换截图视图为UIImageView以支持动态更新
+                    snapshotView.removeFromSuperview()
+                    let imageView = UIImageView(image: image)
+                    imageView.frame = containerView.bounds
+                    imageView.contentMode = .scaleAspectFill
+                    containerView.insertSubview(imageView, at: 0)
+                }
+            }
+        }
+    }
+    
+    private func stopSnapshotTimer() {
+        snapshotTimer?.invalidate()
+        snapshotTimer = nil
+        snapshotSourceView = nil
+    }
+    
     var isFloating: Bool { isFloatingMode }
 }
 
@@ -258,6 +313,7 @@ struct VideoPlayerViewV2: View {
     let video: VodItem
     @StateObject private var playerState = PlayerState()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -318,13 +374,43 @@ struct VideoPlayerViewV2: View {
                 OrientationHelper.allowAllOrientations()
             }
             playerState.setupPlayer(video: video)
+            
+            // 监听PiP恢复全屏和暂停/播放通知
+            NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { _ in
+                playerState.isPiPActive = false
+            }
+            NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { _ in
+                playerState.togglePlayback(player: playerState.player)
+            }
         }
         .onDisappear {
             // 恢复竖屏
             OrientationHelper.lockOrientation(.portrait)
             OrientationHelper.unlockOrientation()
             playerState.cleanup()
+            NotificationCenter.default.removeObserver(self, name: .vboxPiPRestoreFullScreen, object: nil)
+            NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
         }
+        .onChange(of: scenePhase) { newPhase in
+            // 返回桌面时自动进入画中画
+            if newPhase == .background && !playerState.isPiPActive {
+                togglePiPAuto()
+            }
+        }
+    }
+    
+    private func togglePiPAuto() {
+        if playerState.compatibilityURL != nil {
+            // 兼容内核：使用浮动窗口
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
+            }
+        } else if let avPlayer = playerState.player {
+            // 原生AVPlayer：使用系统画中画
+            PiPHelper.shared.setupPiP(for: avPlayer)
+        }
+        playerState.isPiPActive = true
     }
 }
 
@@ -2696,7 +2782,7 @@ struct PlayerContainerView: View {
                 #endif
                 }
             } else if let player = player {
-                AVPlayerControllerRepresentableV2(player: player)
+                AVPlayerControllerRepresentableV2(player: player, videoGravity: playerState.videoGravity)
                     .ignoresSafeArea()
             }
             
@@ -3445,18 +3531,23 @@ struct PortraitPopupView<Content: View>: View {
 // MARK: - AVPlayer 控制器封装 V2
 struct AVPlayerControllerRepresentableV2: UIViewControllerRepresentable {
     let player: AVPlayer
+    let videoGravity: PlayerState.VideoGravityMode
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false
-        controller.videoGravity = .resizeAspectFill
+        controller.videoGravity = videoGravity.avGravity
         return controller
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         if uiViewController.player !== player {
             uiViewController.player = player
+        }
+        // 同步画面拉伸模式
+        if uiViewController.videoGravity != videoGravity.avGravity {
+            uiViewController.videoGravity = videoGravity.avGravity
         }
     }
 }
