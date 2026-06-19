@@ -812,6 +812,7 @@ struct AVPlayerLayerView: UIViewRepresentable {
     func updateUIView(_ uiView: PlayerLayerUIView, context: Context) {
         uiView.playerLayer?.player = player
         uiView.playerLayer?.frame = uiView.bounds
+        uiView.layoutIfNeeded()
     }
 }
 
@@ -821,6 +822,31 @@ class PlayerLayerUIView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         playerLayer?.frame = bounds
+        print("[PlayerLayer] layoutSubviews bounds=\(bounds)")
+    }
+
+    override var frame: CGRect {
+        didSet {
+            playerLayer?.frame = bounds
+        }
+    }
+}
+
+// MARK: - 小窗口播放器（隐藏控制条的AVPlayerViewController）
+struct MiniPlayerView: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = false
+        controller.videoGravity = .resizeAspect
+        controller.view.backgroundColor = .black
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player = player
     }
 }
 
@@ -869,6 +895,28 @@ struct LivePlayerSheet: View {
             VStack(spacing: 0) {
                 // 顶部工具栏（在视频上方，不遮挡视频）
                 HStack {
+                    // 回看按钮（仅运营商源显示）
+                    if supportsCatchup {
+                        Button(action: {
+                            showEPGSheet = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 12))
+                                Text("回看")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color(.systemGray5))
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+
                     // 线路切换
                     if !availableRoutes.isEmpty {
                         Menu {
@@ -924,13 +972,12 @@ struct LivePlayerSheet: View {
                 .padding(.vertical, 8)
 
                 // 小视频预览窗口
-                ZStack(alignment: .bottomLeading) {
+                ZStack {
                     Color.black
                         .aspectRatio(16/9, contentMode: .fit)
 
                     if let player = player {
-                        AVPlayerLayerView(player: player)
-                            .frame(maxWidth: .infinity)
+                        MiniPlayerView(player: player)
                             .aspectRatio(16/9, contentMode: .fit)
                     } else if isLoading {
                         VStack(spacing: 12) {
@@ -956,29 +1003,6 @@ struct LivePlayerSheet: View {
                             .font(.system(size: 14))
                             .foregroundColor(.orange)
                         }
-                    }
-                }
-                // 回看按钮（叠加在视频左下角）
-                .overlay(alignment: .bottomLeading) {
-                    if supportsCatchup && player != nil {
-                        Button(action: {
-                            showEPGSheet = true
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .font(.system(size: 12))
-                                Text("回看")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule()
-                                    .fill(Color.black.opacity(0.6))
-                            )
-                        }
-                        .padding(8)
                     }
                 }
 
