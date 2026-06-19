@@ -1191,49 +1191,43 @@ struct SearchHistoryDeleteButton: View {
 struct SearchResultsView: View {
     let results: [VodItem]
     @EnvironmentObject private var settings: AppSettings
-    @State private var selectedSource: String? = nil
+    @State private var selectedVideoName: String? = nil
     @State private var selectedVideo: VodItem? = nil
-    private var grouped: [(source: String, videos: [VodItem])] {
+
+    /// 按剧名聚合：同一部剧的所有源结果放在一起
+    private var groupedByName: [(name: String, videos: [VodItem])] {
         var dict: [String: [VodItem]] = [:]
         for video in results {
-            let rawSource = video.vodRemarks?.isEmpty == false ? video.vodRemarks ?? "" : "搜索结果"
-            // 规范化源名称：去首尾空格、合并中间多个空格，避免同一源因空格差异分成多组
-            let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            if dict[source] == nil { dict[source] = [] }
-            dict[source]?.append(video)
+            let name = video.vodName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if dict[name] == nil { dict[name] = [] }
+            dict[name]?.append(video)
         }
-        // 同一源内按剧名去重，避免同一部剧出现多条重复结果
-        var deduped: [String: [VodItem]] = [:]
-        for (source, videos) in dict {
-            var seen: Set<String> = []
-            deduped[source] = videos.filter {
-                let key = $0.vodName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if seen.contains(key) { return false }
-                seen.insert(key)
-                return true
-            }
-        }
-        return deduped.map { (source: $0.key, videos: $0.value) }.sorted { $0.videos.count > $1.videos.count }
+        // 按源数量降序排列，源多的排在前面
+        return dict.map { (name: $0.key, videos: $0.value) }
+            .sorted { $0.videos.count > $1.videos.count }
     }
-    private var sources: [String] { grouped.map { $0.source } }
+
+    private var videoNames: [String] { groupedByName.map { $0.name } }
+
     private var currentVideos: [VodItem] {
-        let sel = selectedSource ?? sources.first ?? ""
-        return grouped.first(where: { $0.source == sel })?.videos ?? []
+        let sel = selectedVideoName ?? videoNames.first ?? ""
+        return groupedByName.first(where: { $0.name == sel })?.videos ?? []
     }
+
     var body: some View {
         Group {
-            if grouped.count <= 1 {
+            if groupedByName.count <= 1 {
                 singleColumnList(results)
             } else {
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
+                        // 左侧：剧名列表
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 2) {
-                                ForEach(sources, id: \.self) { name in
-                                    let sel = (selectedSource ?? sources.first ?? "") == name
-                                    Button(action: { selectedSource = name }) {
-                                        SourceNameLabel(name: name, isSelected: sel)
+                                ForEach(videoNames, id: \.self) { name in
+                                    let sel = (selectedVideoName ?? videoNames.first ?? "") == name
+                                    Button(action: { selectedVideoName = name }) {
+                                        VideoNameLabel(name: name, sourceCount: groupedByName.first(where: { $0.name == name })?.videos.count ?? 0, isSelected: sel)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.vertical, 10)
                                             .padding(.horizontal, 7)
@@ -1246,9 +1240,12 @@ struct SearchResultsView: View {
                             .padding(.vertical, 6)
                             .padding(.horizontal, 6)
                         }
-                        .frame(width: min(108, max(98, geometry.size.width * 0.23)))
+                        .frame(width: min(120, max(108, geometry.size.width * 0.28)))
                         .background(searchPanelBackground)
+
                         Divider().background(settings.usesVisualSkin ? Color.white.opacity(0.22) : Color.gray.opacity(0.3))
+
+                        // 右侧：该剧的所有源结果
                         ScrollView(showsIndicators: false) {
                             LazyVStack(spacing: 12) {
                                 ForEach(currentVideos) { item in
@@ -1263,16 +1260,47 @@ struct SearchResultsView: View {
                 .fullScreenCover(item: $selectedVideo) { video in
                     VideoDetailView(video: video)
                 }
-                .onAppear { if selectedSource == nil { selectedSource = sources.first } }
+                .onAppear { if selectedVideoName == nil { selectedVideoName = videoNames.first } }
             }
         }
     }
+
     private func singleColumnList(_ items: [VodItem]) -> some View {
         ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.background(searchPanelBackground).fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video) }
     }
 
     private var searchPanelBackground: Color {
         settings.usesVisualSkin ? Color.black.opacity(settings.usesLiquidSkin ? 0.18 : 0.08) : Color(uiColor: .systemBackground)
+    }
+}
+
+struct VideoNameLabel: View {
+    let name: String
+    let sourceCount: Int
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(name)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 2)
+
+            // 源数量角标
+            Text("\(sourceCount)")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isSelected ? Color(hex: "E11D48") : .white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? Color.white.opacity(0.9) : Color.gray.opacity(0.35))
+                )
+        }
     }
 }
 
@@ -1318,7 +1346,19 @@ struct SearchResultRow: View {
     var body: some View {
         HStack(spacing: 12) {
             AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 5) { Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2); HStack(spacing: 5) { if let r = video.vodRemarks, !r.isEmpty { PlainTagBadge(text: r) }; if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }; if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) } }; if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }; if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) } }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2)
+                HStack(spacing: 5) {
+                    // 源名称标签（红色高亮）
+                    if let r = video.vodRemarks, !r.isEmpty {
+                        SourceTagBadge(text: r)
+                    }
+                    if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }
+                    if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) }
+                }
+                if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }
+                if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }
+            }
             .frame(minHeight: 110, alignment: .top)
             Spacer()
             Image(systemName: "play.circle.fill").font(.system(size: 30)).foregroundColor(Color(hex: "E11D48"))
@@ -1345,6 +1385,19 @@ struct PlainTagBadge: View {
             .foregroundColor(.gray)
             .padding(.horizontal, 0)
             .padding(.vertical, 0)
+    }
+}
+
+struct SourceTagBadge: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(Color(hex: "E11D48"))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color(hex: "E11D48").opacity(0.12))
+            .clipShape(Capsule())
     }
 }
 
