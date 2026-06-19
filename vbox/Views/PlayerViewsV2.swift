@@ -903,11 +903,11 @@ class PlayerState: ObservableObject {
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
         // 缩小时间窗口，减少单次发射量
-        let windowStart = max(0, time - 0.15)
-        let windowEnd = time + 0.3
+        let windowStart = max(0, time - 0.08)
+        let windowEnd = time + 0.18
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(6)
+            .prefix(4)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -916,19 +916,19 @@ class PlayerState: ObservableObject {
         // 弹幕持续时间：速度越快持续时间越短
         let baseDuration = 8.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
-        // 动态计算轨道数：根据字体大小和显示区域
-        let laneHeight = danmakuFontSize + 14
+        // 动态计算轨道数：根据字体大小和显示区域，增加轨道间距
+        let laneHeight = danmakuFontSize + 18
         let maxAreaHeight = 400 * danmakuArea
         let maxLanes = max(4, Int(maxAreaHeight / laneHeight))
-        
+
         // 清理已过期的轨道占用记录（弹幕已离开屏幕）
         laneOccupancy = laneOccupancy.filter { _, lastTime in
             time - lastTime < duration
         }
-        
+
         let appended = newItems.map { item in
             // 寻找可用轨道（该轨道上前一条弹幕已进入足够时间，拉开间距）
-            let minGap: Double = 1.2 // 同轨道弹幕最小时间间隔（秒）
+            let minGap: Double = 2.0 // 同轨道弹幕最小时间间隔（秒），增大间距减少拥挤
             var assignedLane = 0
             var foundLane = false
             for lane in 0..<maxLanes {
