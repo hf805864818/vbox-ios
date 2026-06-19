@@ -1189,7 +1189,7 @@ struct LivePlayerSheet: View {
 
             // 监听播放状态
             let timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: .main) { [weak avPlayer] _ in
-                if avPlayer?.timeControlStatus == .waitingToPlayAtCorrectRate {
+                if let status = avPlayer?.timeControlStatus, status == .waitingToPlayAtCorrectRate {
                     print("[LivePlayer] 等待缓冲...")
                 }
             }
