@@ -71,23 +71,27 @@ struct DanmakuOverlayViewV2: View {
     var body: some View {
         GeometryReader { geo in
             let maxAreaHeight = geo.size.height * area
+            let laneHeight = fontSize + 12
             ForEach(items) { item in
                 let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
                 let textWidth = max(80, CGFloat(item.content.count) * fontSize * 0.72)
-                Text(item.content)
-                    .font(.system(size: fontSize, weight: .semibold))
-                    .foregroundColor(Color(hexRGB: item.color).opacity(opacity))
-                    .shadow(color: .black.opacity(0.85), radius: 1, x: 1, y: 1)
-                    .position(
-                        x: geo.size.width + textWidth / 2 - progress * (geo.size.width + textWidth),
-                        y: CGFloat(item.lane) * (fontSize + 10) + 28
-                    )
-                    // 限制弹幕不超出显示区域
-                    .offset(y: 0)
-                    .clipped()
-                    .frame(maxHeight: maxAreaHeight, alignment: .top)
+                // 只渲染在可见区域内的弹幕
+                let yPos = CGFloat(item.lane) * laneHeight + 20
+                let isVisible = yPos < maxAreaHeight && progress >= 0 && progress <= 1
+
+                if isVisible {
+                    Text(item.content)
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(Color(hexRGB: item.color).opacity(opacity))
+                        .shadow(color: .black.opacity(0.85), radius: 1, x: 1, y: 1)
+                        .position(
+                            x: geo.size.width + textWidth / 2 - progress * (geo.size.width + textWidth),
+                            y: yPos
+                        )
+                }
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
     }
 }
