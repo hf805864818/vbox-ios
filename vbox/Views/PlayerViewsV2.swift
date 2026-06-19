@@ -3330,15 +3330,32 @@ struct PlayerTopBarView: View {
 
     var body: some View {
         HStack {
-            // 锁屏状态下：只显示锁屏按钮（固定在左侧垂直居中）
-            if !isPortrait && playerState.isOrientationLocked {
+            // 左侧：返回键（未锁屏时显示）+ 锁定按钮（始终固定在左侧垂直居中）
+            if !isPortrait {
+                // 返回键（仅在未锁屏时显示）
+                if !playerState.isOrientationLocked {
+                    Button(action: { onDismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                // 锁定按钮（始终显示，固定在左侧垂直居中）
                 VStack {
                     Spacer()
                     Button(action: {
                         playerState.isOrientationLocked.toggle()
-                        OrientationHelper.unlockOrientation()
+                        if playerState.isOrientationLocked {
+                            OrientationHelper.lockOrientation(.landscape)
+                        } else {
+                            OrientationHelper.unlockOrientation()
+                        }
                     }) {
-                        Image(systemName: "lock.fill")
+                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
@@ -3348,44 +3365,11 @@ struct PlayerTopBarView: View {
                     Spacer()
                 }
                 .frame(width: 44)
-            } else {
-                // 未锁屏状态：显示返回键 + 锁屏键 + 右侧功能按钮
-                VStack(alignment: .leading, spacing: 0) {
-                    Button(action: { onDismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    if !isPortrait {
-                        Spacer(minLength: 55)
-                        // 锁定按钮（左侧返回键下方）
-                        Button(action: {
-                            playerState.isOrientationLocked.toggle()
-                            if playerState.isOrientationLocked {
-                                OrientationHelper.lockOrientation(.landscape)
-                            } else {
-                                OrientationHelper.unlockOrientation()
-                            }
-                        }) {
-                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
 
                 Spacer()
 
-                // 右侧：小窗口/投屏/屏幕拉伸
-                if !isPortrait {
+                // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
+                HStack(spacing: 0) {
                     Button(action: { onTogglePiP() }) {
                         Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
                             .font(.system(size: 16, weight: .semibold))
@@ -3413,6 +3397,18 @@ struct PlayerTopBarView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
+            } else {
+                // 竖屏状态：只显示返回键
+                Button(action: { onDismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
             }
         }
         .padding(.horizontal, isPortrait ? 12 : 16)
