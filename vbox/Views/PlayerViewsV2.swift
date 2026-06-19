@@ -42,10 +42,19 @@ class OrientationHelper {
     
     static func rotateToLandscape() {
         // 方案1: UIDevice 私有API（最可靠）
-        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+        // 根据当前设备方向决定向左还是向右横屏
+        let currentOrientation = UIDevice.current.orientation
+        let targetOrientation: UIInterfaceOrientation
+        if currentOrientation == .landscapeLeft {
+            targetOrientation = .landscapeLeft
+        } else {
+            targetOrientation = .landscapeRight
+        }
+        UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
         // 方案2: requestGeometryUpdate 公开API
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+            let mask: UIInterfaceOrientationMask = (targetOrientation == .landscapeLeft) ? .landscapeLeft : .landscapeRight
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
         }
         // 方案3: 触发系统旋转
         UINavigationController.attemptRotationToDeviceOrientation()
