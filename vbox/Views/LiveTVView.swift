@@ -938,66 +938,48 @@ struct LivePlayerSheet: View {
                     }
 
                     Spacer()
-
-                    // 全屏按钮
-                    if player != nil {
-                        Button(action: {
-                            enterFullScreen()
-                        }) {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 16))
-                                .foregroundColor(.primary)
-                                .padding(8)
-                                .background(
-                                    Circle()
-                                        .fill(Color(.systemGray5))
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
-                // 小视频预览窗口（带回看按钮在左下角外侧）
-                ZStack(alignment: .bottomLeading) {
-                    // 播放器区域
-                    ZStack {
-                        Color.black
-                            .aspectRatio(16/9, contentMode: .fit)
+                // 小视频预览窗口
+                ZStack {
+                    Color.black
+                        .aspectRatio(16/9, contentMode: .fit)
 
-                        if let player = player {
-                            MiniPlayerView(player: player)
-                                .aspectRatio(16/9, contentMode: .fit)
-                        } else if isLoading {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                    .scaleEffect(1.2)
-                                    .tint(.white)
-                                Text("正在解析播放地址...")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-                        } else if let error = errorMessage {
-                            VStack(spacing: 12) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 36))
-                                    .foregroundColor(.orange)
-                                Text(error)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .multilineTextAlignment(.center)
-                                Button("重试") {
-                                    loadPlayer()
-                                }
+                    if let player = player {
+                        MiniPlayerView(player: player)
+                            .aspectRatio(16/9, contentMode: .fit)
+                    } else if isLoading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(.white)
+                            Text("正在解析播放地址...")
                                 .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                    } else if let error = errorMessage {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 36))
                                 .foregroundColor(.orange)
+                            Text(error)
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                            Button("重试") {
+                                loadPlayer()
                             }
+                            .font(.system(size: 14))
+                            .foregroundColor(.orange)
                         }
                     }
+                }
 
-                    // 回看按钮（放在小窗口外面左下角左侧，不遮挡小窗口）
-                    if supportsCatchup {
+                // 回看按钮（放在小窗口外面左下角，不遮挡视频）
+                if supportsCatchup {
+                    HStack {
                         Button(action: {
                             showEPGSheet = true
                         }) {
@@ -1016,9 +998,10 @@ struct LivePlayerSheet: View {
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .padding(.leading, 16)
-                        .padding(.bottom, 6)
+                        Spacer()
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
 
                 // 下半部分：频道信息和线路列表
@@ -1227,9 +1210,19 @@ struct LivePlayerSheet: View {
             item.preferredPeakBitRate = 3000000 // 3Mbps
             // 预加载视频轨道，确保画面能正确渲染
             item.preferredForwardBufferDuration = 5
+            // 允许外部播放，解决部分视频格式兼容性问题
+            item.allowsExternalPlayback = false
 
             let avPlayer = AVPlayer(playerItem: item)
             avPlayer.automaticallyWaitsToMinimizeStalling = false
+            // 设置音频会话为播放模式，避免音频独占导致画面不渲染
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                try audioSession.setActive(true)
+            } catch {
+                print("[LivePlayer] 音频会话配置失败: \(error)")
+            }
 
             // 监听播放器状态，处理视频轨道加载失败的情况
             let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
