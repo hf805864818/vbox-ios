@@ -2757,7 +2757,7 @@ struct PlayerContainerView: View {
                             }
                         )
                         .environmentObject(settings)
-                        .frame(width: 130)
+                        .frame(width: 100)
                         // 弹窗放在进度条上方（底部栏约60pt + 进度条约30pt + 间距）
                         .position(x: geo.size.width - 80, y: geo.size.height - 200)
                         .transition(.asymmetric(
