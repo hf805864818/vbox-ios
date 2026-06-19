@@ -841,9 +841,8 @@ struct MiniPlayerView: View {
     let url: URL
     @State private var isPlaying = true
     @State private var showControls = false
-    @State private var volume: Double = 1.0
-    @State private var brightness: Double = Double(UIScreen.main.brightness)
     @State private var isMuted = false
+    @State private var showFullScreen = false
 
     // 控制条自动隐藏计时器
     @State private var hideTimer: Timer?
@@ -854,7 +853,7 @@ struct MiniPlayerView: View {
             MiniVLCPlayerContainer(
                 url: url,
                 isPlaying: $isPlaying,
-                volume: $volume,
+                volume: .constant(isMuted ? 0 : 1),
                 isMuted: $isMuted
             )
 
@@ -875,7 +874,7 @@ struct MiniPlayerView: View {
                     HStack {
                         Spacer()
                         Button(action: {
-                            enterFullScreen()
+                            showFullScreen = true
                         }) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .font(.system(size: 14))
@@ -910,28 +909,6 @@ struct MiniPlayerView: View {
                                 .foregroundColor(.white)
                         }
                         .buttonStyle(PlainButtonStyle())
-
-                        // 音量滑块
-                        HStack(spacing: 3) {
-                            Image(systemName: "speaker.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.6))
-                            Slider(value: $volume, in: 0...1)
-                                .frame(width: 50)
-                                .tint(.white)
-                        }
-
-                        // 亮度滑块
-                        HStack(spacing: 3) {
-                            Image(systemName: "sun.min.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.6))
-                            Slider(value: $brightness, in: 0...1) { _ in
-                                UIScreen.main.brightness = CGFloat(brightness)
-                            }
-                            .frame(width: 50)
-                            .tint(.white)
-                        }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -946,17 +923,8 @@ struct MiniPlayerView: View {
                 .transition(.opacity)
             }
         }
-        .onChange(of: volume) { newValue in
-            if newValue > 0 {
-                isMuted = false
-            }
-        }
-        .onChange(of: isMuted) { newValue in
-            if newValue {
-                volume = 0
-            } else if volume == 0 {
-                volume = 1.0
-            }
+        .fullScreenCover(isPresented: $showFullScreen) {
+            FullScreenPlayerView(url: url)
         }
         .onDisappear {
             hideTimer?.invalidate()
@@ -972,64 +940,32 @@ struct MiniPlayerView: View {
             }
         }
     }
-
-    private func enterFullScreen() {
-        // 通过UIWindow实现全屏
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else { return }
-        let playerVC = FullScreenPlayerViewController(url: url)
-        playerVC.modalPresentationStyle = .fullScreen
-        window.rootViewController?.present(playerVC, animated: true)
-    }
 }
 
-// MARK: - 全屏播放器控制器
-class FullScreenPlayerViewController: UIViewController {
-    private var playerView: MiniVLCPlayerView?
-    private let playURL: URL
+// MARK: - 全屏播放器视图（SwiftUI）
+struct FullScreenPlayerView: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
 
-    init(url: URL) {
-        self.playURL = url
-        super.init(nibName: nil, bundle: nil)
-    }
+    var body: some View {
+        ZStack {
+            Color.black
+            MiniVLCPlayerContainer(
+                url: url,
+                isPlaying: .constant(true),
+                volume: .constant(1),
+                isMuted: .constant(false)
+            )
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-
-        let pv = MiniVLCPlayerView()
-        pv.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(pv)
-        NSLayoutConstraint.activate([
-            pv.topAnchor.constraint(equalTo: view.topAnchor),
-            pv.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            pv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            pv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        ])
-        pv.load(url: playURL)
-        playerView = pv
-
-        // 点击关闭全屏
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissFullScreen))
-        tapGesture.numberOfTapsRequired = 1
-        view.addGestureRecognizer(tapGesture)
-    }
-
-    @objc private func dismissFullScreen() {
-        playerView?.stop()
-        dismiss(animated: true)
-    }
-
-    override var prefersStatusBarHidden: Bool {
-        return true
-    }
-
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        return .all
+            // 点击关闭全屏
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismiss()
+                }
+        }
+        .ignoresSafeArea()
+        .statusBar(hidden: true)
     }
 }
 
