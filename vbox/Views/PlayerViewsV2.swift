@@ -172,11 +172,9 @@ class PiPHelper: NSObject {
     
     private func cleanupPiPController() {
         pipController?.stopPictureInPicture()
-        if let observer = pipStatusObserver {
-            pipController?.removeObserver(self, forKeyPath: "isPictureInPicturePossible")
-            // 用 KVO 方式移除观察者
+        if pipStatusObserver != nil {
+            pipStatusObserver = nil
         }
-        pipStatusObserver = nil
         pipController = nil
         pipPlayerLayer?.player = nil
         pipPlayerLayer = nil
@@ -590,11 +588,11 @@ class PlayerState: ObservableObject {
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
-    @Published var showDanmaku = true
+    @Published var showDanmaku = false
     @Published var isPortrait = false
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
-    @Published var danmakuArea: Double = 1.0       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
+    @Published var danmakuArea: Double = 0.25       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
     @Published var danmakuSpeed: Double = 1.0       // 弹幕滚动速度倍率 0.5/0.75/1.0/1.5/2.0
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
@@ -952,12 +950,12 @@ class PlayerState: ObservableObject {
     
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
-        // 缩小时间窗口，减少单次发射量
-        let windowStart = max(0, time - 0.05)
-        let windowEnd = time + 0.12
+        // 进一步缩小时间窗口，减少单次发射量
+        let windowStart = max(0, time - 0.03)
+        let windowEnd = time + 0.08
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(3)
+            .prefix(2)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -978,12 +976,13 @@ class PlayerState: ObservableObject {
 
         let appended = newItems.map { item in
             // 寻找可用轨道（该轨道上前一条弹幕已进入足够时间，拉开间距）
-            let minGap: Double = 2.5 // 同轨道弹幕最小时间间隔（秒），进一步增大间距
+            let minGap: Double = 1.5 // 同轨道弹幕最小时间间隔（秒）
             var assignedLane = 0
             var foundLane = false
             for lane in 0..<maxLanes {
                 if let lastTime = laneOccupancy[lane] {
                     // 前一条弹幕已进入超过minGap秒，新弹幕可以进入
+                    // 同时增加水平间距检查：同轨道弹幕时间差要足够大，避免水平拥挤
                     if time - lastTime >= minGap {
                         assignedLane = lane
                         foundLane = true
@@ -3330,7 +3329,7 @@ struct PlayerTopBarView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
                     Button(action: { onDismiss() }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
@@ -3363,7 +3362,7 @@ struct PlayerTopBarView: View {
 
             Spacer()
 
-            if !isPortrait {
+            if !isPortrait && !playerState.isOrientationLocked {
                 Button(action: { onTogglePiP() }) {
                     Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
                         .font(.system(size: 16, weight: .semibold))
@@ -3447,7 +3446,7 @@ struct PlayerProgressBar: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .gesture(
+                .highPriorityGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard playerState.duration > 0 else { return }
@@ -3626,11 +3625,15 @@ struct LandscapeBottomBar: View {
 
             // 倍数按钮
             Button(action: { playerState.showSettings.toggle() }) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 20))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                VStack(spacing: 2) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 18))
+                    Text("倍数")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
         }
