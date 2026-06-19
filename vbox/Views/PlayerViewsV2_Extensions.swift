@@ -126,45 +126,18 @@ struct EpisodePickerPanelV2: View {
     var body: some View {
         VStack(spacing: 0) {
             if !playerState.episodeItems.isEmpty {
-                if isPortrait {
-                    // 竖屏：3列网格
-                    ScrollView(showsIndicators: true) {
+                // 河马剧场风格：浅蓝色按钮网格
+                ScrollView(showsIndicators: true) {
+                    if isPortrait {
+                        // 竖屏：3列网格
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                             episodeGridItems()
                         }
                         .padding(14)
-                    }
-                } else {
-                    // 横屏：水平滚动列表，每个按钮宽度足够显示文字
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(playerState.episodeItems) { episode in
-                                Button(action: {
-                                    playerState.switchToEpisode(index: episode.id)
-                                    isPresented = false
-                                }) {
-                                    VStack(spacing: 4) {
-                                        Text("\(episode.id + 1)")
-                                            .font(.system(size: 14, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
-                                            .foregroundColor(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
-                                        if episode.id == playerState.currentEpisodeIndex {
-                                            Image(systemName: "play.circle.fill")
-                                                .font(.system(size: 10))
-                                                .foregroundColor(Color(hex: "2196F3"))
-                                        }
-                                    }
-                                    .frame(width: 50, height: 50)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(buttonBorder, lineWidth: 0.5)
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
+                    } else {
+                        // 横屏：5列网格
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
+                            episodeGridItems()
                         }
                         .padding(10)
                     }
@@ -184,27 +157,27 @@ struct EpisodePickerPanelV2: View {
                 playerState.switchToEpisode(index: episode.id)
                 isPresented = false
             }) {
-                HStack(spacing: 6) {
+                HStack(spacing: isPortrait ? 6 : 4) {
                     Text(episodeDisplayName(episode.name, index: episode.id))
-                        .font(.system(size: 13, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
+                        .font(.system(size: isPortrait ? 13 : 11, weight: episode.id == playerState.currentEpisodeIndex ? .semibold : .regular))
                         .foregroundColor(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3") : textNormal)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(0.6)
                     Spacer(minLength: 0)
                     if episode.id == playerState.currentEpisodeIndex {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: isPortrait ? 12 : 10))
                             .foregroundColor(Color(hex: "2196F3"))
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
+                .padding(.horizontal, isPortrait ? 12 : 8)
+                .padding(.vertical, isPortrait ? 12 : 8)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: isPortrait ? 8 : 6)
                         .fill(episode.id == playerState.currentEpisodeIndex ? Color(hex: "2196F3").opacity(0.2) : buttonBackground)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: isPortrait ? 8 : 6)
                         .stroke(buttonBorder, lineWidth: 0.5)
                 )
             }

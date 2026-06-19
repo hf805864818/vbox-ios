@@ -2796,16 +2796,16 @@ struct PlayerContainerView: View {
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: true)
                     }
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
-                    // 横屏：小弹窗，宽度足够显示水平滚动列表
+                    // 横屏：小弹窗，宽度足够显示5列网格
                     GeometryReader { geo in
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
-                            .frame(width: min(geo.size.width * 0.6, 400), height: 80)
+                            .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 300))
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(Color(uiColor: .secondarySystemBackground))
                             )
                             .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                            .position(x: geo.size.width / 2, y: geo.size.height - 140)
+                            .position(x: geo.size.width / 2, y: geo.size.height / 2)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -4025,47 +4025,50 @@ struct PlayerSettingsPanelV2: View {
         .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
     }
 
-    // MARK: - 横屏布局（水平一行）
+    // MARK: - 横屏布局（小竖条，同竖屏垂直列表但更紧凑）
     private var landscapeLayout: some View {
-        HStack(spacing: 6) {
+        VStack(spacing: 0) {
             ForEach(speeds, id: \.self) { s in
                 Button(action: {
                     speed = s
                     onSpeedChange(s)
                     isPresented = false
                 }) {
-                    VStack(spacing: 4) {
+                    HStack {
                         let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.2f", s)
                         Text(speedText + "x")
-                            .font(.system(size: 13, weight: speed == s ? .semibold : .regular))
+                            .font(.system(size: 12, weight: speed == s ? .semibold : .regular))
                             .foregroundColor(speed == s ? Color(hex: "2196F3") : textPrimary)
+                        Spacer()
                         if speed == s {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(Color(hex: "2196F3"))
                         }
                     }
-                    .frame(width: 44, height: 44)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(speed == s ? Color(hex: "2196F3").opacity(0.15) : Color.clear)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(speed == s ? Color(hex: "2196F3").opacity(0.3) : (settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12)), lineWidth: 0.5)
+                        speed == s ? Color(hex: "2196F3").opacity(0.15) : Color.clear
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
+
+                if s != speeds.last {
+                    Divider()
+                        .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                        .padding(.leading, 10)
+                }
             }
         }
-        .padding(8)
+        .frame(width: 70)
         .background(panelBackground)
-        .cornerRadius(10)
+        .cornerRadius(8)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)
     }
 }
 
