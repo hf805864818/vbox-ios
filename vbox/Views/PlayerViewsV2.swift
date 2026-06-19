@@ -2767,11 +2767,26 @@ struct PlayerContainerView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !playerState.isPortrait && playerState.showSettings {
-                    SmallPopupView(isPresented: $playerState.showSettings) {
-                        PlayerSettingsPanelV2(isPresented: $playerState.showSettings, speed: $playerState.playbackSpeed, isPortrait: false, onSpeedChange: { speed in
-                            playerState.changePlaybackSpeed(speed)
-                        })
+                    // 横屏：小竖条弹窗，固定在底部栏"自动"按钮上方
+                    GeometryReader { geo in
+                        PlayerSettingsPanelV2(
+                            isPresented: $playerState.showSettings,
+                            speed: $playerState.playbackSpeed,
+                            isPortrait: false,
+                            onSpeedChange: { speed in
+                                playerState.changePlaybackSpeed(speed)
+                            }
+                        )
+                        .environmentObject(settings)
+                        .frame(width: 50)
+                        // 固定在底部栏"自动"按钮上方（底部栏高约60pt，按钮在中间偏右）
+                        .position(x: geo.size.width / 2 + 60, y: geo.size.height - 120)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                            removal: .opacity.combined(with: .scale(scale: 0.9))
+                        ))
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
@@ -2781,9 +2796,19 @@ struct PlayerContainerView: View {
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: true)
                     }
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
-                    SmallPopupView(isPresented: $playerState.showEpisodePicker) {
+                    // 横屏：小弹窗，宽度足够显示水平滚动列表
+                    GeometryReader { geo in
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
+                            .frame(width: min(geo.size.width * 0.6, 400), height: 80)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color(uiColor: .secondarySystemBackground))
+                            )
+                            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+                            .position(x: geo.size.width / 2, y: geo.size.height - 140)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             // 侧边栏弹窗 - 清晰度
