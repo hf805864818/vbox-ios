@@ -3,6 +3,9 @@ import AVKit
 import Combine
 import UIKit
 import UniformTypeIdentifiers
+#if canImport(MobileVLCKit)
+import MobileVLCKit
+#endif
 
 // MARK: - 直播源选择视图
 struct LiveSourcePickerView: View {
@@ -832,21 +835,77 @@ class PlayerLayerUIView: UIView {
     }
 }
 
-// MARK: - 小窗口播放器（AVPlayerViewController 封装）
-struct MiniPlayerView: UIViewControllerRepresentable {
-    let player: AVPlayer
+// MARK: - 小窗口播放器（VLC 内核，支持更多视频编码格式）
+struct MiniPlayerView: UIViewRepresentable {
+    let url: URL
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.showsPlaybackControls = true
-        controller.videoGravity = .resizeAspect
-        controller.view.backgroundColor = .black
-        return controller
+    func makeUIView(context: Context) -> UIView {
+        let view = MiniVLCPlayerView()
+        view.load(url: url)
+        return view
     }
 
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
-        uiViewController.player = player
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if let vlcView = uiView as? MiniVLCPlayerView {
+            vlcView.load(url: url)
+        }
+    }
+}
+
+// MARK: - VLC 小窗口播放器视图
+class MiniVLCPlayerView: UIView {
+    #if canImport(MobileVLCKit)
+    private let mediaPlayer = VLCMediaPlayer()
+    #endif
+    private var currentURL: URL?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupPlayer()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupPlayer()
+    }
+
+    private func setupPlayer() {
+        backgroundColor = .black
+        #if canImport(MobileVLCKit)
+        mediaPlayer.drawable = self
+        #endif
+    }
+
+    func load(url: URL) {
+        guard currentURL != url else { return }
+        currentURL = url
+
+        #if canImport(MobileVLCKit)
+        let media = VLCMedia(url: url)
+        media.addOptions([
+            "http-user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        ])
+        mediaPlayer.media = media
+        mediaPlayer.play()
+        #endif
+    }
+
+    func stop() {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.stop()
+        #endif
+        currentURL = nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        #if canImport(MobileVLCKit)
+        mediaPlayer.drawable = self
+        #endif
+    }
+
+    deinit {
+        stop()
     }
 }
 
@@ -871,6 +930,7 @@ struct LivePlayerSheet: View {
     @ObservedObject var service: LiveTVService
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var currentPlayerURL: URL?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var availableRoutes: [String] = []
@@ -932,13 +992,13 @@ struct LivePlayerSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
-                // 小视频预览窗口
+                // 小视频预览窗口（使用VLC内核）
                 ZStack {
                     Color.black
                         .aspectRatio(16/9, contentMode: .fit)
 
-                    if let player = player {
-                        MiniPlayerView(player: player)
+                    if let url = currentPlayerURL {
+                        MiniPlayerView(url: url)
                             .aspectRatio(16/9, contentMode: .fit)
                     } else if isLoading {
                         VStack(spacing: 12) {
@@ -1118,6 +1178,7 @@ struct LivePlayerSheet: View {
 
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.automaticallyWaitsToMinimizeStalling = false
+        self.currentPlayerURL = url
         self.player = avPlayer
         self.supportsCatchup = catchupSupported
         avPlayer.play()
@@ -1190,6 +1251,7 @@ struct LivePlayerSheet: View {
             avPlayer.automaticallyWaitsToMinimizeStalling = false
 
             await MainActor.run {
+                self.currentPlayerURL = url
                 self.player = avPlayer
                 self.isLoading = false
                 self.supportsCatchup = self.catchupSupported
