@@ -87,43 +87,99 @@ class PiPHelper: NSObject {
     
     private var pipController: AVPictureInPictureController?
     private var pipStatusObserver: Any?
+    private var pipPlayerLayer: AVPlayerLayer?
     private var floatingWindow: UIWindow?
     private var floatingPlayerView: UIView?
     private var isFloatingMode = false
+    private var pipStartRetries: Int = 0
     
     private override init() { super.init() }
     
     // MARK: - AVPlayer 原生画中画
     func setupPiP(for player: AVPlayer) {
+        // 清理旧的 PiP 控制器
+        cleanupPiPController()
+        
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
             print("[PiP] 当前设备不支持画中画")
             return
         }
         
+        // 激活音频会话（iOS 要求必须有活跃音频会话才能启动 PiP）
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[PiP] 音频会话激活失败: \(error.localizedDescription)")
+        }
+        
+        // 创建新的 playerLayer
         let playerLayer = AVPlayerLayer(player: player)
         playerLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        pipPlayerLayer = playerLayer
         
         let pipContentSource = AVPictureInPictureController.ContentSource(playerLayer: playerLayer)
         
         pipController = AVPictureInPictureController(contentSource: pipContentSource)
         pipController?.delegate = self
         
-        pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible, options: .new) { [weak self] _, _ in
+        pipStartRetries = 0
+        
+        pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible, options: .new) { [weak self] _, change in
             DispatchQueue.main.async {
+                if let isPossible = change.newValue, isPossible {
+                    print("[PiP] isPictureInPicturePossible 变为 true")
+                    // 一旦变为 true，立即尝试启动
+                    self?.tryStartPiP()
+                }
                 NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
             }
         }
         
-        // 延迟启动，等待isPictureInPicturePossible变为true
+        // 先检查是否已经可以启动
+        if pipController?.isPictureInPicturePossible == true {
+            tryStartPiP()
+        } else {
+            // 延迟重试，最多等 3 秒
+            schedulePiPStartRetry()
+        }
+    }
+    
+    private func tryStartPiP() {
+        guard pipStartRetries < 5 else {
+            print("[PiP] 超过最大重试次数，放弃启动 PiP")
+            return
+        }
+        pipController?.startPictureInPicture()
+        pipStartRetries += 1
+    }
+    
+    private func schedulePiPStartRetry() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.pipController?.startPictureInPicture()
+            guard let self = self else { return }
+            if self.pipController?.isPictureInPicturePossible == true {
+                self.tryStartPiP()
+            } else if self.pipStartRetries < 5 {
+                self.schedulePiPStartRetry()
+            }
         }
     }
     
     func stopPiP() {
         pipController?.stopPictureInPicture()
-        pipController = nil
+        cleanupPiPController()
+    }
+    
+    private func cleanupPiPController() {
+        pipController?.stopPictureInPicture()
+        if let observer = pipStatusObserver {
+            pipController?.removeObserver(self, forKeyPath: "isPictureInPicturePossible")
+            // 用 KVO 方式移除观察者
+        }
         pipStatusObserver = nil
+        pipController = nil
+        pipPlayerLayer?.player = nil
+        pipPlayerLayer = nil
     }
     
     var isPiPPossible: Bool {
@@ -3607,10 +3663,16 @@ struct PlayerControlsView: View {
                    let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                     PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
                 }
+                playerState.isPiPActive = true
             } else if let avPlayer = player {
                 PiPHelper.shared.setupPiP(for: avPlayer)
+                // AVPlayer 原生 PiP 通过 delegate 回调通知启动成功/失败
+                // 先设为 true 让 UI 更新按钮状态，失败时由 delegate 重置
+                playerState.isPiPActive = true
+            } else {
+                // player 为 nil 且无兼容内核，无法启动 PiP
+                print("[PiP] 无法启动小窗口：player 为 nil")
             }
-            playerState.isPiPActive = true
         }
     }
 
