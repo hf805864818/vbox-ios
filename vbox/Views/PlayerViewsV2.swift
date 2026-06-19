@@ -3007,14 +3007,45 @@ struct PlayerContainerView: View {
             // 侧边栏弹窗 - 清晰度
             Group {
                 if playerState.showQualityPicker {
-                    SidePanelView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
-                        QualityPickerPanelV2(
-                            selectedQuality: $playerState.selectedQuality,
-                            isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
-                            onQualityChange: { index in
-                                playerState.changeQuality(index: index)
-                            }
-                        )
+                    if playerState.isPortrait {
+                        PortraitPopupView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
+                            QualityPickerPanelV2(
+                                selectedQuality: $playerState.selectedQuality,
+                                isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                                onQualityChange: { index in
+                                    playerState.changeQuality(index: index)
+                                }
+                            )
+                        }
+                    } else {
+                        // 横屏：小竖条弹窗，固定在清晰度按键上方
+                        GeometryReader { geo in
+                            Color.black.opacity(0.3)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        playerState.showQualityPicker = false
+                                    }
+                                }
+
+                            QualityPickerPanelV2(
+                                selectedQuality: $playerState.selectedQuality,
+                                isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                                onQualityChange: { index in
+                                    playerState.changeQuality(index: index)
+                                },
+                                isPortrait: false
+                            )
+                            .environmentObject(settings)
+                            .frame(width: 70)
+                            // 清晰度按键在底部栏右侧第3个位置
+                            .position(x: geo.size.width - 200, y: geo.size.height - 160)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.9))
+                            ))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
@@ -3068,12 +3099,43 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            // 侧边栏弹窗 - 播放内核
+            // 弹窗 - 播放内核（竖屏全屏，横屏小弹窗）
             Group {
-                if playerState.showEnginePicker {
-                    SidePanelView(isPresented: $playerState.showEnginePicker, title: "播放内核") {
-                        EnginePickerPanelV2(playerState: playerState)
+                if playerState.isPortrait && playerState.showEnginePicker {
+                    PortraitPopupView(isPresented: $playerState.showEnginePicker, title: "播放内核") {
+                        EnginePickerPanelV2(playerState: playerState, isPortrait: true)
                     }
+                } else if !playerState.isPortrait && playerState.showEnginePicker {
+                    // 横屏：小方形弹窗，固定在内核按键上方
+                    GeometryReader { geo in
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showEnginePicker = false
+                                }
+                            }
+
+                        EnginePickerPanelV2(playerState: playerState, isPortrait: false)
+                            .environmentObject(settings)
+                            .frame(width: 100, height: 160)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
+                            // 内核按键在底部栏右侧第2个位置（从右数）
+                            .position(x: geo.size.width - 100, y: geo.size.height - 160)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.9))
+                            ))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -3197,6 +3259,12 @@ struct PlayerTopBarView: View {
                         .background(Color.black.opacity(0.3))
                         .clipShape(Circle())
                 }
+
+                // 投送按键（AirPlay）
+                AirPlayViewV2()
+                    .frame(width: 44, height: 44)
+                    .background(Color.black.opacity(0.3))
+                    .clipShape(Circle())
 
                 Button(action: {
                     let allModes = PlayerState.VideoGravityMode.allCases
@@ -3411,7 +3479,20 @@ struct LandscapeBottomBar: View {
 
             Spacer()
 
-            Button(action: { playerState.showEpisodePicker = true }) {
+            // 弹幕按钮（与选集对调位置）
+            Button(action: { playerState.showDanmakuSettings = true }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 18))
+                    Text("弹幕")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
+                .frame(width: 44, height: 44)
+            }
+
+            // 选集按钮（与弹幕对调位置）
+            Button(action: { playerState.showEpisodePicker.toggle() }) {
                 VStack(spacing: 2) {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 18))
@@ -3433,10 +3514,9 @@ struct LandscapeBottomBar: View {
                     )
             }
 
-            AirPlayViewV2()
-                .frame(width: 44, height: 44)
+            // 投送按键已移到右上角PiP旁边
 
-            Button(action: { playerState.showEnginePicker = true }) {
+            Button(action: { playerState.showEnginePicker.toggle() }) {
                 VStack(spacing: 2) {
                     Image(systemName: "cpu")
                         .font(.system(size: 18))
@@ -3447,17 +3527,6 @@ struct LandscapeBottomBar: View {
                 }
                 .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
                 .frame(width: 56, height: 44)
-            }
-
-            Button(action: { playerState.showDanmakuSettings = true }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "text.bubble")
-                        .font(.system(size: 18))
-                    Text("弹幕")
-                        .font(.system(size: 10))
-                }
-                .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
-                .frame(width: 44, height: 44)
             }
 
             Button(action: { playerState.showSettings.toggle() }) {
@@ -4317,51 +4386,57 @@ struct PlayerSettingsPanelV2: View {
 struct QualityPickerPanelV2: View {
     @Binding var selectedQuality: Int
     var isBaiduSourceMode: Bool = false
+    var isPortrait: Bool = true
     var onQualityChange: (Int) -> Void
-    
+    @EnvironmentObject private var settings: AppSettings
+
     private var qualities: [String] {
         isBaiduSourceMode ? ["原画"] : ["标清", "高清", "蓝光"]
     }
-    
+
+    /// 自适应皮肤颜色
+    private var textPrimary: Color {
+        if settings.usesFrostedSkin { return Color(uiColor: .label) }
+        return .white.opacity(0.85)
+    }
+    private var selectedColor: Color { Color(hex: "00BEFF") }
+    private var unselectedBg: Color {
+        if settings.usesFrostedSkin { return Color(uiColor: .tertiarySystemBackground) }
+        return Color.white.opacity(0.15)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                if isBaiduSourceMode {
-                    Text("百度DLNA当前播放源文件链路，清晰度由资源本身决定。后续接入转码/兼容内核后再支持多清晰度切换。")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.65))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                }
-                ForEach(0..<qualities.count, id: \.self) { index in
-                    Button(action: {
-                        selectedQuality = index
-                        onQualityChange(index)
-                    }) {
-                        HStack {
-                            Text(qualities[index])
-                                .font(.system(size: 16, weight: selectedQuality == index ? .semibold : .regular))
-                                .foregroundColor(selectedQuality == index ? Color(hex: "00BEFF") : .white)
-                            
-                            Spacer()
-                            
-                            if selectedQuality == index {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Color(hex: "00BEFF"))
-                            }
+        VStack(spacing: 0) {
+            ForEach(0..<qualities.count, id: \.self) { index in
+                Button(action: {
+                    selectedQuality = index
+                    onQualityChange(index)
+                }) {
+                    HStack {
+                        Text(qualities[index])
+                            .font(.system(size: isPortrait ? 16 : 13, weight: selectedQuality == index ? .semibold : .regular))
+                            .foregroundColor(selectedQuality == index ? selectedColor : textPrimary)
+                        Spacer()
+                        if selectedQuality == index {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: isPortrait ? 14 : 11, weight: .semibold))
+                                .foregroundColor(selectedColor)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(selectedQuality == index ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
-                        )
                     }
+                    .padding(.horizontal, isPortrait ? 16 : 10)
+                    .padding(.vertical, isPortrait ? 16 : 10)
+                    .background(
+                        selectedQuality == index ? selectedColor.opacity(0.15) : Color.clear
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if index != qualities.count - 1 {
+                    Divider()
+                        .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                        .padding(.leading, isPortrait ? 16 : 10)
                 }
             }
-            .padding(16)
         }
     }
 }
@@ -4369,50 +4444,47 @@ struct QualityPickerPanelV2: View {
 // MARK: - 播放内核面板 (侧边栏版本)
 struct EnginePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
+    var isPortrait: Bool = true
+    @EnvironmentObject private var settings: AppSettings
+
+    /// 自适应皮肤颜色
+    private var textPrimary: Color {
+        if settings.usesFrostedSkin { return Color(uiColor: .label) }
+        return .white.opacity(0.85)
+    }
+    private var selectedColor: Color { Color(hex: "00BEFF") }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Text("内核选择只影响后续起播/重载当前集。后面重做控制栏排序和弹窗样式时，可以直接替换这个面板，不影响底层播放逻辑。")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.65))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-
-                ForEach(PlayerState.PlaybackEnginePreference.allCases) { engine in
-                    Button(action: {
-                        playerState.selectPlaybackEngine(engine)
-                    }) {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(engine.rawValue)
-                                    .font(.system(size: 16, weight: playerState.enginePreference == engine ? .semibold : .regular))
-                                    .foregroundColor(playerState.enginePreference == engine ? Color(hex: "00BEFF") : .white)
-                                Text(engine.subtitle)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white.opacity(0.55))
-                                    .multilineTextAlignment(.leading)
-                            }
-
-                            Spacer()
-
-                            if playerState.enginePreference == engine {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Color(hex: "00BEFF"))
-                            }
+        VStack(spacing: 0) {
+            ForEach(PlayerState.PlaybackEnginePreference.allCases) { engine in
+                Button(action: {
+                    playerState.selectPlaybackEngine(engine)
+                }) {
+                    HStack {
+                        Text(engine.rawValue)
+                            .font(.system(size: isPortrait ? 16 : 13, weight: playerState.enginePreference == engine ? .semibold : .regular))
+                            .foregroundColor(playerState.enginePreference == engine ? selectedColor : textPrimary)
+                        Spacer()
+                        if playerState.enginePreference == engine {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: isPortrait ? 14 : 11, weight: .semibold))
+                                .foregroundColor(selectedColor)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(playerState.enginePreference == engine ? Color(hex: "00BEFF").opacity(0.1) : Color.clear)
-                        )
                     }
+                    .padding(.horizontal, isPortrait ? 16 : 12)
+                    .padding(.vertical, isPortrait ? 14 : 10)
+                    .background(
+                        playerState.enginePreference == engine ? selectedColor.opacity(0.15) : Color.clear
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if engine != PlayerState.PlaybackEnginePreference.allCases.last {
+                    Divider()
+                        .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                        .padding(.leading, isPortrait ? 16 : 12)
                 }
             }
-            .padding(16)
         }
     }
 }
