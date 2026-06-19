@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 #if canImport(MobileVLCKit)
 import MobileVLCKit
 #endif
+import MediaPlayer
 
 // MARK: - 直播源选择视图
 struct LiveSourcePickerView: View {
@@ -840,11 +841,23 @@ struct MiniPlayerView: View {
     let url: URL
     @State private var isPlaying = true
     @State private var showControls = false
+    @State private var volume: Double = 1.0
+    @State private var brightness: Double = Double(UIScreen.main.brightness)
+    @State private var isMuted = false
+    @State private var isFullscreen = false
+
+    // 控制条自动隐藏计时器
+    @State private var hideTimer: Timer?
 
     var body: some View {
         ZStack {
             // VLC 播放器
-            MiniVLCPlayerContainer(url: url, isPlaying: $isPlaying)
+            MiniVLCPlayerContainer(
+                url: url,
+                isPlaying: $isPlaying,
+                volume: $volume,
+                isMuted: $isMuted
+            )
 
             // 点击区域显示/隐藏控制条
             Color.clear
@@ -853,37 +866,109 @@ struct MiniPlayerView: View {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showControls.toggle()
                     }
+                    resetHideTimer()
                 }
 
             // 控制条叠加层
             if showControls {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 20) {
+                VStack(spacing: 0) {
+                    // 顶部：全屏按钮
+                    HStack {
                         Spacer()
+                        Button(action: {
+                            isFullscreen.toggle()
+                        }) {
+                            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                        }
+                        .padding(8)
+                    }
 
-                        // 播放/暂停按钮
+                    Spacer()
+
+                    // 底部：控制按钮行
+                    HStack(spacing: 16) {
+                        // 播放/暂停
                         Button(action: {
                             isPlaying.toggle()
+                            resetHideTimer()
                         }) {
-                            Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 44))
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 20))
                                 .foregroundColor(.white)
-                                .shadow(radius: 4)
+                                .frame(width: 32, height: 32)
                         }
 
-                        Spacer()
+                        // 静音
+                        Button(action: {
+                            isMuted.toggle()
+                            resetHideTimer()
+                        }) {
+                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .frame(width: 32, height: 32)
+                        }
+
+                        // 音量滑块
+                        HStack(spacing: 4) {
+                            Image(systemName: "speaker.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.7))
+                            Slider(value: $volume, in: 0...1)
+                                .frame(width: 60)
+                                .tint(.white)
+                        }
+
+                        // 亮度滑块
+                        HStack(spacing: 4) {
+                            Image(systemName: "sun.min.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.7))
+                            Slider(value: $brightness, in: 0...1) { _ in
+                                UIScreen.main.brightness = CGFloat(brightness)
+                            }
+                            .frame(width: 60)
+                            .tint(.white)
+                        }
                     }
-                    .padding(.bottom, 12)
-                }
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
-                        startPoint: .top,
-                        endPoint: .bottom
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
+                }
                 .transition(.opacity)
+            }
+        }
+        .onChange(of: volume) { newValue in
+            if newValue > 0 {
+                isMuted = false
+            }
+        }
+        .onChange(of: isMuted) { newValue in
+            if newValue {
+                volume = 0
+            } else if volume == 0 {
+                volume = 1.0
+            }
+        }
+        .onDisappear {
+            hideTimer?.invalidate()
+            hideTimer = nil
+        }
+    }
+
+    private func resetHideTimer() {
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showControls = false
             }
         }
     }
@@ -893,6 +978,8 @@ struct MiniPlayerView: View {
 struct MiniVLCPlayerContainer: UIViewRepresentable {
     let url: URL
     @Binding var isPlaying: Bool
+    @Binding var volume: Double
+    @Binding var isMuted: Bool
 
     func makeUIView(context: Context) -> MiniVLCPlayerView {
         let view = MiniVLCPlayerView()
@@ -906,6 +993,11 @@ struct MiniVLCPlayerContainer: UIViewRepresentable {
         } else {
             uiView.pause()
         }
+        uiView.setVolume(volume)
+    }
+
+    static func dismantleUIView(_ uiView: MiniVLCPlayerView, coordinator: ()) {
+        uiView.stop()
     }
 }
 
@@ -964,6 +1056,13 @@ class MiniVLCPlayerView: UIView {
         mediaPlayer.stop()
         #endif
         currentURL = nil
+    }
+
+    func setVolume(_ volume: Double) {
+        #if canImport(MobileVLCKit)
+        let vol = Int32(volume * 100)
+        mediaPlayer.audio?.volume = max(0, min(200, vol))
+        #endif
     }
 
     override func layoutSubviews() {
