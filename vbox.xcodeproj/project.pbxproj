@@ -776,7 +776,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 401;
+				CURRENT_PROJECT_VERSION = 402;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -802,7 +802,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.401;
+				MARKETING_VERSION = 3.402;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lobjc",
@@ -824,7 +824,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 401;
+				CURRENT_PROJECT_VERSION = 402;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -850,7 +850,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.401;
+				MARKETING_VERSION = 3.402;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lobjc",
