@@ -326,7 +326,7 @@ class DoubanService: ObservableObject {
     }
 
     private func fetchCreditsById(_ id: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
-        let url = URL(string: "\(baseURL)/movie/\(id)?apikey=0b2bdeda43b5688921839c8ecb20399b")!
+        let url = URL(string: "\(baseURL)/movie/\(id)")!
         do {
             let (data, _) = try await session.data(from: url)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
