@@ -849,7 +849,6 @@ struct LivePlayerSheet: View {
     @State private var errorMessage: String?
     @State private var availableRoutes: [String] = []
     @State private var currentRouteIndex = 0
-    @State private var timeObserver: Any?
     @State private var supportsCatchup = false
     @State private var showEPGSheet = false
 
@@ -1106,11 +1105,6 @@ struct LivePlayerSheet: View {
         let urlString = availableRoutes[index]
         guard let url = URL(string: urlString) else { return }
 
-        // 清理旧 observer
-        if let observer = timeObserver as? Any {
-            player?.removeTimeObserver(observer)
-        }
-
         let item = AVPlayerItem(url: url)
         item.preferredPeakBitRate = 3000000
 
@@ -1187,19 +1181,11 @@ struct LivePlayerSheet: View {
             let avPlayer = AVPlayer(playerItem: item)
             avPlayer.automaticallyWaitsToMinimizeStalling = false
 
-            // 监听播放状态
-            let timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: .main) { [weak avPlayer] _ in
-                if let status = avPlayer?.timeControlStatus, status == .waitingToPlay {
-                    print("[LivePlayer] 等待缓冲...")
-                }
-            }
-
             await MainActor.run {
                 self.player = avPlayer
                 self.isLoading = false
                 self.supportsCatchup = self.catchupSupported
                 avPlayer.play()
-                self.timeObserver = timeObserver
             }
         }
     }
