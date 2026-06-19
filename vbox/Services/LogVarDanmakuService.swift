@@ -220,26 +220,42 @@ class LogVarDanmakuService: ObservableObject {
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 将中文集数格式转为API可识别的英文格式
-        // "第1集" / "第01集" / "第1话" / "第01话" → ".E01"
-        // "第一季 第1集" → "S01.E01"
-        // "S01 第1集" → "S01.E01"
-        let seasonPattern = #"[Ss](\d{1,2})"#
-        let epCNPattern = #"第\s*(\d{1,3})\s*[集话话期]"#
-
         // 提取季数
+        let seasonPattern = #"[Ss](\d{1,2})"#
         var seasonStr = ""
         if let seasonMatch = result.range(of: seasonPattern, options: .regularExpression) {
             seasonStr = "S" + String(result[seasonMatch]).uppercased().filter { $0.isNumber }
         }
 
-        // 替换中文集数
+        // 统一处理各种集数格式：
+        // 中文格式: "第1集" / "第01集" / "第1话" → ".E01"
+        // 英文格式: "E01" / "EP01" / "e01" → 保持原样
+        // 纯数字: "01" / "1" (前后有空格或点号) → ".E01"
+        let epCNPattern = #"第\s*(\d{1,3})\s*[集话话期]"#
+        let epENPattern = #"[Ee][Pp]?(\d{1,3})\b"#
+        let epNumPattern = #"(?<![0-9A-Za-z])(\d{1,3})(?![0-9A-Za-z])"#
+
+        // 优先匹配中文集数
         if let epMatch = result.range(of: epCNPattern, options: .regularExpression) {
             let epText = String(result[epMatch])
             let epNum = epText.filter { $0.isNumber }
-            let padded = epNum.count == 1 ? "0" + epNum : epNum
-            let replacement = ".E\(padded)"
-            result = result.replacingCharacters(in: epMatch, with: replacement)
+            let padded = String(format: "%02d", Int(epNum) ?? 1)
+            result = result.replacingCharacters(in: epMatch, with: ".E\(padded)")
+        }
+        // 其次匹配英文集数格式
+        else if let epMatch = result.range(of: epENPattern, options: .regularExpression) {
+            let epText = String(result[epMatch])
+            let epNum = epText.filter { $0.isNumber }
+            let padded = String(format: "%02d", Int(epNum) ?? 1)
+            result = result.replacingCharacters(in: epMatch, with: "E\(padded)")
+        }
+        // 最后尝试匹配纯数字（在空格分隔的位置）
+        else if let epMatch = result.range(of: epNumPattern, options: .regularExpression) {
+            let epNum = String(result[epMatch]).filter { $0.isNumber }
+            if let num = Int(epNum), num > 0 && num <= 100 {
+                let padded = String(format: "%02d", num)
+                result = result.replacingCharacters(in: epMatch, with: ".E\(padded)")
+            }
         }
 
         // 如果有季数但结果中没有S前缀，在开头添加
