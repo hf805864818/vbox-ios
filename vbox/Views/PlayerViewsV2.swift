@@ -21,7 +21,7 @@ extension Notification.Name {
 // 屏幕方向辅助类
 class OrientationHelper {
     static var currentOrientationMask: UIInterfaceOrientationMask = .all
-    
+
     static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
         currentOrientationMask = orientation
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
@@ -42,47 +42,41 @@ class OrientationHelper {
             UINavigationController.attemptRotationToDeviceOrientation()
         }
     }
-    
+
     static func unlockOrientation() {
         currentOrientationMask = .all
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
         }
     }
-    
+
     static func rotateToLandscape() {
-        // 方案1: UIDevice 私有API（最可靠）
         // 支持左右两种横屏方向，根据设备当前方向自动选择
         let currentOrientation = UIDevice.current.orientation
         let targetOrientation: UIInterfaceOrientation
         switch currentOrientation {
         case .landscapeLeft:
-            // 设备左侧在下（home键在右）→ landscapeLeft
             targetOrientation = .landscapeLeft
         case .landscapeRight:
-            // 设备右侧在下（home键在左）→ landscapeRight
             targetOrientation = .landscapeRight
         case .portrait, .portraitUpsideDown, .faceUp, .faceDown, .unknown:
-            // 默认向右横屏（home键在左）
             targetOrientation = .landscapeRight
         @unknown default:
             targetOrientation = .landscapeRight
         }
         UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
-        // 方案2: requestGeometryUpdate 公开API
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             let mask: UIInterfaceOrientationMask = (targetOrientation == .landscapeLeft) ? .landscapeLeft : .landscapeRight
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
         }
-        // 方案3: 触发系统旋转
         UINavigationController.attemptRotationToDeviceOrientation()
     }
-    
-    /// 播放器进入时：允许横屏+竖屏，自动跟随手机方向
+
+    /// 播放器进入时：允许左右双向横屏+竖屏，自动跟随手机方向
     static func allowAllOrientations() {
-        currentOrientationMask = .allButUpsideDown
+        currentOrientationMask = [.portrait, .landscapeLeft, .landscapeRight]
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .allButUpsideDown))
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: [.portrait, .landscapeLeft, .landscapeRight]))
         }
     }
 }
