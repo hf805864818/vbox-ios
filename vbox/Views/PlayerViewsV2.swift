@@ -3329,7 +3329,7 @@ struct PlayerTopBarView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 30) {
                     Button(action: { onDismiss() }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: isPortrait ? 20 : 22, weight: .semibold))
