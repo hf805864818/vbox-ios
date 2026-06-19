@@ -835,19 +835,76 @@ class PlayerLayerUIView: UIView {
     }
 }
 
-// MARK: - 小窗口播放器（VLC 内核，支持更多视频编码格式）
-struct MiniPlayerView: UIViewRepresentable {
+// MARK: - 小窗口播放器（VLC 内核 + 自定义控制条）
+struct MiniPlayerView: View {
     let url: URL
+    @State private var isPlaying = true
+    @State private var showControls = false
 
-    func makeUIView(context: Context) -> UIView {
+    var body: some View {
+        ZStack {
+            // VLC 播放器
+            MiniVLCPlayerContainer(url: url, isPlaying: $isPlaying)
+
+            // 点击区域显示/隐藏控制条
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showControls.toggle()
+                    }
+                }
+
+            // 控制条叠加层
+            if showControls {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 20) {
+                        Spacer()
+
+                        // 播放/暂停按钮
+                        Button(action: {
+                            isPlaying.toggle()
+                        }) {
+                            Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(.white)
+                                .shadow(radius: 4)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.bottom, 12)
+                }
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .transition(.opacity)
+            }
+        }
+    }
+}
+
+// MARK: - VLC 播放器容器
+struct MiniVLCPlayerContainer: UIViewRepresentable {
+    let url: URL
+    @Binding var isPlaying: Bool
+
+    func makeUIView(context: Context) -> MiniVLCPlayerView {
         let view = MiniVLCPlayerView()
         view.load(url: url)
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if let vlcView = uiView as? MiniVLCPlayerView {
-            vlcView.load(url: url)
+    func updateUIView(_ uiView: MiniVLCPlayerView, context: Context) {
+        if isPlaying {
+            uiView.play()
+        } else {
+            uiView.pause()
         }
     }
 }
@@ -887,6 +944,18 @@ class MiniVLCPlayerView: UIView {
         ])
         mediaPlayer.media = media
         mediaPlayer.play()
+        #endif
+    }
+
+    func play() {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.play()
+        #endif
+    }
+
+    func pause() {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.pause()
         #endif
     }
 
@@ -1157,6 +1226,7 @@ struct LivePlayerSheet: View {
             .onDisappear {
                 player?.pause()
                 player = nil
+                currentPlayerURL = nil
             }
             .sheet(isPresented: $showEPGSheet) {
                 EPGSheetView(channel: channel, service: service)
