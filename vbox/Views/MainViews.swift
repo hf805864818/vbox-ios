@@ -1195,8 +1195,26 @@ struct SearchResultsView: View {
     @State private var selectedVideo: VodItem? = nil
     private var grouped: [(source: String, videos: [VodItem])] {
         var dict: [String: [VodItem]] = [:]
-        for video in results { let source = video.vodRemarks?.isEmpty == false ? video.vodRemarks ?? "" : "搜索结果"; if dict[source] == nil { dict[source] = [] }; dict[source]?.append(video) }
-        return dict.map { (source: $0.key, videos: $0.value) }.sorted { $0.videos.count > $1.videos.count }
+        for video in results {
+            let rawSource = video.vodRemarks?.isEmpty == false ? video.vodRemarks ?? "" : "搜索结果"
+            // 规范化源名称：去首尾空格、合并中间多个空格，避免同一源因空格差异分成多组
+            let source = rawSource.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            if dict[source] == nil { dict[source] = [] }
+            dict[source]?.append(video)
+        }
+        // 同一源内按剧名去重，避免同一部剧出现多条重复结果
+        var deduped: [String: [VodItem]] = [:]
+        for (source, videos) in dict {
+            var seen: Set<String> = []
+            deduped[source] = videos.filter {
+                let key = $0.vodName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if seen.contains(key) { return false }
+                seen.insert(key)
+                return true
+            }
+        }
+        return deduped.map { (source: $0.key, videos: $0.value) }.sorted { $0.videos.count > $1.videos.count }
     }
     private var sources: [String] { grouped.map { $0.source } }
     private var currentVideos: [VodItem] {
