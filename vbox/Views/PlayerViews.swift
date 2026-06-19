@@ -551,42 +551,55 @@ struct CreditsSection: View {
                     .padding(.vertical, 12)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 12) {
                         ForEach(displayList) { person in
                             VStack(spacing: 6) {
+                                // 演员封面图 - 小长方形圆角样式
                                 if let urlStr = person.avatarURL,
                                    let url = URL(string: urlStr) {
                                     AsyncImage(url: url) { phase in
                                         switch phase {
                                         case .success(let image):
-                                            image.resizable().aspectRatio(contentMode: .fill)
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
                                         case .failure, .empty:
-                                            Circle().fill(Color.gray.opacity(0.3))
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(Color.gray.opacity(0.25))
+                                                .overlay(
+                                                    Image(systemName: "person.fill")
+                                                        .font(.system(size: 24))
+                                                        .foregroundColor(.gray.opacity(0.6))
+                                                )
                                         @unknown default:
                                             EmptyView()
                                         }
                                     }
-                                    .frame(width: 70, height: 70)
-                                    .clipShape(Circle())
+                                    .frame(width: 76, height: 100)
+                                    .cornerRadius(6)
                                 } else {
-                                    Circle()
-                                        .fill(Color.gray.opacity(0.3))
-                                        .frame(width: 70, height: 70)
-                                        .overlay(Image(systemName: "person.fill").foregroundColor(.gray))
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.gray.opacity(0.25))
+                                        .frame(width: 76, height: 100)
+                                        .overlay(
+                                            Image(systemName: "person.fill")
+                                                .font(.system(size: 24))
+                                                .foregroundColor(.gray.opacity(0.6))
+                                        )
                                 }
 
                                 Text(person.name)
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
-                                    .frame(width: 70)
+                                    .frame(width: 76)
 
                                 if !person.roleText.isEmpty {
                                     Text(person.roleText)
                                         .font(.system(size: 10))
                                         .foregroundColor(.gray)
                                         .lineLimit(1)
-                                        .frame(width: 70)
+                                        .frame(width: 76)
                                 }
                             }
                         }
