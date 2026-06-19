@@ -104,8 +104,9 @@ class DanmakuUIView: UIView {
     }
 
     func updateItems(_ items: [DanmakuRenderItem], currentTime: Double) {
-        // 避免同一时间重复更新
-        guard items != lastItems || abs(currentTime - lastTime) > 0.01 else { return }
+        // 避免同一时间重复更新（通过id和数量比较，避免Equatable要求）
+        let sameItems = items.count == lastItems.count && items.map(\.id) == lastItems.map(\.id)
+        guard !sameItems || abs(currentTime - lastTime) > 0.01 else { return }
         lastItems = items
         lastTime = currentTime
 
