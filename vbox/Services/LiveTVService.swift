@@ -550,8 +550,36 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 获取回看节目单
     func fetchEPG(channel: LiveChannel, day: String) async -> [(time: String, title: String)] {
-        // 回看功能需要源支持，当前M3U订阅源不支持回看
-        return []
+        // 使用第三方EPG接口: http://epg.112114.xyz/?ch={name}&date={date}
+        let dateStr: String
+        let calendar = Calendar.current
+        let today = Date()
+        switch day {
+        case "yesterday":
+            dateStr = formatDate(calendar.date(byAdding: .day, value: -1, to: today)!)
+        case "beforeyesterday":
+            dateStr = formatDate(calendar.date(byAdding: .day, value: -2, to: today)!)
+        default:
+            dateStr = formatDate(today)
+        }
+
+        let epgURL = "http://epg.112114.xyz/?ch=\(channel.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? channel.name)&date=\(dateStr)"
+        guard let url = URL(string: epgURL) else { return [] }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            return parseEPG(from: html)
+        } catch {
+            print("[EPG] 获取节目单失败: \(error)")
+            return []
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     private func parseEPG(from html: String) -> [(time: String, title: String)] {
