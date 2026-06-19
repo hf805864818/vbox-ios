@@ -39,6 +39,41 @@ jobs:
           gem install xcodeproj --no-document
           ruby scripts/configure_mpvkit_link.rb
 
+      - name: 🔢 自动递增版本号
+        run: |
+          # 读取当前版本号
+          CURRENT_VERSION=$(plutil -extract CFBundleShortVersionString raw vbox/Info.plist)
+          CURRENT_BUILD=$(plutil -extract CFBundleVersion raw vbox/Info.plist)
+          echo "当前版本: $CURRENT_VERSION (build $CURRENT_BUILD)"
+
+          # 解析版本号: 3.335 -> 3.336
+          MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+          NEW_MINOR=$((MINOR + 1))
+          NEW_VERSION="$MAJOR.$NEW_MINOR"
+          NEW_BUILD=$((CURRENT_BUILD + 1))
+
+          echo "新版本: $NEW_VERSION (build $NEW_BUILD)"
+
+          # 更新 Info.plist
+          plutil -replace CFBundleShortVersionString -string "$NEW_VERSION" vbox/Info.plist
+          plutil -replace CFBundleVersion -string "$NEW_BUILD" vbox/Info.plist
+
+          # 更新 project.pbxproj
+          sed -i '' "s/MARKETING_VERSION = $CURRENT_VERSION;/MARKETING_VERSION = $NEW_VERSION;/g" vbox.xcodeproj/project.pbxproj
+          sed -i '' "s/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" vbox.xcodeproj/project.pbxproj
+
+          # 更新 .version 文件
+          echo "MAJOR_VERSION=$MAJOR" > .version
+          echo "BASE_BUILD=$NEW_BUILD" >> .version
+
+          # 提交版本号更新
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add vbox/Info.plist vbox.xcodeproj/project.pbxproj .version
+          git commit -m "ci: auto bump version to $NEW_VERSION (build $NEW_BUILD)" || true
+          git push origin main || true
+
       - name: 📖 获取版本号
         id: get_version
         run: |
@@ -130,8 +165,11 @@ jobs:
             exit 0
           fi
 
-          # 验证 Token 权限
-          if ! gh repo view $B_REPO_OWNER/$B_REPO_NAME --json name >/dev/null 2>&1; then
+          # 验证 Token 权限（显示详细信息）
+          echo "🔍 验证 Token 权限..."
+          echo "B_REPO_OWNER=$B_REPO_OWNER"
+          echo "B_REPO_NAME=$B_REPO_NAME"
+          if ! gh repo view $B_REPO_OWNER/$B_REPO_NAME --json name,owner 2>&1; then
             echo "❌ 无法访问 B 仓库 $B_REPO_OWNER/$B_REPO_NAME，请检查 B_REPO_TOKEN 是否有 repo 权限"
             exit 1
           fi
@@ -164,7 +202,8 @@ jobs:
           fi
 
           # 删除旧 Release（如果存在）
-          gh release delete "$VERSION" --yes --repo $B_REPO_OWNER/$B_REPO_NAME 2>/dev/null || true
+          echo "🗑️ 删除旧 Release（如果存在）..."
+          gh release delete "$VERSION" --yes --repo $B_REPO_OWNER/$B_REPO_NAME 2>&1 || echo "旧 Release 不存在或删除失败"
 
           # 创建新 Release
           echo "🚀 创建 Release $VERSION 到 $B_REPO_OWNER/$B_REPO_NAME..."
@@ -172,7 +211,7 @@ jobs:
             --repo $B_REPO_OWNER/$B_REPO_NAME \
             --title "$VERSION" \
             --notes "版本 $VERSION" \
-            "$IPA_PATH"
+            "$IPA_PATH" 2>&1
           echo "✅ 同步完成"
         env:
           GH_TOKEN: ${{ secrets.B_REPO_TOKEN }}

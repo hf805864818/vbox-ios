@@ -173,37 +173,37 @@ struct SourceRowView: View {
     }
 
     private var typeIcon: String {
-        switch source {
-        case .defaultIPTV, .defaultIPTV2:
-            return "tv"
-        case .subscribe:
-            return "doc.text"
-        case .custom:
-            return "link"
+            switch source {
+            case .defaultIPTV:
+                return "tv"
+            case .subscribe:
+                return "doc.text"
+            case .custom:
+                return "link"
+            }
         }
-    }
 
-    private var typeColor: Color {
-        switch source {
-        case .defaultIPTV, .defaultIPTV2:
-            return .blue
-        case .subscribe:
-            return .green
-        case .custom:
-            return .orange
+        private var typeColor: Color {
+            switch source {
+            case .defaultIPTV:
+                return .blue
+            case .subscribe:
+                return .green
+            case .custom:
+                return .orange
+            }
         }
-    }
 
-    private var typeLabel: String {
-        switch source {
-        case .defaultIPTV, .defaultIPTV2:
-            return "默认源"
-        case .subscribe:
-            return "订阅源"
-        case .custom:
-            return "自定义源"
+        private var typeLabel: String {
+            switch source {
+            case .defaultIPTV:
+                return "默认源"
+            case .subscribe:
+                return "订阅源"
+            case .custom:
+                return "自定义源"
+            }
         }
-    }
 }
 
 // MARK: - 主视图
@@ -520,7 +520,7 @@ struct LiveTVView: View {
         Group {
             if isLoading {
                 LoadingView()
-            } else if let channels = channelsCache[currentCategory], !channels.isEmpty {
+            } else if let channels = channelsCache[currentCategory] {
                 let filteredChannels = filteredChannelsBySubCategory(channels)
                 ScrollView {
                     if filteredChannels.isEmpty {
@@ -528,7 +528,7 @@ struct LiveTVView: View {
                             Image(systemName: "tv.slash")
                                 .font(.system(size: 40))
                                 .foregroundColor(.secondary)
-                            Text("该分组下暂无频道")
+                            Text(channels.isEmpty ? "该分类暂无频道" : "当前筛选条件下暂无频道")
                                 .font(.system(size: 15))
                                 .foregroundColor(.secondary)
                         }
@@ -620,10 +620,6 @@ struct LiveTVView: View {
                 isLoading = false
                 // 提取子分组
                 extractSubCategories(from: channels)
-                if channels.isEmpty && !forceReload {
-                    errorMessage = "该分类暂无频道"
-                    showError = true
-                }
             }
         }
     }
@@ -710,16 +706,20 @@ struct ChannelGridItem: View {
             .clipped()
 
             // 频道名称 + 线路数
-            VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("\(routeCount)条线路")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(width: 50, alignment: .leading)
+                Spacer()
                 Text(channel.name)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-
-                Text("\(routeCount)条线路")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                Spacer()
+                Text("")
+                    .frame(width: 50)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -792,6 +792,35 @@ struct EmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.bottom, 100)
+    }
+}
+
+// MARK: - AVPlayerLayer 封装（解决有声音无画面问题）
+struct AVPlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .black
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.frame = view.bounds
+        view.layer.addSublayer(playerLayer)
+        context.coordinator.playerLayer = playerLayer
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.playerLayer?.player = player
+        context.coordinator.playerLayer?.frame = uiView.bounds
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator {
+        var playerLayer: AVPlayerLayer?
     }
 }
 
@@ -889,7 +918,7 @@ struct LivePlayerSheet: View {
                         .aspectRatio(16/9, contentMode: .fit)
 
                     if let player = player {
-                        VideoPlayer(player: player)
+                        AVPlayerLayerView(player: player)
                             .frame(maxWidth: .infinity)
                             .aspectRatio(16/9, contentMode: .fit)
                     } else if isLoading {
@@ -927,12 +956,6 @@ struct LivePlayerSheet: View {
                             Text(channel.name)
                                 .font(.system(size: 20, weight: .bold))
                                 .foregroundColor(.primary)
-
-                            if let logo = channel.logo {
-                                Text(logo)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
                         }
                         Spacer()
 
