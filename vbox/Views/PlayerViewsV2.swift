@@ -3479,7 +3479,7 @@ struct LandscapeBottomBar: View {
 
             Spacer()
 
-            // 弹幕按钮（与选集对调位置）
+            // 弹幕按钮
             Button(action: { playerState.showDanmakuSettings = true }) {
                 VStack(spacing: 2) {
                     Image(systemName: "text.bubble")
@@ -3491,18 +3491,7 @@ struct LandscapeBottomBar: View {
                 .frame(width: 44, height: 44)
             }
 
-            // 选集按钮（与弹幕对调位置）
-            Button(action: { playerState.showEpisodePicker.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 18))
-                    Text("选集")
-                        .font(.system(size: 10))
-                }
-                .foregroundColor(.white)
-                .frame(width: 44, height: 44)
-            }
-
+            // 清晰度按钮
             Button(action: { playerState.showQualityPicker.toggle() }) {
                 Text(playerState.episodeItems.isEmpty && playerState.baiduFileList.isEmpty ? "高清" : "原画")
                     .font(.system(size: 14, weight: .semibold))
@@ -3514,8 +3503,7 @@ struct LandscapeBottomBar: View {
                     )
             }
 
-            // 投送按键已移到右上角PiP旁边
-
+            // 内核按钮
             Button(action: { playerState.showEnginePicker.toggle() }) {
                 VStack(spacing: 2) {
                     Image(systemName: "cpu")
@@ -3529,6 +3517,19 @@ struct LandscapeBottomBar: View {
                 .frame(width: 56, height: 44)
             }
 
+            // 选集按钮
+            Button(action: { playerState.showEpisodePicker.toggle() }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 18))
+                    Text("选集")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+            }
+
+            // 倍数按钮
             Button(action: { playerState.showSettings.toggle() }) {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 20))
