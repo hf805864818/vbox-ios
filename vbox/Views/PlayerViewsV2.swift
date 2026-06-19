@@ -3346,7 +3346,6 @@ struct PlayerControlsView: View {
             playerState.showSettings = false
             playerState.showQualityPicker = false
             playerState.showEnginePicker = false
-            playerState.showSubtitlePicker = false
         }
     }
 }
