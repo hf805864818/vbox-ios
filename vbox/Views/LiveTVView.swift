@@ -799,28 +799,28 @@ struct EmptyStateView: View {
 struct AVPlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> PlayerLayerUIView {
+        let view = PlayerLayerUIView()
         view.backgroundColor = .black
         let playerLayer = AVPlayerLayer(player: player)
         playerLayer.videoGravity = .resizeAspect
-        playerLayer.frame = view.bounds
         view.layer.addSublayer(playerLayer)
-        context.coordinator.playerLayer = playerLayer
+        view.playerLayer = playerLayer
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.playerLayer?.player = player
-        context.coordinator.playerLayer?.frame = uiView.bounds
+    func updateUIView(_ uiView: PlayerLayerUIView, context: Context) {
+        uiView.playerLayer?.player = player
+        uiView.playerLayer?.frame = uiView.bounds
     }
+}
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+class PlayerLayerUIView: UIView {
+    var playerLayer: AVPlayerLayer?
 
-    class Coordinator {
-        var playerLayer: AVPlayerLayer?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer?.frame = bounds
     }
 }
 
