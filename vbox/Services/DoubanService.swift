@@ -338,9 +338,7 @@ class DoubanService: ObservableObject {
             if let casts = json?["casts"] as? [[String: Any]] {
                 actors = casts.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
-                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
-                        ?? dict["avatar"] as? String
+                    let avatarUrl = self.extractAvatarURL(from: dict)
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
@@ -354,9 +352,7 @@ class DoubanService: ObservableObject {
             if let dirs = json?["directors"] as? [[String: Any]] {
                 directors = dirs.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
-                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
-                        ?? dict["avatar"] as? String
+                    let avatarUrl = self.extractAvatarURL(from: dict)
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
@@ -370,9 +366,7 @@ class DoubanService: ObservableObject {
             if let wrs = json?["writers"] as? [[String: Any]] {
                 writers = wrs.compactMap { dict in
                     guard let name = dict["name"] as? String else { return nil }
-                    let avatarUrl = (dict["avatars"] as? [String: Any])?["large"] as? String
-                        ?? (dict["avatars"] as? [String: Any])?["small"] as? String
-                        ?? dict["avatar"] as? String
+                    let avatarUrl = self.extractAvatarURL(from: dict)
                     return DoubanCelebrity(
                         id: dict["id"] as? String ?? UUID().uuidString,
                         name: name,
@@ -383,11 +377,34 @@ class DoubanService: ObservableObject {
                 }
             }
 
+            print("[DoubanService] 演职人员获取成功: 演员\(actors.count)人, 导演\(directors.count)人, 编剧\(writers.count)人")
             return (actors, directors, writers)
         } catch {
             print("[DoubanService] 获取演职人员失败: \(error)")
             return ([], [], [])
         }
+    }
+
+    /// 从豆瓣API字典中提取头像URL（支持多种字段格式）
+    private func extractAvatarURL(from dict: [String: Any]) -> String? {
+        // 1. 尝试 avatars 对象（标准格式）
+        if let avatars = dict["avatars"] as? [String: Any] {
+            if let large = avatars["large"] as? String, !large.isEmpty { return large }
+            if let medium = avatars["medium"] as? String, !medium.isEmpty { return medium }
+            if let small = avatars["small"] as? String, !small.isEmpty { return small }
+        }
+        // 2. 尝试单数 avatar 字段
+        if let avatar = dict["avatar"] as? String, !avatar.isEmpty { return avatar }
+        // 3. 尝试 cover_url 字段
+        if let cover = dict["cover_url"] as? String, !cover.isEmpty { return cover }
+        // 4. 尝试 img 字段
+        if let img = dict["img"] as? String, !img.isEmpty { return img }
+        // 5. 尝试 pic 对象
+        if let pic = dict["pic"] as? [String: Any] {
+            if let large = pic["large"] as? String, !large.isEmpty { return large }
+            if let normal = pic["normal"] as? String, !normal.isEmpty { return normal }
+        }
+        return nil
     }
 
     private func fetchCreditsByName(_ name: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
@@ -420,9 +437,16 @@ struct DoubanCelebrity: Codable, Identifiable {
     
     var avatarURL: String? {
         guard let url = cover_url else { return nil }
-        if url.hasPrefix("//") { return "https:" + url }
-        if !url.hasPrefix("http") { return "https://" + url }
-        return url
+        let normalized: String
+        if url.hasPrefix("//") {
+            normalized = "https:" + url
+        } else if !url.hasPrefix("http") {
+            normalized = "https://" + url
+        } else {
+            normalized = url
+        }
+        // 使用图片代理避免豆瓣反盗链
+        return DoubanImageProxyServer.shared.markedURLString(for: normalized)
     }
     
     var roleText: String {
