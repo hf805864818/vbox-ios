@@ -3310,15 +3310,13 @@ struct PlayerTopBarView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(PlainButtonStyle())
 
                 // 投送按键（AirPlay）
                 AirPlayViewV2()
                     .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
 
                 Button(action: {
                     let allModes = PlayerState.VideoGravityMode.allCases
@@ -3330,9 +3328,9 @@ struct PlayerTopBarView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, isPortrait ? 12 : 16)
