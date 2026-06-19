@@ -3329,94 +3329,71 @@ struct PlayerTopBarView: View {
     var onDismiss: () -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // 竖屏状态：只显示返回键
-                if isPortrait {
-                    HStack {
-                        Button(action: { onDismiss() }) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 20, weight: .semibold))
+        if isPortrait {
+            HStack {
+                Button(action: { onDismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+        } else {
+            // 横屏状态：返回键 + 右侧功能按钮（未锁屏时显示，锁屏时全部隐藏）
+            HStack {
+                if !playerState.isOrientationLocked {
+                    Button(action: { onDismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                Spacer()
+
+                if !playerState.isOrientationLocked {
+                    // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
+                    HStack(spacing: 0) {
+                        Button(action: { onTogglePiP() }) {
+                            Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
 
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
-                } else {
-                    // 横屏状态：使用 ZStack 分层布局
-                    // 第一层：返回键 + 右侧功能按钮（未锁屏时显示，锁屏时全部隐藏）
-                    if !playerState.isOrientationLocked {
-                        HStack {
-                            Button(action: { onDismiss() }) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-
-                            Spacer()
-
-                            // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
-                            HStack(spacing: 0) {
-                                Button(action: { onTogglePiP() }) {
-                                    Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-                                        .frame(width: 44, height: 44)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PlainButtonStyle())
-
-                                // 投送按键（AirPlay）
-                                AirPlayViewV2()
-                                    .frame(width: 44, height: 44)
-
-                                Button(action: {
-                                    let allModes = PlayerState.VideoGravityMode.allCases
-                                    if let idx = allModes.firstIndex(of: playerState.videoGravity) {
-                                        playerState.videoGravity = allModes[(idx + 1) % allModes.count]
-                                    }
-                                }) {
-                                    Image(systemName: playerState.videoGravity.icon)
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-                                        .frame(width: 44, height: 44)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                    }
-
-                    // 第二层：锁定按钮（始终固定在左侧屏幕边缘垂直居中）
-                    Button(action: {
-                        playerState.isOrientationLocked.toggle()
-                        if playerState.isOrientationLocked {
-                            OrientationHelper.lockOrientation(.landscape)
-                        } else {
-                            OrientationHelper.unlockOrientation()
-                        }
-                    }) {
-                        Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
+                        // 投送按键（AirPlay）
+                        AirPlayViewV2()
                             .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+
+                        Button(action: {
+                            let allModes = PlayerState.VideoGravityMode.allCases
+                            if let idx = allModes.firstIndex(of: playerState.videoGravity) {
+                                playerState.videoGravity = allModes[(idx + 1) % allModes.count]
+                            }
+                        }) {
+                            Image(systemName: playerState.videoGravity.icon)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    // 使用 position 精确定位到左侧屏幕边缘垂直居中
-                    .position(x: 16 + 22, y: geometry.size.height / 2)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 }
@@ -3701,6 +3678,32 @@ struct PlayerControlsView: View {
                 )
             }
         }
+        // 锁定按钮覆盖层（固定在左侧屏幕边缘垂直居中，不受VStack布局影响）
+        .overlay(
+            Group {
+                if !playerState.isPortrait {
+                    GeometryReader { geometry in
+                        Button(action: {
+                            playerState.isOrientationLocked.toggle()
+                            if playerState.isOrientationLocked {
+                                OrientationHelper.lockOrientation(.landscape)
+                            } else {
+                                OrientationHelper.unlockOrientation()
+                            }
+                        }) {
+                            Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .position(x: 16 + 22, y: geometry.size.height / 2)
+                    }
+                    .allowsHitTesting(true)
+                }
+            }
+        )
         .onAppear {
             updateOrientation()
         }
