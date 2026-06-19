@@ -1154,12 +1154,12 @@ struct LivePlayerSheet: View {
         let item = AVPlayerItem(asset: asset)
         item.preferredPeakBitRate = 3000000
         item.preferredForwardBufferDuration = isMPEGTS ? 3 : 5
-        item.allowsExternalPlayback = false
         if #available(iOS 17.0, *) {
             item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
         }
 
         let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.allowsExternalPlayback = false
         avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
         self.supportsCatchup = catchupSupported
@@ -1246,14 +1246,13 @@ struct LivePlayerSheet: View {
             item.preferredPeakBitRate = 3000000 // 3Mbps
             // 预加载视频轨道，确保画面能正确渲染
             item.preferredForwardBufferDuration = isMPEGTS ? 3 : 5
-            // 允许外部播放，解决部分视频格式兼容性问题
-            item.allowsExternalPlayback = false
             // 针对直播流优化：允许在暂停时使用网络资源
             if #available(iOS 17.0, *) {
                 item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
             }
 
             let avPlayer = AVPlayer(playerItem: item)
+            avPlayer.allowsExternalPlayback = false
             avPlayer.automaticallyWaitsToMinimizeStalling = false
             // 设置音频会话为播放模式，避免音频独占导致画面不渲染
             do {
