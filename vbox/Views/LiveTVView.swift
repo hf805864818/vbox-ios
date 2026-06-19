@@ -844,7 +844,6 @@ struct MiniPlayerView: View {
     @State private var volume: Double = 1.0
     @State private var brightness: Double = Double(UIScreen.main.brightness)
     @State private var isMuted = false
-    @State private var isFullscreen = false
 
     // 控制条自动隐藏计时器
     @State private var hideTimer: Timer?
@@ -876,29 +875,30 @@ struct MiniPlayerView: View {
                     HStack {
                         Spacer()
                         Button(action: {
-                            isFullscreen.toggle()
+                            enterFullScreen()
                         }) {
-                            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 18))
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 14))
                                 .foregroundColor(.white)
                         }
-                        .padding(8)
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(6)
                     }
 
                     Spacer()
 
                     // 底部：控制按钮行
-                    HStack(spacing: 16) {
+                    HStack(spacing: 10) {
                         // 播放/暂停
                         Button(action: {
                             isPlaying.toggle()
                             resetHideTimer()
                         }) {
                             Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 20))
+                                .font(.system(size: 14))
                                 .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
                         }
+                        .buttonStyle(PlainButtonStyle())
 
                         // 静音
                         Button(action: {
@@ -906,35 +906,35 @@ struct MiniPlayerView: View {
                             resetHideTimer()
                         }) {
                             Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                .font(.system(size: 18))
+                                .font(.system(size: 14))
                                 .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
                         }
+                        .buttonStyle(PlainButtonStyle())
 
                         // 音量滑块
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "speaker.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.7))
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.6))
                             Slider(value: $volume, in: 0...1)
-                                .frame(width: 60)
+                                .frame(width: 50)
                                 .tint(.white)
                         }
 
                         // 亮度滑块
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "sun.min.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.7))
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.6))
                             Slider(value: $brightness, in: 0...1) { _ in
                                 UIScreen.main.brightness = CGFloat(brightness)
                             }
-                            .frame(width: 60)
+                            .frame(width: 50)
                             .tint(.white)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
@@ -971,6 +971,65 @@ struct MiniPlayerView: View {
                 showControls = false
             }
         }
+    }
+
+    private func enterFullScreen() {
+        // 通过UIWindow实现全屏
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else { return }
+        let playerVC = FullScreenPlayerViewController(url: url)
+        playerVC.modalPresentationStyle = .fullScreen
+        window.rootViewController?.present(playerVC, animated: true)
+    }
+}
+
+// MARK: - 全屏播放器控制器
+class FullScreenPlayerViewController: UIViewController {
+    private var playerView: MiniVLCPlayerView?
+    private let playURL: URL
+
+    init(url: URL) {
+        self.playURL = url
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        let pv = MiniVLCPlayerView()
+        pv.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(pv)
+        NSLayoutConstraint.activate([
+            pv.topAnchor.constraint(equalTo: view.topAnchor),
+            pv.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            pv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+        pv.load(url: playURL)
+        playerView = pv
+
+        // 点击关闭全屏
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissFullScreen))
+        tapGesture.numberOfTapsRequired = 1
+        view.addGestureRecognizer(tapGesture)
+    }
+
+    @objc private func dismissFullScreen() {
+        playerView?.stop()
+        dismiss(animated: true)
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        return true
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .all
     }
 }
 
