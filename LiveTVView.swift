@@ -849,6 +849,7 @@ struct LivePlayerSheet: View {
     @State private var errorMessage: String?
     @State private var availableRoutes: [String] = []
     @State private var currentRouteIndex = 0
+    @State private var timeObserver: Any?
 
     // 线路选择菜单
     @State private var showRouteMenu = false
@@ -1068,7 +1069,16 @@ struct LivePlayerSheet: View {
         let urlString = availableRoutes[index]
         guard let url = URL(string: urlString) else { return }
 
-        let avPlayer = AVPlayer(url: url)
+        // 清理旧 observer
+        if let observer = timeObserver as? Any {
+            player?.removeTimeObserver(observer)
+        }
+
+        let item = AVPlayerItem(url: url)
+        item.preferredPeakBitRate = 3000000
+        item.automaticallyWaitsToMinimizeStalling = false
+
+        let avPlayer = AVPlayer(playerItem: item)
         self.player = avPlayer
         avPlayer.play()
     }
@@ -1132,11 +1142,25 @@ struct LivePlayerSheet: View {
 
             print("[LivePlayer] 预览播放: \(urlString)")
 
-            let avPlayer = AVPlayer(url: url)
+            let item = AVPlayerItem(url: url)
+            // 兼容 MPEG-TS 单播流（无 .m3u8 后缀）
+            item.preferredPeakBitRate = 3000000 // 3Mbps
+            item.automaticallyWaitsToMinimizeStalling = false
+
+            let avPlayer = AVPlayer(playerItem: item)
+
+            // 监听播放状态
+            let timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: .main) { [weak avPlayer] _ in
+                if avPlayer?.timeControlStatus == .waitingToPlayAtCorrectRate {
+                    print("[LivePlayer] 等待缓冲...")
+                }
+            }
+
             await MainActor.run {
                 self.player = avPlayer
                 self.isLoading = false
                 avPlayer.play()
+                self.timeObserver = timeObserver
             }
         }
     }
