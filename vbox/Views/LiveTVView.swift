@@ -850,9 +850,20 @@ struct LivePlayerSheet: View {
     @State private var availableRoutes: [String] = []
     @State private var currentRouteIndex = 0
     @State private var timeObserver: Any?
+    @State private var supportsCatchup = false
+    @State private var showEPGSheet = false
 
     // 线路选择菜单
     @State private var showRouteMenu = false
+
+    // 回看：是否支持回看（基于当前源URL格式）
+    private var catchupSupported: Bool {
+        guard let url = availableRoutes.first else { return false }
+        // 运营商IPTV源通常支持回看（URL不含.m3u8后缀且包含数字ID）
+        let hasM3U8 = url.hasSuffix(".m3u8") || url.contains(".m3u8?")
+        let isOperatorSource = !hasM3U8 && url.contains("http") && url.split(separator: "/").last?.allSatisfy({ $0.isNumber }) == true
+        return isOperatorSource
+    }
 
     var body: some View {
         NavigationView {
@@ -914,7 +925,7 @@ struct LivePlayerSheet: View {
                 .padding(.vertical, 8)
 
                 // 小视频预览窗口
-                ZStack {
+                ZStack(alignment: .bottomLeading) {
                     Color.black
                         .aspectRatio(16/9, contentMode: .fit)
 
@@ -946,6 +957,29 @@ struct LivePlayerSheet: View {
                             .font(.system(size: 14))
                             .foregroundColor(.orange)
                         }
+                    }
+                }
+                // 回看按钮（叠加在视频左下角）
+                .overlay(alignment: .bottomLeading) {
+                    if supportsCatchup && player != nil {
+                        Button(action: {
+                            showEPGSheet = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 12))
+                                Text("回看")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color.black.opacity(0.6))
+                            )
+                        }
+                        .padding(8)
                     }
                 }
 
@@ -1042,7 +1076,7 @@ struct LivePlayerSheet: View {
                 }
                 .padding(.top, 16)
             }
-            .navigationTitle("频道详情")
+            .navigationTitle(channel.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1057,6 +1091,9 @@ struct LivePlayerSheet: View {
             .onDisappear {
                 player?.pause()
                 player = nil
+            }
+            .sheet(isPresented: $showEPGSheet) {
+                EPGSheetView(channel: channel, service: service)
             }
         }
     }
@@ -1080,6 +1117,7 @@ struct LivePlayerSheet: View {
 
         let avPlayer = AVPlayer(playerItem: item)
         self.player = avPlayer
+        self.supportsCatchup = catchupSupported
         avPlayer.play()
     }
 
@@ -1159,6 +1197,7 @@ struct LivePlayerSheet: View {
             await MainActor.run {
                 self.player = avPlayer
                 self.isLoading = false
+                self.supportsCatchup = self.catchupSupported
                 avPlayer.play()
                 self.timeObserver = timeObserver
             }
