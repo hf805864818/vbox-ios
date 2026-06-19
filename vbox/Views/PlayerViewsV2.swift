@@ -2817,10 +2817,15 @@ struct PlayerContainerView: View {
                             }
 
                         EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
+                            .environmentObject(settings)
                             .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 300))
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(uiColor: .secondarySystemBackground))
+                                    .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                             )
                             .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
                             .position(x: geo.size.width / 2, y: geo.size.height / 2)
