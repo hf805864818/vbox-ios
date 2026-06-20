@@ -122,7 +122,6 @@
 		A12027 /* MDKPipManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12027 /* MDKPipManager.swift */; };
 		A12028 /* MPVPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12028 /* MPVPiPManager.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
-		A45465 /* PiPCaptureMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774595 /* PiPCaptureMetalLayer.swift */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -304,7 +303,6 @@
 		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
 		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
-		B774595 /* PiPCaptureMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPCaptureMetalLayer.swift; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
@@ -790,7 +788,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 414;
+				CURRENT_PROJECT_VERSION = 415;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -816,7 +814,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.414;
+				MARKETING_VERSION = 3.415;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lobjc",
@@ -838,7 +836,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 414;
+				CURRENT_PROJECT_VERSION = 415;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -864,7 +862,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.414;
+				MARKETING_VERSION = 3.415;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lobjc",
