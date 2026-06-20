@@ -765,6 +765,27 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 注入 TVBox 标准 JS 库（模板引擎、网络桥接等）
     private func injectSpiderLibraries(engine: SpiderEngineProtocol) async throws {
+        // 0. 浏览器兼容 polyfill（atob/btoa - QuickJS/JSC 没有这些）
+        try engine.loadLibrary("""
+        if (typeof atob === 'undefined') {
+            atob = function(base64) {
+                var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+                var result = '';
+                var buffer = 0, bits = 0;
+                for (var i = 0; i < base64.length; i++) {
+                    var c = chars.indexOf(base64[i]);
+                    if (c === -1) continue;
+                    buffer = (buffer << 6) | c;
+                    bits += 6;
+                    if (bits >= 8) {
+                        bits -= 8;
+                        result += String.fromCharCode((buffer >> bits) & 0xFF);
+                    }
+                }
+                return result;
+            };
+        }
+        """)
         // 1. net.js — 同步/异步 HTTP 请求封装
         try engine.loadLibrary("""
         let req = (url, options) => http(url, Object.assign({ async: false }, options));
