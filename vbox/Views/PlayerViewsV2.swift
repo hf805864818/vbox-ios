@@ -891,6 +891,16 @@ class PlayerState: ObservableObject {
         }
     }
 
+    /// 如果有下一集则自动播放（用于播放结束回调）
+    func playNextEpisodeIfAvailable() {
+        guard hasNextEpisode else {
+            log("[PlayerV2] 已播放到最后一集")
+            return
+        }
+        log("[PlayerV2] 自动播放下一集")
+        playNextEpisode()
+    }
+
     func togglePlayback(player: AVPlayer?) {
         if let player {
             isPlaying ? player.pause() : player.play()
@@ -1494,14 +1504,15 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
-        // 清理 MPV PiP 控制器
-        #if canImport(Libmpv)
-        MPVPiPManager.shared.cleanupPiPController()
-        #endif
-        // 清理 MDK PiP 控制器
-        #if canImport(swift_mdk)
-        MDKPipManager.shared.cleanupPiPController()
-        #endif
+        // 清理 PiP 控制器（异步到主线程，避免 @MainActor 隔离冲突）
+        Task { @MainActor in
+            #if canImport(Libmpv)
+            MPVPiPManager.shared.cleanupPiPController()
+            #endif
+            #if canImport(swift_mdk)
+            MDKPipManager.shared.cleanupPiPController()
+            #endif
+        }
     }
     
     // MARK: - 网盘视频处理
@@ -2729,7 +2740,19 @@ class PlayerState: ObservableObject {
             case .normal:
                 // 普通资源：直接用URL播放
                 if let url = URL(string: episode.url) {
-                    await MainActor.run { self.initPlayer(url: url) }
+                    await MainActor.run {
+                        // 重置当前时间，避免上一集进度影响
+                        self.currentTime = 0
+                        self.initPlayer(url: url)
+                        // 切集后恢复该集进度
+                        if let video = self.video {
+                            self.restorePlaybackProgress(for: video)
+                        }
+                        // 切集后重新加载弹幕（按集名匹配）
+                        if let video = self.video {
+                            self.loadDanmaku(for: video, fileName: episode.name)
+                        }
+                    }
                 }
             case .baidu:
                 // 百度网盘：走原有切换逻辑
@@ -2893,6 +2916,8 @@ class PlayerState: ObservableObject {
         endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
             .sink { [weak self] _ in
                 self?.log("[PlayerV2] 播放结束")
+                // 普通资源自动播放下一集
+                self?.playNextEpisodeIfAvailable()
             }
         
         self.player = p

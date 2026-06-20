@@ -2,6 +2,7 @@ import Foundation
 import QuartzCore
 import UIKit
 import Metal
+import AVFoundation
 
 #if canImport(Libmpv)
 import Libmpv
