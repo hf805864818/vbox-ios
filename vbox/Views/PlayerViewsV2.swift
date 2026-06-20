@@ -486,8 +486,19 @@ struct VideoPlayerViewV2: View {
     }
     
     private func togglePiPAuto() {
-        if playerState.compatibilityURL != nil {
-            // 兼容内核：使用浮动窗口
+        if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
+            // MPV 帧桥接 PiP
+            #if canImport(Libmpv)
+            MPVPiPManager.shared.initializePiP()
+            MPVPiPManager.shared.startPiP()
+            #else
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
+            }
+            #endif
+        } else if playerState.compatibilityURL != nil {
+            // VLC：浮动窗口
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                 PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
@@ -557,9 +568,9 @@ class PlayerState: ObservableObject {
             case .system:
                 return "强制使用 AVPlayer，适合普通 MP4"
             case .vlc:
-                return "优先使用 VLC，适合 MKV / HEVC / 多音轨"
+                return "优先使用 VLC，不支持系统画中画"
             case .mpv:
-                return "预留选项，等待后续接入 libmpv framework"
+                return "MPV 内核，支持系统画中画"
             }
         }
     }
@@ -696,6 +707,22 @@ class PlayerState: ObservableObject {
         case .mpv:
             return isMPVBuildAvailable
         }
+    }
+
+    /// 当前使用的兼容内核是否支持系统级画中画
+    var isCurrentCompatibilityEngineSupportsPiP: Bool {
+        guard playbackEngineMode == .compatibility else { return true }
+        // MPV 支持帧桥接 PiP，VLC 不支持
+        let engineName = compatibilityEngineName
+        return engineName.contains("MPV") || engineName.contains("mpv")
+    }
+
+    /// 当前引擎是否支持系统级画中画（用于 UI 按钮状态）
+    var isPiPSupported: Bool {
+        if playbackEngineMode == .system {
+            return true  // AVPlayer 原生 PiP
+        }
+        return isCurrentCompatibilityEngineSupportsPiP
     }
 
     var currentEngineButtonTitle: String {
@@ -3366,11 +3393,12 @@ struct PlayerTopBarView: View {
                         Button(action: { onTogglePiP() }) {
                             Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .disabled(!playerState.isPiPSupported)
 
                         // 投送按键（AirPlay）
                         AirPlayViewV2()
@@ -3714,26 +3742,48 @@ struct PlayerControlsView: View {
 
     private func togglePiP() {
         if playerState.isPiPActive {
-            if playerState.compatibilityURL != nil {
+            // 停止 PiP
+            if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
+                // MPV 帧桥接 PiP：停止
+                #if canImport(Libmpv)
+                MPVPiPManager.shared.stopPiP()
+                #endif
+            } else if playerState.compatibilityURL != nil {
+                // VLC：隐藏浮动窗口
                 PiPHelper.shared.hideFloatingWindow()
             } else {
+                // AVPlayer 原生 PiP：停止
                 PiPHelper.shared.stopPiP()
             }
             playerState.isPiPActive = false
         } else {
-            if playerState.compatibilityURL != nil {
+            // 启动 PiP
+            if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
+                // MPV 帧桥接 PiP：启动
+                #if canImport(Libmpv)
+                MPVPiPManager.shared.initializePiP()
+                MPVPiPManager.shared.startPiP()
+                playerState.isPiPActive = true
+                #else
+                // 降级为浮动窗口
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
+                }
+                playerState.isPiPActive = true
+                #endif
+            } else if playerState.compatibilityURL != nil {
+                // VLC：浮动窗口
                 if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                    let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
                     PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
                 }
                 playerState.isPiPActive = true
             } else if let avPlayer = player {
+                // AVPlayer 原生 PiP
                 PiPHelper.shared.setupPiP(for: avPlayer)
-                // AVPlayer 原生 PiP 通过 delegate 回调通知启动成功/失败
-                // 先设为 true 让 UI 更新按钮状态，失败时由 delegate 重置
                 playerState.isPiPActive = true
             } else {
-                // player 为 nil 且无兼容内核，无法启动 PiP
                 print("[PiP] 无法启动小窗口：player 为 nil")
             }
         }
@@ -4601,6 +4651,16 @@ struct EnginePickerPanelV2: View {
                             .font(.system(size: isPortrait ? 16 : 13, weight: playerState.enginePreference == engine ? .semibold : .regular))
                             .foregroundColor(playerState.enginePreference == engine ? selectedColor : textPrimary)
                         Spacer()
+                        // PiP 支持状态标注
+                        if engine == .vlc {
+                            Text("无画中画")
+                                .font(.system(size: isPortrait ? 11 : 9))
+                                .foregroundColor(.white.opacity(0.4))
+                        } else if engine == .mpv {
+                            Text("画中画")
+                                .font(.system(size: isPortrait ? 11 : 9))
+                                .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
+                        }
                         if playerState.enginePreference == engine {
                             Image(systemName: "checkmark")
                                 .font(.system(size: isPortrait ? 14 : 11, weight: .semibold))
