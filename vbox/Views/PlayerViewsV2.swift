@@ -720,10 +720,11 @@ class PlayerState: ObservableObject {
 
     /// 当前引擎是否支持系统级画中画（用于 UI 按钮状态）
     var isPiPSupported: Bool {
-        if playbackEngineMode == .system {
-            return true  // AVPlayer 原生 PiP
-        }
-        return isCurrentCompatibilityEngineSupportsPiP
+        // 所有引擎都支持某种形式的画中画：
+        // AVPlayer → 原生 PiP
+        // MPV → 帧桥接 PiP
+        // VLC → 浮动窗口
+        return true
     }
 
     var currentEngineButtonTitle: String {
