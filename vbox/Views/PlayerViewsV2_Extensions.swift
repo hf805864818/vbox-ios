@@ -216,7 +216,7 @@ class DanmakuUIView: UIView {
     }
 }
 
-private extension String {
+extension String {
     var isASCII: Bool {
         allSatisfy { $0.isASCII }
     }
