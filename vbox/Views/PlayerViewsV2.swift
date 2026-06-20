@@ -2931,7 +2931,9 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             if await MainActor.run { self.player != nil && self.loadError == nil } {
                 let status = await MainActor.run { p.currentItem?.status }
-                if status != .readyToPlay {
+                let isActuallyPlaying = await MainActor.run { p.rate > 0 || self.isPlaying }
+                // 如果视频已经在播放或已就绪，不触发超时
+                if status != .readyToPlay && !isActuallyPlaying {
                     await MainActor.run {
                         self.log("[PlayerV2] ⏱️ 播放地址加载超时")
                         self.loadError = "播放地址加载超时，请检查网络或更换资源"
