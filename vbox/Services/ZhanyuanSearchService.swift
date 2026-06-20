@@ -110,7 +110,7 @@ final class ZhanyuanSearchService {
 
         // SQLite 为空时，从 SpiderManager 内存中的 zhanyuan 站点回退
         if sites.isEmpty {
-            sites = loadZhanyuanSitesFromMemory()
+            sites = await loadZhanyuanSitesFromMemory()
         }
 
         guard !sites.isEmpty else { return }
@@ -139,16 +139,9 @@ final class ZhanyuanSearchService {
     }
 
     /// 从 SpiderManager 内存数据中提取 zhanyuan 站点配置
-    private static func loadZhanyuanSitesFromMemory() -> [ZhanyuanSite] {
-        // SpiderManager 是 ObservableObject，@Published 属性需要在主线程访问
-        let spiderSites: [SiteConfig]
-        if Thread.isMainThread {
-            spiderSites = SpiderManager.shared.allSites
-        } else {
-            spiderSites = DispatchQueue.main.sync {
-                SpiderManager.shared.allSites
-            }
-        }
+    private static func loadZhanyuanSitesFromMemory() async -> [ZhanyuanSite] {
+        // SpiderManager 是 ObservableObject，@Published 属性绑定主线程
+        let spiderSites = await MainActor.run { SpiderManager.shared.allSites }
 
         var zhanyuanSites: [ZhanyuanSite] = []
 
