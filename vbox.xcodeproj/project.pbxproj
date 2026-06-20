@@ -155,10 +155,6 @@
 		FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
-		A10044 /* DBModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* DBModels.swift */; };
-		A10045 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* DatabaseManager.swift */; };
-		A10046 /* ZhanyuanSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11003 /* ZhanyuanSearchService.swift */; };
-		37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822F991529A94E749D9BC1C5 /* ProfileView.swift */; };
 		0066E5E925A848C5A3C77BA9 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C639783BDC4590B2B50B0A /* Configuration.swift */; };
 		EBDD697A843A40FC9187B187 /* Cursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C33B0E8A0624B90B2D211D0 /* Cursor.swift */; };
 		C046407459E2477EB09756CE /* Database+SQLCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD44E57B04C4AE0AD31769E /* Database+SQLCipher.swift */; };
@@ -333,6 +329,9 @@
 		D872B61818124F9BBC517936 /* libxmlHTMLNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82E7DCB863C409AADAF4273 /* libxmlHTMLNode.swift */; };
 		F685731ECEC24AB99027C2FE /* libxmlParserOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF491E719C9F4E1793A08FEE /* libxmlParserOption.swift */; };
 		8EDD848EE3464301970D9481 /* libxml2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6968B1B5FEDB4F8D937009D5 /* libxml2.tbd */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -944,7 +943,6 @@
 				A10045 /* DatabaseManager.swift in Sources */,
 				A10046 /* ZhanyuanSearchService.swift in Sources */,
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
-			);
 				0066E5E925A848C5A3C77BA9 /* Configuration.swift in Sources */,
 				EBDD697A843A40FC9187B187 /* Cursor.swift in Sources */,
 				C046407459E2477EB09756CE /* Database+SQLCipher.swift in Sources */,
@@ -1118,6 +1116,7 @@
 				27C003E09A8B4C1C98AD2887 /* libxmlHTMLDocument.swift in Sources */,
 				D872B61818124F9BBC517936 /* libxmlHTMLNode.swift in Sources */,
 				F685731ECEC24AB99027C2FE /* libxmlParserOption.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
