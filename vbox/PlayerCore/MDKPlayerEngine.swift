@@ -1,11 +1,11 @@
 import AVFoundation
 import UIKit
 
-#if canImport(mdk)
-import mdk
+#if canImport(swift_mdk)
+import swift_mdk
 #endif
 
-/// MDK 播放内核封装（wang-bin mdk-sdk）。
+/// MDK 播放内核封装（wang-bin mdk-sdk + swift-mdk）。
 /// 支持帧回调画中画（PiP: AVSampleBufferDisplayLayer 帧桥接）。
 /// 当前只接入 PlayerCore，不替换现有 PlayerViewsV2 播放主流程。
 final class MDKPlayerEngine: NSObject, PlayerEngine {
@@ -18,8 +18,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     private weak var containerView: UIView?
     private var renderView: UIView?
 
-    #if canImport(mdk)
-    private let player = mdk::Player()
+    #if canImport(swift_mdk)
+    private let player = Player()
     private var progressTimer: Timer?
     private var didFinish = false
     private var currentRoute: PlaybackRoute?
@@ -48,41 +48,61 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             view.addSubview(drawable)
         }
 
-        #if canImport(mdk)
+        #if canImport(swift_mdk)
         player.setVideoSurfaceSize(Int32(view.bounds.width),
                                    Int32(view.bounds.height))
         #endif
     }
 
     func load(route: PlaybackRoute) {
-        #if canImport(mdk)
+        #if canImport(swift_mdk)
         didFinish = false
         progressTimer?.invalidate()
         progressTimer = nil
         currentRoute = route
 
         // 设置 Media URL
-        player.setMedia(route.url.absoluteString)
+        player.media = route.url.absoluteString
 
-        // 设置 HTTP Headers
+        // 设置 HTTP Headers（通过 property 接口）
+        var headerFields = ""
         for (key, value) in route.headers {
             let lowerKey = key.lowercased()
             if lowerKey == "user-agent" {
-                player.setOption("http-header-fields",
-                                 "User-Agent: \(value)")
+                headerFields += "User-Agent: \(value)\r\n"
             } else if lowerKey == "referer" || lowerKey == "referrer" {
-                player.setOption("http-header-fields",
-                                 "Referer: \(value)")
+                headerFields += "Referer: \(value)\r\n"
+            } else {
+                headerFields += "\(key): \(value)\r\n"
             }
+        }
+        if !headerFields.isEmpty {
+            player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
         // 硬件解码 + copy=1（使VT解码输出可被CPU访问的CVPixelBuffer，用于PiP帧桥接）
-        player.setOption("hwdec", "videotoolbox")
-        player.setOption("copy", "1")
+        player.setProperty(name: "hwdec", value: "videotoolbox")
+        player.setProperty(name: "copy", value: "1")
 
-        // 绑定渲染视图
-        if let renderView {
-            player.setVideoSurface(renderView)
+        // 设置解码器优先级
+        player.videoDecoders = ["VT", "FFmpeg"]
+
+        // 绑定状态回调
+        player.onStateChanged { [weak self] newState in
+            guard let self else { return }
+            switch newState {
+            case .Playing:
+                self.state.isBuffering = false
+                self.state.isPlaying = true
+                self.onEvent?(.buffering(false))
+                self.onEvent?(.ready)
+            case .Paused:
+                self.state.isPlaying = false
+            case .Stopped:
+                self.state.isPlaying = false
+            @unknown default:
+                break
+            }
         }
 
         state = PlayerEngineState(isBuffering: true)
@@ -97,8 +117,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     }
 
     func play() {
-        #if canImport(mdk)
-        player.play()
+        #if canImport(swift_mdk)
+        player.state = .Playing
         state.isPlaying = true
         state.isBuffering = false
         onEvent?(.buffering(false))
@@ -107,8 +127,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     }
 
     func pause() {
-        #if canImport(mdk)
-        player.pause()
+        #if canImport(swift_mdk)
+        player.state = .Paused
         #endif
         state.isPlaying = false
     }
@@ -116,40 +136,40 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     func stop() {
         progressTimer?.invalidate()
         progressTimer = nil
-        #if canImport(mdk)
-        player.stop()
+        #if canImport(swift_mdk)
+        player.state = .Stopped
         #endif
         state.isPlaying = false
         state.currentTime = 0
     }
 
     func seek(to seconds: Double) {
-        #if canImport(mdk)
-        let duration = currentDuration()
-        guard duration.isFinite, duration > 0 else { return }
-        let position = max(0, min(seconds / duration, 1.0))
-        player.seek(Int64(position * 1000000)) // mdk seek 使用微秒
+        #if canImport(swift_mdk)
+        let ms = Int64(seconds * 1000)
+        player.seek(ms) { [weak self] _ in
+            self?.state.currentTime = seconds
+        }
         #endif
         state.currentTime = max(0, seconds)
     }
 
     func setRate(_ rate: Double) {
-        #if canImport(mdk)
-        player.setSpeed(Float(rate))
+        #if canImport(swift_mdk)
+        player.playbackRate = Float(rate)
         #endif
     }
 
     func setVolume(_ volume: Double) {
-        #if canImport(mdk)
-        player.setVolume(Int32(min(max(volume, 0), 1) * 100))
+        #if canImport(swift_mdk)
+        player.volume = Float(volume)
         #endif
     }
 
     func teardown() {
         progressTimer?.invalidate()
         progressTimer = nil
-        #if canImport(mdk)
-        player.stop()
+        #if canImport(swift_mdk)
+        player.state = .Stopped
         #endif
         renderView?.removeFromSuperview()
         renderView = nil
@@ -160,7 +180,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
 
     // MARK: - 进度轮询
 
-    #if canImport(mdk)
+    #if canImport(swift_mdk)
     private func startProgressTimer() {
         progressTimer?.invalidate()
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5,
@@ -171,7 +191,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     }
 
     private func pollProgress() {
-        let current = Double(player.position()) / 1000000.0
+        let currentMs = player.position
+        let current = Double(currentMs) / 1000.0
         let total = currentDuration()
 
         if current.isFinite {
@@ -192,7 +213,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     }
 
     private func currentDuration() -> Double {
-        Double(player.duration()) / 1000000.0
+        Double(player.mediaInfo.duration) / 1000.0
     }
     #endif
 }
