@@ -2745,11 +2745,11 @@ class PlayerState: ObservableObject {
                         self.currentTime = 0
                         self.initPlayer(url: url)
                         // 切集后恢复该集进度
-                        if let video = self.video {
+                        if let video = self.currentVideo {
                             self.restorePlaybackProgress(for: video)
                         }
                         // 切集后重新加载弹幕（按集名匹配）
-                        if let video = self.video {
+                        if let video = self.currentVideo {
                             self.loadDanmaku(for: video, fileName: episode.name)
                         }
                     }
