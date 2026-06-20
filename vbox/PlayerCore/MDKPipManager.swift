@@ -225,7 +225,7 @@ final class MDKPipManager: NSObject {
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
             initializePiP(videoSize: CGSize(width: width, height: height))
-            guard pipController != nil, let displayLayer else { return }
+            guard pipController != nil, self.displayLayer != nil else { return }
         }
 
         // 首帧时创建 formatDescription
