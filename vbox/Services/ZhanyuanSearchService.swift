@@ -245,8 +245,9 @@ final class ZhanyuanSearchService {
         }
 
         // 尝试常见中文编码
-        for enc in [String.Encoding(String.rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030.rawValue))),
-                     String.Encoding(String.rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_2312_80.rawValue)))] {
+        let gbkEncoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030.rawValue)))
+        let gb2312Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_2312_80.rawValue)))
+        for enc in [gbkEncoding, gb2312Encoding] {
             if let html = String(data: data, encoding: enc) {
                 print("[ZhanyuanSearch] 使用 GBK/GB2312 编码解码成功")
                 return html
@@ -299,11 +300,11 @@ final class ZhanyuanSearchService {
         case "utf-8", "utf8":
             return .utf8
         case "gbk", "gb2312", "gb_2312", "gb18030", "gb-18030", "gb_18030":
-            return String.Encoding(String.rawValue: CFStringConvertEncodingToNSStringEncoding(
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
                 CFStringEncoding(CFStringEncodings.GB_18030.rawValue)
             ))
         case "big5", "big-5", "big_5":
-            return String.Encoding(String.rawValue: CFStringConvertEncodingToNSStringEncoding(
+            return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
                 CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)
             ))
         case "iso-8859-1", "latin1", "latin-1":
