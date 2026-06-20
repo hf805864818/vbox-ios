@@ -31,7 +31,7 @@ class SpiderManager: ObservableObject {
         ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
         ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
         ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
-        ("非凡资源",   "https://cj.ffzyapi.com/api.php/provide/vod"),
+
         ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
         ("玩偶4K弹幕", "http://wogg.xxooo.cf/api.php/provide/vod"),
         ("木偶影视",   "https://666.666291.xyz/api.php/provide/vod"),
@@ -1230,10 +1230,9 @@ globalThis.__JS_SPIDER__ = _spider;
         // 现在的 video_sources.json 是本地的，也可以内置信得过的网盘站
         let cloudSites: [(name: String, searchURL: String, detailBase: String)] = [
             ("木偶影视", "https://666.666291.xyz/index.php/vod/search.html?wd=", "https://666.666291.xyz"),
-            ("小斑资源", "http://xsayang.fun:12512/index.php/vod/search.html?wd=", "http://xsayang.fun:12512"),
             ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
             ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
-            ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
+
             ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
             ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
             ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
@@ -1571,7 +1570,7 @@ globalThis.__JS_SPIDER__ = _spider;
     // MARK: - WKWebView 客户端解析回退
     private func tryWKWebViewParse(originalURL: String) async -> String? {
         return await withCheckedContinuation { continuation in
-            WKWebViewParser.shared.parse(url: originalURL, parserType: .jsParser(jsURL: "https://cdn.aiqingyu1314.com/jx/20230723ver/Play/global.min.js?v=20240310")) { result in
+            WKWebViewParser.shared.parse(url: originalURL, parserType: .jsParser(jsURL: "https://jx.xmflv.com/?url=")) { result in
                 if let result = result, !result.isEmpty {
                     // 尝试从结果中提取视频地址
                     if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", options: .regularExpression) {
