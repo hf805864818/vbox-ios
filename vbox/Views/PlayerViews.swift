@@ -555,8 +555,7 @@ struct CreditsSection: View {
                         ForEach(displayList) { person in
                             VStack(spacing: 6) {
                                 // 演员封面图 - 小长方形圆角样式
-                                if let urlStr = person.avatarURL,
-                                   let url = URL(string: urlStr) {
+                                if let url = DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL) {
                                     AsyncImage(url: url) { phase in
                                         switch phase {
                                         case .success(let image):
