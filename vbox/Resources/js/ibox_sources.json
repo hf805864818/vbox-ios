@@ -37,15 +37,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    {
-      "key": "hpzy",
-      "name": "惠普资源",
-      "type": 1,
-      "api": "https://hpapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
+
     {
       "key": "hmzy",
       "name": "宏碁资源",
@@ -55,15 +47,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    {
-      "key": "xslzy",
-      "name": "马歇尔资源",
-      "type": 1,
-      "api": "https://marshallapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
+
     {
       "key": "xfzy3",
       "name": "先锋资源",
@@ -136,15 +120,7 @@
       "quickSearch": 0,
       "filterable": 0
     },
-    {
-      "key": "rytv",
-      "name": "如意影视",
-      "type": 1,
-      "api": "https://cj.rytvapi.com/api.php/provide/vod",
-      "searchable": 1,
-      "quickSearch": 0,
-      "filterable": 0
-    },
+
     {
       "key": "360zyzz",
       "name": "360资源",
