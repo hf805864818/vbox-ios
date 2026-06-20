@@ -999,17 +999,19 @@ class PlayerState: ObservableObject {
         return 1
     }
 
-    /// 轨道占用记录：[laneIndex: 该轨道上最后一条弹幕的进入时间]
-    private var laneOccupancy: [Int: Double] = [:]
-    
+    /// 轨道占用记录：[laneIndex: (最后一条弹幕进入时间, 最后一条弹幕内容长度)]
+    private var laneOccupancy: [Int: (time: Double, contentLength: Int)] = [:]
+    /// 记录每条弹幕的预估宽度，用于水平碰撞检测
+    private var danmakuWidthCache: [Int: CGFloat] = [:]
+
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
-        // 进一步缩小时间窗口，减少单次发射量
-        let windowStart = max(0, time - 0.03)
-        let windowEnd = time + 0.08
+        // 缩小时间窗口，减少单次发射量，避免瞬间大量弹幕涌入
+        let windowStart = max(0, time - 0.02)
+        let windowEnd = time + 0.05
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(2)
+            .prefix(3)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -1018,26 +1020,45 @@ class PlayerState: ObservableObject {
         // 弹幕持续时间：速度越快持续时间越短
         let baseDuration = 8.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
-        // 动态计算轨道数：根据字体大小和显示区域，增加轨道间距
+        // 动态计算轨道数：根据字体大小和显示区域
         let laneHeight = danmakuFontSize + 22
         let maxAreaHeight = 400 * danmakuArea
         let maxLanes = max(4, Int(maxAreaHeight / laneHeight))
+        let screenW = CGFloat(400) // 预估屏幕宽度，用于计算弹幕位置
 
         // 清理已过期的轨道占用记录（弹幕已离开屏幕）
-        laneOccupancy = laneOccupancy.filter { _, lastTime in
-            time - lastTime < duration
+        laneOccupancy = laneOccupancy.filter { _, info in
+            time - info.time < duration
         }
 
         let appended = newItems.map { item in
-            // 寻找可用轨道（该轨道上前一条弹幕已进入足够时间，拉开间距）
-            let minGap: Double = 1.5 // 同轨道弹幕最小时间间隔（秒）
+            let itemWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
+            danmakuWidthCache[item.id] = itemWidth
+
+            // 水平碰撞检测：计算前一条弹幕当前位置，确保新弹幕不会追上
+            let minGap: Double = 1.2 // 同轨道最小时间间隔（秒）
+            let minHorizontalGap: CGFloat = 60.0 // 水平最小间距（点）
+
             var assignedLane = 0
             var foundLane = false
+
             for lane in 0..<maxLanes {
-                if let lastTime = laneOccupancy[lane] {
-                    // 前一条弹幕已进入超过minGap秒，新弹幕可以进入
-                    // 同时增加水平间距检查：同轨道弹幕时间差要足够大，避免水平拥挤
-                    if time - lastTime >= minGap {
+                if let lastInfo = laneOccupancy[lane] {
+                    let timeGap = time - lastInfo.time
+                    // 时间间隔必须足够
+                    guard timeGap >= minGap else { continue }
+
+                    // 水平碰撞检测：计算前一条弹幕当前位置
+                    let lastWidth = danmakuWidthCache.values.first ?? 100
+                    let lastProgress = min(max((time - lastInfo.time) / duration, 0), 1)
+                    let lastXPos = screenW - lastProgress * (screenW + lastWidth)
+                    let lastRightEdge = lastXPos + lastWidth
+
+                    // 新弹幕从右侧进入的位置
+                    let newStartX = screenW
+
+                    // 如果前一条弹幕尾部还在屏幕右侧足够远，新弹幕可以安全进入
+                    if lastRightEdge < newStartX - minHorizontalGap {
                         assignedLane = lane
                         foundLane = true
                         break
@@ -1048,20 +1069,25 @@ class PlayerState: ObservableObject {
                     break
                 }
             }
-            // 如果没有找到完全空闲的轨道，使用间隔最大的轨道
+
+            // 如果没有找到完全空闲的轨道，使用间隔最大且水平安全的轨道
             if !foundLane {
-                var maxGap: Double = -1
+                var bestLane = 0
+                var bestScore: Double = -1
                 for lane in 0..<maxLanes {
-                    let gap = time - (laneOccupancy[lane] ?? 0)
-                    if gap > maxGap {
-                        maxGap = gap
-                        assignedLane = lane
+                    let timeGap = time - (laneOccupancy[lane]?.time ?? 0)
+                    // 评分：时间间隔越大越好，同时考虑轨道索引（优先使用上方轨道）
+                    let score = timeGap + Double(maxLanes - lane) * 0.1
+                    if score > bestScore {
+                        bestScore = score
+                        bestLane = lane
                     }
                 }
+                assignedLane = bestLane
             }
 
-            // 更新轨道占用时间
-            laneOccupancy[assignedLane] = time
+            // 更新轨道占用时间和内容长度
+            laneOccupancy[assignedLane] = (time: time, contentLength: item.content.count)
 
             return DanmakuRenderItem(
                 id: item.id,
