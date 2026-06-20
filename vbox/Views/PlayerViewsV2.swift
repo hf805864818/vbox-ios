@@ -1122,8 +1122,9 @@ class PlayerState: ObservableObject {
             UserDefaults.standard.removeObject(forKey: playbackProgressKey(for: video))
             // 同步清除 SQLite 历史记录
             let favorites = DatabaseManager.shared.queryFavorites()
-            if let record = favorites.first(where: { $0.detailurl == video.vodId }) {
-                DatabaseManager.shared.removeFavorite(id: record.id)
+            if let record = favorites.first(where: { $0.detailurl == video.vodId }),
+               let fid = record.id {
+                DatabaseManager.shared.removeFavorite(id: fid)
             }
             return
         }

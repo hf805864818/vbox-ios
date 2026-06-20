@@ -297,11 +297,6 @@ struct UserSetting: Codable, Identifiable, FetchableRecord, PersistableRecord {
     }
 
     static let databaseTableName = "settings"
-
-    // 非自增主键：告诉 GRDB 使用 key 列判断 insert vs update
-    var persistencePolicy: PersistencePolicy {
-        .insert(onConflict: .replace)
-    }
 }
 
 // MARK: - JiexiSetting
@@ -330,11 +325,6 @@ struct JiexiSetting: Codable, Identifiable, FetchableRecord, PersistableRecord {
     }
 
     static let databaseTableName = "jiexisetting"
-
-    // 非自增主键：告诉 GRDB 使用 bianma 列判断 insert vs update
-    var persistencePolicy: PersistencePolicy {
-        .insert(onConflict: .replace)
-    }
 }
 
 // MARK: - SearchHistoryRecord
