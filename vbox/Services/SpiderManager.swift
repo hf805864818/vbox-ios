@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+/// 站点模式枚举 — 用于区分站点的实际工作模式
+enum SiteMode {
+    case jsSpider       // JS蜘蛛模式：加载JS脚本到引擎
+    case apiEndpoint    // API模式：直接HTTP调用CMS接口
+    case zhanyuan       // 站源模式：HTML解析
+    case unsupported    // 不支持的类型（jar包等）
+}
+
 /// 蜘蛛管理器 — 统一管理订阅源加载、蜘蛛引擎、数据获取
 @MainActor
 class SpiderManager: ObservableObject {
@@ -73,6 +81,64 @@ class SpiderManager: ObservableObject {
         savedURLs = subManager.configURLs
         loadCustomParsers()
         loadCustomFallbackSites()
+    }
+
+    // MARK: - 双模式功能开关
+    /// 是否启用双模式支持（type=3 HTTP API 站点走原生HTTP链路）
+    /// 关闭时完全回到改造前的行为，100%兼容
+    var enableDualMode: Bool {
+        get { UserDefaults.standard.object(forKey: "enable_dual_mode") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "enable_dual_mode") }
+    }
+
+    // MARK: - 站点模式识别（双模式支持）
+    /// 根据站点配置判断其实际工作模式
+    /// 核心逻辑：type=3 不一定是JS蜘蛛，需根据 api 字段特征判断
+    func resolveSiteMode(site: SiteConfig) -> SiteMode {
+        guard let api = site.api, !api.isEmpty else {
+            return .unsupported
+        }
+
+        // 开关关闭时，type=3 全部按原有逻辑处理（尝试加载JS）
+        if !enableDualMode && site.type == 3 {
+            // 原有逻辑：非http且非.js的视为jar类名，不支持
+            if !api.hasPrefix("http://") && !api.hasPrefix("https://") && !api.hasPrefix("./") && !api.hasSuffix(".js") {
+                return .unsupported
+            }
+            if api.lowercased().contains(".jar") {
+                return .unsupported
+            }
+            return .jsSpider
+        }
+
+        switch site.type {
+        case 0, 1:
+            return .apiEndpoint
+        case 2:
+            return .zhanyuan
+        case 3:
+            // jar 包不支持
+            if api.lowercased().contains(".jar") {
+                return .unsupported
+            }
+            // HTTP/HTTPS URL：进一步判断是JS文件还是API接口
+            if api.hasPrefix("http://") || api.hasPrefix("https://") {
+                // 以 .js 结尾的 HTTP URL → JS蜘蛛模式
+                if api.lowercased().hasSuffix(".js") {
+                    return .jsSpider
+                }
+                // 不以 .js 结尾的 HTTP URL → 视为CMS API接口
+                return .apiEndpoint
+            }
+            // 相对路径 ./xxx.js 或纯JS文件名 → JS蜘蛛模式
+            if api.hasSuffix(".js") || api.hasPrefix("./") {
+                return .jsSpider
+            }
+            // 纯类名如 csp_Douban → jar包，不支持
+            return .unsupported
+        default:
+            return .unsupported
+        }
     }
 
     // MARK: - 兜底源管理
@@ -447,61 +513,58 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 2. 加载 type=3 的 JS 蜘蛛（每个站点一个引擎）
+        // 2. 【改造】按模式分类处理所有站点（双模式支持）
         var jsSpiderLoaded = 0
         var jsSpiderFailed = 0
         let baseURL = subManager.activeURL ?? ""
 
-        // 收集所有 type=3 站点，并解析 api 字段
+        // 收集需要加载的 JS 蜘蛛站点
         var jsSitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
-        for site in config.sites where site.type == 3 && site.api != nil && !site.api!.isEmpty {
-            let api = site.api!
-            // jar 类名格式（如 csp_Douban），iOS 不支持 Java
-            if !api.hasPrefix("http://") && !api.hasPrefix("https://") && !api.hasPrefix("./") && !api.hasSuffix(".js") {
-                print("[SpiderManager] type=3 站点 api 是 jar 类名格式，iOS 不支持，跳过: \(site.name) (\(api))")
-                continue
-            }
-            // jar 包
-            if api.lowercased().contains(".jar") {
-                print("[SpiderManager] type=3 站点 api 是 jar 包，iOS 不支持，跳过: \(site.name)")
-                continue
-            }
-            // 相对路径（./xxx.js），拼接 baseURL
-            if api.hasPrefix("./") {
-                let fullURL: String
-                if let url = URL(string: baseURL) {
-                    fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
-                } else {
-                    fullURL = api
-                }
-                print("[SpiderManager] type=3 相对路径拼接: \(api) -> \(fullURL)")
-                jsSitesToLoad.append((site: site, resolvedURL: fullURL))
-                continue
-            }
-            // 纯 JS 文件名（如 drpy2.min.js），尝试从常见 CDN 下载
-            if !api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js") {
-                let cdnURLs = [
-                    "https://raw.githubusercontent.com/nicehash/nicehash/master/\(api)",
-                    "https://cdn.jsdelivr.net/gh/nicehash/nicehash@master/\(api)"
-                ]
-                // 先尝试从订阅源 baseURL 目录拼接
-                if let url = URL(string: baseURL) {
-                    let fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+        // 【新增】收集 API 模式的 type=3 站点，后续加入 allSites
+        var apiSitesToAdd: [SiteConfig] = []
+
+        for site in config.sites where site.api != nil && !site.api!.isEmpty {
+            let mode = resolveSiteMode(site: site)
+
+            switch mode {
+            case .jsSpider:
+                // 处理 JS 蜘蛛站点的 URL 解析（原有逻辑提取）
+                let api = site.api!
+                if api.hasPrefix("./") {
+                    let fullURL: String
+                    if let url = URL(string: baseURL) {
+                        fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                    } else {
+                        fullURL = api
+                    }
                     jsSitesToLoad.append((site: site, resolvedURL: fullURL))
-                } else {
-                    print("[SpiderManager] type=3 纯文件名无法拼接 baseURL，跳过: \(site.name) (\(api))")
+                } else if !api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js") {
+                    // 纯 JS 文件名，从 baseURL 拼接
+                    if let url = URL(string: baseURL) {
+                        let fullURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                        jsSitesToLoad.append((site: site, resolvedURL: fullURL))
+                    }
+                } else if api.hasPrefix("http://") || api.hasPrefix("https://") {
+                    jsSitesToLoad.append((site: site, resolvedURL: api))
                 }
-                continue
+
+            case .apiEndpoint:
+                // 【新增】API 模式站点（含 type=3 的 HTTP CMS 接口）
+                // 这些站点不需要创建 JS 引擎，直接加入 allSites 参与 HTTP 搜索
+                apiSitesToAdd.append(site)
+                print("[SpiderManager] API站点标记: \(site.name) (\(site.api ?? ""))")
+
+            case .zhanyuan:
+                // type=2 站源在后续单独处理
+                break
+
+            case .unsupported:
+                print("[SpiderManager] 跳过不支持站点: \(site.name) (type=\(site.type), api=\(site.api ?? ""))")
             }
-            // 标准 HTTP URL
-            if api.hasPrefix("http://") || api.hasPrefix("https://") {
-                jsSitesToLoad.append((site: site, resolvedURL: api))
-                continue
-            }
-            print("[SpiderManager] type=3 站点 api 格式无法识别，跳过: \(site.name) (\(api))")
         }
 
         print("[SpiderManager] 发现 \(jsSitesToLoad.count) 个 JS 蜘蛛站点待加载")
+        print("[SpiderManager] 发现 \(apiSitesToAdd.count) 个 API 模式站点待加入")
 
         // 限制最多加载 30 个蜘蛛（避免内存爆炸）
         for item in jsSitesToLoad.prefix(30) {
@@ -622,6 +685,19 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         print("[SpiderManager] JS蜘蛛: 成功\(jsSpiderLoaded) 失败\(jsSpiderFailed), 总引擎: \(engines.count)")
+
+        // 【新增】将 API 模式的 type=3 站点合并到 allSites
+        // 这些站点会参与后续的 nativeSearch / fetchCategoryContent / nativeDetail
+        if !apiSitesToAdd.isEmpty {
+            let existingKeys = Set(allSites.map { $0.key })
+            let newApiSites = apiSitesToAdd.filter { !existingKeys.contains($0.key) }
+            if !newApiSites.isEmpty {
+                self.allSites.append(contentsOf: newApiSites)
+                loadedSiteCount = allSites.count
+                print("[SpiderManager] ✅ 合并 \(newApiSites.count) 个 API 模式站点到 allSites，总计: \(loadedSiteCount)")
+            }
+        }
+
         await loadHomeData()
     }
 
@@ -922,7 +998,11 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         
         // 2. 原生 HTTP 兜底 - 调用 TVBox API 站点
-        let apiSites = allSites.filter { ($0.api?.hasPrefix("http") ?? false) }
+        // 【改造】使用 resolveSiteMode 筛选 API 模式站点，更准确地识别可调用站点
+        let apiSites = allSites.filter { site in
+            let mode = resolveSiteMode(site: site)
+            return mode == .apiEndpoint || site.type == 0 || site.type == 1
+        }
         for site in apiSites {
             guard let api = site.api else { continue }
             let urlStr = api.hasSuffix("/") ? "\(api)at/json?ac=list&t=\(categoryTypeId)&pg=\(page)" : "\(api)/at/json?ac=list&t=\(categoryTypeId)&pg=\(page)"
@@ -990,12 +1070,16 @@ globalThis.__JS_SPIDER__ = _spider;
         // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
         let spiderAllSites = self.allSites
         log("allSites: \(spiderAllSites.count) 个")
-        for s in spiderAllSites where (s.type == 1 || s.type == 0) && (s.api?.isEmpty == false) {
-            if let api = s.api {
-                sites.append(Site(name: s.name, api: api))
+        // 【改造】扩展筛选条件：包含 type=0/1 以及 API 模式的 type=3 站点
+        for s in spiderAllSites where s.api?.isEmpty == false {
+            let mode = resolveSiteMode(site: s)
+            if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
+                if let api = s.api {
+                    sites.append(Site(name: s.name, api: api))
+                }
             }
         }
-        log("type=1/0 站点: \(sites.count) 个")
+        log("API模式站点: \(sites.count) 个")
         // 兜底源补充
         if fallbackEnabled {
             log("兜底站: \(allFallbackSites.count) 个")
@@ -1119,8 +1203,12 @@ globalThis.__JS_SPIDER__ = _spider;
         var allResults: [VodItem] = []
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
 
-        // ====== 搜索源 0: 遍历订阅源 type=1/0 站点 ======
-        let subSites = subManager.allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
+        // ====== 搜索源 0: 遍历订阅源 API 模式站点（含 type=0/1 和 API 模式的 type=3） ======
+        let subSites = subManager.allSites.filter { site in
+            guard let api = site.api, !api.isEmpty else { return false }
+            let mode = resolveSiteMode(site: site)
+            return mode == .apiEndpoint || site.type == 0 || site.type == 1
+        }
 
         // ====== 搜索源 1: 兜底采集 API（开关控制）======
         struct SearchSite { let name: String; let api: String }
@@ -1445,10 +1533,14 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 先用 ids 查，失败则用 name 搜索匹配
     func nativeDetail(ids: String, name: String? = nil) async -> VodItem? {
         let apiSites = subManager.apiSites
-        // 如果 apiSites 为空，降级用 allSites 中的 type=1 或 type=0 站点
-        let detailSites = apiSites.isEmpty
-            ? allSites.filter { ($0.type == 1 || $0.type == 0) && ($0.api?.isEmpty == false) }
-            : apiSites
+        // 【改造】扩展筛选条件：包含 API 模式的 type=3 站点
+        let allApiSites = allSites.filter { site in
+            guard let api = site.api, !api.isEmpty else { return false }
+            let mode = resolveSiteMode(site: site)
+            return mode == .apiEndpoint || site.type == 0 || site.type == 1
+        }
+        // 如果 apiSites 为空，降级用 allApiSites
+        let detailSites = apiSites.isEmpty ? allApiSites : apiSites
 
         if detailSites.isEmpty {
             print("[SpiderManager] nativeDetail 失败: 无可用的 type=1 站点")
@@ -1504,13 +1596,20 @@ globalThis.__JS_SPIDER__ = _spider;
 
 // 解析器体系 - 将HTML播放页解析为视频直链
     func parsePlayUrl(from playPageUrl: String) async -> String? {
+        // 0. 【新增】兼容 TVBox 特殊播放格式前缀
+        var actualUrl = playPageUrl
+        if playPageUrl.hasPrefix("parse://") || playPageUrl.hasPrefix("json://") {
+            actualUrl = String(playPageUrl.dropFirst(8))
+            print("[SpiderManager] 检测到 TVBox 前缀，解析后: \(actualUrl.prefix(80))")
+        }
+
         // 1. 检查是否已经是直链
-        if playPageUrl.hasSuffix(".m3u8") || playPageUrl.hasSuffix(".mp4") {
-            return playPageUrl
+        if actualUrl.hasSuffix(".m3u8") || actualUrl.hasSuffix(".mp4") {
+            return actualUrl
         }
 
         // 1.5 B站直链解析
-        if playPageUrl.contains("bilibili.com") || playPageUrl.contains("b23.tv") {
+        if actualUrl.contains("bilibili.com") || actualUrl.contains("b23.tv") {
             let bvid = extractBilibiliID(from: playPageUrl)
             if !bvid.isEmpty {
                 let bUrl = "https://api.bilibili.com/x/player/playurl?bvid=\(bvid)&type=mp4&platform=html5"
@@ -1525,14 +1624,14 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        print("[SpiderManager] 开始解析播放页：\(playPageUrl.prefix(60))...")
+        print("[SpiderManager] 开始解析播放页：\(actualUrl.prefix(60))...")
 
         // 2. 优先使用自定义解析器
         if !customParsers.isEmpty {
             print("[SpiderManager] 尝试自定义解析器，共\(customParsers.count)个")
             for (idx, parser) in customParsers.enumerated() {
                 print("[SpiderManager] [\(idx+1)/\(customParsers.count)] 尝试：\(parser.name) - \(parser.url)")
-                if let parsedUrl = await tryParser(parser.url, url: playPageUrl) {
+                if let parsedUrl = await tryParser(parser.url, url: actualUrl) {
                     print("[SpiderManager] ✅ 自定义解析器成功：\(parser.name)")
                     return parsedUrl
                 }
@@ -1544,7 +1643,7 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] 使用订阅源解析器，共\(subManager.parses.count)个")
             for (idx, parse) in subManager.parses.enumerated() {
                 print("[SpiderManager] [\(idx+1)/\(subManager.parses.count)] 尝试：\(parse.name) - \(parse.url)")
-                if let parsedUrl = await tryParser(parse.url, url: playPageUrl) {
+                if let parsedUrl = await tryParser(parse.url, url: actualUrl) {
                     print("[SpiderManager] ✅ 订阅源解析器成功：\(parse.name)")
                     print("[SpiderManager] 解析结果：\(parsedUrl.prefix(80))...")
                     return parsedUrl
@@ -1553,13 +1652,13 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         // 4. 尝试直接请求播放页提取 m3u8
-        if let directUrl = await extractDirectPlayURL(from: playPageUrl) {
+        if let directUrl = await extractDirectPlayURL(from: actualUrl) {
             print("[SpiderManager] ✅ 从播放页直接提取成功：\(directUrl.prefix(80))...")
             return directUrl
         }
 
         // 4.5 WKWebView 客户端解析回退（最后手段）
-        if let wkResult = await tryWKWebViewParse(originalURL: playPageUrl) {
+        if let wkResult = await tryWKWebViewParse(originalURL: actualUrl) {
             return wkResult
         }
 

@@ -214,32 +214,57 @@ struct SettingsView: View {
 
     private var subscriptionSection: some View {
         SettingsSection(title: "订阅配置") {
-            Button(action: { showSubscribeSheet = true }) {
-                HStack {
-                    Image(systemName: "list.bullet.rectangle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(Color(hex: "E11D48"))
-                    Text("管理订阅源")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    if SpiderManager.shared.subManager.configURLs.isEmpty {
-                        Text("未配置")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-                    } else {
-                        Text("\(SpiderManager.shared.subManager.configURLs.count) 个源")
-                            .font(.system(size: 13))
+            VStack(spacing: 0) {
+                Button(action: { showSubscribeSheet = true }) {
+                    HStack {
+                        Image(systemName: "list.bullet.rectangle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "E11D48"))
+                        Text("管理订阅源")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if SpiderManager.shared.subManager.configURLs.isEmpty {
+                            Text("未配置")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        } else {
+                            Text("\(SpiderManager.shared.subManager.configURLs.count) 个源")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
                             .foregroundColor(.gray)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .background(Color.gray.opacity(0.04))
+
+                // 【新增】双模式功能开关
+                HStack {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("双模式兼容")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.primary)
+                        Text("type=3 HTTP接口走原生搜索（重启生效）")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { spiderManager.enableDualMode },
+                        set: { spiderManager.enableDualMode = $0 }
+                    ))
+                    .labelsHidden()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
-            .background(Color.gray.opacity(0.04))
         }
         .sheet(isPresented: $showSubscribeSheet) {
             SubscribeConfigView()
