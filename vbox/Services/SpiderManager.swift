@@ -636,10 +636,13 @@ globalThis.__JS_SPIDER__ = _spider;
             guard engines[key] == nil else { continue }
             let configJSON = site.ext ?? "{}"
             let escapedName = site.name.replacingOccurrences(of: "'", with: "\\'")
+            // 使用 base64 编码传递 config，避免 XPath 规则中的特殊字符破坏 JSON 解析
+            let configBase64 = configJSON.data(using: .utf8)?.base64EncodedString() ?? ""
             let zhanJS = """
             (function() {
                 try {
-                    var config = JSON.parse('\(configJSON.replacingOccurrences(of: "'", with: "\\'"))');
+                    var configJSON = atob('\(configBase64)');
+                    var config = JSON.parse(configJSON);
                     config.name = config.name || '\(escapedName)';
                     config.searchUrl = config.searchUrl || '';
                     var spider = globalThis.__createZhanyuanSpider(config);
