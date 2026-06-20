@@ -28,6 +28,7 @@
 		2E8DE5C3A7C5B07386AA28A8 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = F7C31058EC526C283B217997 /* libiconv.tbd */; };
 		2ECEABB6FFB865008C741811 /* Libsmbclient.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		3138014565AA97F77097637D /* Libavutil.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F804EDDCDA642682760842DD /* Libavutil.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822F991529A94E749D9BC1C5 /* ProfileView.swift */; };
 		44512C970784869EA592C124 /* Libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		4C54E1F2F36AA08687F86228 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4959B121CB3DFFFB86D6BEFC /* UIKit.framework */; };
 		50AE505C5AB8511E02F0E454 /* Libshaderc_combined.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -85,6 +86,9 @@
 		A10036 /* MPVKitDebugPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MPVKitDebugPlayerView.swift */; };
 		A10037 /* MPVRenderContextDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10037 /* MPVRenderContextDebugView.swift */; };
 		A10038 /* LibmpvMoltenVKDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* LibmpvMoltenVKDebugView.swift */; };
+		A10044 /* DBModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* DBModels.swift */; };
+		A10045 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* DatabaseManager.swift */; };
+		A10046 /* ZhanyuanSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11003 /* ZhanyuanSearchService.swift */; };
 		A10136 /* CloudDriveAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10136 /* CloudDriveAuthManager.swift */; };
 		A10137 /* SpiderEngineProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10137 /* SpiderEngineProtocol.swift */; };
 		A10138 /* SiteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10138 /* SiteDiagnostics.swift */; };
@@ -329,347 +333,6 @@
 		D872B61818124F9BBC517936 /* libxmlHTMLNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82E7DCB863C409AADAF4273 /* libxmlHTMLNode.swift */; };
 		F685731ECEC24AB99027C2FE /* libxmlParserOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF491E719C9F4E1793A08FEE /* libxmlParserOption.swift */; };
 		8EDD848EE3464301970D9481 /* libxml2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6968B1B5FEDB4F8D937009D5 /* libxml2.tbd */; };
-/* End PBXBuildFile section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		72860559BD3A1B39CB0DF6BE /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				91109A3AE5E69A5CD116E13D /* MPVKit.xcframework in Embed Frameworks */,
-				51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */,
-				EF66A1860129C0CCCB84E8A6 /* Libavcodec.xcframework in Embed Frameworks */,
-				53873C0B408C557A4B2E8906 /* Libavdevice.xcframework in Embed Frameworks */,
-				D4B1A0F40BF3BE3263B560C3 /* Libavfilter.xcframework in Embed Frameworks */,
-				F14D9EBCC712C7189C7054E2 /* Libavformat.xcframework in Embed Frameworks */,
-				24894AD67FD7DADF6676A1A5 /* Libavutil.xcframework in Embed Frameworks */,
-				9661D6A59EEEE3DE799C21FF /* Libswresample.xcframework in Embed Frameworks */,
-				62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */,
-				12A1AC8CFD69FC77D785A754 /* Libass.xcframework in Embed Frameworks */,
-				652466BD988F1A23E25CFF70 /* Libbluray.xcframework in Embed Frameworks */,
-				D62C0C19FBCAF3C9F113C5F1 /* Libuavs3d.xcframework in Embed Frameworks */,
-				2789C67E88E95C3033EBD462 /* Libdovi.xcframework in Embed Frameworks */,
-				98BE9423DB29B651E47276CE /* Libdav1d.xcframework in Embed Frameworks */,
-				53A4EEAAFB85002511F0912D /* Libuchardet.xcframework in Embed Frameworks */,
-				EF43A68D1A60F34CDEFFE7BA /* Libplacebo.xcframework in Embed Frameworks */,
-				2ECEABB6FFB865008C741811 /* Libsmbclient.xcframework in Embed Frameworks */,
-				F39C53FE3F6B5C2BD96EF8B6 /* gnutls.xcframework in Embed Frameworks */,
-				FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */,
-				BF1133BC00ADC634CEAEF832 /* Libunibreak.xcframework in Embed Frameworks */,
-				1D8CF6C0CE02F334F964A6DF /* Libharfbuzz.xcframework in Embed Frameworks */,
-				1AEC37DF5549D8E4AAC46D23 /* Libfribidi.xcframework in Embed Frameworks */,
-				11FFC77DC15A70173DBE12E5 /* Libfreetype.xcframework in Embed Frameworks */,
-				CE7C66BE7B372BEDAF0561F0 /* Libshaderc_combined.xcframework in Embed Frameworks */,
-				7838114C8D510E624CD5843F /* MoltenVK.xcframework in Embed Frameworks */,
-				FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */,
-				F7481825FDA4FFE67F4F8820 /* Libcrypto.xcframework in Embed Frameworks */,
-				CED0C11DF47D8EA5E33E4A9D /* hogweed.xcframework in Embed Frameworks */,
-				D76C250B58207918B87B9816 /* nettle.xcframework in Embed Frameworks */,
-				9E500FE500FDAD63873B5803 /* gmp.xcframework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
-/* Begin PBXFileReference section */
-		03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libharfbuzz.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libharfbuzz.xcframework; sourceTree = SOURCE_ROOT; };
-		06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuchardet.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuchardet.xcframework; sourceTree = SOURCE_ROOT; };
-		074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libshaderc_combined.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libshaderc_combined.xcframework; sourceTree = SOURCE_ROOT; };
-		09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libsmbclient.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libsmbclient.xcframework; sourceTree = SOURCE_ROOT; };
-		0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdovi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdovi.xcframework; sourceTree = SOURCE_ROOT; };
-		0E27763D993B6E8409086841 /* libbz2.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
-		118639D4704EF09B475A80B0 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
-		1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
-		2298D3101C1AE3DA9002687B /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
-		2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = lcms2.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/lcms2.xcframework; sourceTree = SOURCE_ROOT; };
-		352766A618B5FDE7451235BB /* Libmpv.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libmpv.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libmpv.xcframework; sourceTree = SOURCE_ROOT; };
-		39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavdevice.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavdevice.xcframework; sourceTree = SOURCE_ROOT; };
-		3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libssl.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libssl.xcframework; sourceTree = SOURCE_ROOT; };
-		415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libplacebo.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libplacebo.xcframework; sourceTree = SOURCE_ROOT; };
-		45410F150AD33568D996B571 /* hogweed.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = hogweed.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/hogweed.xcframework; sourceTree = SOURCE_ROOT; };
-		4959B121CB3DFFFB86D6BEFC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
-		51D064347CEF883DED6CEE39 /* Libfribidi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfribidi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfribidi.xcframework; sourceTree = SOURCE_ROOT; };
-		55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavfilter.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavfilter.xcframework; sourceTree = SOURCE_ROOT; };
-		567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdav1d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework; sourceTree = SOURCE_ROOT; };
-		5F77356B6F268B826247C658 /* gnutls.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gnutls.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework; sourceTree = SOURCE_ROOT; };
-		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
-		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
-		807222ECDB74BD55495F6395 /* libz.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
-		8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
-		933905689FCEDA2327DA3D6A /* Libavformat.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavformat.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavformat.xcframework; sourceTree = SOURCE_ROOT; };
-		9353A6CB751B12B08CDC9742 /* Libass.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libass.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libass.xcframework; sourceTree = SOURCE_ROOT; };
-		97FF67C178D2D217311C1C6C /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libunibreak.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libunibreak.xcframework; sourceTree = SOURCE_ROOT; };
-		9D32E575559754AD2F00E37C /* nettle.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = nettle.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/nettle.xcframework; sourceTree = SOURCE_ROOT; };
-		A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuavs3d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuavs3d.xcframework; sourceTree = SOURCE_ROOT; };
-		AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
-		B0F74E8951368DECD8322237 /* Libbluray.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libbluray.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libbluray.xcframework; sourceTree = SOURCE_ROOT; };
-		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
-		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		B10003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
-		B10004 /* SpiderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderModels.swift; sourceTree = "<group>"; };
-		B10005 /* JSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSSpiderEngine.swift; sourceTree = "<group>"; };
-		B10006 /* JSHTTPBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSHTTPBridge.swift; sourceTree = "<group>"; };
-		B10007 /* SpiderRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderRepository.swift; sourceTree = "<group>"; };
-		B10008 /* MainViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViews.swift; sourceTree = "<group>"; };
-		B10009 /* PlayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViews.swift; sourceTree = "<group>"; };
-		B10010 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
-		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
-		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
-		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
-		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
-		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
-		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
-		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
-		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
-		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
-		B10022 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
-		B10023 /* PlayerViewsV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2.swift; sourceTree = "<group>"; };
-		B10024 /* LogVarDanmakuService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogVarDanmakuService.swift; sourceTree = "<group>"; };
-		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
-		B10026 /* DoubanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanService.swift; sourceTree = "<group>"; };
-		B10027 /* DoubanHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanHomeView.swift; sourceTree = "<group>"; };
-		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
-		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
-		B10032 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
-		B10033 /* BaiduWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWebViewBridge.swift; sourceTree = "<group>"; };
-		B10034 /* DoubanImageProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanImageProxyServer.swift; sourceTree = "<group>"; };
-		B10036 /* MPVKitDebugPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitDebugPlayerView.swift; sourceTree = "<group>"; };
-		B10037 /* MPVRenderContextDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextDebugView.swift; sourceTree = "<group>"; };
-		B10038 /* LibmpvMoltenVKDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibmpvMoltenVKDebugView.swift; sourceTree = "<group>"; };
-		B10136 /* CloudDriveAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveAuthManager.swift; sourceTree = "<group>"; };
-		B10137 /* SpiderEngineProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineProtocol.swift; sourceTree = "<group>"; };
-		B10138 /* SiteDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteDiagnostics.swift; sourceTree = "<group>"; };
-		B10139 /* SiteDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteDiagnosticsView.swift; sourceTree = "<group>"; };
-		B10140 /* WKWebViewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WKWebViewParser.swift; sourceTree = "<group>"; };
-		B10141 /* ibox_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ibox_sources.json; sourceTree = "<group>"; };
-		B10142 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
-		B10143 /* LiveTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVService.swift; sourceTree = "<group>"; };
-		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
-		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
-		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
-		B12003 /* PlayerEngineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineState.swift; sourceTree = "<group>"; };
-		B12004 /* PlayerEngineEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineEvent.swift; sourceTree = "<group>"; };
-		B12005 /* PlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngine.swift; sourceTree = "<group>"; };
-		B12006 /* MPVPlayerEngineStub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerEngineStub.swift; sourceTree = "<group>"; };
-		B12007 /* AVPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerEngine.swift; sourceTree = "<group>"; };
-		B12008 /* UnsupportedPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedPlayerEngine.swift; sourceTree = "<group>"; };
-		B12009 /* PlayerEngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineController.swift; sourceTree = "<group>"; };
-		B12010 /* VLCPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerEngine.swift; sourceTree = "<group>"; };
-		B12011 /* MPVBackendType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendType.swift; sourceTree = "<group>"; };
-		B12012 /* MPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackend.swift; sourceTree = "<group>"; };
-		B12013 /* MPVUnavailableBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVUnavailableBackend.swift; sourceTree = "<group>"; };
-		B12014 /* MPVKitBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitBackend.swift; sourceTree = "<group>"; };
-		B12015 /* LibMPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibMPVBackend.swift; sourceTree = "<group>"; };
-		B12016 /* MPVBackendFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendFactory.swift; sourceTree = "<group>"; };
-		B12017 /* MPVPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerEngine.swift; sourceTree = "<group>"; };
-		B12018 /* MPVIntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVIntegrationStatus.swift; sourceTree = "<group>"; };
-		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
-		B12020 /* MPVKitProperty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitProperty.swift; sourceTree = "<group>"; };
-		B12021 /* MPVKitMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitMetalLayer.swift; sourceTree = "<group>"; };
-		B12022 /* MPVKitRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderView.swift; sourceTree = "<group>"; };
-		B12023 /* MPVKitRenderedPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderedPlayerCore.swift; sourceTree = "<group>"; };
-		B12024 /* MPVRenderContextPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextPlayerCore.swift; sourceTree = "<group>"; };
-		B12025 /* LibmpvMoltenVKPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibmpvMoltenVKPlayerCore.swift; sourceTree = "<group>"; };
-		B12026 /* MDKPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPlayerEngine.swift; sourceTree = "<group>"; };
-		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
-		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
-		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
-		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
-		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
-		C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
-		C9E623AC03FF5B83F03C95FD /* gmp.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gmp.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gmp.xcframework; sourceTree = SOURCE_ROOT; };
-		CFF33E1BB4E9046F17208D3E /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
-		D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfreetype.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfreetype.xcframework; sourceTree = SOURCE_ROOT; };
-		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
-		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
-		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
-		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
-		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
-		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
-		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
-		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
-		822F991529A94E749D9BC1C5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
-		21C639783BDC4590B2B50B0A /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Configuration.swift; sourceTree = "<group>"; };
-		0C33B0E8A0624B90B2D211D0 /* Cursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Cursor.swift; sourceTree = "<group>"; };
-		9BD44E57B04C4AE0AD31769E /* Database+SQLCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Database+SQLCipher.swift; sourceTree = "<group>"; };
-		9D8BEC635FAD40FFB81F6C94 /* Database+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Database+Schema.swift; sourceTree = "<group>"; };
-		A22ED3794CCD49678995246E /* Database+Statements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Database+Statements.swift; sourceTree = "<group>"; };
-		F9AA6C2886184DFCAB6FFA40 /* Database.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Database.swift; sourceTree = "<group>"; };
-		CA193C394B64419B886002FC /* DatabaseBackupProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseBackupProgress.swift; sourceTree = "<group>"; };
-		5DEDA7A9291B4FB3AB24D40B /* DatabaseCollation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseCollation.swift; sourceTree = "<group>"; };
-		58FEB0E827B5412F961EC2A3 /* DatabaseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseError.swift; sourceTree = "<group>"; };
-		7DF34E251CB2414688AC4879 /* DatabaseFunction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseFunction.swift; sourceTree = "<group>"; };
-		3FCD2F6936C84FDB82101133 /* DatabasePool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabasePool.swift; sourceTree = "<group>"; };
-		EA0D7030CE4B4041BF900BE1 /* DatabasePublishers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabasePublishers.swift; sourceTree = "<group>"; };
-		957E4323786B4E1895BEC676 /* DatabaseQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseQueue.swift; sourceTree = "<group>"; };
-		89AF677CD67F469885FCBECA /* DatabaseReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseReader.swift; sourceTree = "<group>"; };
-		54FADCB9EF904A0EB7BEBD0F /* DatabaseRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseRegion.swift; sourceTree = "<group>"; };
-		759D95A56F784DB7B4182A1E /* DatabaseRegionObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseRegionObservation.swift; sourceTree = "<group>"; };
-		BA9F9E10C56E47229B4697B3 /* DatabaseSchemaCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseSchemaCache.swift; sourceTree = "<group>"; };
-		88A723AF09F14563830B2E18 /* DatabaseSchemaSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseSchemaSource.swift; sourceTree = "<group>"; };
-		F7DB0A70390B4B27AD4E7DB5 /* DatabaseSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseSnapshot.swift; sourceTree = "<group>"; };
-		B7DC3E32E2864CA1873482B9 /* DatabaseSnapshotPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseSnapshotPool.swift; sourceTree = "<group>"; };
-		1FD79E2532194CCEBD41B7CB /* DatabaseValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseValue.swift; sourceTree = "<group>"; };
-		2391D6716F2E435C992143C1 /* DatabaseValueConvertible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseValueConvertible.swift; sourceTree = "<group>"; };
-		1B0995076A284AC995725ADA /* DatabaseWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseWriter.swift; sourceTree = "<group>"; };
-		50E3A3D11D1E4843A209FA04 /* DispatchQueueActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DispatchQueueActor.swift; sourceTree = "<group>"; };
-		D4C5C5E572E14DCC8367B110 /* FetchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FetchRequest.swift; sourceTree = "<group>"; };
-		D8DE37F0C4864503B952DEED /* Row.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Row.swift; sourceTree = "<group>"; };
-		57ED32D91B174FD89349C37F /* RowAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/RowAdapter.swift; sourceTree = "<group>"; };
-		D63EE40407B241C0A96549F9 /* RowDecodingError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/RowDecodingError.swift; sourceTree = "<group>"; };
-		E865ADD7476342E189778F1C /* SQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SQL.swift; sourceTree = "<group>"; };
-		1CC2C71A5FCF4DC39DB0DF18 /* SQLInterpolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SQLInterpolation.swift; sourceTree = "<group>"; };
-		A877CE8178D94D5CB6356EDE /* SQLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SQLRequest.swift; sourceTree = "<group>"; };
-		E1D697F97D0348F49AAB5291 /* SchedulingWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SchedulingWatchdog.swift; sourceTree = "<group>"; };
-		A831BE248B2E457299425E44 /* SerializedDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/SerializedDatabase.swift; sourceTree = "<group>"; };
-		B9CFB83ABAB54E3791A2CC8D /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Statement.swift; sourceTree = "<group>"; };
-		93CBB17E32F74C57B9975616 /* StatementAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/StatementAuthorizer.swift; sourceTree = "<group>"; };
-		93310BC4111440699CB35FEC /* StatementColumnConvertible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/StatementColumnConvertible.swift; sourceTree = "<group>"; };
-		3CD70520A74D4BC48681B7ED /* CGFloat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/CoreGraphics/CGFloat.swift; sourceTree = "<group>"; };
-		9D002249C9C541658B0F0B9C /* Data.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/Data.swift; sourceTree = "<group>"; };
-		73A003794C2743C289A69F21 /* DatabaseDateComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/DatabaseDateComponents.swift; sourceTree = "<group>"; };
-		DE3350BA435644D0A6B55412 /* DatabaseValueConvertible+ReferenceConvertible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/DatabaseValueConvertible+ReferenceConvertible.swift; sourceTree = "<group>"; };
-		77E4635CFD594678BC930702 /* Date.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/Date.swift; sourceTree = "<group>"; };
-		4581CCEACD2D4FD1A3F65684 /* Decimal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/Decimal.swift; sourceTree = "<group>"; };
-		276F2BF4504A44D38E98A6A8 /* NSData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/NSData.swift; sourceTree = "<group>"; };
-		FF05983B87014F8A9B76E567 /* NSNull.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/NSNull.swift; sourceTree = "<group>"; };
-		1BE4159DCE9D418EA981FA8D /* NSNumber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/NSNumber.swift; sourceTree = "<group>"; };
-		B138F6003637457E89787A84 /* NSString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/NSString.swift; sourceTree = "<group>"; };
-		B68C007F08E842529B516784 /* SQLiteDateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/SQLiteDateParser.swift; sourceTree = "<group>"; };
-		915F81A56D924843B50F5555 /* URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/URL.swift; sourceTree = "<group>"; };
-		BB08D84DA1304C07BF436A5D /* UUID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/Foundation/UUID.swift; sourceTree = "<group>"; };
-		127290E55AF8470CBC1A09B8 /* DatabaseValueConvertible+Decodable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/DatabaseValueConvertible+Decodable.swift; sourceTree = "<group>"; };
-		FB49E0BFC06E487F8770842B /* DatabaseValueConvertible+Encodable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/DatabaseValueConvertible+Encodable.swift; sourceTree = "<group>"; };
-		CCC2C5C0A98743AA83311BDF /* DatabaseValueConvertible+RawRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/DatabaseValueConvertible+RawRepresentable.swift; sourceTree = "<group>"; };
-		F89470BEE9C94C85B93E6396 /* JSONRequiredEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/JSONRequiredEncoder.swift; sourceTree = "<group>"; };
-		8355F0CA0D514B448312677F /* Optional.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/Optional.swift; sourceTree = "<group>"; };
-		3224F6DFEB814ABE8F3FAB90 /* StandardLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Support/StandardLibrary/StandardLibrary.swift; sourceTree = "<group>"; };
-		1908944CFB554F27900466E4 /* TransactionClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/TransactionClock.swift; sourceTree = "<group>"; };
-		CF62FDB0B6C5460E9C950F8D /* TransactionObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/TransactionObserver.swift; sourceTree = "<group>"; };
-		262CFAFBACA1475A9280B545 /* WALSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/WALSnapshot.swift; sourceTree = "<group>"; };
-		B49532DE400C4351A0496158 /* WALSnapshotTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/WALSnapshotTransaction.swift; sourceTree = "<group>"; };
-		5C3CF740482049958EB61087 /* Database+Dump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/Database+Dump.swift; sourceTree = "<group>"; };
-		21CF4DCC035F4C94B0A64B5F /* DatabaseReader+dump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DatabaseReader+dump.swift; sourceTree = "<group>"; };
-		2A78BD26D5F9456AAA37E490 /* DumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormat.swift; sourceTree = "<group>"; };
-		DCDE3836BB244CFB80C54BFC /* DebugDumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormats/DebugDumpFormat.swift; sourceTree = "<group>"; };
-		D871276207F54A428088A8F3 /* JSONDumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormats/JSONDumpFormat.swift; sourceTree = "<group>"; };
-		8D0CEC81F4254BE2AB6AD3F6 /* LineDumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormats/LineDumpFormat.swift; sourceTree = "<group>"; };
-		CE7931EB5AA44FFFB45A0169 /* ListDumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormats/ListDumpFormat.swift; sourceTree = "<group>"; };
-		E349D7492B0D42469AF4AFE5 /* QuoteDumpFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dump/DumpFormats/QuoteDumpFormat.swift; sourceTree = "<group>"; };
-		C174FC41BA4E40F7BA8F5DC3 /* FTS3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS3.swift; sourceTree = "<group>"; };
-		E826106DF3714F1485D963D9 /* FTS3Pattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS3Pattern.swift; sourceTree = "<group>"; };
-		CA5CBAC2515541BDB43FAB7C /* FTS3TokenizerDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS3TokenizerDescriptor.swift; sourceTree = "<group>"; };
-		E78A673092764612B8719540 /* FTS4.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS4.swift; sourceTree = "<group>"; };
-		62E62E09664C49B8BAFA5DD2 /* FTS5.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5.swift; sourceTree = "<group>"; };
-		A92F7086F9A44E00B330B4AC /* FTS5CustomTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5CustomTokenizer.swift; sourceTree = "<group>"; };
-		C25EA615B465414DAC2570A7 /* FTS5Pattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5Pattern.swift; sourceTree = "<group>"; };
-		C45B5842A016451FAE6A80C7 /* FTS5Tokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5Tokenizer.swift; sourceTree = "<group>"; };
-		95BC8976C1C24171B2F7F141 /* FTS5TokenizerDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5TokenizerDescriptor.swift; sourceTree = "<group>"; };
-		116572AD329A49A8ACAE7AD0 /* FTS5WrapperTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTS/FTS5WrapperTokenizer.swift; sourceTree = "<group>"; };
-		DB439AB7EBE34BBB9A120A3B /* Fixits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fixits.swift; sourceTree = "<group>"; };
-		E5FE82126F854B488CEDA87F /* JSONColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSON/JSONColumn.swift; sourceTree = "<group>"; };
-		B081F4D845EA4DFA8A87B8D7 /* SQLJSONExpressible.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSON/SQLJSONExpressible.swift; sourceTree = "<group>"; };
-		9A0192E86E5A45EF9B08DCCF /* SQLJSONFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSON/SQLJSONFunctions.swift; sourceTree = "<group>"; };
-		4DAD0D89746A454A9E236767 /* DatabaseMigrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Migration/DatabaseMigrator.swift; sourceTree = "<group>"; };
-		38FAB88E5E244E50BB97F4BE /* Migration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Migration/Migration.swift; sourceTree = "<group>"; };
-		33F9300ACFE84A499C027685 /* FTS3+QueryInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/FTS3+QueryInterface.swift; sourceTree = "<group>"; };
-		A0F34AC473354EE3AC172380 /* FTS5+QueryInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/FTS5+QueryInterface.swift; sourceTree = "<group>"; };
-		FD49DA495B2640629928AB85 /* ForeignKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/ForeignKey.swift; sourceTree = "<group>"; };
-		64F5242806C84D0095E86846 /* Association.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/Association.swift; sourceTree = "<group>"; };
-		2738CF2CF22D48FB93FD4A6A /* AssociationAggregate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/AssociationAggregate.swift; sourceTree = "<group>"; };
-		1DB0BFD14B1B462F864BAB97 /* BelongsToAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/BelongsToAssociation.swift; sourceTree = "<group>"; };
-		B33C5262ABA24CA6ADDE4DA8 /* HasManyAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/HasManyAssociation.swift; sourceTree = "<group>"; };
-		9754F06EFF2247F98B305367 /* HasManyThroughAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/HasManyThroughAssociation.swift; sourceTree = "<group>"; };
-		7E5708AA59C74991AFD4D582 /* HasOneAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/HasOneAssociation.swift; sourceTree = "<group>"; };
-		A71DCADA05784C3DAD3A22C5 /* HasOneThroughAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/HasOneThroughAssociation.swift; sourceTree = "<group>"; };
-		B23379263DE8447999453CAD /* JoinAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/Association/JoinAssociation.swift; sourceTree = "<group>"; };
-		C066E69EA7554B679C2C0363 /* CommonTableExpression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/CommonTableExpression.swift; sourceTree = "<group>"; };
-		917B5DD295F246BDAD61C031 /* QueryInterfaceRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/QueryInterfaceRequest.swift; sourceTree = "<group>"; };
-		CDB4EF342F054176B8EEB4D9 /* RequestProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Request/RequestProtocols.swift; sourceTree = "<group>"; };
-		DD8D6CF78FD046F184BDFDEA /* Column.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/Column.swift; sourceTree = "<group>"; };
-		6262E3DE5519478DB0A7CF08 /* DatabasePromise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/DatabasePromise.swift; sourceTree = "<group>"; };
-		EA5B720DE82C4D68B7B6E42B /* SQLAssociation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLAssociation.swift; sourceTree = "<group>"; };
-		D8997AF77D074D8A8D1CD092 /* SQLCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLCollection.swift; sourceTree = "<group>"; };
-		B1A28A30B2734878BFE43F05 /* SQLExpression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLExpression.swift; sourceTree = "<group>"; };
-		DA55C73A0F5A4868A6D2686A /* SQLForeignKeyRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLForeignKeyRequest.swift; sourceTree = "<group>"; };
-		884671988CAF46E9A5DAE351 /* SQLFunctions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLFunctions.swift; sourceTree = "<group>"; };
-		84FAF53FBF9C4DF281818BF9 /* SQLOperators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLOperators.swift; sourceTree = "<group>"; };
-		FFCD4859815A4548AB5F79BB /* SQLOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLOrdering.swift; sourceTree = "<group>"; };
-		769A0148CC4643858018DE58 /* SQLRelation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLRelation.swift; sourceTree = "<group>"; };
-		585C50E1616E4876BB575F4C /* SQLSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLSelection.swift; sourceTree = "<group>"; };
-		7B0AA96BE3974ABE87D75F1A /* SQLSubquery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/SQLSubquery.swift; sourceTree = "<group>"; };
-		C50D33A10EEE42FBA4E7E5E9 /* Table.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQL/Table.swift; sourceTree = "<group>"; };
-		E53F13865B994EE6AFE6A896 /* SQLColumnGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLColumnGenerator.swift; sourceTree = "<group>"; };
-		7A099E5B16B04E0B8BC53C39 /* SQLGenerationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLGenerationContext.swift; sourceTree = "<group>"; };
-		F794AEFB1DE24CA9BB3FB436 /* SQLIndexGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLIndexGenerator.swift; sourceTree = "<group>"; };
-		B648D8F736E1492198775904 /* SQLQueryGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLQueryGenerator.swift; sourceTree = "<group>"; };
-		B52AB26305634C21834D3EBD /* SQLTableAlterationGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLTableAlterationGenerator.swift; sourceTree = "<group>"; };
-		54A491EA9AD74628BE28B6BE /* SQLTableGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/SQLTableGenerator.swift; sourceTree = "<group>"; };
-		8343D9424ECC4DE0BD9266D9 /* TableAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLGeneration/TableAlias.swift; sourceTree = "<group>"; };
-		1C1E312AB4654E028E3BA0A2 /* SQLInterpolation+QueryInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/SQLInterpolation+QueryInterface.swift; sourceTree = "<group>"; };
-		80028B8F48F1478A9BE7121E /* ColumnDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/ColumnDefinition.swift; sourceTree = "<group>"; };
-		FC8C695B84FF42448A0BA309 /* Database+SchemaDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/Database+SchemaDefinition.swift; sourceTree = "<group>"; };
-		DC252C85352C4B26AA328EEA /* ForeignKeyDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/ForeignKeyDefinition.swift; sourceTree = "<group>"; };
-		F36DA3A406554C3F97F1EFFA /* IndexDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/IndexDefinition.swift; sourceTree = "<group>"; };
-		4503CB7C3CC945D6B2C827EA /* TableAlteration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/TableAlteration.swift; sourceTree = "<group>"; };
-		DF6B8863F1BB4E2B8D39BC5E /* TableDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/TableDefinition.swift; sourceTree = "<group>"; };
-		EE450C41239243E487B0429A /* VirtualTableModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/Schema/VirtualTableModule.swift; sourceTree = "<group>"; };
-		117CA40C75CC44C6AAFB6CC8 /* TableRecord+Association.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/TableRecord+Association.swift; sourceTree = "<group>"; };
-		96E27FFDA1D24869A62837CC /* TableRecord+QueryInterfaceRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInterface/TableRecord+QueryInterfaceRequest.swift; sourceTree = "<group>"; };
-		9070783C47BE4D9A9B6EB818 /* EncodableRecord+Encodable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/EncodableRecord+Encodable.swift; sourceTree = "<group>"; };
-		CBD4E10A6DFE4DDAA5295D46 /* EncodableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/EncodableRecord.swift; sourceTree = "<group>"; };
-		C31B5B03C0AF43F0BC6154C5 /* FetchableRecord+Decodable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/FetchableRecord+Decodable.swift; sourceTree = "<group>"; };
-		B195036B82C248A6A7546A47 /* FetchableRecord+TableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/FetchableRecord+TableRecord.swift; sourceTree = "<group>"; };
-		73CFB671F7714D0FB6D9434B /* FetchableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/FetchableRecord.swift; sourceTree = "<group>"; };
-		0D411ABFBF044E4ABB2747D3 /* MutablePersistableRecord+DAO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+DAO.swift; sourceTree = "<group>"; };
-		D873E73044014CF6BC236379 /* MutablePersistableRecord+Delete.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+Delete.swift; sourceTree = "<group>"; };
-		4BC5CDEFF22243A59AC60131 /* MutablePersistableRecord+Insert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+Insert.swift; sourceTree = "<group>"; };
-		52A3C780D5F74D03AEBB5FA8 /* MutablePersistableRecord+Save.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+Save.swift; sourceTree = "<group>"; };
-		3ECBDF61401A438889F0A1EA /* MutablePersistableRecord+Update.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+Update.swift; sourceTree = "<group>"; };
-		9CCDC98AC6424841B7CE2094 /* MutablePersistableRecord+Upsert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord+Upsert.swift; sourceTree = "<group>"; };
-		6CBE6F8032BE4963832BC7AB /* MutablePersistableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/MutablePersistableRecord.swift; sourceTree = "<group>"; };
-		6B84D3802C744C33AF263FBF /* PersistableRecord+Insert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/PersistableRecord+Insert.swift; sourceTree = "<group>"; };
-		9DE358B9E2E344169066E3B2 /* PersistableRecord+Save.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/PersistableRecord+Save.swift; sourceTree = "<group>"; };
-		177A572A4A854E45BDD700D5 /* PersistableRecord+Upsert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/PersistableRecord+Upsert.swift; sourceTree = "<group>"; };
-		F4AE79DD2DA740E8839B64E7 /* PersistableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/PersistableRecord.swift; sourceTree = "<group>"; };
-		083C9B155CEC420C9D847295 /* Record.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/Record.swift; sourceTree = "<group>"; };
-		A11A9073A4914C88842A9F16 /* TableRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Record/TableRecord.swift; sourceTree = "<group>"; };
-		A2A508A428074A75A8F9EAB6 /* CaseInsensitiveIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/CaseInsensitiveIdentifier.swift; sourceTree = "<group>"; };
-		D3569664A8C04B54A77FDABB /* Inflections+English.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Inflections+English.swift; sourceTree = "<group>"; };
-		F9B733B122B146C38965293C /* Inflections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Inflections.swift; sourceTree = "<group>"; };
-		633C1635E6494FE5AC312717 /* Mutex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Mutex.swift; sourceTree = "<group>"; };
-		0DEA59E9F3F54A15B9A76C22 /* OnDemandFuture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/OnDemandFuture.swift; sourceTree = "<group>"; };
-		3DE24830101E46BF8B3EAC8F /* OrderedDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/OrderedDictionary.swift; sourceTree = "<group>"; };
-		333CEF8B7E1945489FC79C24 /* Pool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Pool.swift; sourceTree = "<group>"; };
-		DA65DD4C786544C19F1324F3 /* ReadWriteLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/ReadWriteLock.swift; sourceTree = "<group>"; };
-		9D4987BB063A4D5DA52489E7 /* ReceiveValuesOn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/ReceiveValuesOn.swift; sourceTree = "<group>"; };
-		6B4E724DD2644965909C4223 /* Refinable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Refinable.swift; sourceTree = "<group>"; };
-		A6D897BD90A0487FA2A18F88 /* Utils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Utils/Utils.swift; sourceTree = "<group>"; };
-		60DFDB654BA943D0807E5A11 /* DatabaseCancellable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/DatabaseCancellable.swift; sourceTree = "<group>"; };
-		0AED11B6690B4D20AF9334A9 /* ValueConcurrentObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Observers/ValueConcurrentObserver.swift; sourceTree = "<group>"; };
-		623225E340CC4D68B6057DC7 /* ValueWriteOnlyObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Observers/ValueWriteOnlyObserver.swift; sourceTree = "<group>"; };
-		064446C63AEA497B9EB5D593 /* Fetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Reducers/Fetch.swift; sourceTree = "<group>"; };
-		7F9159CE9CB74D2AA1F4B30F /* Map.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Reducers/Map.swift; sourceTree = "<group>"; };
-		5D0137266360490880F6D58E /* RemoveDuplicates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Reducers/RemoveDuplicates.swift; sourceTree = "<group>"; };
-		BA6C32FE2B614E0B9F98DC16 /* Trace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Reducers/Trace.swift; sourceTree = "<group>"; };
-		98A22F856E2F4C2C99AEA8C9 /* ValueReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/Reducers/ValueReducer.swift; sourceTree = "<group>"; };
-		01BB61204EAC49C09B911DB6 /* SharedValueObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/SharedValueObservation.swift; sourceTree = "<group>"; };
-		C47A4190A4CD4382A0586E48 /* ValueObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/ValueObservation.swift; sourceTree = "<group>"; };
-		78644B29C1E545A2B19BA71C /* ValueObservationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueObservation/ValueObservationScheduler.swift; sourceTree = "<group>"; };
-		DB6F3606B60248919CBB586C /* CSS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSS.swift; sourceTree = "<group>"; };
-		CC276C9B7CEA4B4B87C7C5EF /* Deprecated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deprecated.swift; sourceTree = "<group>"; };
-		27CDFAC450D44B9F8E2FD129 /* Kanna.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kanna.swift; sourceTree = "<group>"; };
-		599F9C091E7E41108D35EB0C /* libxmlHTMLDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = libxmlHTMLDocument.swift; sourceTree = "<group>"; };
-		A82E7DCB863C409AADAF4273 /* libxmlHTMLNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = libxmlHTMLNode.swift; sourceTree = "<group>"; };
-		EF491E719C9F4E1793A08FEE /* libxmlParserOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = libxmlParserOption.swift; sourceTree = "<group>"; };
-		6968B1B5FEDB4F8D937009D5 /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1517,7 +1180,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 439;
+				CURRENT_PROJECT_VERSION = 440;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -1545,7 +1208,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.439;
+				MARKETING_VERSION = 3.440;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lxml2",
@@ -1568,7 +1231,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 439;
+				CURRENT_PROJECT_VERSION = 440;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
@@ -1596,7 +1259,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries",
 				);
-				MARKETING_VERSION = 3.439;
+				MARKETING_VERSION = 3.440;
 				OTHER_LDFLAGS = (
 					"-lquickjs",
 					"-lxml2",
