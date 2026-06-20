@@ -33,8 +33,7 @@ class SpiderManager: ObservableObject {
         ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
 
         ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
-        ("玩偶4K弹幕", "http://wogg.xxooo.cf/api.php/provide/vod"),
-        ("木偶影视",   "https://666.666291.xyz/api.php/provide/vod"),
+
         ("4KTOP蓝光",  "https://4ktop.com/api.php/provide/vod"),
         ("盘Ta资源",   "https://www.91panta.cn/api.php/provide/vod"),
         ("多多资源",   "https://tv.yydsys.top/api.php/provide/vod"),
