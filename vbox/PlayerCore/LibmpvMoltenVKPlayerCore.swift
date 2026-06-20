@@ -45,10 +45,12 @@ final class LibmpvMoltenVKRenderView: UIView {
 
 final class LibmpvMoltenVKPlayerCore: NSObject {
 
-    // MARK: - PiP Metal 帧捕获属性
+    // MARK: - PiP 帧捕获属性
 
-    /// PiP 帧捕获开关（由 MPVPiPManager 通过通知控制）
+    /// PiP 帧捕获开关
     private var isPipCapturing = false
+    /// 帧捕获 CADisplayLink
+    private var captureDisplayLink: CADisplayLink?
     /// 帧捕获计数器（节流用）
     private var frameCaptureCounter: Int = 0
     /// 帧捕获间隔（每 N 帧捕获一次）
@@ -76,58 +78,67 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     deinit {
         teardown()
+        captureDisplayLink?.invalidate()
     }
 
     // MARK: - PiP 帧捕获控制
 
-    /// 启动 PiP 帧捕获（由 Coordinator 在收到 PiP 通知时调用）
-    /// 通过 PiPCaptureMetalLayer.onFrameCaptured 回调获取帧，不干扰 mpv 渲染
+    /// 启动 PiP 帧捕获（通过截图方式，不干扰 mpv 渲染）
     func startPiPCapture() {
         guard !isPipCapturing else { return }
         isPipCapturing = true
         frameCaptureCounter = 0
-        log("[PiP] Metal 帧捕获已启动（present 拦截模式）")
+        log("[PiP] 帧捕获已启动（截图模式）")
 
-        // 设置帧捕获回调（PiPCaptureMetalLayer 在 present() 时触发）
-        renderView.metalLayer.onFrameCaptured = { [weak self] texture in
-            self?.handleCapturedFrame(texture)
+        if captureDisplayLink == nil {
+            captureDisplayLink = CADisplayLink(target: self, selector: #selector(captureFrameTick))
+            captureDisplayLink?.preferredFramesPerSecond = 10  // 10fps 足够 PiP
+            captureDisplayLink?.add(to: .main, forMode: .common)
         }
     }
 
     /// 停止 PiP 帧捕获
     func stopPiPCapture() {
         isPipCapturing = false
+        captureDisplayLink?.invalidate()
+        captureDisplayLink = nil
         frameCaptureCounter = 0
-        renderView.metalLayer.onFrameCaptured = nil
-        log("[PiP] Metal 帧捕获已停止")
+        log("[PiP] 帧捕获已停止")
     }
 
-    /// 处理从 PiPCaptureMetalLayer.present() 拦截到的帧
-    private func handleCapturedFrame(_ texture: MTLTexture) {
+    /// CADisplayLink 回调：定期截图捕获帧
+    @objc private func captureFrameTick(_ displayLink: CADisplayLink) {
         guard isPipCapturing, !isShuttingDown else { return }
+        guard state.width > 0, state.height > 0 else { return }
 
-        // 帧节流
         frameCaptureCounter += 1
         guard frameCaptureCounter >= frameCaptureInterval else { return }
         frameCaptureCounter = 0
 
-        let width = texture.width
-        let height = texture.height
+        captureFrameViaSnapshot()
+    }
+
+    /// 通过截图方式捕获当前帧（不干扰 mpv 的 Metal 渲染管线）
+    private func captureFrameViaSnapshot() {
+        let view = renderView
         let currentTime = state.currentTime
+        let captureWidth = view.bounds.width
+        let captureHeight = view.bounds.height
 
-        // 从 staging 纹理读取像素数据并推送到 PiP 管理器
-        let bytesPerRow = width * 4
-        let totalBytes = bytesPerRow * height
-        let rawPixels = UnsafeMutablePointer<UInt8>.allocate(capacity: totalBytes)
-        defer { rawPixels.deallocate() }
+        guard captureWidth > 0, captureHeight > 0 else { return }
 
-        texture.getBytes(rawPixels,
-                         bytesPerRow: bytesPerRow,
-                         from: MTLRegion(origin: MTLOrigin(x: 0, y: 0, z: 0),
-                                          size: MTLSize(width: width, height: height, depth: 1)),
-                         mipmapLevel: 0)
+        // 使用 UIGraphicsImageRenderer 截图（在主线程，安全）
+        let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
+        let image = renderer.image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+        }
 
-        // 推送到主线程创建 CVPixelBuffer 并发送给 PiP 管理器
+        // 将 UIImage 转换为 CVPixelBuffer
+        guard let cgImage = image.cgImage else { return }
+
+        let width = cgImage.width
+        let height = cgImage.height
+
         Task { @MainActor in
             guard let pixelBuffer = MPVPiPManager.shared.createPixelBufferFromPool() else { return }
 
@@ -137,13 +148,27 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             guard let destBaseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
             let destBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
 
-            // Metal 纹理坐标原点在左上角，CVPixelBuffer 也是左上角，无需翻转
-            let rowBytes = min(bytesPerRow, destBytesPerRow)
-            for y in 0..<height {
-                let srcRow = rawPixels.advanced(by: y * bytesPerRow)
-                let dstRow = destBaseAddress.advanced(by: y * destBytesPerRow)
-                memcpy(dstRow, srcRow, rowBytes)
-            }
+            // 使用 CGContext 从 CGImage 获取像素数据
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            var bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+            bitmapInfo.union(.byteOrder32Little)
+
+            guard let context = CGContext(
+                data: destBaseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: destBytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo.rawValue
+            ) else { return }
+
+            // CGContext 坐标原点在左下角，需要翻转
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1.0, y: -1.0)
+
+            let rect = CGRect(x: 0, y: 0, width: width, height: height)
+            context.draw(cgImage, in: rect)
 
             let presentationTime = CMTime(
                 value: Int64(currentTime * 1000),
@@ -170,7 +195,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             setupMPV()
         }
 
-        // 确保 Metal device 已初始化（PiPCaptureMetalLayer 需要）
+        // 确保 Metal device 已初始化
         if renderView.metalLayer.device == nil {
             renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
         }
@@ -244,7 +269,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         // 停止帧捕获
         stopPiPCapture()
-        renderView.metalLayer.onFrameCaptured = nil
 
         if let handle = mpv {
             mpv_set_wakeup_callback(handle, nil, nil)
