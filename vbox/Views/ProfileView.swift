@@ -26,9 +26,9 @@ struct ProfileView: View {
         return Color(uiColor: .label)
     }
 
-    var backgroundColor: some View {
+    var backgroundColor: Color {
         if settings.usesVisualSkin {
-            return Color.clear.background(.ultraThinMaterial)
+            return Color.clear
         } else {
             return Color(uiColor: .systemBackground)
         }
