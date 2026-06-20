@@ -321,9 +321,12 @@ final class ZhanyuanSearchService {
 
             let remarks = i < stars.count ? stars[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) : ""
 
+            // vodRemarks 始终用站点名称，确保搜索结果按站点正确分组
+            // 备注信息（如"已完结"）拼接到 vodName 后面
+            let displayName = remarks.isEmpty ? name : "\(name) \(remarks)"
             items.append(VodItem(
-                vodId: id, vodName: name, vodPic: pic,
-                vodRemarks: remarks.isEmpty ? site.name : remarks
+                vodId: id, vodName: displayName, vodPic: pic,
+                vodRemarks: site.name
             ))
         }
 

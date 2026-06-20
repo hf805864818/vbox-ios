@@ -295,6 +295,7 @@ class SubscriptionManager: ObservableObject {
         // 2. 保存 zhanyuan 站点到数据库
         var zhanyuanSavedCount = 0
         if let zhanyuanArray = jsonDict["zhanyuan"] as? [[String: Any]] {
+            print("[SubscriptionManager] 从 jsonDict['zhanyuan'] 读取 \(zhanyuanArray.count) 个站点")
             let zhanyuanSites: [ZhanyuanSite] = zhanyuanArray.compactMap { item in
                 guard let name = item["name"] as? String,
                       let searchUrl = item["searchUrl"] as? String else { return nil }
@@ -322,7 +323,9 @@ class SubscriptionManager: ObservableObject {
 
         // 2.1 如果 jsonDict 中没有 zhanyuan 字段，从 sites 数组中提取 type=2 的站点
         if zhanyuanSavedCount == 0 {
-            let zhanyuanFromSites: [ZhanyuanSite] = sites.compactMap { site in
+            let type2Sites = sites.filter { $0.type == 2 }
+            print("[SubscriptionManager] jsonDict 无 zhanyuan 字段，sites 中 type=2 站点: \(type2Sites.count) 个 (总 sites: \(sites.count) 个)")
+            let zhanyuanFromSites: [ZhanyuanSite] = type2Sites.compactMap { site in
                 guard site.type == 2 else { return nil }
                 guard let api = site.api, !api.isEmpty else { return nil }
                 // 从 ext 字段解析搜索配置

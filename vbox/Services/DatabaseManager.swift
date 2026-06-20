@@ -187,13 +187,19 @@ class DatabaseManager {
     // MARK: - Zhanyuan CRUD
 
     func saveZhanyuanSites(_ sites: [ZhanyuanSite]) {
+        guard !sites.isEmpty else {
+            print("[DatabaseManager] saveZhanyuanSites: 站点列表为空，跳过")
+            return
+        }
         do {
             try dbPool.write { db in
+                // 先清空旧数据，再批量插入（避免 save() 的 insert/update 判断问题）
+                try ZhanyuanSite.deleteAll(db)
                 for site in sites {
-                    try site.save(db)
+                    try site.insert(db)
                 }
             }
-            print("[DatabaseManager] 保存 \(sites.count) 个 zhanyuan 站点")
+            print("[DatabaseManager] 保存 \(sites.count) 个 zhanyuan 站点到 SQLite")
         } catch {
             print("[DatabaseManager] 保存 zhanyuan 失败: \(error)")
         }
