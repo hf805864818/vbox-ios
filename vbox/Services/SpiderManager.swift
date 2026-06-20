@@ -1174,10 +1174,72 @@ globalThis.__JS_SPIDER__ = _spider;
         log("====== Stream完成: 成功\(successCount)/空\(emptyCount)/失败\(failCount) ======")
     }
 
+    /// 根据 URL 域名查找匹配的 zhanyuan 站点配置
+    /// 优先从 SQLite 查找，为空时从内存回退
+    private func findZhanyuanSiteForURL(_ url: String) async -> ZhanyuanSite? {
+        guard let urlObj = URL(string: url) else { return nil }
+        let host = urlObj.host ?? ""
+
+        // 1. 从 SQLite 查找
+        let dbSites = DatabaseManager.shared.queryActiveZhanyuanSites()
+        for site in dbSites {
+            if let siteUrl = URL(string: site.searchUrl),
+               siteUrl.host == host {
+                return site
+            }
+        }
+
+        // 2. 从内存回退（@Published 属性需要主线程）
+        let spiderSites = await MainActor.run { self.allSites }
+        for s in spiderSites where s.type == 2 {
+            guard let api = s.api, !api.isEmpty else { continue }
+            if let siteUrl = URL(string: api), siteUrl.host == host {
+                // 从 ext 字段构建 ZhanyuanSite
+                let extJSON = s.ext ?? "{}"
+                if let data = extJSON.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    return ZhanyuanSite(
+                        name: json["name"] as? String ?? s.name,
+                        searchUrl: json["searchUrl"] as? String ?? api,
+                        searchUA: json["searchUA"] as? String ?? "",
+                        playUA: json["playUA"] as? String ?? "",
+                        websearchurl: json["websearchurl"] as? String ?? "",
+                        searchname: json["searchname"] as? String ?? "",
+                        searchid: json["searchid"] as? String ?? "",
+                        searchpic: json["searchpic"] as? String ?? "",
+                        searchstarr: json["searchstarr"] as? String ?? "",
+                        detaillist: json["detaillist"] as? String ?? "",
+                        detailxl: json["detailxl"] as? String ?? "",
+                        detailjs: json["detailjs"] as? String ?? "",
+                        detailjsurl: json["detailjsurl"] as? String ?? "",
+                        isActive: true,
+                        updatedAt: Int64(Date().timeIntervalSince1970)
+                    )
+                }
+                return ZhanyuanSite(name: s.name, searchUrl: api)
+            }
+        }
+
+        return nil
+    }
+
     /// 通过引擎获取详情，失败时回退到原生 API 详情
     func getDetail(ids: String, name: String? = nil) async -> VodItem? {
-        // 0. 如果 ids 是 HTTP URL（网盘详情页），直接解析
+        // 0. 如果 ids 是 HTTP URL，判断是 zhanyuan 站源还是网盘
         if ids.hasPrefix("http://") || ids.hasPrefix("https://") {
+            // 0.1 检查是否匹配 zhanyuan 站点域名
+            if let zhanyuanSite = await findZhanyuanSiteForURL(ids) {
+                print("[SpiderManager] getDetail 检测到 zhanyuan 站源详情页: \(zhanyuanSite.name)")
+                do {
+                    let item = try await ZhanyuanSearchService.fetchDetail(detailUrl: ids, site: zhanyuanSite)
+                    return item
+                } catch {
+                    print("[SpiderManager] ❌ zhanyuan 详情页解析失败: \(error.localizedDescription)")
+                    // 继续尝试其他方式
+                }
+            }
+
+            // 0.2 非 zhanyuan，走网盘解析
             print("[SpiderManager] getDetail 检测到详情页URL，走网盘解析: \(ids.prefix(80))")
             if let result = await resolveCloudPlay(from: ids) {
                 // 把所有网盘链接编码到 vodPlayUrl 中
