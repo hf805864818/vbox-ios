@@ -3022,53 +3022,6 @@ struct QuarkNativeQRLoginTestView: View {
         }
     }
 
-    @MainActor
-    private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
-        while isPolling && pollCount < 90 {
-            pollCount += 1
-            do {
-                let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
-                switch result {
-                case .pending:
-                    statusText = "等待阿里云盘扫码"
-                    detailText = "请使用阿里云盘 App 扫描二维码。"
-                case .scanned:
-                    statusText = "已扫码，等待确认"
-                    detailText = "请在手机端点击确认登录。"
-                case .success(let refreshToken, let userInfo):
-                    statusText = "已确认，正在保存账号"
-                    CloudDriveAuthManager.shared.aliPassportSaveCredential(refreshToken: refreshToken, userInfo: userInfo)
-                    isPolling = false
-                    statusText = "阿里云盘扫码登录成功"
-                    detailText = "refresh_token 已保存到授权中心。"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
-                    return
-                case .expired:
-                    isPolling = false
-                    statusText = "二维码已过期"
-                    detailText = "请重新生成二维码。"
-                    return
-                case .canceled:
-                    isPolling = false
-                    statusText = "用户取消授权"
-                    detailText = "请重新生成二维码。"
-                    return
-                case .failed(let message):
-                    isPolling = false
-                    statusText = "轮询失败"
-                    detailText = message
-                    return
-                }
-            } catch {
-                isPolling = false
-                statusText = "轮询异常"
-                errorText = error.localizedDescription
-                return
-            }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-        }
-    }
-
     private func makeQRCode(from text: String) -> UIImage? {
         let data = Data(text.utf8)
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
@@ -3335,6 +3288,53 @@ struct NativeCloudQRLoginView: View {
                 case .expired:
                     isPolling = false
                     statusText = "二维码已过期"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                isPolling = false
+                statusText = "轮询异常"
+                errorText = error.localizedDescription
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    @MainActor
+    private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
+                switch result {
+                case .pending:
+                    statusText = "等待阿里云盘扫码"
+                    detailText = "请使用阿里云盘 App 扫描二维码。"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
+                    detailText = "请在手机端点击确认登录。"
+                case .success(let refreshToken, let userInfo):
+                    statusText = "已确认，正在保存账号"
+                    CloudDriveAuthManager.shared.aliPassportSaveCredential(refreshToken: refreshToken, userInfo: userInfo)
+                    isPolling = false
+                    statusText = "阿里云盘扫码登录成功"
+                    detailText = "refresh_token 已保存到授权中心。"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .canceled:
+                    isPolling = false
+                    statusText = "用户取消授权"
+                    detailText = "请重新生成二维码。"
                     return
                 case .failed(let message):
                     isPolling = false
