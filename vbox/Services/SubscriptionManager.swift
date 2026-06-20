@@ -285,6 +285,21 @@ class SubscriptionManager: ObservableObject {
         let db = DatabaseManager.shared
         let now = Int64(Date().timeIntervalSince1970)
 
+        print("[SubscriptionManager] ===== persistToDatabase 开始 =====")
+        print("[SubscriptionManager] 总 sites: \(sites.count), jsonDict keys: \(jsonDict.keys.sorted())")
+        let typeCount = Dictionary(grouping: sites, by: { $0.type }).mapValues { $0.count }
+        print("[SubscriptionManager] sites type 分布: \(typeCount)")
+        let type2Sites = sites.filter { $0.type == 2 }
+        print("[SubscriptionManager] type=2 zhanyuan 站点: \(type2Sites.count) 个")
+        if let first2 = type2Sites.first {
+            print("[SubscriptionManager] 第一个 type=2 站点: name=\(first2.name), api=\(first2.api?.prefix(50) ?? "nil"), ext=\(first2.ext?.prefix(100) ?? "nil")")
+        }
+        if let zhanyuanDict = jsonDict["zhanyuan"] as? [[String: Any]] {
+            print("[SubscriptionManager] jsonDict['zhanyuan'] 有 \(zhanyuanDict.count) 个条目")
+        } else {
+            print("[SubscriptionManager] jsonDict['zhanyuan'] 不存在或格式不对")
+        }
+
         // 1. 保存订阅源记录
         let dyname = jsonDict["dyname"] as? String ?? "未知订阅"
         let dyzz = jsonDict["dyzuozhe"] as? String ?? ""

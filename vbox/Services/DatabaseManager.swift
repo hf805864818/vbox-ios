@@ -193,15 +193,22 @@ class DatabaseManager {
         }
         do {
             try dbPool.write { db in
-                // 先清空旧数据，再批量插入（避免 save() 的 insert/update 判断问题）
-                try ZhanyuanSite.deleteAll(db)
+                // 用 SQL 直接清空旧数据（避免 GRDB deleteAll 的兼容性问题）
+                try db.execute(sql: "DELETE FROM zhanyuan")
+                // 逐个插入，单个失败不影响其他
+                var successCount = 0
                 for site in sites {
-                    try site.insert(db)
+                    do {
+                        try site.insert(db)
+                        successCount += 1
+                    } catch {
+                        print("[DatabaseManager] 插入 zhanyuan 站点 '\(site.name)' 失败: \(error)")
+                    }
                 }
+                print("[DatabaseManager] 保存 zhanyuan 站点完成: 成功 \(successCount)/\(sites.count)")
             }
-            print("[DatabaseManager] 保存 \(sites.count) 个 zhanyuan 站点到 SQLite")
         } catch {
-            print("[DatabaseManager] 保存 zhanyuan 失败: \(error)")
+            print("[DatabaseManager] 保存 zhanyuan 失败(事务级): \(error)")
         }
     }
 
