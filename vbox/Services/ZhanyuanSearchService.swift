@@ -245,8 +245,8 @@ final class ZhanyuanSearchService {
         }
 
         // 尝试常见中文编码
-        let gbkEncoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030.rawValue)))
-        let gb2312Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_2312_80.rawValue)))
+        let gbkEncoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(rawValue: 0x0632)))
+        let gb2312Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(rawValue: 0x0631)))
         for enc in [gbkEncoding, gb2312Encoding] {
             if let html = String(data: data, encoding: enc) {
                 print("[ZhanyuanSearch] 使用 GBK/GB2312 编码解码成功")
@@ -301,11 +301,11 @@ final class ZhanyuanSearchService {
             return .utf8
         case "gbk", "gb2312", "gb_2312", "gb18030", "gb-18030", "gb_18030":
             return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
-                CFStringEncoding(CFStringEncodings.GB_18030.rawValue)
+                CFStringEncoding(rawValue: 0x0632)
             ))
         case "big5", "big-5", "big_5":
             return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
-                CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)
+                CFStringEncoding(rawValue: 0x0A03)
             ))
         case "iso-8859-1", "latin1", "latin-1":
             return .isoLatin1
@@ -393,11 +393,10 @@ final class ZhanyuanSearchService {
 
         var links: [Kanna.XMLElement] = []
         for selector in linkSelectors {
-            if let found = doc.xpath(selector) {
-                if !found.isEmpty {
-                    links = found
-                    break
-                }
+            let found = doc.xpath(selector).nodes
+            if !found.isEmpty {
+                links = found
+                break
             }
         }
 
@@ -423,7 +422,8 @@ final class ZhanyuanSearchService {
                     ".//span"
                 ]
                 for ts in titleSelectors {
-                    if let titleEls = link.xpath(ts), let first = titleEls.first {
+                    let titleEls = link.xpath(ts).nodes
+                    if let first = titleEls.first {
                         if let t = first.text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
                             name = t
                             break
@@ -481,7 +481,8 @@ final class ZhanyuanSearchService {
             baseXPath = String(baseXPath[..<attrMatch.lowerBound])
         }
 
-        guard let nodes = doc.xpath(baseXPath), !nodes.isEmpty else {
+        let nodes = doc.xpath(baseXPath).nodes
+        guard !nodes.isEmpty else {
             return []
         }
 

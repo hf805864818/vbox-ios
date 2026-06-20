@@ -1677,41 +1677,6 @@ struct CategoryCard: View {
     }
 }
 
-// MARK: - 个人中心视图
-struct ProfileView: View {
-    @EnvironmentObject private var settings: AppSettings
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                // 用户信息
-                UserInfoSection()
-
-                // 功能列表
-                VStack(spacing: 1) {
-                    ProfileMenuItem(icon: "heart.fill", title: "我的收藏", badge: "12")
-                    ProfileMenuItem(icon: "clock.fill", title: "观看历史")
-                    ProfileMenuItem(icon: "arrow.down.circle.fill", title: "下载管理")
-                    ProfileMenuItem(icon: "globe", title: "云盘播放")
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .padding(.horizontal, 16)
-                .padding(.top, 20)
-
-                VStack(spacing: 1) {
-                    ProfileMenuItem(icon: "gearshape.fill", title: "设置")
-                    ProfileMenuItem(icon: "info.circle.fill", title: "关于")
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-            }
-            .padding(.bottom, 100)
-        }
-        .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
-    }
-}
-
 // 用户信息区域
 struct UserInfoSection: View {
     var body: some View {

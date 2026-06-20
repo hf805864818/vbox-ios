@@ -348,7 +348,7 @@ class SubscriptionManager: ObservableObject {
             }
         }
 
-        print("[SubscriptionManager] ✅ 已持久化到 SQLite: zhanyuan=\(jsonDict["zhanyuan"] as? [[String: Any]]?.count ?? 0), apiyuan=\(jsonDict["apiyuan"] as? [[String: Any]]?.count ?? 0)")
+        print("[SubscriptionManager] ✅ 已持久化到 SQLite: zhanyuan=\((jsonDict["zhanyuan"] as? [[String: Any]])?.count ?? 0), apiyuan=\((jsonDict["apiyuan"] as? [[String: Any]])?.count ?? 0)")
     }
 
     var jsSites: [SiteConfig] { config?.sites.filter { $0.type == 3 } ?? [] }

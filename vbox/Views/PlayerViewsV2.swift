@@ -1163,9 +1163,11 @@ class PlayerState: ObservableObject {
                 $0.detailurl == video.vodId &&
                 $0.xianlu == currentEpisodeIndex
             }) {
-                DatabaseManager.shared.removeFavorite(id: record.id)
-                isFavorite = false
-                log("[Favorite] 已取消收藏: \(video.vodName)")
+                if let id = record.id {
+                    DatabaseManager.shared.removeFavorite(id: id)
+                    isFavorite = false
+                    log("[Favorite] 已取消收藏: \(video.vodName)")
+                }
             }
         } else {
             // 添加收藏
