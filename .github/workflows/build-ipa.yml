@@ -91,14 +91,8 @@ jobs:
       - name: 🏗️ Build
         run: |
           set -o pipefail
-          # 检测 workspace 是否存在（CocoaPods 生成），否则使用 project
-          if [ -f "vbox.xcworkspace" ]; then
-            echo "使用 xcworkspace 构建（CocoaPods 集成）"
-            BUILD_CMD="xcodebuild -workspace vbox.xcworkspace -scheme vbox"
-          else
-            echo "使用 xcodeproj 构建（手动集成）"
-            BUILD_CMD="xcodebuild -project vbox.xcodeproj -scheme vbox"
-          fi
+          # CocoaPods 生成 xcworkspace，始终使用 workspace 构建
+          BUILD_CMD="xcodebuild -workspace vbox.xcworkspace -scheme vbox"
           $BUILD_CMD \
             -sdk iphoneos \
             -configuration Release \
