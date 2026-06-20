@@ -487,8 +487,9 @@ struct VideoPlayerViewV2: View {
     
     private func togglePiPAuto() {
         if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
-            // MPV 帧桥接 PiP
+            // MPV/MDK 帧桥接 PiP
             #if canImport(Libmpv)
+            // 初始化 PiP 控制器（尺寸未知时延迟到首帧自动初始化）
             MPVPiPManager.shared.initializePiP()
             MPVPiPManager.shared.startPiP()
             #else
@@ -1493,6 +1494,14 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
+        // 清理 MPV PiP 控制器
+        #if canImport(Libmpv)
+        MPVPiPManager.shared.cleanupPiPController()
+        #endif
+        // 清理 MDK PiP 控制器
+        #if canImport(swift_mdk)
+        MDKPipManager.shared.cleanupPiPController()
+        #endif
     }
     
     // MARK: - 网盘视频处理
@@ -4007,6 +4016,32 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 guard let speed = note.userInfo?["speed"] as? Double else { return }
                 self?.core.setRate(speed)
             })
+
+            // PiP 帧捕获控制：监听 PiP 状态变化通知，控制 Metal 帧捕获
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPStatusChanged, object: nil, queue: .main) { [weak self] note in
+                guard let isActive = note.object as? Bool else { return }
+                if isActive {
+                    self?.core.startPiPCapture()
+                } else {
+                    self?.core.stopPiPCapture()
+                }
+            })
+            // PiP 跳转控制
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVPiPSkip, object: nil, queue: .main) { [weak self] note in
+                guard let skipInterval = note.object as? CMTime else { return }
+                let seconds = CMTimeGetSeconds(skipInterval)
+                let current = self?.core.state.currentTime ?? 0
+                self?.core.seek(to: current + seconds)
+            })
+            // PiP 播放/暂停控制
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] note in
+                guard let playing = note.object as? Bool else { return }
+                if playing {
+                    self?.core.play()
+                } else {
+                    self?.core.pause()
+                }
+            })
         }
 
         deinit {
@@ -4031,6 +4066,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         func stop() {
             guard !isStopped else { return }
             isStopped = true
+            core.stopPiPCapture()
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
             core.onLog = nil
