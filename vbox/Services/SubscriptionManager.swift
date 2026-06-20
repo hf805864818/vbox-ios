@@ -293,6 +293,7 @@ class SubscriptionManager: ObservableObject {
         ))
 
         // 2. 保存 zhanyuan 站点到数据库
+        var zhanyuanSavedCount = 0
         if let zhanyuanArray = jsonDict["zhanyuan"] as? [[String: Any]] {
             let zhanyuanSites: [ZhanyuanSite] = zhanyuanArray.compactMap { item in
                 guard let name = item["name"] as? String,
@@ -316,6 +317,60 @@ class SubscriptionManager: ObservableObject {
                 )
             }
             db.saveZhanyuanSites(zhanyuanSites)
+            zhanyuanSavedCount = zhanyuanSites.count
+        }
+
+        // 2.1 如果 jsonDict 中没有 zhanyuan 字段，从 sites 数组中提取 type=2 的站点
+        if zhanyuanSavedCount == 0 {
+            let zhanyuanFromSites: [ZhanyuanSite] = sites.compactMap { site in
+                guard site.type == 2 else { return nil }
+                guard let api = site.api, !api.isEmpty else { return nil }
+                // 从 ext 字段解析搜索配置
+                let extJSON = site.ext ?? "{}"
+                if let data = extJSON.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    return ZhanyuanSite(
+                        name: json["name"] as? String ?? site.name,
+                        searchUrl: json["searchUrl"] as? String ?? api,
+                        searchUA: json["searchUA"] as? String ?? "",
+                        playUA: json["playUA"] as? String ?? "",
+                        websearchurl: json["websearchurl"] as? String ?? "",
+                        searchname: json["searchname"] as? String ?? "",
+                        searchid: json["searchid"] as? String ?? "",
+                        searchpic: json["searchpic"] as? String ?? "",
+                        searchstarr: json["searchstarr"] as? String ?? "",
+                        detaillist: json["detaillist"] as? String ?? "",
+                        detailxl: json["detailxl"] as? String ?? "",
+                        detailjs: json["detailjs"] as? String ?? "",
+                        detailjsurl: json["detailjsurl"] as? String ?? "",
+                        isActive: true,
+                        updatedAt: now
+                    )
+                }
+                // ext 不是有效 JSON，用 api 作为 searchUrl
+                return ZhanyuanSite(
+                    name: site.name,
+                    searchUrl: api,
+                    searchUA: "",
+                    playUA: "",
+                    websearchurl: "",
+                    searchname: "",
+                    searchid: "",
+                    searchpic: "",
+                    searchstarr: "",
+                    detaillist: "",
+                    detailxl: "",
+                    detailjs: "",
+                    detailjsurl: "",
+                    isActive: true,
+                    updatedAt: now
+                )
+            }
+            if !zhanyuanFromSites.isEmpty {
+                db.saveZhanyuanSites(zhanyuanFromSites)
+                zhanyuanSavedCount = zhanyuanFromSites.count
+                print("[SubscriptionManager] 从 sites 数组提取 \(zhanyuanSavedCount) 个 zhanyuan 站点写入 SQLite")
+            }
         }
 
         // 3. 保存 apiyuan 站点到数据库
