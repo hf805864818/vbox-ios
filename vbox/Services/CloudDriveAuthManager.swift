@@ -254,6 +254,8 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "ck", value: token.ck)
         ]
         var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("https://www.aliyundrive.com", forHTTPHeaderField: "Origin")
         request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
@@ -367,7 +369,7 @@ final class CloudDriveAuthManager: ObservableObject {
         case failed(message: String)
     }
 
-    func ucCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> UCQrLoginToken {
+    func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
