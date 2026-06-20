@@ -100,6 +100,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
                 log("[PiP] Metal 设备初始化失败，无法启动帧捕获")
                 return
             }
+            return
         }
         isPipCapturing = true
         frameCaptureCounter = 0
