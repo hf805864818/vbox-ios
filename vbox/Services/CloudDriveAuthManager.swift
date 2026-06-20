@@ -206,6 +206,9 @@ final class CloudDriveAuthManager: ObservableObject {
     func ucCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> UCQrLoginToken {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "darwin"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
@@ -252,16 +255,16 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
-        // UC 与夸克共用 CAS，account/info 需使用 pan.quark.cn 域名才能正确换取 Cookie
-        var components = URLComponents(string: "https://pan.quark.cn/account/info")!
+        // UC 使用自己的 account/info 域名换取 Cookie，与夸克分开（对齐 iBox 实现）
+        var components = URLComponents(string: "https://drive.uc.cn/account/info")!
         components.queryItems = [
             URLQueryItem(name: "st", value: serviceTicket),
             URLQueryItem(name: "fr", value: "pc"),
             URLQueryItem(name: "platform", value: "pc")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
         let config = URLSessionConfiguration.ephemeral
@@ -274,7 +277,7 @@ final class CloudDriveAuthManager: ObservableObject {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw AuthError.remoteError("UC account/info HTTP 失败")
         }
-        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
+        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
         guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -787,8 +790,8 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        // UC 和夸克共用 CAS 登录体系，使用夸克域名扫码可正常回调到 UC
-        var components = URLComponents(string: "https://su.quark.cn/4_eMHBJ")!
+        // UC 使用自己的扫码确认域名，与夸克分开，避免用户扫码后跳转到夸克页面
+        var components = URLComponents(string: "https://su.uc.cn/4_eMHBJ")!
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
@@ -796,7 +799,7 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
         ]
-        return components.url?.absoluteString ?? "https://su.quark.cn/4_eMHBJ?token=\(token)&client_id=\(clientId)&ssb=weblogin"
+        return components.url?.absoluteString ?? "https://su.uc.cn/4_eMHBJ?token=\(token)&client_id=\(clientId)&ssb=weblogin"
     }
 
     private func timestampMS() -> String {
