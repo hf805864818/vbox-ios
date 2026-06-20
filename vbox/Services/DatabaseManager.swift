@@ -463,7 +463,7 @@ class DatabaseManager {
                     key: key,
                     value: value,
                     updatedAt: Int64(Date().timeIntervalSince1970)
-                ).save(db)
+                ).save(db, onConflict: .replace)
             }
         } catch {
             print("[DatabaseManager] 保存设置失败: \(error)")
@@ -500,7 +500,7 @@ class DatabaseManager {
     func saveJiexiSetting(_ record: JiexiSetting) {
         do {
             try dbPool.write { db in
-                try record.save(db)
+                try record.save(db, onConflict: .replace)
             }
         } catch {
             print("[DatabaseManager] 保存解析设置失败: \(error)")
