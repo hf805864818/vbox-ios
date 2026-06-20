@@ -691,7 +691,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let req = (url, options) => http(url, Object.assign({ async: false }, options));
         """)
         // 2. 加载 cheerio (HTML 解析器)
-        if let cheerioPath = Bundle.main.path(forResource: "cheerio.min", ofType: "js", inDirectory: "js/lib"),
+        if let cheerioPath = Bundle.main.path(forResource: "cheerio.min", ofType: "js"),
            let cheerioJs = try? String(contentsOfFile: cheerioPath, encoding: .utf8) {
             try engine.loadLibrary(cheerioJs)
             print("[SpiderManager] ✅ cheerio 已注入")
@@ -709,13 +709,13 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] ✅ similarity.js 已注入")
         }
         // 5. 模板引擎
-        if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js", inDirectory: "js/lib"),
+        if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js"),
            let tmplJs = try? String(contentsOfFile: tmplPath, encoding: .utf8) {
             try engine.loadLibrary(tmplJs)
             print("[SpiderManager] ✅ 模板引擎已注入")
         }
         // 6. zhanyuan 蜘蛛引擎 (HTML 站源)
-        if let zhanPath = Bundle.main.path(forResource: "zhanyuan_spider", ofType: "js", inDirectory: "js/lib"),
+        if let zhanPath = Bundle.main.path(forResource: "zhanyuan_spider", ofType: "js"),
            let zhanJs = try? String(contentsOfFile: zhanPath, encoding: .utf8) {
             try engine.loadLibrary(zhanJs)
             print("[SpiderManager] ✅ zhanyuan 蜘蛛引擎已注入")
