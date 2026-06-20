@@ -8,16 +8,14 @@ import AVFoundation
 import Libmpv
 
 final class LibmpvMoltenVKRenderView: UIView {
-    let metalLayer: PiPCaptureMetalLayer
+    let metalLayer = MPVKitMetalLayer()
 
     override init(frame: CGRect) {
-        metalLayer = PiPCaptureMetalLayer()
         super.init(frame: frame)
         configure()
     }
 
     required init?(coder: NSCoder) {
-        metalLayer = PiPCaptureMetalLayer()
         super.init(coder: coder)
         configure()
     }
