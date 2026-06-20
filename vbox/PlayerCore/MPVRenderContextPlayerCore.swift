@@ -335,8 +335,11 @@ final class MPVRenderContextPlayerCore: NSObject {
     }
 
     /// 捕获当前帧用于 PiP 推送
+    /// 关键修复：使用 CVPixelBufferPool 创建 pixelBuffer，避免 CVPixelBufferCreateWithBytes
+    /// 的悬垂指针问题（pixelData 在函数返回后被释放，但 pixelBuffer 仍引用它）
     private func captureFrameForPiP(videoWidth: Int, videoHeight: Int) {
-        // 仅在 PiP 激活时才捕获（通过非隔离标志检查，避免跨 actor 访问）
+        // 仅在 PiP 激活或 PiP 准备中时才捕获
+        // 通过 Task @MainActor 检查 MPVPiPManager.isPiPReady
         guard isPipCapturing else { return }
         guard videoWidth > 0, videoHeight > 0 else { return }
 
@@ -384,45 +387,65 @@ final class MPVRenderContextPlayerCore: NSObject {
             }
         }
 
-        // 读取像素数据
+        // 读取像素数据到临时缓冲区
         let bytesPerRow = videoWidth * 4
         let totalBytes = bytesPerRow * videoHeight
         let pixelData = UnsafeMutablePointer<UInt8>.allocate(capacity: totalBytes)
-        defer { pixelData.deallocate() }
 
         glReadPixels(GLint(0), GLint(0),
                      GLsizei(videoWidth), GLsizei(videoHeight),
                      GLenum(GL_BGRA), GLenum(GL_UNSIGNED_BYTE),
                      pixelData)
 
-        // 恢复原始 FBO
+        // 恢复原始 FBO（尽早恢复，不阻塞后续渲染）
         glBindFramebuffer(GLenum(GL_FRAMEBUFFER), GLenum(originalFBO))
 
-        // 将像素数据写入 CVPixelBuffer 并推送给 PiP 管理器
-        var pixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreateWithBytes(
-            kCFAllocatorDefault,
-            Int(videoWidth),
-            Int(videoHeight),
-            kCVPixelFormatType_32BGRA,
-            pixelData,
-            bytesPerRow,
-            nil, nil, nil,
-            &pixelBuffer
-        )
+        // 检查 OpenGL 错误
+        let glError = glGetError()
+        if glError != GLenum(GL_NO_ERROR) {
+            pixelData.deallocate()
+            log("glReadPixels 错误：\(glError)")
+            return
+        }
 
-        guard status == kCVReturnSuccess, var pb = pixelBuffer else { return }
-
-        // glReadPixels 从底部向上读取，需要垂直翻转
-        flipPixelBufferVertically(&pb, width: videoWidth, height: videoHeight)
-
-        let presentationTime = CMTime(
-            value: Int64(state.currentTime * 1000),
-            timescale: 1000
-        )
+        // 使用 CVPixelBufferPool 创建 pixelBuffer（避免悬垂指针）
+        // 通过 Task @MainActor 获取 pool 创建的 pixelBuffer
+        let currentTime = state.currentTime
+        let captureWidth = videoWidth
+        let captureHeight = videoHeight
 
         Task { @MainActor in
-            MPVPiPManager.shared.enqueueFrame(pb, presentationTime: presentationTime)
+            guard let pixelBuffer = MPVPiPManager.shared.createPixelBufferFromPool() else {
+                pixelData.deallocate()
+                return
+            }
+
+            CVPixelBufferLockBaseAddress(pixelBuffer, [])
+            defer {
+                CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+                pixelData.deallocate()
+            }
+
+            guard let destBaseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+                pixelData.deallocate()
+                return
+            }
+
+            let destBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+
+            // glReadPixels 从底部向上读取，需要垂直翻转并逐行拷贝
+            for y in 0..<captureHeight {
+                let srcRow = pixelData.advanced(by: y * bytesPerRow)
+                let dstRow = destBaseAddress.advanced(by: (captureHeight - 1 - y) * destBytesPerRow)
+                memcpy(dstRow, srcRow, min(bytesPerRow, destBytesPerRow))
+            }
+
+            let presentationTime = CMTime(
+                value: Int64(currentTime * 1000),
+                timescale: 1000
+            )
+
+            MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
         }
     }
 
@@ -493,30 +516,6 @@ final class MPVRenderContextPlayerCore: NSObject {
         offscreenFBO = 0
         isFrameCaptureReady = false
         offscreenSize = .zero
-    }
-
-    /// 垂直翻转 CVPixelBuffer（glReadPixels 从底部向上读取）
-    private func flipPixelBufferVertically(_ pixelBuffer: inout CVPixelBuffer,
-                                            width: Int, height: Int) {
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-
-        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let rowBytes = width * 4
-
-        var tempRow = [UInt8](repeating: 0, count: rowBytes)
-
-        for y in 0..<(height / 2) {
-            let topRow = baseAddress.advanced(by: y * bytesPerRow)
-            let bottomRow = baseAddress.advanced(by: (height - 1 - y) * bytesPerRow)
-
-            tempRow.withUnsafeMutableBufferPointer { tempPtr in
-                memcpy(tempPtr.baseAddress, topRow, rowBytes)
-                memcpy(topRow, bottomRow, rowBytes)
-                memcpy(bottomRow, tempPtr.baseAddress, rowBytes)
-            }
-        }
     }
 
     private func readEvents() {
