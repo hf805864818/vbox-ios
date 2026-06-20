@@ -3307,10 +3307,12 @@ struct NativeCloudQRLoginView: View {
 
     @MainActor
     private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
+        var networkRetryCount = 0
         while isPolling && pollCount < 90 {
             pollCount += 1
             do {
                 let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
+                networkRetryCount = 0 // 成功时重置重试计数
                 switch result {
                 case .pending:
                     statusText = "等待阿里云盘扫码"
@@ -3343,6 +3345,14 @@ struct NativeCloudQRLoginView: View {
                     return
                 }
             } catch {
+                // 网络断开时重试，最多3次
+                networkRetryCount += 1
+                if networkRetryCount <= 3 {
+                    statusText = "网络连接已中断"
+                    detailText = "正在重试... (\(networkRetryCount)/3)"
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    continue
+                }
                 isPolling = false
                 statusText = "轮询异常"
                 errorText = error.localizedDescription
