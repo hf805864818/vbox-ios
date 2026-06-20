@@ -85,15 +85,70 @@ struct DanmakuOverlayViewV2: UIViewRepresentable {
     }
 }
 
-// MARK: - UIKit 原生弹幕渲染视图，使用 CADisplayLink 驱动，避免 SwiftUI 布局开销
+// MARK: - 弹幕Layer对象池，复用避免每帧创建/销毁
+private class DanmakuLayerPool {
+    private var available: [CATextLayer] = []
+    private var inUse: [Int: CATextLayer] = [:]
+    private let maxPoolSize = 60
+
+    func acquire(id: Int, fontSize: CGFloat, opacity: Double) -> CATextLayer {
+        if let existing = inUse[id] { return existing }
+        let textLayer: CATextLayer
+        if let reused = available.popLast() {
+            textLayer = reused
+            textLayer.isHidden = false
+        } else {
+            textLayer = CATextLayer()
+            textLayer.contentsScale = UIScreen.main.scale
+            textLayer.shadowColor = UIColor.black.withAlphaComponent(0.5).cgColor
+            textLayer.shadowOffset = CGSize(width: 1, height: 1)
+            textLayer.shadowRadius = 1
+            textLayer.shadowOpacity = 1
+        }
+        inUse[id] = textLayer
+        return textLayer
+    }
+
+    func releaseAll() {
+        for (_, textLayer) in inUse {
+            textLayer.isHidden = true
+            if available.count < maxPoolSize {
+                available.append(textLayer)
+            } else {
+                textLayer.removeFromSuperlayer()
+            }
+        }
+        inUse.removeAll()
+    }
+
+    func releaseUnused(visibleIDs: Set<Int>) {
+        let toRelease = inUse.filter { !visibleIDs.contains($0.key) }
+        for (id, textLayer) in toRelease {
+            textLayer.isHidden = true
+            if available.count < maxPoolSize {
+                available.append(textLayer)
+            } else {
+                textLayer.removeFromSuperlayer()
+            }
+            inUse.removeValue(forKey: id)
+        }
+    }
+
+    func getInUse(id: Int) -> CATextLayer? {
+        return inUse[id]
+    }
+}
+
+// MARK: - UIKit 原生弹幕渲染视图，使用对象池复用 + 增量更新
 class DanmakuUIView: UIView {
     var danmakuArea: Double = 0.25
     var danmakuFontSize: CGFloat = 16
     var danmakuOpacity: Double = 1.0
 
-    private var textLayers: [CATextLayer] = []
+    private var layerPool = DanmakuLayerPool()
     private var lastItems: [DanmakuRenderItem] = []
     private var lastTime: Double = -1
+    private var cachedFont: UIFont?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -104,9 +159,8 @@ class DanmakuUIView: UIView {
     }
 
     func updateItems(_ items: [DanmakuRenderItem], currentTime: Double) {
-        // 避免同一时间重复更新（通过id和数量比较，避免Equatable要求）
         let sameItems = items.count == lastItems.count && items.map(\.id) == lastItems.map(\.id)
-        guard !sameItems || abs(currentTime - lastTime) > 0.01 else { return }
+        guard !sameItems || abs(currentTime - lastTime) > 0.005 else { return }
         lastItems = items
         lastTime = currentTime
 
@@ -116,41 +170,49 @@ class DanmakuUIView: UIView {
         let laneHeight = danmakuFontSize + 22
         let maxAreaHeight = bounds.height * danmakuArea
 
-        // 移除旧的 textLayer
-        for layer in textLayers {
-            layer.removeFromSuperlayer()
+        // 缓存字体，避免每帧创建
+        if cachedFont == nil || cachedFont?.pointSize != danmakuFontSize {
+            cachedFont = UIFont.systemFont(ofSize: danmakuFontSize, weight: .semibold)
         }
-        textLayers.removeAll()
 
-        // 为每条弹幕创建 CATextLayer
+        var visibleIDs = Set<Int>()
+
         for item in items {
             let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
             let yPos = CGFloat(item.lane) * laneHeight + 20
-            guard yPos < maxAreaHeight && progress >= 0 && progress <= 1 else { continue }
+            guard yPos < maxAreaHeight && progress >= 0 && progress < 1 else { continue }
 
             let textWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
             let xPos = screenW - progress * (screenW + textWidth)
 
-            let textLayer = CATextLayer()
-            textLayer.string = item.content
-            textLayer.font = UIFont.systemFont(ofSize: danmakuFontSize, weight: .semibold)
-            textLayer.fontSize = danmakuFontSize
-            textLayer.foregroundColor = UIColor(
-                red: Double((item.color >> 16) & 0xff) / 255.0,
-                green: Double((item.color >> 8) & 0xff) / 255.0,
-                blue: Double(item.color & 0xff) / 255.0,
-                alpha: danmakuOpacity
-            ).cgColor
-            textLayer.shadowColor = UIColor.black.withAlphaComponent(0.5).cgColor
-            textLayer.shadowOffset = CGSize(width: 1, height: 1)
-            textLayer.shadowRadius = 1
-            textLayer.shadowOpacity = 1
-            textLayer.frame = CGRect(x: xPos, y: yPos, width: textWidth + 40, height: danmakuFontSize + 10)
-            textLayer.contentsScale = UIScreen.main.scale
+            visibleIDs.insert(item.id)
 
-            layer.addSublayer(textLayer)
-            textLayers.append(textLayer)
+            let textLayer = layerPool.acquire(id: item.id, fontSize: danmakuFontSize, opacity: danmakuOpacity)
+
+            // 只有内容变化时才更新文字和样式
+            if textLayer.string as? String != item.content {
+                textLayer.string = item.content
+                textLayer.font = cachedFont
+                textLayer.fontSize = danmakuFontSize
+                let color = UIColor(
+                    red: Double((item.color >> 16) & 0xff) / 255.0,
+                    green: Double((item.color >> 8) & 0xff) / 255.0,
+                    blue: Double(item.color & 0xff) / 255.0,
+                    alpha: danmakuOpacity
+                )
+                textLayer.foregroundColor = color.cgColor
+            }
+
+            // 每帧只更新位置（Core Animation 隐式动画）
+            textLayer.frame = CGRect(x: xPos, y: yPos, width: textWidth + 40, height: danmakuFontSize + 10)
+
+            if textLayer.superlayer == nil {
+                self.layer.addSublayer(textLayer)
+            }
         }
+
+        // 释放不可见的 layer 回对象池，不销毁
+        layerPool.releaseUnused(visibleIDs: visibleIDs)
     }
 }
 
