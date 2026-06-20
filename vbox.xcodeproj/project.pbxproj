@@ -120,6 +120,7 @@
 		A12025 /* LibmpvMoltenVKPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12025 /* LibmpvMoltenVKPlayerCore.swift */; };
 		A12026 /* MDKPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12026 /* MDKPlayerEngine.swift */; };
 		A12027 /* MDKPipManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12027 /* MDKPipManager.swift */; };
+		A12028 /* MPVPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12028 /* MPVPiPManager.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -300,6 +301,7 @@
 		B12025 /* LibmpvMoltenVKPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibmpvMoltenVKPlayerCore.swift; sourceTree = "<group>"; };
 		B12026 /* MDKPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPlayerEngine.swift; sourceTree = "<group>"; };
 		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
+		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -584,6 +586,7 @@
 				B12025 /* LibmpvMoltenVKPlayerCore.swift */,
 				B12026 /* MDKPlayerEngine.swift */,
 				B12027 /* MDKPipManager.swift */,
+				B12028 /* MPVPiPManager.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -683,6 +686,7 @@
 				A12025 /* LibmpvMoltenVKPlayerCore.swift in Sources */,
 				A12026 /* MDKPlayerEngine.swift in Sources */,
 				A12027 /* MDKPipManager.swift in Sources */,
+				A12028 /* MPVPiPManager.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,

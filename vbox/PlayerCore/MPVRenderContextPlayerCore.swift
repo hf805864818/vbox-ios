@@ -2,11 +2,31 @@ import Foundation
 import GLKit
 import OpenGLES
 import UIKit
+import AVFoundation
 
 #if canImport(Libmpv)
 import Libmpv
 
 final class MPVRenderContextPlayerCore: NSObject {
+
+    // MARK: - 离屏 FBO 帧捕获属性（PiP 用）
+
+    /// 离屏 FBO ID
+    private var offscreenFBO: GLuint = 0
+    /// 离屏 FBO 关联的颜色 Renderbuffer
+    private var offscreenColorBuffer: GLuint = 0
+    /// 离屏 FBO 关联的深度 Renderbuffer
+    private var offscreenDepthBuffer: GLuint = 0
+    /// 离屏 FBO 的尺寸（视频原始尺寸，非屏幕缩放尺寸）
+    private var offscreenSize: CGSize = .zero
+    /// PiP 帧捕获是否已初始化
+    private var isFrameCaptureReady = false
+    /// 帧计数器（用于节流，避免每帧都捕获）
+    private var frameCaptureCounter: Int = 0
+    /// PiP 帧捕获间隔（每 N 帧捕获一次，降低 CPU 开销）
+    private let frameCaptureInterval: Int = 2
+    /// PiP 帧捕获开关（由 MPVPiPManager 通过通知控制，避免跨 actor 访问）
+    private var isPipCapturing = false
     enum PlaybackProfile: String {
         case hlsFast = "RenderContext HLS极速"
         case hlsQuality = "RenderContext HLS高清"
@@ -142,6 +162,9 @@ final class MPVRenderContextPlayerCore: NSObject {
 
     func teardown() {
         clearCurrentDrawable()
+        cleanupOffscreenFBO()
+        isPipCapturing = false
+        NotificationCenter.default.removeObserver(self)
         if let renderContext {
             mpv_render_context_free(renderContext)
             self.renderContext = nil
@@ -216,6 +239,14 @@ final class MPVRenderContextPlayerCore: NSObject {
             player.readEvents()
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
 
+        // 监听 PiP 状态变化通知，控制帧捕获开关
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(pipStatusChanged(_:)),
+            name: .vboxPiPStatusChanged,
+            object: nil
+        )
+
         log("RenderContext内核初始化完成")
     }
 
@@ -280,6 +311,9 @@ final class MPVRenderContextPlayerCore: NSObject {
                 mpv_render_context_render(renderContext, &params)
             }
         }
+
+        // PiP 帧捕获：渲染到离屏 FBO 后读取像素
+        captureFrameForPiP(videoWidth: state.width, videoHeight: state.height)
     }
 
     private func clearCurrentDrawable() {
@@ -289,6 +323,200 @@ final class MPVRenderContextPlayerCore: NSObject {
         glClearColor(0, 0, 0, 1)
         glClear(GLbitfield(GL_COLOR_BUFFER_BIT))
         glView.setNeedsDisplay()
+    }
+
+    // MARK: - 离屏 FBO 帧捕获（PiP 用）
+
+    /// PiP 状态变化通知回调
+    @objc private func pipStatusChanged(_ notification: Notification) {
+        if let isActive = notification.object as? Bool {
+            isPipCapturing = isActive
+        }
+    }
+
+    /// 捕获当前帧用于 PiP 推送
+    private func captureFrameForPiP(videoWidth: Int, videoHeight: Int) {
+        // 仅在 PiP 激活时才捕获（通过非隔离标志检查，避免跨 actor 访问）
+        guard isPipCapturing else { return }
+        guard videoWidth > 0, videoHeight > 0 else { return }
+
+        // 帧节流：每 frameCaptureInterval 帧捕获一次
+        frameCaptureCounter += 1
+        guard frameCaptureCounter >= frameCaptureInterval else { return }
+        frameCaptureCounter = 0
+
+        let captureSize = CGSize(width: videoWidth, height: videoHeight)
+
+        // 视频尺寸变化时重建离屏 FBO
+        if offscreenSize != captureSize || !isFrameCaptureReady {
+            setupOffscreenFBO(width: videoWidth, height: videoHeight)
+        }
+
+        guard isFrameCaptureReady, offscreenFBO > 0 else { return }
+
+        // 保存当前 FBO
+        var originalFBO: GLint = 0
+        glGetIntegerv(GLenum(GL_FRAMEBUFFER_BINDING), &originalFBO)
+
+        // 绑定离屏 FBO
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), offscreenFBO)
+
+        // 再次渲染到离屏 FBO
+        guard let renderContext else {
+            glBindFramebuffer(GLenum(GL_FRAMEBUFFER), GLenum(originalFBO))
+            return
+        }
+        var flipY: CInt = 1
+        var offscreenFBOStruct = mpv_opengl_fbo(
+            fbo: Int32(offscreenFBO),
+            w: Int32(videoWidth),
+            h: Int32(videoHeight),
+            internal_format: 0
+        )
+        withUnsafeMutablePointer(to: &offscreenFBOStruct) { fboPointer in
+            withUnsafeMutablePointer(to: &flipY) { flipPointer in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(flipPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                ]
+                mpv_render_context_render(renderContext, &params)
+            }
+        }
+
+        // 读取像素数据
+        let bytesPerRow = videoWidth * 4
+        let totalBytes = bytesPerRow * videoHeight
+        let pixelData = UnsafeMutablePointer<UInt8>.allocate(capacity: totalBytes)
+        defer { pixelData.deallocate() }
+
+        glReadPixels(GLint(0), GLint(0),
+                     GLsizei(videoWidth), GLsizei(videoHeight),
+                     GLenum(GL_BGRA), GLenum(GL_UNSIGNED_BYTE),
+                     pixelData)
+
+        // 恢复原始 FBO
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), GLenum(originalFBO))
+
+        // 将像素数据写入 CVPixelBuffer 并推送给 PiP 管理器
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreateWithBytes(
+            kCFAllocatorDefault,
+            Int(videoWidth),
+            Int(videoHeight),
+            kCVPixelFormatType_32BGRA,
+            pixelData,
+            bytesPerRow,
+            nil, nil, nil,
+            &pixelBuffer
+        )
+
+        guard status == kCVReturnSuccess, var pb = pixelBuffer else { return }
+
+        // glReadPixels 从底部向上读取，需要垂直翻转
+        flipPixelBufferVertically(&pb, width: videoWidth, height: videoHeight)
+
+        let presentationTime = CMTime(
+            value: Int64(state.currentTime * 1000),
+            timescale: 1000
+        )
+
+        Task { @MainActor in
+            MPVPiPManager.shared.enqueueFrame(pb, presentationTime: presentationTime)
+        }
+    }
+
+    /// 创建离屏 FBO 和关联的 Renderbuffer
+    private func setupOffscreenFBO(width: Int, height: Int) {
+        guard let eaglContext else { return }
+        EAGLContext.setCurrent(eaglContext)
+
+        // 先清理旧的
+        cleanupOffscreenFBO()
+
+        let w = GLsizei(width)
+        let h = GLsizei(height)
+
+        // 创建 FBO
+        glGenFramebuffers(1, &offscreenFBO)
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), offscreenFBO)
+
+        // 创建颜色 Renderbuffer
+        glGenRenderbuffers(1, &offscreenColorBuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), offscreenColorBuffer)
+        glRenderbufferStorage(GLenum(GL_RENDERBUFFER), GLenum(GL_RGBA8_OES), w, h)
+        glFramebufferRenderbuffer(GLenum(GL_FRAMEBUFFER),
+                                   GLenum(GL_COLOR_ATTACHMENT0),
+                                   GLenum(GL_RENDERBUFFER),
+                                   offscreenColorBuffer)
+
+        // 创建深度 Renderbuffer
+        glGenRenderbuffers(1, &offscreenDepthBuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), offscreenDepthBuffer)
+        glRenderbufferStorage(GLenum(GL_RENDERBUFFER), GLenum(GL_DEPTH_COMPONENT16), w, h)
+        glFramebufferRenderbuffer(GLenum(GL_FRAMEBUFFER),
+                                   GLenum(GL_DEPTH_ATTACHMENT),
+                                   GLenum(GL_RENDERBUFFER),
+                                   offscreenDepthBuffer)
+
+        // 检查 FBO 完整性
+        let status = glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER))
+        if status == GLenum(GL_FRAMEBUFFER_COMPLETE) {
+            offscreenSize = CGSize(width: width, height: height)
+            isFrameCaptureReady = true
+            log("离屏FBO创建成功：\(width)x\(height)")
+        } else {
+            log("离屏FBO创建失败，状态：\(status)")
+            isFrameCaptureReady = false
+        }
+
+        // 解绑
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), 0)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), 0)
+    }
+
+    /// 清理离屏 FBO 资源
+    private func cleanupOffscreenFBO() {
+        guard offscreenFBO > 0 else { return }
+        if let eaglContext {
+            EAGLContext.setCurrent(eaglContext)
+        }
+        if offscreenColorBuffer > 0 {
+            glDeleteRenderbuffers(1, &offscreenColorBuffer)
+            offscreenColorBuffer = 0
+        }
+        if offscreenDepthBuffer > 0 {
+            glDeleteRenderbuffers(1, &offscreenDepthBuffer)
+            offscreenDepthBuffer = 0
+        }
+        glDeleteFramebuffers(1, &offscreenFBO)
+        offscreenFBO = 0
+        isFrameCaptureReady = false
+        offscreenSize = .zero
+    }
+
+    /// 垂直翻转 CVPixelBuffer（glReadPixels 从底部向上读取）
+    private func flipPixelBufferVertically(_ pixelBuffer: inout CVPixelBuffer,
+                                            width: Int, height: Int) {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let rowBytes = width * 4
+
+        var tempRow = [UInt8](repeating: 0, count: rowBytes)
+
+        for y in 0..<(height / 2) {
+            let topRow = baseAddress.advanced(by: y * bytesPerRow)
+            let bottomRow = baseAddress.advanced(by: (height - 1 - y) * bytesPerRow)
+
+            tempRow.withUnsafeMutableBufferPointer { tempPtr in
+                memcpy(tempPtr.baseAddress, topRow, rowBytes)
+                memcpy(topRow, bottomRow, rowBytes)
+                memcpy(bottomRow, tempPtr.baseAddress, rowBytes)
+            }
+        }
     }
 
     private func readEvents() {
