@@ -89,7 +89,15 @@ final class MPVPiPManager: NSObject {
 
     /// 启动画中画
     func startPiP() {
-        guard isPipSupported, let pipController else { return }
+        guard isPipSupported else { return }
+
+        // 如果 PiP 控制器尚未初始化（延迟初始化模式），
+        // 先标记激活以触发帧捕获，等 enqueueFrame 自动初始化后再启动
+        if pipController == nil {
+            isPipActive = true
+            NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
+            return
+        }
 
         if pipController.isPictureInPicturePossible {
             pipController.startPictureInPicture()
@@ -130,6 +138,10 @@ final class MPVPiPManager: NSObject {
             let height = CVPixelBufferGetHeight(pixelBuffer)
             initializePiP(videoSize: CGSize(width: width, height: height))
             guard pipController != nil, displayLayer != nil else { return }
+            // 初始化完成后，尝试启动 PiP
+            if pipController?.isPictureInPicturePossible == true {
+                pipController?.startPictureInPicture()
+            }
         }
 
         // 首帧时创建 formatDescription

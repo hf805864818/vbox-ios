@@ -1,6 +1,8 @@
 import Foundation
 import QuartzCore
 import UIKit
+import Metal
+import AVFoundation
 
 #if canImport(Libmpv)
 import Libmpv
@@ -61,6 +63,21 @@ final class LibmpvMoltenVKPlayerCore {
     private var mpv: OpaquePointer?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
     private var isShuttingDown = false
+
+    // MARK: - PiP 帧捕获属性
+
+    /// PiP 帧捕获是否激活
+    private var isPipCapturing = false
+    /// 帧捕获定时器
+    private var frameCaptureTimer: DispatchSourceTimer?
+    /// 帧捕获计数器（节流用）
+    private var frameCaptureCounter: Int = 0
+    /// 帧捕获间隔（每 N 次定时器触发捕获一次）
+    private let frameCaptureInterval: Int = 2
+    /// Metal 设备
+    private var metalDevice: MTLDevice?
+    /// Metal 命令队列
+    private var commandQueue: MTLCommandQueue?
 
     deinit {
         teardown()
@@ -144,6 +161,7 @@ final class LibmpvMoltenVKPlayerCore {
     func teardown() {
         guard !isShuttingDown || mpv != nil else { return }
         isShuttingDown = true
+        stopFrameCapture()
         onLog = nil
         onStateChange = nil
         if let handle = mpv {
@@ -210,6 +228,21 @@ final class LibmpvMoltenVKPlayerCore {
             let player = Unmanaged<LibmpvMoltenVKPlayerCore>.fromOpaque(context).takeUnretainedValue()
             player.readEvents()
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+
+        // 初始化 Metal 设备（用于 PiP 帧捕获）
+        metalDevice = renderView.metalLayer.device ?? MTLCreateSystemDefaultDevice()
+        commandQueue = metalDevice?.makeCommandQueue()
+
+        // 监听 PiP 状态变化通知
+        NotificationCenter.default.addObserver(
+            forName: .vboxPiPStatusChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let isActive = notification.object as? Bool {
+                self?.pipStatusChanged(isActive)
+            }
+        }
 
         log("Libmpv-MoltenVK内核初始化完成")
     }
@@ -466,6 +499,106 @@ final class LibmpvMoltenVKPlayerCore {
         state.errorMessage = message
         log(message)
         emitState()
+    }
+
+    // MARK: - PiP 帧捕获（Metal → CVPixelBuffer）
+
+    private func pipStatusChanged(_ isActive: Bool) {
+        if isActive {
+            startFrameCapture()
+        } else {
+            stopFrameCapture()
+        }
+    }
+
+    private func startFrameCapture() {
+        guard !isPipCapturing else { return }
+        guard state.width > 0, state.height > 0 else { return }
+        isPipCapturing = true
+        frameCaptureCounter = 0
+
+        // 每 ~33ms 触发一次（约 30fps），实际每 frameCaptureInterval 次才捕获
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "app.vbox.pip-capture", qos: .userInteractive))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(33))
+        timer.setEventHandler { [weak self] in
+            self?.captureCurrentFrame()
+        }
+        timer.resume()
+        frameCaptureTimer = timer
+
+        log("PiP帧捕获已启动：\(state.width)x\(state.height)")
+    }
+
+    private func stopFrameCapture() {
+        guard isPipCapturing else { return }
+        isPipCapturing = false
+        frameCaptureTimer?.cancel()
+        frameCaptureTimer = nil
+        log("PiP帧捕获已停止")
+    }
+
+    private func captureCurrentFrame() {
+        guard isPipCapturing else { return }
+        guard let metalDevice, let commandQueue else { return }
+
+        // 帧节流
+        frameCaptureCounter += 1
+        guard frameCaptureCounter >= frameCaptureInterval else { return }
+        frameCaptureCounter = 0
+
+        let videoWidth = state.width
+        let videoHeight = state.height
+        guard videoWidth > 0, videoHeight > 0 else { return }
+
+        // 从 Metal layer 读取当前 drawable 的纹理
+        guard let currentDrawable = renderView.metalLayer.drawable(at: CACurrentMediaTime()) else { return }
+        let sourceTexture = currentDrawable.texture
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+
+        // 创建 CVPixelBuffer
+        var pixelBuffer: CVPixelBuffer?
+        let attrs: [String: Any] = [
+            kCVPixelBufferWidthKey as String: videoWidth,
+            kCVPixelBufferHeightKey as String: videoHeight,
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey as String: true
+        ]
+        CVPixelBufferCreate(kCFAllocatorDefault, videoWidth, videoHeight,
+                            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
+
+        guard let pb = pixelBuffer else { return }
+
+        CVPixelBufferLockBaseAddress(pb, [])
+        guard let destAddress = CVPixelBufferGetBaseAddress(pb) else {
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            return
+        }
+        let destBytesPerRow = CVPixelBufferGetBytesPerRow(pb)
+
+        // Metal 纹理 → CPU 内存
+        if sourceTexture.pixelFormat == .bgra8Unorm {
+            // 格式匹配，直接复制
+            let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+            blitEncoder.synchronize(resource: sourceTexture)
+            blitEncoder.endEncoding()
+
+            commandBuffer.addCompletedHandler { _ in
+                let srcBytesPerRow = sourceTexture.width * 4
+                let region = MTLRegionMake2D(0, 0, min(sourceTexture.width, videoWidth), min(sourceTexture.height, videoHeight))
+                sourceTexture.getBytes(destAddress, bytesPerRow: destBytesPerRow, from: region, mipmapLevel: 0)
+                CVPixelBufferUnlockBaseAddress(pb, [])
+
+                let presentationTime = CMTime(value: Int64(self.state.currentTime * 1000), timescale: 1000)
+                Task { @MainActor in
+                    MPVPiPManager.shared.enqueueFrame(pb, presentationTime: presentationTime)
+                }
+            }
+            commandBuffer.commit()
+        } else {
+            // 格式不匹配，需要 shader 转换 — 简单跳过
+            CVPixelBufferUnlockBaseAddress(pb, [])
+        }
     }
 
     private func log(_ message: String) {
