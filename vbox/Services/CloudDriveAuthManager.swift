@@ -225,10 +225,19 @@ final class CloudDriveAuthManager: ObservableObject {
         let json = try parseJSON(data)
         guard let content = json["content"] as? [String: Any],
               let dataObj = content["data"] as? [String: Any],
-              let t = dataObj["t"] as? String,
+              let tValue = dataObj["t"],
               let ck = dataObj["ck"] as? String,
               let codeContent = dataObj["codeContent"] as? String else {
             throw AuthError.invalidResponse("阿里 Passport 未返回二维码参数")
+        }
+        // t 可能是 Int 或 String，统一转为 String
+        let t: String
+        if let tInt = tValue as? Int {
+            t = String(tInt)
+        } else if let tStr = tValue as? String {
+            t = tStr
+        } else {
+            throw AuthError.invalidResponse("阿里 Passport t 字段类型异常")
         }
         return AliPassportQrToken(t: t, ck: ck, codeContent: codeContent)
     }
