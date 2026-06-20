@@ -1233,6 +1233,7 @@ globalThis.__JS_SPIDER__ = _spider;
             ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
             ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
 
+            ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
             ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
             ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
             ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
