@@ -8,14 +8,16 @@ import AVFoundation
 import Libmpv
 
 final class LibmpvMoltenVKRenderView: UIView {
-    let metalLayer = MPVKitMetalLayer()
+    let metalLayer: PiPCaptureMetalLayer
 
     override init(frame: CGRect) {
+        metalLayer = PiPCaptureMetalLayer()
         super.init(frame: frame)
         configure()
     }
 
     required init?(coder: NSCoder) {
+        metalLayer = PiPCaptureMetalLayer()
         super.init(coder: coder)
         configure()
     }
@@ -47,16 +49,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     // MARK: - PiP Metal 帧捕获属性
 
-    /// Metal 设备（与 metalLayer 共享）
-    private var metalDevice: MTLDevice?
-    /// Metal 命令队列
-    private var metalCommandQueue: MTLCommandQueue?
-    /// 帧捕获用的可读纹理（staging buffer）
-    private var captureTexture: MTLTexture?
-    /// 帧捕获纹理的尺寸
-    private var captureTextureSize: CGSize = .zero
-    /// 帧捕获 CADisplayLink
-    private var captureDisplayLink: CADisplayLink?
     /// PiP 帧捕获开关（由 MPVPiPManager 通过通知控制）
     private var isPipCapturing = false
     /// 帧捕获计数器（节流用）
@@ -86,114 +78,46 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     deinit {
         teardown()
-        captureDisplayLink?.invalidate()
     }
 
     // MARK: - PiP 帧捕获控制
 
     /// 启动 PiP 帧捕获（由 Coordinator 在收到 PiP 通知时调用）
+    /// 通过 PiPCaptureMetalLayer.onFrameCaptured 回调获取帧，不干扰 mpv 渲染
     func startPiPCapture() {
         guard !isPipCapturing else { return }
-        guard metalDevice != nil else {
-            setupMetalForCapture()
-            guard metalDevice != nil else {
-                log("[PiP] Metal 设备初始化失败，无法启动帧捕获")
-                return
-            }
-            return
-        }
         isPipCapturing = true
         frameCaptureCounter = 0
-        log("[PiP] Metal 帧捕获已启动")
+        log("[PiP] Metal 帧捕获已启动（present 拦截模式）")
 
-        // 使用 CADisplayLink 定期捕获帧
-        if captureDisplayLink == nil {
-            captureDisplayLink = CADisplayLink(target: self, selector: #selector(captureFrameTick))
-            captureDisplayLink?.preferredFramesPerSecond = 15  // 15fps 足够 PiP 使用
-            captureDisplayLink?.add(to: .main, forMode: .common)
+        // 设置帧捕获回调（PiPCaptureMetalLayer 在 present() 时触发）
+        renderView.metalLayer.onFrameCaptured = { [weak self] texture in
+            self?.handleCapturedFrame(texture)
         }
     }
 
     /// 停止 PiP 帧捕获
     func stopPiPCapture() {
         isPipCapturing = false
-        captureDisplayLink?.invalidate()
-        captureDisplayLink = nil
         frameCaptureCounter = 0
+        renderView.metalLayer.onFrameCaptured = nil
         log("[PiP] Metal 帧捕获已停止")
     }
 
-    /// CADisplayLink 回调：定期捕获帧
-    @objc private func captureFrameTick(_ displayLink: CADisplayLink) {
+    /// 处理从 PiPCaptureMetalLayer.present() 拦截到的帧
+    private func handleCapturedFrame(_ texture: MTLTexture) {
         guard isPipCapturing, !isShuttingDown else { return }
-        guard state.width > 0, state.height > 0 else { return }
 
+        // 帧节流
         frameCaptureCounter += 1
         guard frameCaptureCounter >= frameCaptureInterval else { return }
         frameCaptureCounter = 0
 
-        captureCurrentFrame()
-    }
-
-    /// 从 CAMetalLayer 捕获当前帧并推送到 MPVPiPManager
-    private func captureCurrentFrame() {
-        guard let device = metalDevice,
-              let commandQueue = metalCommandQueue,
-              let currentDrawable = renderView.metalLayer.nextDrawable() else {
-            return
-        }
-
-        let sourceTexture = currentDrawable.texture
-        let width = sourceTexture.width
-        let height = sourceTexture.height
-
-        // 确保捕获纹理尺寸匹配
-        if captureTexture == nil ||
-           captureTextureSize.width != CGFloat(width) ||
-           captureTextureSize.height != CGFloat(height) {
-            setupCaptureTexture(device: device, width: width, height: height)
-        }
-
-        guard let stagingTexture = captureTexture else { return }
-
-        // 使用 blit command 将源纹理拷贝到 staging 纹理
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
-            return
-        }
-
-        blitEncoder.copy(from: sourceTexture,
-                         sourceSlice: 0,
-                         sourceLevel: 0,
-                         sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                         sourceSize: MTLSize(width: width, height: height, depth: 1),
-                         to: stagingTexture,
-                         destinationSlice: 0,
-                         destinationLevel: 0,
-                         destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
-        blitEncoder.endEncoding()
-
+        let width = texture.width
+        let height = texture.height
         let currentTime = state.currentTime
-        let captureWidth = width
-        let captureHeight = height
 
-        commandBuffer.addCompletedHandler { [weak self] _ in
-            guard let self else { return }
-
-            // 从 staging 纹理读取像素数据
-            self.readPixelsFromTexture(stagingTexture,
-                                        width: captureWidth,
-                                        height: captureHeight,
-                                        currentTime: currentTime)
-        }
-
-        commandBuffer.commit()
-    }
-
-    /// 从 staging 纹理读取像素数据并推送到 PiP 管理器
-    private func readPixelsFromTexture(_ texture: MTLTexture,
-                                        width: Int, height: Int,
-                                        currentTime: Double) {
+        // 从 staging 纹理读取像素数据并推送到 PiP 管理器
         let bytesPerRow = width * 4
         let totalBytes = bytesPerRow * height
         let rawPixels = UnsafeMutablePointer<UInt8>.allocate(capacity: totalBytes)
@@ -216,7 +140,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             let destBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
 
             // Metal 纹理坐标原点在左上角，CVPixelBuffer 也是左上角，无需翻转
-            // 但需要处理 bytesPerRow 可能不同的 padding
             let rowBytes = min(bytesPerRow, destBytesPerRow)
             for y in 0..<height {
                 let srcRow = rawPixels.advanced(by: y * bytesPerRow)
@@ -230,46 +153,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             )
 
             MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
-        }
-    }
-
-    /// 初始化 Metal 设备和命令队列（用于帧捕获）
-    private func setupMetalForCapture() {
-        // 如果 metalLayer 没有 device，使用系统默认设备并设置到 layer
-        if renderView.metalLayer.device == nil {
-            renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
-        }
-        metalDevice = renderView.metalLayer.device
-        guard let device = metalDevice else {
-            log("[PiP] 无法创建 Metal 设备")
-            return
-        }
-        metalCommandQueue = device.makeCommandQueue()
-        if metalCommandQueue == nil {
-            log("[PiP] 无法创建 Metal 命令队列")
-        }
-        log("[PiP] Metal 设备初始化完成：\(device.name)")
-    }
-
-    /// 创建/重建 staging 纹理
-    private func setupCaptureTexture(device: MTLDevice, width: Int, height: Int) {
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm,
-            width: width,
-            height: height,
-            mipmapped: false
-        )
-        descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
-        descriptor.storageMode = .shared  // CPU 可读
-        descriptor.cpuCacheMode = .writeCombined
-
-        captureTexture = device.makeTexture(descriptor: descriptor)
-        captureTextureSize = CGSize(width: width, height: height)
-
-        if captureTexture != nil {
-            log("[PiP] Staging 纹理创建成功：\(width)x\(height)")
-        } else {
-            log("[PiP] Staging 纹理创建失败")
         }
     }
 
@@ -289,9 +172,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             setupMPV()
         }
 
-        // 初始化 Metal 设备（延迟到 attach 时）
-        if metalDevice == nil {
-            setupMetalForCapture()
+        // 确保 Metal device 已初始化（PiPCaptureMetalLayer 需要）
+        if renderView.metalLayer.device == nil {
+            renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
         }
     }
 
@@ -363,9 +246,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         // 停止帧捕获
         stopPiPCapture()
-        captureTexture = nil
-        metalCommandQueue = nil
-        metalDevice = nil
+        renderView.metalLayer.onFrameCaptured = nil
 
         if let handle = mpv {
             mpv_set_wakeup_callback(handle, nil, nil)

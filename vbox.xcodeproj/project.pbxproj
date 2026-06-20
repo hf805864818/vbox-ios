@@ -113,7 +113,8 @@
 		A12018 /* MPVIntegrationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12018 /* MPVIntegrationStatus.swift */; };
 		A12019 /* MPVFrameworkManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12019 /* MPVFrameworkManifest.swift */; };
 		A12020 /* MPVKitProperty.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12020 /* MPVKitProperty.swift */; };
-		A12021 /* MPVKitMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12021 /* MPVKitMetalLayer.swift */; };
+		A12021 /* MPVKitMetalLayer.swift in Sources */;
+		A45465 /* PiPCaptureMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774595 /* PiPCaptureMetalLayer.swift */; }; = {isa = PBXBuildFile; fileRef = B12021 /* MPVKitMetalLayer.swift */; };
 		A12022 /* MPVKitRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12022 /* MPVKitRenderView.swift */; };
 		A12023 /* MPVKitRenderedPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12023 /* MPVKitRenderedPlayerCore.swift */; };
 		A12024 /* MPVRenderContextPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12024 /* MPVRenderContextPlayerCore.swift */; };
@@ -294,7 +295,8 @@
 		B12018 /* MPVIntegrationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVIntegrationStatus.swift; sourceTree = "<group>"; };
 		B12019 /* MPVFrameworkManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVFrameworkManifest.swift; sourceTree = "<group>"; };
 		B12020 /* MPVKitProperty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitProperty.swift; sourceTree = "<group>"; };
-		B12021 /* MPVKitMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitMetalLayer.swift; sourceTree = "<group>"; };
+		B12021 /* MPVKitMetalLayer.swift */;
+		B774595 /* PiPCaptureMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPCaptureMetalLayer.swift; sourceTree = "<group>"; }; = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitMetalLayer.swift; sourceTree = "<group>"; };
 		B12022 /* MPVKitRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderView.swift; sourceTree = "<group>"; };
 		B12023 /* MPVKitRenderedPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitRenderedPlayerCore.swift; sourceTree = "<group>"; };
 		B12024 /* MPVRenderContextPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextPlayerCore.swift; sourceTree = "<group>"; };
@@ -579,7 +581,8 @@
 				B12018 /* MPVIntegrationStatus.swift */,
 				B12019 /* MPVFrameworkManifest.swift */,
 				B12020 /* MPVKitProperty.swift */,
-				B12021 /* MPVKitMetalLayer.swift */,
+				B12021 /* MPVKitMetalLayer.swift */;
+		B774595 /* PiPCaptureMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPCaptureMetalLayer.swift; sourceTree = "<group>"; };,
 				B12022 /* MPVKitRenderView.swift */,
 				B12023 /* MPVKitRenderedPlayerCore.swift */,
 				B12024 /* MPVRenderContextPlayerCore.swift */,
@@ -679,7 +682,8 @@
 				A12018 /* MPVIntegrationStatus.swift in Sources */,
 				A12019 /* MPVFrameworkManifest.swift in Sources */,
 				A12020 /* MPVKitProperty.swift in Sources */,
-				A12021 /* MPVKitMetalLayer.swift in Sources */,
+				A12021 /* MPVKitMetalLayer.swift in Sources */;
+		A45465 /* PiPCaptureMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B774595 /* PiPCaptureMetalLayer.swift */; };,
 				A12022 /* MPVKitRenderView.swift in Sources */,
 				A12023 /* MPVKitRenderedPlayerCore.swift in Sources */,
 				A12024 /* MPVRenderContextPlayerCore.swift in Sources */,
