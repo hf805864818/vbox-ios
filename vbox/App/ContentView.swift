@@ -10,6 +10,7 @@ struct ContentView: View {
         case home = "首页"
         case search = "搜索"
         case live = "直播"
+        case profile = "我的"
         case settings = "设置"
 
         // 未选中空心图标
@@ -18,6 +19,7 @@ struct ContentView: View {
             case .home: return "house"
             case .search: return "magnifyingglass"
             case .live: return "antenna.radiowaves.left.and.right"
+            case .profile: return "person"
             case .settings: return "gearshape"
             }
         }
@@ -28,6 +30,7 @@ struct ContentView: View {
             case .home: return "house.fill"
             case .search: return "magnifyingglass.circle.fill"
             case .live: return "dot.radiowaves.left.and.right"
+            case .profile: return "person.fill"
             case .settings: return "gearshape.fill"
             }
         }
@@ -53,6 +56,7 @@ struct ContentView: View {
                     case .home: HomeView()
                     case .search: SearchView()
                     case .live: LiveTVView()
+                    case .profile: ProfileView()
                     case .settings: SettingsView()
                     }
                 }

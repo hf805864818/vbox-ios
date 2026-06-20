@@ -151,6 +151,10 @@
 		FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		A10044 /* DBModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* DBModels.swift */; };
+		A10045 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* DatabaseManager.swift */; };
+		A10046 /* ZhanyuanSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11003 /* ZhanyuanSearchService.swift */; };
+		37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822F991529A94E749D9BC1C5 /* ProfileView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -314,6 +318,10 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
+		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
+		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
+		822F991529A94E749D9BC1C5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -476,6 +484,7 @@
 			isa = PBXGroup;
 			children = (
 				B10004 /* SpiderModels.swift */,
+				B11001 /* DBModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -501,6 +510,8 @@
 				B10138 /* SiteDiagnostics.swift */,
 				B10140 /* WKWebViewParser.swift */,
 				B10143 /* LiveTVService.swift */,
+				B11002 /* DatabaseManager.swift */,
+				B11003 /* ZhanyuanSearchService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -523,6 +534,7 @@
 				B10038 /* LibmpvMoltenVKDebugView.swift */,
 				B10139 /* SiteDiagnosticsView.swift */,
 				B10142 /* LiveTVView.swift */,
+				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -725,6 +737,10 @@
 				A10140 /* WKWebViewParser.swift in Sources */,
 				A10142 /* LiveTVView.swift in Sources */,
 				A10143 /* LiveTVService.swift in Sources */,
+				A10044 /* DBModels.swift in Sources */,
+				A10045 /* DatabaseManager.swift in Sources */,
+				A10046 /* ZhanyuanSearchService.swift in Sources */,
+				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

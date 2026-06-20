@@ -640,6 +640,7 @@ class PlayerState: ObservableObject {
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     @Published var baiduCachedTimeRanges: [(start: Double, end: Double)] = []
+    @Published var isFavorite: Bool = false  // 当前视频是否已收藏
     
     // 通用集数列表（所有资源类型共用）
     @Published var episodeItems: [EpisodeItem] = []
@@ -1119,11 +1120,69 @@ class PlayerState: ObservableObject {
         guard let video = currentVideo, currentTime.isFinite, currentTime > 5 else { return }
         if duration > 0, duration - currentTime < 15 {
             UserDefaults.standard.removeObject(forKey: playbackProgressKey(for: video))
+            // 同步清除 SQLite 历史记录
             return
         }
         guard force || Date().timeIntervalSince(lastProgressSaveAt) > 5 else { return }
         lastProgressSaveAt = Date()
         UserDefaults.standard.set(currentTime, forKey: playbackProgressKey(for: video))
+        // 同步写入 SQLite 历史记录
+        let record = HistoryRecord(
+            name: video.vodName,
+            laiyuan: video.vodRemarks ?? "",
+            imgurl: video.vodPic ?? "",
+            detailurl: video.vodId,
+            detailua: "",
+            xianlu: currentEpisodeIndex,
+            jishu: 0,
+            progress: currentTime,
+            lastPlayedAt: Int64(Date().timeIntervalSince1970)
+        )
+        DatabaseManager.shared.addOrUpdateHistory(record)
+    }
+
+    // MARK: - 收藏功能
+
+    /// 检查当前视频是否已收藏
+    func checkFavoriteStatus() {
+        guard let video = currentVideo else { return }
+        isFavorite = DatabaseManager.shared.isFavorite(
+            detailurl: video.vodId,
+            xianlu: currentEpisodeIndex,
+            jishu: 0
+        )
+    }
+
+    /// 切换收藏状态
+    func toggleFavorite() {
+        guard let video = currentVideo else { return }
+        if isFavorite {
+            // 取消收藏：从数据库中查找并删除
+            let favorites = DatabaseManager.shared.queryFavorites()
+            if let record = favorites.first(where: {
+                $0.detailurl == video.vodId &&
+                $0.xianlu == currentEpisodeIndex
+            }) {
+                DatabaseManager.shared.removeFavorite(id: record.id)
+                isFavorite = false
+                log("[Favorite] 已取消收藏: \(video.vodName)")
+            }
+        } else {
+            // 添加收藏
+            let record = FavoriteRecord(
+                name: video.vodName,
+                laiyuan: video.vodRemarks ?? "",
+                imgurl: video.vodPic ?? "",
+                detailurl: video.vodId,
+                detailua: "",
+                xianlu: currentEpisodeIndex,
+                jishu: 0,
+                addedAt: Int64(Date().timeIntervalSince1970)
+            )
+            DatabaseManager.shared.addFavorite(record)
+            isFavorite = true
+            log("[Favorite] 已收藏: \(video.vodName)")
+        }
     }
 
     private func formatDuration(_ time: Double) -> String {
