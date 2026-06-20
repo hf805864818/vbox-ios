@@ -33,7 +33,7 @@ enum PlayerEngineType: String, CaseIterable, Identifiable {
         case .mdk:
             return true   // AVSampleBufferDisplayLayer 帧桥接 PiP
         case .mpvKit, .libmpv:
-            return false  // TODO: Phase 2 实现帧桥接后改为 true
+            return true   // AVSampleBufferDisplayLayer 帧桥接 PiP（Phase 2）
         case .vlc:
             return false  // VLC 不支持帧桥接 PiP
         }
