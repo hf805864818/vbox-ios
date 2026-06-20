@@ -1073,6 +1073,7 @@ struct CloudAuthCenterView: View {
     @State private var showQuarkNativeQR = false
     @State private var showUCNativeQR = false
     @State private var showBaiduNativeQR = false
+    @State private var showAliNativeQR = false
     @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
     @State private var driveTokenName = ""
@@ -1084,7 +1085,7 @@ struct CloudAuthCenterView: View {
                 VStack(spacing: 16) {
                     baiduAccountCard
                     quarkAccountCard
-                    providerAccountCard(type: .ali, note: "使用 AList 工具页扫码获取 Refresh Token；官方 OAuth 直开接口当前不可用。")
+                    providerAccountCard(type: .ali, note: "支持原生扫码登录自动获取 Refresh Token；也可使用网页登录兜底或手动粘贴。")
                     providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     manualTokenFallbackCard
@@ -1121,6 +1122,9 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $showBaiduNativeQR) {
                 NativeCloudQRLoginView(driveType: .baidu)
+            }
+            .sheet(isPresented: $showAliNativeQR) {
+                NativeCloudQRLoginView(driveType: .ali)
             }
             .sheet(item: $webAuthDriveType) { type in
                 CloudDriveWebAuthView(driveType: type)
@@ -1339,10 +1343,12 @@ struct CloudAuthCenterView: View {
                 .foregroundColor(.gray)
             HStack(spacing: 10) {
                 if type == .ali {
-                    Button(action: { webAuthDriveType = .ali }) {
-                        authButtonLabel("获取 Refresh Token", icon: "qrcode")
+                    Button(action: { showAliNativeQR = true }) {
+                        authButtonLabel("原生扫码", icon: "qrcode")
                     }
-                    disabledActionButton("官方OAuth直开不可用")
+                    Button(action: { webAuthDriveType = .ali }) {
+                        authButtonLabel("网页登录兜底", icon: "globe")
+                    }
                 } else if type == .uc {
                     Button(action: { showUCNativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
@@ -3016,6 +3022,53 @@ struct QuarkNativeQRLoginTestView: View {
         }
     }
 
+    @MainActor
+    private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
+                switch result {
+                case .pending:
+                    statusText = "等待阿里云盘扫码"
+                    detailText = "请使用阿里云盘 App 扫描二维码。"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
+                    detailText = "请在手机端点击确认登录。"
+                case .success(let refreshToken, let userInfo):
+                    statusText = "已确认，正在保存账号"
+                    CloudDriveAuthManager.shared.aliPassportSaveCredential(refreshToken: refreshToken, userInfo: userInfo)
+                    isPolling = false
+                    statusText = "阿里云盘扫码登录成功"
+                    detailText = "refresh_token 已保存到授权中心。"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .canceled:
+                    isPolling = false
+                    statusText = "用户取消授权"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                isPolling = false
+                statusText = "轮询异常"
+                errorText = error.localizedDescription
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
     private func makeQRCode(from text: String) -> UIImage? {
         let data = Data(text.utf8)
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
@@ -3047,6 +3100,7 @@ struct NativeCloudQRLoginView: View {
     @State private var ucToken: CloudDriveAuthManager.UCQrLoginToken? = nil
     @State private var baiduToken: CloudDriveAuthManager.BaiduQrLoginToken? = nil
     @State private var baiduBDUSSURL: String? = nil
+    @State private var aliToken: CloudDriveAuthManager.AliPassportQrToken? = nil
 
     var body: some View {
         NavigationView {
@@ -3144,12 +3198,23 @@ struct NativeCloudQRLoginView: View {
     }
 
     private var tipCard: some View {
-        Text(driveType == .baidu ? "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。" : "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。")
+        Text(tipText)
             .font(.system(size: 12))
             .foregroundColor(.gray)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.08)))
+    }
+
+    private var tipText: String {
+        switch driveType {
+        case .baidu:
+            return "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。"
+        case .ali:
+            return "请使用阿里云盘 App 扫码并确认。扫码成功后自动获取 refresh_token，无需手动粘贴。"
+        default:
+            return "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。"
+        }
     }
 
     @MainActor
@@ -3188,6 +3253,15 @@ struct NativeCloudQRLoginView: View {
                 isGenerating = false
                 isPolling = true
                 await pollBaidu(token)
+            case .ali:
+                let token = try await CloudDriveAuthManager.shared.aliPassportCreateQrToken()
+                aliToken = token
+                qrImage = makeQRCode(from: token.codeContent)
+                statusText = "等待阿里云盘扫码确认"
+                detailText = "每 2 秒轮询一次扫码状态。"
+                isGenerating = false
+                isPolling = true
+                await pollAli(token)
             default:
                 throw AuthError.remoteError("暂不支持 \(driveType.displayName) 原生扫码")
             }
