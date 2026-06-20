@@ -358,7 +358,7 @@ final class CloudDriveAuthManager: ObservableObject {
         case failed(message: String)
     }
 
-    func ucCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> UCQrLoginToken {
+    func ucCreateQrToken(clientId: String = "381", pollClientId: String = "381") async throws -> UCQrLoginToken {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
@@ -949,16 +949,16 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        // UC 使用自己的扫码确认域名，与夸克分开，避免用户扫码后跳转到夸克页面
-        var components = URLComponents(string: "https://su.uc.cn/4_eMHBJ")!
+        // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
+        // 4_eMHBJ 会重定向到 b.quark.cn（夸克下载页），不能用于 UC
+        var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
+            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "ssb", value: "weblogin"),
-            URLQueryItem(name: "uc_param_str", value: ""),
-            URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
+            URLQueryItem(name: "uc_biz_str", value: "S:custom|C:titlebar_fix")
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/4_eMHBJ?token=\(token)&client_id=\(clientId)&ssb=weblogin"
+        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)&uc_biz_str=S:custom|C:titlebar_fix"
     }
 
     private func timestampMS() -> String {
