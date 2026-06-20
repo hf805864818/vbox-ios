@@ -11,5 +11,10 @@ target 'vbox' do
   # swift-mdk 是 MDK 的 Swift 封装，提供 swift_mdk 模块
   pod 'swift-mdk'
 
+  # SQLite ORM（数据库层）
+  pod 'GRDB.swift'
+
+  # HTML/XML 解析（搜索结果抓取）
+  pod 'Kanna'
 
 end
