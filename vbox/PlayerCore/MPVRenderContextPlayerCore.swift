@@ -25,6 +25,8 @@ final class MPVRenderContextPlayerCore: NSObject {
     private var frameCaptureCounter: Int = 0
     /// PiP 帧捕获间隔（每 N 帧捕获一次，降低 CPU 开销）
     private let frameCaptureInterval: Int = 2
+    /// PiP 帧捕获开关（由 MPVPiPManager 通过通知控制，避免跨 actor 访问）
+    private var isPipCapturing = false
     enum PlaybackProfile: String {
         case hlsFast = "RenderContext HLS极速"
         case hlsQuality = "RenderContext HLS高清"
@@ -161,6 +163,8 @@ final class MPVRenderContextPlayerCore: NSObject {
     func teardown() {
         clearCurrentDrawable()
         cleanupOffscreenFBO()
+        isPipCapturing = false
+        NotificationCenter.default.removeObserver(self)
         if let renderContext {
             mpv_render_context_free(renderContext)
             self.renderContext = nil
@@ -234,6 +238,14 @@ final class MPVRenderContextPlayerCore: NSObject {
             let player = Unmanaged<MPVRenderContextPlayerCore>.fromOpaque(context).takeUnretainedValue()
             player.readEvents()
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+
+        // 监听 PiP 状态变化通知，控制帧捕获开关
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(pipStatusChanged(_:)),
+            name: .vboxPiPStatusChanged,
+            object: nil
+        )
 
         log("RenderContext内核初始化完成")
     }
@@ -315,10 +327,17 @@ final class MPVRenderContextPlayerCore: NSObject {
 
     // MARK: - 离屏 FBO 帧捕获（PiP 用）
 
+    /// PiP 状态变化通知回调
+    @objc private func pipStatusChanged(_ notification: Notification) {
+        if let isActive = notification.object as? Bool {
+            isPipCapturing = isActive
+        }
+    }
+
     /// 捕获当前帧用于 PiP 推送
     private func captureFrameForPiP(videoWidth: Int, videoHeight: Int) {
-        // 仅在 PiP 激活时才捕获
-        guard MPVPiPManager.shared.isPipActive else { return }
+        // 仅在 PiP 激活时才捕获（通过非隔离标志检查，避免跨 actor 访问）
+        guard isPipCapturing else { return }
         guard videoWidth > 0, videoHeight > 0 else { return }
 
         // 帧节流：每 frameCaptureInterval 帧捕获一次
@@ -392,7 +411,7 @@ final class MPVRenderContextPlayerCore: NSObject {
             &pixelBuffer
         )
 
-        guard status == kCVReturnSuccess, let pb = pixelBuffer else { return }
+        guard status == kCVReturnSuccess, var pb = pixelBuffer else { return }
 
         // glReadPixels 从底部向上读取，需要垂直翻转
         flipPixelBufferVertically(&pb, width: videoWidth, height: videoHeight)
