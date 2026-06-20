@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var showSubscribeSheet = false
     @State private var showFallbackSheet = false
     @State private var showParserSheet = false
+    @State private var showZhanyuanSheet = false
     @State private var showBaiduTestView = false
     @State private var showUniversalPlayTestView = false
     @State private var showCloudCacheSheet = false
@@ -87,6 +88,7 @@ struct SettingsView: View {
             subscriptionSection
             siteDiagnosticsSection
             fallbackSection
+            zhanyuanSiteSection
             cloudDriveSection
             playbackTestToolsSection
             storageSection
@@ -209,6 +211,35 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showParserSheet) {
             ParserConfigView()
+        }
+    }
+
+    private var zhanyuanSiteSection: some View {
+        SettingsSection(title: "站源管理") {
+            Button(action: { showZhanyuanSheet = true }) {
+                HStack {
+                    Image(systemName: "globe")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "E11D48"))
+                    Text("管理站源（启用/禁用）")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    let count = DatabaseManager.shared.queryActiveZhanyuanSites().count
+                    Text("\(count) 个启用")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(Color.gray.opacity(0.04))
+        }
+        .sheet(isPresented: $showZhanyuanSheet) {
+            ZhanyuanSiteManageView()
         }
     }
 
@@ -1935,6 +1966,82 @@ struct SubscriptionRow: View {
             return host
         }
         return url.prefix(30).description + (url.count > 30 ? "..." : "")
+    }
+}
+
+// MARK: - 站源管理视图（启用/禁用 zhanyuan 站点）
+struct ZhanyuanSiteManageView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var sites: [ZhanyuanSite] = []
+    @State private var searchText = ""
+
+    var filteredSites: [ZhanyuanSite] {
+        if searchText.isEmpty { return sites }
+        return sites.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    TextField("搜索站点", text: $searchText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 14))
+                }
+
+                Section(header: Text("启用 \(filteredSites.filter(\.isActive).count)/\(sites.count) 个站点")) {
+                    ForEach(filteredSites, id: \.name) { site in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(site.name)
+                                    .font(.system(size: 15, weight: .medium))
+                                Text(site.searchUrl)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { site.isActive },
+                                set: { newValue in
+                                    toggleSite(name: site.name, isActive: newValue)
+                                }
+                            ))
+                            .labelsHidden()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("站源管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("全选") {
+                        sites.forEach { site in
+                            if !site.isActive {
+                                toggleSite(name: site.name, isActive: true)
+                            }
+                        }
+                    }
+                    .font(.system(size: 14))
+                }
+            }
+            .onAppear {
+                loadSites()
+            }
+        }
+    }
+
+    private func loadSites() {
+        sites = DatabaseManager.shared.queryAllZhanyuanSites()
+    }
+
+    private func toggleSite(name: String, isActive: Bool) {
+        DatabaseManager.shared.updateZhanyuanActive(name: name, isActive: isActive)
+        if let index = sites.firstIndex(where: { $0.name == name }) {
+            sites[index].isActive = isActive
+        }
     }
 }
 

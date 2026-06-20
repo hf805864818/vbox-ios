@@ -1088,6 +1088,16 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
+        // 1.5 zhanyuan 原生搜索（Swift + Kanna，从 SQLite 读取站点配置）
+        let zhanyuanService = ZhanyuanSearchService()
+        log("zhanyuan原生搜索: 开始从数据库读取站点...")
+        await zhanyuanService.searchAllZhanyuan(keyword: keyword) { items in
+            if !items.isEmpty {
+                log("✅ zhanyuan[\(items.first?.source ?? "?")] +\(items.count)条")
+                onBatch(items)
+            }
+        }
+
         // 2. 合并订阅源 + ibox内置源 + 兜底源
         struct Site { let name: String; let api: String }
         var sites: [Site] = []

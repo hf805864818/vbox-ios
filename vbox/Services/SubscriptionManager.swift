@@ -238,6 +238,14 @@ class SubscriptionManager: ObservableObject {
             // 用转换后的站点创建新 config
             let finalConfig = config ?? SubscribeConfig(sites: sites, spider: jsonDict["spider"] as? String, wallpaper: jsonDict["wallpaper"] as? String, lives: nil, flags: nil, banned: nil, parses: parseConfigs.isEmpty ? nil : parseConfigs)
 
+            // 写入 SQLite 数据库（持久化）
+            persistToDatabase(
+                jsonDict: jsonDict,
+                sites: sites,
+                parseConfigs: parseConfigs,
+                urlString: urlString
+            )
+
             await MainActor.run {
                 self.config = finalConfig
                 self.parses = parseConfigs
@@ -264,6 +272,84 @@ class SubscriptionManager: ObservableObject {
     private func cacheConfig(rawData: Data) { defaults.set(rawData, forKey: cacheKey) }
 
     @MainActor private func setError(_ msg: String) { errorMessage = msg; isLoading = false }
+
+    // MARK: - SQLite 持久化
+
+    /// 将订阅源数据写入 SQLite 数据库
+    private func persistToDatabase(
+        jsonDict: [String: Any],
+        sites: [SiteConfig],
+        parseConfigs: [ParseConfig],
+        urlString: String
+    ) {
+        let db = DatabaseManager.shared
+        let now = Int64(Date().timeIntervalSince1970)
+
+        // 1. 保存订阅源记录
+        let dyname = jsonDict["dyname"] as? String ?? "未知订阅"
+        let dyzz = jsonDict["dyzuozhe"] as? String ?? ""
+        db.saveSubscription(SubscriptionRecord(
+            dyname: dyname, dyurl: urlString, dyzz: dyzz, lastSyncAt: now
+        ))
+
+        // 2. 保存 zhanyuan 站点到数据库
+        if let zhanyuanArray = jsonDict["zhanyuan"] as? [[String: Any]] {
+            let zhanyuanSites: [ZhanyuanSite] = zhanyuanArray.compactMap { item in
+                guard let name = item["name"] as? String,
+                      let searchUrl = item["searchUrl"] as? String else { return nil }
+                return ZhanyuanSite(
+                    name: name,
+                    searchUrl: searchUrl,
+                    searchUA: item["searchUA"] as? String ?? "Mozilla/5.0 (Linux; Android 12; Redmi K30 Pro Build/SKQ1.220303.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/99.0.4844.88 Mobile Safari/537.36",
+                    playUA: item["playUA"] as? String ?? "",
+                    websearchurl: item["websearchurl"] as? String ?? "",
+                    searchname: item["searchname"] as? String ?? "",
+                    searchid: item["searchid"] as? String ?? "",
+                    searchpic: item["searchpic"] as? String ?? "",
+                    searchstarr: item["searchstarr"] as? String ?? "",
+                    detaillist: item["detaillist"] as? String ?? "",
+                    detailxl: item["detailxl"] as? String ?? "",
+                    detailjs: item["detailjs"] as? String ?? "",
+                    detailjsurl: item["detailjsurl"] as? String ?? "",
+                    isActive: true,
+                    updatedAt: now
+                )
+            }
+            db.saveZhanyuanSites(zhanyuanSites)
+        }
+
+        // 3. 保存 apiyuan 站点到数据库
+        if let apiyuanArray = jsonDict["apiyuan"] as? [[String: Any]] {
+            let apiSites: [ApiYuanSite] = apiyuanArray.compactMap { item in
+                guard let name = item["name"] as? String,
+                      let searchurl = item["searchurl"] as? String else { return nil }
+                return ApiYuanSite(
+                    name: name,
+                    searchurl: searchurl,
+                    searchua: item["searchua"] as? String ?? "",
+                    detailurl: item["detailurl"] as? String ?? "",
+                    detailua: item["detailua"] as? String ?? "",
+                    isActive: true
+                )
+            }
+            db.saveApiYuanSites(apiSites)
+        }
+
+        // 4. 保存解析接口设置
+        if let jiexiArray = jsonDict["jiexisetting"] as? [[String: Any]] {
+            for item in jiexiArray {
+                if let bianma = item["bianma"] as? String {
+                    db.saveJiexiSetting(JiexiSetting(
+                        bianma: bianma,
+                        zhuurl: item["zhuurl"] as? String ?? "",
+                        beiurl: item["beiurl"] as? String ?? ""
+                    ))
+                }
+            }
+        }
+
+        print("[SubscriptionManager] ✅ 已持久化到 SQLite: zhanyuan=\(jsonDict["zhanyuan"] as? [[String: Any]]?.count ?? 0), apiyuan=\(jsonDict["apiyuan"] as? [[String: Any]]?.count ?? 0)")
+    }
 
     var jsSites: [SiteConfig] { config?.sites.filter { $0.type == 3 } ?? [] }
     var apiSites: [SiteConfig] { config?.sites.filter { $0.type != 3 } ?? [] }
