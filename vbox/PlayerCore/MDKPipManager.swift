@@ -236,7 +236,7 @@ extension MDKPipManager: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController) {
         Task { @MainActor in
             NotificationCenter.default.post(
-                name: .vboxPiPWillStart,
+                name: .vboxMDKPiPWillStart,
                 object: nil
             )
         }
@@ -246,7 +246,7 @@ extension MDKPipManager: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController) {
         Task { @MainActor in
             NotificationCenter.default.post(
-                name: .vboxPiPWillStop,
+                name: .vboxMDKPiPWillStop,
                 object: nil
             )
         }
@@ -286,7 +286,7 @@ extension MDKPipManager: AVPictureInPictureSampleBufferPlaybackDelegate {
         completion completionHandler: @escaping () -> Void) {
         // 通知 MDK 引擎跳转
         NotificationCenter.default.post(
-            name: .vboxPiPSkip,
+            name: .vboxMDKPiPSkip,
             object: skipInterval
         )
         completionHandler()
@@ -297,19 +297,23 @@ extension MDKPipManager: AVPictureInPictureSampleBufferPlaybackDelegate {
         // 允许后台音频播放
         return false
     }
+
+    nonisolated func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
+        // PiP 窗口尺寸变化时的回调（iOS 16.0+）
+    }
 }
 
-// MARK: - PiP 通知名称扩展
+// MARK: - PiP 通知名称（复用 PlayerViewsV2.swift 中已有的通知名称）
+// vboxPiPStatusChanged / vboxPiPRestoreFullScreen / vboxPiPTogglePlayPause 已在 PlayerViewsV2.swift 中定义
+// MDK PipManager 新增以下专用通知：
 
 extension Notification.Name {
-    /// PiP 状态变化（Bool: isPipActive）
-    static let vboxPiPStatusChanged = Notification.Name("vbox.mdk.pip.statusChanged")
-    /// PiP 即将启动
-    static let vboxPiPWillStart = Notification.Name("vbox.mdk.pip.willStart")
-    /// PiP 即将停止
-    static let vboxPiPWillStop = Notification.Name("vbox.mdk.pip.willStop")
-    /// PiP 播放/暂停切换（Bool: isPlaying）
-    static let vboxPiPTogglePlayPause = Notification.Name("vbox.mdk.pip.togglePlayPause")
-    /// PiP 跳转（CMTime: skipInterval）
-    static let vboxPiPSkip = Notification.Name("vbox.mdk.pip.skip")
+    /// PiP 即将启动（MDK专用）
+    static let vboxMDKPiPWillStart = Notification.Name("vbox.mdk.pip.willStart")
+    /// PiP 即将停止（MDK专用）
+    static let vboxMDKPiPWillStop = Notification.Name("vbox.mdk.pip.willStop")
+    /// PiP 跳转（MDK专用，CMTime: skipInterval）
+    static let vboxMDKPiPSkip = Notification.Name("vbox.mdk.pip.skip")
 }
