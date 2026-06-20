@@ -138,7 +138,7 @@ final class ZhanyuanSearchService {
 
         if let charsetRange = contentType.range(of: "charset=", options: .caseInsensitive) {
             let charset = String(contentType[charsetRange.upperBound...]).lowercased()
-                .trimmingCharacters(in: CharacterSet(charactersIn: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ";\""))))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\";").union(.whitespacesAndNewlines))
             encoding = stringEncodingFromCharset(charset)
         }
 
@@ -268,13 +268,13 @@ final class ZhanyuanSearchService {
             "//li//a"
         ]
 
-        var links: [Kanna.XMLElement] = []
+        var links: [XMLElement] = []
         for selector in linkSelectors {
             let results = doc.xpath(selector)
             if results.count > 0 {
                 links = []
                 for node in results {
-                    if let el = node as? Kanna.XMLElement {
+                    if let el = node as? XMLElement {
                         links.append(el)
                     }
                 }
@@ -293,7 +293,7 @@ final class ZhanyuanSearchService {
                 let titleSelectors = [".//title", ".//*[contains(@class, 'title')]", ".//*[contains(@class, 'name')]", ".//strong", ".//h3", ".//h4", ".//span"]
                 for ts in titleSelectors {
                     let titleResults = link.xpath(ts)
-                    if let first = titleResults.first, let el = first as? Kanna.XMLElement {
+                    if let first = titleResults.first, let el = first as? XMLElement {
                         if let t = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty {
                             name = t
                             break
@@ -344,7 +344,7 @@ final class ZhanyuanSearchService {
 
         var strings: [String] = []
         for node in results {
-            guard let el = node as? Kanna.XMLElement else { continue }
+            guard let el = node as? XMLElement else { continue }
 
             if isText {
                 if let text = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !text.isEmpty {

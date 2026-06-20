@@ -1121,6 +1121,10 @@ class PlayerState: ObservableObject {
         if duration > 0, duration - currentTime < 15 {
             UserDefaults.standard.removeObject(forKey: playbackProgressKey(for: video))
             // 同步清除 SQLite 历史记录
+            let favorites = DatabaseManager.shared.queryFavorites()
+            if let record = favorites.first(where: { $0.detailurl == video.vodId }) {
+                DatabaseManager.shared.removeFavorite(id: record.id)
+            }
             return
         }
         guard force || Date().timeIntervalSince(lastProgressSaveAt) > 5 else { return }
