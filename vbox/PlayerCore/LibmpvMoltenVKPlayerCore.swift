@@ -505,9 +505,25 @@ final class LibmpvMoltenVKPlayerCore {
 
     private func pipStatusChanged(_ isActive: Bool) {
         if isActive {
-            startFrameCapture()
+            startFrameCaptureWithRetry(retries: 10)
         } else {
             stopFrameCapture()
+        }
+    }
+
+    private func startFrameCaptureWithRetry(retries: Int) {
+        guard !isPipCapturing else { return }
+        guard retries > 0 else {
+            log("PiP帧捕获启动失败：视频尺寸始终未获取")
+            return
+        }
+        if state.width > 0, state.height > 0 {
+            startFrameCapture()
+        } else {
+            // 视频尺寸尚未获取，延迟重试
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.startFrameCaptureWithRetry(retries: retries - 1)
+            }
         }
     }
 
