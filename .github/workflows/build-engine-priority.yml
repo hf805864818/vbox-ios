@@ -1,0 +1,78 @@
+name: Build Engine Priority Branch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/engine-priority-restructure
+    paths:
+      - '.github/workflows/build-engine-priority.yml'
+      - 'vbox.xcodeproj/**'
+      - 'vbox/PlayerCore/**'
+      - 'vbox/Views/**'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: Fetch MPVKit dependencies
+        run: |
+          bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+          python3 scripts/fetch_mpv_external_dependencies.py --all --cache-dir .mpv-cache/external
+          python3 scripts/check_mpv_installed_dependencies.py
+
+      - name: Inject MPVKit Link & Embed
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/configure_mpvkit_link.rb
+
+      - name: Install CocoaPods dependencies
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install --repo-update
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace vbox.xcworkspace \
+            -scheme vbox \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
+            ENABLE_BITCODE=NO \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            ONLY_ACTIVE_ARCH=NO \
+            VALIDATE_PRODUCT=false \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean archive \
+            2>&1 | tee build.log
+
+      - name: Show Build Log on Failure
+        if: failure()
+        run: |
+          echo "=== Build Errors ==="
+          grep -i "error:" build.log | head -50
+          grep -i "fatal error" build.log | head -20
+          echo "=== Full Log (last 200 lines) ==="
+          tail -200 build.log
