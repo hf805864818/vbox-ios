@@ -14,6 +14,8 @@ struct VBoxApp: App {
 
     init() {
         DoubanImageProxyServer.shared.start()
+        // 触发数据库初始化（建表 + 数据迁移）
+        let _ = DatabaseManager.shared
     }
 
     var body: some Scene {
