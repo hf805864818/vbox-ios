@@ -104,9 +104,18 @@ final class ZhanyuanSearchService {
     }
 
     /// 并发搜索所有启用的站源站点
+    /// 优先从 SQLite 读取，如果为空则从 SpiderManager 内存数据回退
     static func searchAllZhanyuan(keyword: String, onBatch: @escaping ([VodItem]) -> Void) async {
-        let sites = DatabaseManager.shared.queryActiveZhanyuanSites()
+        var sites = DatabaseManager.shared.queryActiveZhanyuanSites()
+
+        // SQLite 为空时，从 SpiderManager 内存中的 zhanyuan 站点回退
+        if sites.isEmpty {
+            sites = loadZhanyuanSitesFromMemory()
+        }
+
         guard !sites.isEmpty else { return }
+
+        print("[ZhanyuanSearch] 共 \(sites.count) 个站源站点参与搜索")
 
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
@@ -127,6 +136,74 @@ final class ZhanyuanSearchService {
                 }
             }
         }
+    }
+
+    /// 从 SpiderManager 内存数据中提取 zhanyuan 站点配置
+    private static func loadZhanyuanSitesFromMemory() -> [ZhanyuanSite] {
+        let spiderSites = SpiderManager.shared.allSites
+        var zhanyuanSites: [ZhanyuanSite] = []
+
+        for s in spiderSites {
+            // type=2 是 zhanyuan 站源
+            guard s.type == 2 else { continue }
+            guard let api = s.api, !api.isEmpty else { continue }
+
+            // zhanyuan 站点的搜索配置在 ext 字段中（JSON 格式）
+            // api 字段是站点基础 URL
+            let extJSON = s.ext ?? "{}"
+            let site = parseSiteConfig(name: s.name ?? "未知", baseUrl: api, extJSON: extJSON)
+            zhanyuanSites.append(site)
+        }
+
+        print("[ZhanyuanSearch] SQLite 为空，从内存加载 \(zhanyuanSites.count) 个 zhanyuan 站点")
+        return zhanyuanSites
+    }
+
+    /// 从站点配置解析为 ZhanyuanSite 模型
+    /// - Parameters:
+    ///   - name: 站点名称
+    ///   - baseUrl: 站点基础 URL（api 字段）
+    ///   - extJSON: 搜索配置 JSON（ext 字段）
+    private static func parseSiteConfig(name: String, baseUrl: String, extJSON: String) -> ZhanyuanSite {
+        if let data = extJSON.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return ZhanyuanSite(
+                name: json["name"] as? String ?? name,
+                searchUrl: json["searchUrl"] as? String ?? baseUrl,
+                searchUA: json["searchUA"] as? String ?? "",
+                playUA: json["playUA"] as? String ?? "",
+                websearchurl: json["websearchurl"] as? String ?? "",
+                searchname: json["searchname"] as? String ?? "",
+                searchid: json["searchid"] as? String ?? "",
+                searchpic: json["searchpic"] as? String ?? "",
+                searchstarr: json["searchstarr"] as? String ?? "",
+                detaillist: json["detaillist"] as? String ?? "",
+                detailxl: json["detailxl"] as? String ?? "",
+                detailjs: json["detailjs"] as? String ?? "",
+                detailjsurl: json["detailjsurl"] as? String ?? "",
+                isActive: true,
+                updatedAt: Int64(Date().timeIntervalSince1970)
+            )
+        }
+
+        // ext 不是有效 JSON，用 baseUrl 作为 searchUrl
+        return ZhanyuanSite(
+            name: name,
+            searchUrl: baseUrl,
+            searchUA: "",
+            playUA: "",
+            websearchurl: "",
+            searchname: "",
+            searchid: "",
+            searchpic: "",
+            searchstarr: "",
+            detaillist: "",
+            detailxl: "",
+            detailjs: "",
+            detailjsurl: "",
+            isActive: true,
+            updatedAt: Int64(Date().timeIntervalSince1970)
+        )
     }
 
     // MARK: - 私有方法
