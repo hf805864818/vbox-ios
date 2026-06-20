@@ -273,12 +273,25 @@ final class CloudDriveAuthManager: ObservableObject {
         case "SCANED":
             return .scanned
         case "CONFIRMED":
-            guard let bizExt = dataObj["bizExt"] as? String,
-                  let bizData = Data(base64Encoded: bizExt),
-                  let bizJson = try? JSONSerialization.jsonObject(with: bizData) as? [String: Any],
+            guard let bizExt = dataObj["bizExt"] as? String else {
+                return .failed(message: "扫码确认成功但未返回 bizExt")
+            }
+            // 兼容标准 base64 和 URL-safe base64（无 padding）
+            let normalized = bizExt.replacingOccurrences(of: "-", with: "+")
+                                   .replacingOccurrences(of: "_", with: "/")
+            var bizData: Data?
+            if let data = Data(base64Encoded: normalized) {
+                bizData = data
+            } else if let data = Data(base64Encoded: normalized + "=") {
+                bizData = data
+            } else if let data = Data(base64Encoded: normalized + "==") {
+                bizData = data
+            }
+            guard let finalData = bizData,
+                  let bizJson = try? JSONSerialization.jsonObject(with: finalData) as? [String: Any],
                   let pdsResult = bizJson["pds_login_result"] as? [String: Any],
                   let refreshToken = pdsResult["refreshToken"] as? String, !refreshToken.isEmpty else {
-                return .failed(message: "扫码确认成功但未解析到 refresh_token")
+                return .failed(message: "扫码确认成功但 bizExt 解析失败")
             }
             return .success(refreshToken: refreshToken, userInfo: pdsResult)
         case "EXPIRED":
@@ -401,8 +414,9 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "token", value: token.token)
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        // UC 与夸克共用 CAS，轮询需使用 pan.quark.cn 域名才能正确同步扫码状态
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
