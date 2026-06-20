@@ -42,15 +42,17 @@ final class MPVPiPManager: NSObject {
 
     // MARK: - PiP 生命周期
 
-    /// 初始化 PiP（传入视频尺寸，在首帧到达前调用）
-    func initializePiP(videoSize: CGSize) {
+    /// 初始化 PiP（传入视频尺寸，如果为 .zero 则延迟到首帧时自动初始化）
+    func initializePiP(videoSize: CGSize = .zero) {
         guard isPipSupported else { return }
-        guard videoSize.width > 0, videoSize.height > 0 else { return }
 
-        // 避免重复初始化
-        if self.pipController != nil && self.videoSize == videoSize {
+        // 如果已初始化且尺寸未变，跳过
+        if self.pipController != nil && (videoSize == .zero || self.videoSize == videoSize) {
             return
         }
+
+        // 如果尺寸未知，等待首帧到达时初始化
+        guard videoSize.width > 0, videoSize.height > 0 else { return }
 
         self.videoSize = videoSize
 
@@ -121,6 +123,14 @@ final class MPVPiPManager: NSObject {
     func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
                       presentationTime: CMTime) {
         guard isPipActive, let displayLayer else { return }
+
+        // 首帧时自动初始化 PiP 控制器（如果尚未初始化）
+        if pipController == nil {
+            let width = CVPixelBufferGetWidth(pixelBuffer)
+            let height = CVPixelBufferGetHeight(pixelBuffer)
+            initializePiP(videoSize: CGSize(width: width, height: height))
+            guard pipController != nil, displayLayer != nil else { return }
+        }
 
         // 首帧时创建 formatDescription
         if formatDescription == nil {
