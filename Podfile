@@ -8,5 +8,6 @@ target 'vbox' do
 
   # MDK 播放内核（wang-bin 开源），支持帧回调画中画
   # 用于复杂封装/特殊格式，作为兼容内核首选（PiP: 帧桥接）
-  pod 'mdk', git: 'https://github.com/wang-bin/mdk-sdk.git', tag: '2025-06-06'
+  # swift-mdk 是 MDK 的 Swift 封装，提供 swift_mdk 模块
+  pod 'swift-mdk'
 end

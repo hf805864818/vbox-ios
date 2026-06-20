@@ -2,8 +2,8 @@ import AVFoundation
 import AVKit
 import UIKit
 
-#if canImport(mdk)
-import mdk
+#if canImport(swift_mdk)
+import swift_mdk
 #endif
 
 /// MDK 画中画管理器。
