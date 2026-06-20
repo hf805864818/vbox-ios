@@ -4091,6 +4091,8 @@ class CloudDriveManager: ObservableObject {
             baiduStorePlayResult(result, for: cacheKey)
             recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "成功", detail: "source=\(source)，engine=\(playItem.preferredEngine)", fsId: fsId, fileName: selected.name)
             baiduLog("[Baidu-iBoxRoute] ✅ iBox-style 原画地址获取成功：source=\(source), engine=\(playItem.preferredEngine)")
+            // 1小时后清理本次转存的文件
+            scheduleCleanup(drive: .baidu, fileIds: [filePath], token: bduss, delay: 60 * 60)
             return result
         } catch {
             baiduLog("[Baidu-iBoxRoute] ❌ iBox-style 转存/locatedownload 失败：\(error.localizedDescription)")
@@ -4611,10 +4613,14 @@ class CloudDriveManager: ObservableObject {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let params = "filelist=[\"\(fileIds.first!)\"]&path=/vbox/"
+        // 支持 fileId 或 path 两种格式：path 以 / 开头，fileId 是纯数字
+        let paths = fileIds.map { $0.hasPrefix("/") ? $0 : "/vbox/\($0)" }
+        let filelistJSON = (try? JSONSerialization.data(withJSONObject: paths))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let params = "filelist=\(filelistJSON.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? filelistJSON)"
         req.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: req)
-        print("[CloudDrive] ✅ 百度已删除转存文件")
+        print("[CloudDrive] ✅ 百度已删除转存文件: \(paths)")
     }
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
