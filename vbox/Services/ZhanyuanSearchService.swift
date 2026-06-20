@@ -140,7 +140,16 @@ final class ZhanyuanSearchService {
 
     /// 从 SpiderManager 内存数据中提取 zhanyuan 站点配置
     private static func loadZhanyuanSitesFromMemory() -> [ZhanyuanSite] {
-        let spiderSites = SpiderManager.shared.allSites
+        // SpiderManager 是 ObservableObject，@Published 属性需要在主线程访问
+        let spiderSites: [SiteConfig]
+        if Thread.isMainThread {
+            spiderSites = SpiderManager.shared.allSites
+        } else {
+            spiderSites = DispatchQueue.main.sync {
+                SpiderManager.shared.allSites
+            }
+        }
+
         var zhanyuanSites: [ZhanyuanSite] = []
 
         for s in spiderSites {
