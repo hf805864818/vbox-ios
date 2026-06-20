@@ -465,4 +465,174 @@ final class ZhanyuanSearchService {
         if trimmed.hasPrefix("/") { return base + trimmed }
         return base + "/" + trimmed
     }
+
+    // MARK: - 详情页解析
+
+    /// 解析 zhanyuan 站点的详情页，提取播放列表
+    /// - Parameters:
+    ///   - detailUrl: 详情页 URL（vodId）
+    ///   - site: zhanyuan 站点配置
+    /// - Returns: 包含播放列表的 VodItem
+    static func fetchDetail(detailUrl: String, site: ZhanyuanSite) async throws -> VodItem {
+        let ua = site.playUA.isEmpty ? site.searchUA : site.playUA
+        let host = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        var request = URLRequest(url: URL(string: detailUrl)!, timeoutInterval: 8)
+        request.setValue(ua, forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "ZhanyuanDetail", code: -1, userInfo: [NSLocalizedDescriptionKey: "HTTP 错误"])
+        }
+
+        let html = detectAndDecodeHTML(data: data, response: httpResponse)
+        guard !html.isEmpty else {
+            throw NSError(domain: "ZhanyuanDetail", code: -2, userInfo: [NSLocalizedDescriptionKey: "返回空内容"])
+        }
+
+        guard let doc = try? HTML(html: html, encoding: .utf8) else {
+            throw NSError(domain: "ZhanyuanDetail", code: -3, userInfo: [NSLocalizedDescriptionKey: "HTML 解析失败"])
+        }
+
+        // 提取标题
+        var vodName = ""
+        if let titleEl = doc.at_xpath("//h1") {
+            vodName = titleEl.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+        }
+        if vodName.isEmpty, let titleEl = doc.at_xpath("//title") {
+            vodName = titleEl.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+        }
+        if vodName.isEmpty {
+            let fallbacks = ["//div[contains(@class,'slide-info-title')]", "//div[contains(@class,'video-info-header')]//span", "//div[contains(@class,'module-heading-title')]"]
+            for fb in fallbacks {
+                if let el = doc.at_xpath(fb) {
+                    vodName = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+                    if !vodName.isEmpty { break }
+                }
+            }
+        }
+
+        // 提取图片
+        var vodPic = ""
+        let imgSelectors = ["//div[contains(@class,'slide-info-cover')]//img", "//div[contains(@class,'video-info-cover')]//img", "//div[contains(@class,'module-item-pic')]//img", "//img[@data-pic]", "//img"]
+        for isel in imgSelectors {
+            if let imgEl = doc.at_xpath(isel) {
+                vodPic = imgEl["data-original"] ?? imgEl["data-src"] ?? imgEl["src"] ?? ""
+                if !vodPic.isEmpty {
+                    vodPic = completeImageURL(vodPic, base: host)
+                    break
+                }
+            }
+        }
+
+        // 提取播放列表
+        let playUrl = parsePlayList(doc: doc, site: site, host: host)
+
+        print("[ZhanyuanDetail] 解析成功: \(vodName), 播放列表 \(playUrl.isEmpty ? "空" : "\(playUrl.components(separatedBy: "#").count)集")")
+
+        return VodItem(
+            vodId: detailUrl,
+            vodName: vodName,
+            vodPic: vodPic,
+            vodRemarks: site.name,
+            vodPlayFrom: site.name,
+            vodPlayUrl: playUrl
+        )
+    }
+
+    /// 解析播放列表：优先用 XPath 规则，无规则时用通用选择器兜底
+    private static func parsePlayList(doc: HTMLDocument, site: ZhanyuanSite, host: String) -> String {
+        // 1. 有 detaillist XPath 规则时，用规则解析
+        if !site.detaillist.isEmpty {
+            let urls = parsePlayListByXPath(doc: doc, site: site, host: host)
+            if !urls.isEmpty { return urls.joined(separator: "#") }
+        }
+
+        // 2. 无规则或规则解析失败，用通用 CSS 选择器兜底
+        let urls = parsePlayListGeneric(doc: doc, host: host)
+        return urls.joined(separator: "#")
+    }
+
+    /// 用站点的 XPath 规则解析播放列表
+    private static func parsePlayListByXPath(doc: HTMLDocument, site: ZhanyuanSite, host: String) -> [String] {
+        let listXPath = normalizeXPath(site.detaillist)
+        var playUrls: [String] = []
+
+        // 提取线路名称（可选）
+        var tabNames: [String] = []
+        if !site.detailxl.isEmpty {
+            tabNames = extractStrings(doc: doc, xpath: normalizeXPath(site.detailxl))
+        }
+
+        // 提取每集名称和链接
+        let episodeNames = !site.detailjs.isEmpty ? extractStrings(doc: doc, xpath: normalizeXPath(site.detailjs)) : []
+        let episodeUrls = !site.detailjsurl.isEmpty ? extractStrings(doc: doc, xpath: normalizeXPath(site.detailjsurl)) : []
+
+        if !episodeNames.isEmpty && !episodeUrls.isEmpty {
+            // 有明确的集数规则
+            let count = min(episodeNames.count, episodeUrls.count, 500)
+            for i in 0..<count {
+                let epName = episodeNames[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                var epUrl = episodeUrls[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                if epName.isEmpty && epUrl.isEmpty { continue }
+
+                epUrl = completeURL(epUrl, base: host)
+                playUrls.append("\(epName)$\(epUrl)")
+            }
+        } else {
+            // 没有明确的集数规则，从 detaillist 容器中提取所有 <a> 标签
+            let containers = doc.xpath(listXPath)
+            for node in containers {
+                guard let el = node as? XMLElement else { continue }
+                let links = el.xpath(".//a")
+                for linkNode in links {
+                    guard let linkEl = linkNode as? XMLElement else { continue }
+                    let epName = linkEl.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+                    var epUrl = linkEl["href"] ?? ""
+                    if epName.isEmpty || epUrl.isEmpty { continue }
+
+                    epUrl = completeURL(epUrl, base: host)
+                    playUrls.append("\(epName)$\(epUrl)")
+                }
+            }
+        }
+
+        return playUrls
+    }
+
+    /// 通用播放列表提取（无 XPath 规则时的兜底）
+    private static func parsePlayListGeneric(doc: HTMLDocument, host: String) -> [String] {
+        let selectors = [
+            "//*[contains(@class,'playlist')]//a",
+            "//*[contains(@class,'play-list')]//a",
+            "//*[contains(@class,'stui-content__playlist')]//a",
+            "//*[contains(@class,'module-play-list')]//a",
+            "//*[@id='y-playList']//a",
+            "//*[@id='playlist']//a",
+            "//*[contains(@class,'video-list')]//a",
+            "//*[contains(@class,'vodlist')]//a"
+        ]
+
+        for selector in selectors {
+            let results = doc.xpath(selector)
+            if results.count > 0 {
+                var playUrls: [String] = []
+                for node in results {
+                    guard let el = node as? XMLElement else { continue }
+                    let epName = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+                    var epUrl = el["href"] ?? ""
+                    if epName.isEmpty || epUrl.isEmpty { continue }
+
+                    epUrl = completeURL(epUrl, base: host)
+                    playUrls.append("\(epName)$\(epUrl)")
+                }
+                if !playUrls.isEmpty { return playUrls }
+            }
+        }
+
+        return []
+    }
 }
