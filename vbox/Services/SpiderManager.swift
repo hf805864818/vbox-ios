@@ -631,7 +631,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // 3. 加载 zhanyuan (type=2) 站源 — 用 cheerio + zhanyuan 引擎（支持双引擎回退）
         let zhanSites = config.sites.filter { $0.type == 2 && $0.api != nil && !$0.api!.isEmpty }
         print("[SpiderManager] 发现 \(zhanSites.count) 个 zhanyuan 站源")
-        for site in zhanSites.prefix(10) {
+        for site in zhanSites {
             let key = site.key.isEmpty ? site.name : site.key
             guard engines[key] == nil else { continue }
             let configJSON = site.ext ?? "{}"
@@ -1100,7 +1100,7 @@ globalThis.__JS_SPIDER__ = _spider;
         var successCount = 0
         var failCount = 0
         var emptyCount = 0
-        let maxConcurrent = 20
+        let maxConcurrent = 60
         await withTaskGroup(of: (name: String, items: [VodItem]?).self) { group in
             var runningCount = 0
             for site in allSites {
@@ -1234,7 +1234,7 @@ globalThis.__JS_SPIDER__ = _spider;
         print("[SpiderManager] nativeSearch 合并搜索站点 \(mergedSites.count) 个（订阅\(subSites.count) + 兜底）")
 
         // 分批并发搜索，每批10个，支持全部站点参与搜索
-        let batchSize = 10
+        let batchSize = 30
         let allSites = Array(mergedSites)
         for batchStart in stride(from: 0, to: allSites.count, by: batchSize) {
             let batch = Array(allSites[batchStart..<min(batchStart + batchSize, allSites.count)])
@@ -1289,7 +1289,7 @@ globalThis.__JS_SPIDER__ = _spider;
 
         do {
             var req = URLRequest(url: url)
-            req.timeoutInterval = 8
+            req.timeoutInterval = 5
             req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
             let (data, _) = try await URLSession.shared.data(for: req)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],

@@ -2145,7 +2145,10 @@ class CloudDriveManager: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         quarkSetCommonHeaders(&req, cookie: cookie)
-        let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
+        // 夸克 file/delete API 的 filelist 字段要求 JSON 字符串格式
+        let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIds))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let body: [String: Any] = ["action_type": 2, "filelist": filelistJSON, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let deleteResult = try? await session.data(for: req)
         print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
