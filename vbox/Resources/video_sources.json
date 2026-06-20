@@ -24,37 +24,9 @@
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
-      "name": "虎斑资源",
-      "searchurl": "http://103.45.162.207:20720/index.php/vod/search.html?wd=",
-      "detailurl": "http://103.45.162.207:20720/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "小斑资源",
-      "searchurl": "http://xsayang.fun:12512/index.php/vod/search.html?wd=",
-      "detailurl": "http://xsayang.fun:12512/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
       "name": "盘Ta资源",
       "searchurl": "https://www.91panta.cn/index.php/vod/search.html?wd=",
       "detailurl": "https://www.91panta.cn/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "雷鲸资源",
-      "searchurl": "https://www.leijing.xyz/index.php/vod/search.html?wd=",
-      "detailurl": "https://www.leijing.xyz/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "蜡笔资源",
-      "searchurl": "http://feimao888.fun/index.php/vod/search.html?wd=",
-      "detailurl": "http://feimao888.fun/index.php/vod/detail/id/",
       "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
@@ -66,44 +38,9 @@
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
     {
-      "name": "欧歌影视",
-      "searchurl": "https://oog.nxog.eu.org/vodsearch/-------------.html?wd=",
-      "detailurl": "https://oog.nxog.eu.org/voddetail/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "闪电资源",
-      "searchurl": "https://sd.sduc.site/index.php/vod/search.html?wd=",
-      "detailurl": "https://sd.sduc.site/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
       "name": "多多资源",
       "searchurl": "https://tv.yydsys.top/index.php/vod/search.html?wd=",
       "detailurl": "https://tv.yydsys.top/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "二小资源",
-      "searchurl": "http://2xiaopan.fun/index.php/vod/search.html?wd=",
-      "detailurl": "http://2xiaopan.fun/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "至臻影视",
-      "searchurl": "http://www.miqk.cc/index.php/vod/search.html?wd=",
-      "detailurl": "http://www.miqk.cc/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "南风资源",
-      "searchurl": "https://www.nanf.cc/index.php/vod/search.html?wd=",
-      "detailurl": "https://www.nanf.cc/index.php/vod/detail/id/",
       "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
       "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
     },
@@ -125,18 +62,6 @@
       "name": "备用解析",
       "url": "https://jx.aidouer.net/?url=",
       "type": 0
-    },
-    {
-      "name": "iBox主解析",
-      "type": 0,
-      "url": "http://124.222.116.5:8080/parse?url=",
-      "ext": {"flag": ["qq","腾讯","iqiyi","爱奇艺","youku","优酷","mgtv","芒果","bilibili","哔哩","sohu","搜狐"]}
-    },
-    {
-      "name": "iBox备用解析",
-      "type": 0,
-      "url": "http://103.254.150.215:9640/tunefree/parse?url=",
-      "ext": {"flag": ["qq","腾讯","iqiyi","爱奇艺","youku","优酷","mgtv","芒果","bilibili","哔哩"]}
     }
   ]
 }
