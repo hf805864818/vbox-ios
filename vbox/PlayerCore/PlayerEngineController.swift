@@ -149,6 +149,8 @@ final class PlayerEngineController: ObservableObject {
             return MPVPlayerEngine(backendType: .mpvKit)
         case .libmpv:
             return MPVPlayerEngine(backendType: .libmpv)
+        case .mdk:
+            return MDKPlayerEngine()
         }
     }
 }
