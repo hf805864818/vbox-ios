@@ -367,7 +367,7 @@ final class CloudDriveAuthManager: ObservableObject {
         case failed(message: String)
     }
 
-    func ucCreateQrToken(clientId: String = "381", pollClientId: String = "381") async throws -> UCQrLoginToken {
+    func ucCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> UCQrLoginToken {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
@@ -419,16 +419,16 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
-        // UC 使用自己的 account/info 域名换取 Cookie，与夸克分开（对齐 iBox 实现）
-        var components = URLComponents(string: "https://drive.uc.cn/account/info")!
+        // UC 与夸克共用 CAS，account/info 需使用 pan.quark.cn 域名才能正确换取 Cookie
+        var components = URLComponents(string: "https://pan.quark.cn/account/info")!
         components.queryItems = [
             URLQueryItem(name: "st", value: serviceTicket),
             URLQueryItem(name: "fr", value: "pc"),
             URLQueryItem(name: "platform", value: "pc")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
         let config = URLSessionConfiguration.ephemeral
@@ -441,7 +441,7 @@ final class CloudDriveAuthManager: ObservableObject {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw AuthError.remoteError("UC account/info HTTP 失败")
         }
-        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
+        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
         guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
