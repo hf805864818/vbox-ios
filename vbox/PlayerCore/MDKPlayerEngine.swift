@@ -146,7 +146,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     func seek(to seconds: Double) {
         #if canImport(swift_mdk)
         let ms = Int64(seconds * 1000)
-        player.seek(ms) { [weak self] _ in
+        _ = player.seek(ms) { [weak self] _ in
             self?.state.currentTime = seconds
         }
         #endif
