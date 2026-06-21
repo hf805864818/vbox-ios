@@ -606,7 +606,7 @@ final class ZhanyuanSearchService {
 
         // 先找到 detaillist 容器
         let containers = doc.xpath(listXPath)
-        guard !containers.isEmpty else {
+        guard containers.count > 0 else {
             print("[ZhanyuanDetail] ⚠️ detaillist XPath 未匹配到容器: \(listXPath)")
             return []
         }
