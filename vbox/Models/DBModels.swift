@@ -20,6 +20,7 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
     var detailjsurl: String
     var isActive: Bool
     var updatedAt: Int64
+    var dyurl: String
 
     static let databaseTableName = "zhanyuan"
     static let defaultUA = "Mozilla/5.0 (Linux; Android 12; Redmi K30 Pro Build/SKQ1.220303.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/99.0.4844.88 Mobile Safari/537.36"
@@ -39,7 +40,8 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
          detailjs: String = "",
          detailjsurl: String = "",
          isActive: Bool = true,
-         updatedAt: Int64 = Int64(Date().timeIntervalSince1970))
+         updatedAt: Int64 = Int64(Date().timeIntervalSince1970),
+         dyurl: String = "")
     {
         self.id = id
         self.name = name
@@ -57,6 +59,7 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
         self.detailjsurl = detailjsurl
         self.isActive = isActive
         self.updatedAt = updatedAt
+        self.dyurl = dyurl
     }
 
     enum Columns {
@@ -76,6 +79,7 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
         static let detailjsurl = Column(CodingKeys.detailjsurl)
         static let isActive = Column(CodingKeys.isActive)
         static let updatedAt = Column(CodingKeys.updatedAt)
+        static let dyurl = Column(CodingKeys.dyurl)
     }
 
     // 用于 upsert：如果 name 已存在则更新，否则插入
@@ -99,6 +103,7 @@ struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
     var detailurl: String
     var detailua: String
     var isActive: Bool
+    var dyurl: String
 
     init(id: Int? = nil,
          name: String,
@@ -106,7 +111,8 @@ struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
          searchua: String = "",
          detailurl: String = "",
          detailua: String = "",
-         isActive: Bool = true)
+         isActive: Bool = true,
+         dyurl: String = "")
     {
         self.id = id
         self.name = name
@@ -115,6 +121,7 @@ struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
         self.detailurl = detailurl
         self.detailua = detailua
         self.isActive = isActive
+        self.dyurl = dyurl
     }
 
     enum Columns {
@@ -125,6 +132,7 @@ struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
         static let detailurl = Column(CodingKeys.detailurl)
         static let detailua = Column(CodingKeys.detailua)
         static let isActive = Column(CodingKeys.isActive)
+        static let dyurl = Column(CodingKeys.dyurl)
     }
 
     mutating func didInsert(with rowID: Int64, for column: String?) {

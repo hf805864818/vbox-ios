@@ -344,10 +344,11 @@ class SubscriptionManager: ObservableObject {
                     detailjs: item["detailjs"] as? String ?? "",
                     detailjsurl: item["detailjsurl"] as? String ?? "",
                     isActive: true,
-                    updatedAt: now
+                    updatedAt: now,
+                    dyurl: urlString
                 )
             }
-            db.saveZhanyuanSites(zhanyuanSites)
+            db.saveZhanyuanSites(zhanyuanSites, dyurl: urlString)
             zhanyuanSavedCount = zhanyuanSites.count
         }
 
@@ -377,7 +378,8 @@ class SubscriptionManager: ObservableObject {
                         detailjs: json["detailjs"] as? String ?? "",
                         detailjsurl: json["detailjsurl"] as? String ?? "",
                         isActive: true,
-                        updatedAt: now
+                        updatedAt: now,
+                        dyurl: urlString
                     )
                 }
                 // ext 不是有效 JSON，用 api 作为 searchUrl
@@ -396,11 +398,12 @@ class SubscriptionManager: ObservableObject {
                     detailjs: "",
                     detailjsurl: "",
                     isActive: true,
-                    updatedAt: now
+                    updatedAt: now,
+                    dyurl: urlString
                 )
             }
             if !zhanyuanFromSites.isEmpty {
-                db.saveZhanyuanSites(zhanyuanFromSites)
+                db.saveZhanyuanSites(zhanyuanFromSites, dyurl: urlString)
                 zhanyuanSavedCount = zhanyuanFromSites.count
                 print("[SubscriptionManager] 从 sites 数组提取 \(zhanyuanSavedCount) 个 zhanyuan 站点写入 SQLite")
             }
@@ -417,10 +420,11 @@ class SubscriptionManager: ObservableObject {
                     searchua: item["searchua"] as? String ?? "",
                     detailurl: item["detailurl"] as? String ?? "",
                     detailua: item["detailua"] as? String ?? "",
-                    isActive: true
+                    isActive: true,
+                    dyurl: urlString
                 )
             }
-            db.saveApiYuanSites(apiSites)
+            db.saveApiYuanSites(apiSites, dyurl: urlString)
         }
 
         // 4. 保存解析接口设置

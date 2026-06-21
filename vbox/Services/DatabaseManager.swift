@@ -131,6 +131,55 @@ class DatabaseManager {
             }
         }
 
+        migrator.registerMigration("v2_add_dyurl") { db in
+            // zhanyuan 表：添加 dyurl 列，重建唯一约束为 (name, dyurl)
+            try db.execute(sql: """
+                CREATE TABLE zhanyuan_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    searchUrl TEXT NOT NULL,
+                    searchUA TEXT NOT NULL DEFAULT 'Mozilla/5.0 (Linux; Android 12; Redmi K30 Pro Build/SKQ1.220303.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/99.0.4844.88 Mobile Safari/537.36',
+                    playUA TEXT NOT NULL DEFAULT '',
+                    websearchurl TEXT NOT NULL DEFAULT '',
+                    searchname TEXT NOT NULL DEFAULT '',
+                    searchid TEXT NOT NULL DEFAULT '',
+                    searchpic TEXT NOT NULL DEFAULT '',
+                    searchstarr TEXT NOT NULL DEFAULT '',
+                    detaillist TEXT NOT NULL DEFAULT '',
+                    detailxl TEXT NOT NULL DEFAULT '',
+                    detailjs TEXT NOT NULL DEFAULT '',
+                    detailjsurl TEXT NOT NULL DEFAULT '',
+                    isActive BOOLEAN NOT NULL DEFAULT 1,
+                    updatedAt INTEGER NOT NULL,
+                    dyurl TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name, dyurl)
+                )
+            """)
+            try db.execute(sql: "INSERT INTO zhanyuan_v2 SELECT id, name, searchUrl, searchUA, playUA, websearchurl, searchname, searchid, searchpic, searchstarr, detaillist, detailxl, detailjs, detailjsurl, isActive, updatedAt, '' FROM zhanyuan")
+            try db.execute(sql: "DROP TABLE zhanyuan")
+            try db.execute(sql: "ALTER TABLE zhanyuan_v2 RENAME TO zhanyuan")
+
+            // apiyuan 表：添加 dyurl 列，重建唯一约束为 (name, dyurl)
+            try db.execute(sql: """
+                CREATE TABLE apiyuan_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    searchurl TEXT NOT NULL,
+                    searchua TEXT NOT NULL DEFAULT '',
+                    detailurl TEXT NOT NULL DEFAULT '',
+                    detailua TEXT NOT NULL DEFAULT '',
+                    isActive BOOLEAN NOT NULL DEFAULT 1,
+                    dyurl TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name, dyurl)
+                )
+            """)
+            try db.execute(sql: "INSERT INTO apiyuan_v2 SELECT id, name, searchurl, searchua, detailurl, detailua, isActive, '' FROM apiyuan")
+            try db.execute(sql: "DROP TABLE apiyuan")
+            try db.execute(sql: "ALTER TABLE apiyuan_v2 RENAME TO apiyuan")
+
+            print("[DatabaseManager] v2 迁移完成：zhanyuan/aphiyuan 添加 dyurl 列，唯一约束改为 (name, dyurl)")
+        }
+
         return migrator
     }
 
@@ -186,44 +235,76 @@ class DatabaseManager {
 
     // MARK: - Zhanyuan CRUD
 
-    func saveZhanyuanSites(_ sites: [ZhanyuanSite]) {
+    func saveZhanyuanSites(_ sites: [ZhanyuanSite], dyurl: String) {
         guard !sites.isEmpty else {
             print("[DatabaseManager] saveZhanyuanSites: 站点列表为空，跳过（保留现有数据）")
             return
         }
         do {
-            // 事务保护：DELETE 和 INSERT 在同一事务中，失败时自动回滚
+            // 事务保护：只删除同订阅源的旧记录，再插入新记录
             try dbPool.write { db in
-                try db.execute(sql: "DELETE FROM zhanyuan")
+                try db.execute(sql: "DELETE FROM zhanyuan WHERE dyurl = ?", arguments: [dyurl])
                 for site in sites {
                     try site.insert(db)
                 }
             }
-            print("[DatabaseManager] 保存 zhanyuan 站点完成: \(sites.count) 个")
+            print("[DatabaseManager] 保存 zhanyuan 站点完成: \(sites.count) 个 (dyurl=\(dyurl.prefix(50)))")
         } catch {
             print("[DatabaseManager] 保存 zhanyuan 失败，数据已回滚: \(error)")
         }
     }
 
-    /// 清空 zhanyuan 表（删除订阅源时调用）
-    func clearAllZhanyuanSites() {
+    /// 清空指定订阅源的 zhanyuan 数据（dyurl 为空时清空全部）
+    func clearZhanyuanSites(dyurl: String) {
+        guard !dyurl.isEmpty else {
+            print("[DatabaseManager] clearZhanyuanSites: dyurl 为空，跳过")
+            return
+        }
         do {
             try dbPool.write { db in
-                try db.execute(sql: "DELETE FROM zhanyuan")
+                try db.execute(sql: "DELETE FROM zhanyuan WHERE dyurl = ?", arguments: [dyurl])
             }
-            print("[DatabaseManager] 已清空 zhanyuan 表")
+            print("[DatabaseManager] 已清空 zhanyuan 表中 dyurl=\(dyurl.prefix(50)) 的记录")
         } catch {
             print("[DatabaseManager] 清空 zhanyuan 失败: \(error)")
         }
     }
 
-    /// 清空 apiyuan 表（删除订阅源时调用）
+    /// 清空全部 zhanyuan 数据（无订阅源时调用）
+    func clearAllZhanyuanSites() {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM zhanyuan")
+            }
+            print("[DatabaseManager] 已清空全部 zhanyuan 表")
+        } catch {
+            print("[DatabaseManager] 清空 zhanyuan 失败: \(error)")
+        }
+    }
+
+    /// 清空指定订阅源的 apiyuan 数据
+    func clearApiYuanSites(dyurl: String) {
+        guard !dyurl.isEmpty else {
+            print("[DatabaseManager] clearApiYuanSites: dyurl 为空，跳过")
+            return
+        }
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM apiyuan WHERE dyurl = ?", arguments: [dyurl])
+            }
+            print("[DatabaseManager] 已清空 apiyuan 表中 dyurl=\(dyurl.prefix(50)) 的记录")
+        } catch {
+            print("[DatabaseManager] 清空 apiyuan 失败: \(error)")
+        }
+    }
+
+    /// 清空全部 apiyuan 数据（无订阅源时调用）
     func clearAllApiYuanSites() {
         do {
             try dbPool.write { db in
                 try db.execute(sql: "DELETE FROM apiyuan")
             }
-            print("[DatabaseManager] 已清空 apiyuan 表")
+            print("[DatabaseManager] 已清空全部 apiyuan 表")
         } catch {
             print("[DatabaseManager] 清空 apiyuan 失败: \(error)")
         }
@@ -238,6 +319,18 @@ class DatabaseManager {
             print("[DatabaseManager] 已清空 subscription 表")
         } catch {
             print("[DatabaseManager] 清空 subscription 失败: \(error)")
+        }
+    }
+
+    /// 删除指定订阅源的 subscription 记录
+    func clearSubscription(url: String) {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM subscription WHERE url = ?", arguments: [url])
+            }
+            print("[DatabaseManager] 已删除 subscription 记录: \(url.prefix(50))")
+        } catch {
+            print("[DatabaseManager] 删除 subscription 失败: \(error)")
         }
     }
 
@@ -281,14 +374,14 @@ class DatabaseManager {
 
     // MARK: - ApiYuan CRUD
 
-    func saveApiYuanSites(_ sites: [ApiYuanSite]) {
+    func saveApiYuanSites(_ sites: [ApiYuanSite], dyurl: String) {
         do {
             try dbPool.write { db in
                 for site in sites {
                     try site.save(db, onConflict: .replace)
                 }
             }
-            print("[DatabaseManager] 保存 \(sites.count) 个 apiyuan 站点")
+            print("[DatabaseManager] 保存 \(sites.count) 个 apiyuan 站点 (dyurl=\(dyurl.prefix(50)))")
         } catch {
             print("[DatabaseManager] 保存 apiyuan 失败: \(error)")
         }

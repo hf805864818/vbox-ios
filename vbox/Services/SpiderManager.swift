@@ -720,6 +720,8 @@ globalThis.__JS_SPIDER__ = _spider;
             return
         }
 
+        // 获取当前激活的订阅源 URL 作为 dyurl
+        let dyurl = subManager.activeURL ?? ""
         let now = Int64(Date().timeIntervalSince1970)
         let zhanyuanSites: [ZhanyuanSite] = zhanSites.compactMap { site in
             guard let api = site.api, !api.isEmpty else { return nil }
@@ -741,7 +743,8 @@ globalThis.__JS_SPIDER__ = _spider;
                     detailjs: json["detailjs"] as? String ?? "",
                     detailjsurl: json["detailjsurl"] as? String ?? "",
                     isActive: true,
-                    updatedAt: now
+                    updatedAt: now,
+                    dyurl: dyurl
                 )
             }
             return ZhanyuanSite(
@@ -759,12 +762,13 @@ globalThis.__JS_SPIDER__ = _spider;
                 detailjs: "",
                 detailjsurl: "",
                 isActive: true,
-                updatedAt: now
+                updatedAt: now,
+                dyurl: dyurl
             )
         }
 
         print("[SpiderManager] 强制同步 \(zhanyuanSites.count) 个 zhanyuan 站点到 SQLite")
-        DatabaseManager.shared.saveZhanyuanSites(zhanyuanSites)
+        DatabaseManager.shared.saveZhanyuanSites(zhanyuanSites, dyurl: dyurl)
     }
 
     /// 加载蜘蛛 JS 到引擎 — 支持双引擎自动回退（JSC 优先，失败时尝试 QuickJS）
@@ -1350,17 +1354,17 @@ globalThis.__JS_SPIDER__ = _spider;
         subManager.removeURL(url)
         savedURLs = subManager.configURLs
 
-        // 清除数据库中的订阅源数据（zhanyuan、aphiyuan、subscription）
+        // 只清除该订阅源的数据库记录，不影响其他订阅源
         let db = DatabaseManager.shared
-        db.clearAllZhanyuanSites()
-        db.clearAllApiYuanSites()
-        db.clearAllSubscriptions()
-        print("[SpiderManager] 已清除订阅源 \(url) 的数据库记录")
+        db.clearZhanyuanSites(dyurl: url)
+        db.clearApiYuanSites(dyurl: url)
+        db.clearSubscription(url: url)
+        print("[SpiderManager] 已清除订阅源 \(url.prefix(60)) 的数据库记录")
 
         // 彻底清空 SpiderManager 的站点数据
         allSites = []
         loadedSiteCount = 0
-        // 清除残留数据：如果删除的是当前激活的订阅源，重新加载站点
+        // 清除残留数据：重新加载剩下的订阅源
         Task { [self] in
             // 重新加载剩下的订阅源（如果有的话）
             await loadSitesFromSubscription()
