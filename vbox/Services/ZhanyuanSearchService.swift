@@ -46,9 +46,17 @@ final class ZhanyuanSearchService {
             let hasPlaceholder = url.contains("wd=") || url.contains("keyword") || url.contains("searchword")
 
             if hasPlaceholder {
-                var searchURL = url.replacingOccurrences(of: "**", with: encodedKeyword)
-                if searchURL.contains("wd=") {
-                    searchURL = searchURL.replacingOccurrences(of: "wd=", with: "wd=\(encodedKeyword)")
+                var searchURL = url
+                // 先替换 ** 占位符
+                searchURL = searchURL.replacingOccurrences(of: "**", with: encodedKeyword)
+                // 如果 wd= 后面没有值（或值仍是 **），才补充关键词
+                // 避免 wd= 已经有值时重复拼接
+                if let range = searchURL.range(of: "wd=") {
+                    let afterWd = String(searchURL[range.upperBound...])
+                    if afterWd.isEmpty || afterWd == "**" || afterWd.hasPrefix("&") {
+                        // wd= 后面是空的、是占位符、或直接跟 &，替换为关键词
+                        searchURL.replaceSubrange(range.upperBound..., with: encodedKeyword)
+                    }
                 }
                 return searchURL
             } else {
@@ -305,7 +313,7 @@ final class ZhanyuanSearchService {
         let pics = site.searchpic.isEmpty ? [] : extractStrings(doc: doc, xpath: normalizeXPath(site.searchpic))
         let stars = site.searchstarr.isEmpty ? [] : extractStrings(doc: doc, xpath: normalizeXPath(site.searchstarr))
 
-        let count = min(names.count, ids.count, 30)
+        let count = min(names.count, ids.count, 50)
         for i in 0..<count {
             let name = names[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             var id = ids[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)

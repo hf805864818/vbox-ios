@@ -188,27 +188,20 @@ class DatabaseManager {
 
     func saveZhanyuanSites(_ sites: [ZhanyuanSite]) {
         guard !sites.isEmpty else {
-            print("[DatabaseManager] saveZhanyuanSites: 站点列表为空，跳过")
+            print("[DatabaseManager] saveZhanyuanSites: 站点列表为空，跳过（保留现有数据）")
             return
         }
         do {
+            // 事务保护：DELETE 和 INSERT 在同一事务中，失败时自动回滚
             try dbPool.write { db in
-                // 用 SQL 直接清空旧数据（避免 GRDB deleteAll 的兼容性问题）
                 try db.execute(sql: "DELETE FROM zhanyuan")
-                // 逐个插入，单个失败不影响其他
-                var successCount = 0
                 for site in sites {
-                    do {
-                        try site.insert(db)
-                        successCount += 1
-                    } catch {
-                        print("[DatabaseManager] 插入 zhanyuan 站点 '\(site.name)' 失败: \(error)")
-                    }
+                    try site.insert(db)
                 }
-                print("[DatabaseManager] 保存 zhanyuan 站点完成: 成功 \(successCount)/\(sites.count)")
             }
+            print("[DatabaseManager] 保存 zhanyuan 站点完成: \(sites.count) 个")
         } catch {
-            print("[DatabaseManager] 保存 zhanyuan 失败(事务级): \(error)")
+            print("[DatabaseManager] 保存 zhanyuan 失败，数据已回滚: \(error)")
         }
     }
 
