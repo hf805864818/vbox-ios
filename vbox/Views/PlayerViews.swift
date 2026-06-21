@@ -477,7 +477,6 @@ struct VideoDetailView: View {
                 }
             }
             .background(Color.clear)
-            .ignoresSafeArea()
 
             // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
             VStack(spacing: 0) {
