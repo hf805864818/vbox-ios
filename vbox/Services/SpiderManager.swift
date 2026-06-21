@@ -1137,7 +1137,16 @@ globalThis.__JS_SPIDER__ = _spider;
         // 写入搜索历史
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
-        // 1. QuickJS 蜘蛛（每个引擎一个任务）
+        // ========== 0. 网盘站优先搜索（结果最稳定，排最前）==========
+        log("☁️ 网盘站优先搜索...")
+        await cloudSearch(keyword: keyword, onBatch: { items in
+            if !items.isEmpty {
+                log("☁️ 网盘站优先返回 \(items.count) 条")
+                onBatch(items)
+            }
+        }, onLog: onLog)
+
+        // ========== 1. QuickJS 蜘蛛（每个引擎一个任务）==========
         log("QuickJS引擎: \(engines.count) 个")
         for (key, engine) in engines {
             do {
@@ -1158,7 +1167,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 1.5 zhanyuan 原生搜索（Swift + Kanna，从 SQLite 读取站点配置）
+        // ========== 2. zhanyuan 原生搜索（Swift + Kanna）==========
         await ZhanyuanSearchService.searchAllZhanyuan(keyword: keyword, onBatch: { items in
             if !items.isEmpty {
                 onBatch(items)
@@ -1167,13 +1176,13 @@ globalThis.__JS_SPIDER__ = _spider;
             log("zhanyuan: \(msg)")
         })
 
-        // 2. 合并订阅源 + ibox内置源 + 兜底源
+        // ========== 3. 合并订阅源 + ibox内置源 + 兜底源 ==========
         struct Site { let name: String; let api: String }
         var sites: [Site] = []
         // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
         let spiderAllSites = self.allSites
         log("allSites: \(spiderAllSites.count) 个")
-        // 【改造】扩展筛选条件：包含 type=0/1 以及 API 模式的 type=3 站点
+        // 扩展筛选：包含 type=0/1 以及 API 模式的 type=3 站点
         for s in spiderAllSites where s.api?.isEmpty == false {
             let mode = resolveSiteMode(site: s)
             if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
@@ -1183,7 +1192,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
         log("API模式站点: \(sites.count) 个")
-        // 兜底源补充
+        // 兜底源补充（内置 + 自定义）
         if fallbackEnabled {
             log("兜底站: \(allFallbackSites.count) 个")
             for fb in allFallbackSites {
@@ -1197,7 +1206,7 @@ globalThis.__JS_SPIDER__ = _spider;
             return
         }
 
-        // 3. 全部站点并发搜索（限制并发数20），每个站点完成立即回调
+        // ========== 4. 全部站点并发搜索，每个站点完成立即回调 ==========
         let allSites = Array(sites)
         log("合计搜索站点: \(allSites.count) 个（全部并发）")
         var successCount = 0
@@ -1466,8 +1475,43 @@ globalThis.__JS_SPIDER__ = _spider;
             req.timeoutInterval = 5
             req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
             let (data, _) = try await URLSession.shared.data(for: req)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let list = json["list"] as? [[String: Any]], !list.isEmpty {
+            let jsonObj = try JSONSerialization.jsonObject(with: data)
+
+            var list: [[String: Any]]? = nil
+
+            if let json = jsonObj as? [String: Any] {
+                // Apple CMS 标准格式: { "list": [...] }
+                if let l = json["list"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+                // 常见变体: { "data": [...] }
+                else if let l = json["data"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+                // 常见变体: { "result": [...] }
+                else if let l = json["result"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+                // 常见变体: { "results": [...] }
+                else if let l = json["results"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+                // 常见变体: { "data": { "list": [...] } }
+                else if let dataObj = json["data"] as? [String: Any],
+                        let l = dataObj["list"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+                // 常见变体: { "data": { "data": [...] } }
+                else if let dataObj = json["data"] as? [String: Any],
+                        let l = dataObj["data"] as? [[String: Any]], !l.isEmpty {
+                    list = l
+                }
+            } else if let arr = jsonObj as? [[String: Any]], !arr.isEmpty {
+                // 直接返回数组
+                list = arr
+            }
+
+            if let list = list {
                 let items = list.map { Self.makeVodItem(from: $0, siteName: name) }
                 print("[SpiderManager] nativeSearch \(name): \(items.count) 条")
                 return items
@@ -1481,88 +1525,107 @@ globalThis.__JS_SPIDER__ = _spider;
     // MARK: - 网盘资源专用搜索（独立通道）
     /// 只搜索网盘资源站（video_sources.json 中的 HTML 网页站点）
     /// 返回的 VodItem.vodId 存的是详情页完整 URL，播放时直接抓取解析
-    func cloudSearch(keyword: String, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+    /// 支持两种模式：
+    ///   1. 带 onBatch 回调：每个站点出结果立即回调（用于 searchStream 优先通道）
+    ///   2. 返回数组：全部完成后返回（兼容旧调用）
+    func cloudSearch(keyword: String, onBatch: (([VodItem]) -> Void)? = nil, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
         var results: [VodItem] = []
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
         let log = onLog ?? { print("[cloudSearch] \($0)") }
         log("====== cloudSearch: \(keyword) ======")
-        
-        // 从配置中读取网盘资源站列表
-        // 现在的 video_sources.json 是本地的，也可以内置信得过的网盘站
+
         let cloudSites: [(name: String, searchURL: String, detailBase: String)] = [
             ("木偶影视", "https://666.666291.xyz/index.php/vod/search.html?wd=", "https://666.666291.xyz"),
             ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
             ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
-
             ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
             ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
             ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
             ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
         ]
 
-        for site in cloudSites {
-            let fullURL = site.searchURL + encodedKW
-            log("☁️ \(site.name) 请求中...")
-            do {
-                guard let url = URL(string: fullURL) else { continue }
-                var req = URLRequest(url: url)
-                req.timeoutInterval = 8
-                req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
-                let (data, _) = try await URLSession.shared.data(for: req)
-                guard let html = String(data: data, encoding: .utf8) else { continue }
-                
-                // 从 HTML 中提取视频卡片：标题 + 详情页 URL + 封面
-                let pattern = #"<a[^>]*href="(/index.php/vod/detail/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#
-                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
-                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                
-                var siteCount = 0
-                for match in matches {
-                    guard match.numberOfRanges >= 4 else { continue }
-                    let hrefRange = match.range(at: 1)
-                    let idRange = match.range(at: 2)
-                    let nameRange = match.range(at: 3)
-                    guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
-                          let hRange = Range(hrefRange, in: html),
-                          let nRange = Range(nameRange, in: html) else { continue }
-                    let detailPath = String(html[hRange])
-                    var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    // 过滤掉菜单项
-                    if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
-                    
-                    // 尝试提取封面图
-                    var pic = ""
-                    // 找当前卡片附近的图片
-                    let picPattern = #"<img[^>]*src="([^"]+)"[^>]*>"#
-                    // 简化：从页面上找第一张 poster 或封面
-                    if let picRegex = try? NSRegularExpression(pattern: #"data-original="([^"]+)"#),
-                       let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                       let pRange = Range(picMatch.range(at: 1), in: html) {
-                        pic = String(html[pRange])
-                    }
-                    if pic.isEmpty,
-                       let picRegex = try? NSRegularExpression(pattern: #"<img[^>]*class="[^"]*lazy[^"]*"[^>]*data-src="([^"]+)"#),
-                       let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                       let pRange = Range(picMatch.range(at: 1), in: html) {
-                        pic = String(html[pRange])
-                    }
-                    
-                    let detailURL = site.detailBase + detailPath
-                    let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: site.name)
-                    // 智能去重（已关闭，保留所有搜索结果）
-                    // smartMerge(item: item, into: &results)
-                    results.append(item)
-                    siteCount += 1
+        // 并发搜索所有网盘站，每个站点出结果立即回调
+        await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
+            for site in cloudSites {
+                group.addTask {
+                    let items = await self.searchOneCloudSite(site: site, keyword: encodedKW, onLog: log)
+                    return (name: site.name, items: items)
                 }
-                print("[SpiderManager] cloudSearch \(site.name): \(siteCount) 条")
-                log("☁️ ✅ \(site.name) +\(siteCount)条")
-            } catch {
-                log("☁️ ❌ \(site.name) 失败")
-                print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
+            }
+            for await result in group {
+                if !result.items.isEmpty {
+                    log("☁️ ✅ \(result.name) +\(result.items.count)条")
+                    if let onBatch = onBatch {
+                        onBatch(result.items)
+                    }
+                    results.append(contentsOf: result.items)
+                } else {
+                    log("☁️ ⬜ \(result.name) 0条")
+                }
             }
         }
-        print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条（智能去重后） ======")
+
+        print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条 ======")
         return results
+    }
+
+    /// 搜索单个网盘站
+    private func searchOneCloudSite(site: (name: String, searchURL: String, detailBase: String), keyword: String, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let fullURL = site.searchURL + keyword
+        log("☁️ \(site.name) 请求中...")
+
+        guard let url = URL(string: fullURL) else { return [] }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+
+            // 从 HTML 中提取视频卡片：标题 + 详情页 URL + 封面
+            let pattern = #"<a[^>]*href="(/index.php/vod/detail/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+            var items: [VodItem] = []
+            for match in matches {
+                guard match.numberOfRanges >= 4 else { continue }
+                let hrefRange = match.range(at: 1)
+                let nameRange = match.range(at: 3)
+                guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                      let hRange = Range(hrefRange, in: html),
+                      let nRange = Range(nameRange, in: html) else { continue }
+                let detailPath = String(html[hRange])
+                let title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                // 过滤掉菜单项
+                if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
+
+                // 尝试提取封面图
+                var pic = ""
+                if let picRegex = try? NSRegularExpression(pattern: #"data-original="([^"]+)"#),
+                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let pRange = Range(picMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
+                if pic.isEmpty,
+                   let picRegex = try? NSRegularExpression(pattern: #"<img[^>]*class="[^"]*lazy[^"]*"[^>]*data-src="([^"]+)"#),
+                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let pRange = Range(picMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
+
+                let detailURL = site.detailBase + detailPath
+                let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name)
+                items.append(item)
+            }
+            print("[SpiderManager] cloudSearch \(site.name): \(items.count) 条")
+            return items
+        } catch {
+            log("☁️ ❌ \(site.name) 失败")
+            print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
+            return []
+        }
     }
 
     /// 网盘资源详情解析（从详情页 HTML 中提取所有网盘链接+标题）
