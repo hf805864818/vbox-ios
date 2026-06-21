@@ -1908,14 +1908,14 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             guard let html = String(data: data, encoding: .utf8) else {
                 if let gbkData = try? NSString(data: data, encoding: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))) as String? {
-                    let result = try await parseCloudHTML(html: gbkData)
+                    let result = await parseCloudHTML(html: gbkData)
                     if let result { cacheCloudPlay(result, for: detailURL) }
                     return result
                 }
                 print("[SpiderManager] ❌ 编码错误")
                 return nil
             }
-            let result = try await parseCloudHTML(html: html)
+            let result = await parseCloudHTML(html: html)
             if let result { cacheCloudPlay(result, for: detailURL) }
             return result
         } catch {

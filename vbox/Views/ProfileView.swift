@@ -734,8 +734,8 @@ struct DownloadView: View {
                     }
                     .font(.system(size: 14))
                     .foregroundColor(.red)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .onAppear {
