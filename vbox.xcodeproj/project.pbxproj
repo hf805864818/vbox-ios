@@ -95,9 +95,9 @@
 		A10139 /* SiteDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10139 /* SiteDiagnosticsView.swift */; };
 		A10140 /* WKWebViewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10140 /* WKWebViewParser.swift */; };
 		A10141 /* ibox_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10141 /* ibox_sources.json */; };
-		A10144 /* video_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10144 /* video_sources.json */; };
 		A10142 /* LiveTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10142 /* LiveTVView.swift */; };
 		A10143 /* LiveTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10143 /* LiveTVService.swift */; };
+		A10144 /* video_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10144 /* video_sources.json */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
 		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
@@ -276,9 +276,9 @@
 		B10139 /* SiteDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteDiagnosticsView.swift; sourceTree = "<group>"; };
 		B10140 /* WKWebViewParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WKWebViewParser.swift; sourceTree = "<group>"; };
 		B10141 /* ibox_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ibox_sources.json; sourceTree = "<group>"; };
-		B10144 /* video_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = video_sources.json; sourceTree = "<group>"; };
 		B10142 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
 		B10143 /* LiveTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVService.swift; sourceTree = "<group>"; };
+		B10144 /* video_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = video_sources.json; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
