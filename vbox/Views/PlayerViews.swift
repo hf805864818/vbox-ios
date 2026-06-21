@@ -317,8 +317,9 @@ struct VideoDetailView: View {
 
                         Button(action: handlePlay) {
                             ZStack {
-                                Circle().fill(Color(hex: "E11D48")).frame(width: 70, height: 70)
-                                Image(systemName: "play.fill").font(.system(size: 28, weight: .bold)).foregroundColor(.white).offset(x: 3)
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 28, weight: .bold))
+                                    .foregroundColor(.white)
                             }
                         }.padding(16)
                     }
