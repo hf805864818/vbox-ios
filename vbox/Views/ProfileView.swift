@@ -97,7 +97,7 @@ struct ProfileView: View {
         .sheet(isPresented: $showSettingsSheet) {
             NavigationView {
                 SettingsView()
-                    .environment(\.colorScheme, settings.preferredColorScheme ?? (settings.usesVisualSkin ? .dark : nil))
+                    .environment(\.colorScheme, settings.preferredColorScheme ?? .dark)
             }
         }
     }
