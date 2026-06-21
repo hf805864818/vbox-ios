@@ -604,27 +604,37 @@ final class ZhanyuanSearchService {
             tabNames = extractStrings(doc: doc, xpath: normalizeXPath(site.detailxl))
         }
 
-        // 提取每集名称和链接
-        let episodeNames = !site.detailjs.isEmpty ? extractStrings(doc: doc, xpath: normalizeXPath(site.detailjs)) : []
-        let episodeUrls = !site.detailjsurl.isEmpty ? extractStrings(doc: doc, xpath: normalizeXPath(site.detailjsurl)) : []
+        // 先找到 detaillist 容器
+        let containers = doc.xpath(listXPath)
+        guard !containers.isEmpty else {
+            print("[ZhanyuanDetail] ⚠️ detaillist XPath 未匹配到容器: \(listXPath)")
+            return []
+        }
 
-        if !episodeNames.isEmpty && !episodeUrls.isEmpty {
-            // 有明确的集数规则
-            let count = min(episodeNames.count, episodeUrls.count, 500)
-            for i in 0..<count {
-                let epName = episodeNames[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                var epUrl = episodeUrls[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                if epName.isEmpty && epUrl.isEmpty { continue }
+        let hasDetailRules = !site.detailjs.isEmpty && !site.detailjsurl.isEmpty
 
-                epUrl = completeURL(epUrl, base: host)
-                playUrls.append("\(epName)$\(epUrl)")
-            }
-        } else {
-            // 没有明确的集数规则，从 detaillist 容器中提取所有 <a> 标签
-            let containers = doc.xpath(listXPath)
-            for node in containers {
-                guard let el = node as? XMLElement else { continue }
-                let links = el.xpath(".//a")
+        for node in containers {
+            guard let container = node as? XMLElement else { continue }
+
+            if hasDetailRules {
+                // 有 detailjs/detailjsurl 规则，限定在容器内查询
+                let episodeNames = extractStringsFromElement(container, xpath: normalizeXPath(site.detailjs))
+                let episodeUrls = extractStringsFromElement(container, xpath: normalizeXPath(site.detailjsurl))
+
+                if !episodeNames.isEmpty && !episodeUrls.isEmpty {
+                    let count = min(episodeNames.count, episodeUrls.count, 500)
+                    for i in 0..<count {
+                        let epName = episodeNames[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                        var epUrl = episodeUrls[i].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                        if epName.isEmpty && epUrl.isEmpty { continue }
+
+                        epUrl = completeURL(epUrl, base: host)
+                        playUrls.append("\(epName)$\(epUrl)")
+                    }
+                }
+            } else {
+                // 没有 detailjs/detailjsurl，从容器中提取所有 <a> 标签
+                let links = container.xpath(".//a")
                 for linkNode in links {
                     guard let linkEl = linkNode as? XMLElement else { continue }
                     let epName = linkEl.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
@@ -638,6 +648,57 @@ final class ZhanyuanSearchService {
         }
 
         return playUrls
+    }
+
+    /// 从单个 XMLElement 中提取字符串数组（限定在容器内查询）
+    /// 将绝对 XPath（如 //a/text()）转换为相对 XPath（.//a）后查询
+    private static func extractStringsFromElement(_ element: XMLElement, xpath: String) -> [String] {
+        guard !xpath.isEmpty else { return [] }
+
+        var isText = false
+        var isAttr = false
+        var attrName = ""
+        var baseXPath = xpath
+
+        if baseXPath.hasSuffix("/text()") {
+            isText = true
+            baseXPath = String(baseXPath.dropLast(7))
+        } else if let attrMatch = baseXPath.range(of: "/@([a-zA-Z_][a-zA-Z0-9_-]*)$", options: .regularExpression) {
+            isAttr = true
+            attrName = String(baseXPath[attrMatch].dropFirst(2))
+            baseXPath = String(baseXPath[..<attrMatch.lowerBound])
+        }
+
+        // 将绝对路径 //xxx 转换为相对路径 .//xxx
+        if baseXPath.hasPrefix("//") {
+            baseXPath = "." + baseXPath
+        } else if !baseXPath.hasPrefix(".") {
+            baseXPath = ".//" + baseXPath
+        }
+
+        let results = element.xpath(baseXPath)
+        guard results.count > 0 else { return [] }
+
+        var strings: [String] = []
+        for node in results {
+            guard let el = node as? XMLElement else { continue }
+
+            if isText {
+                if let text = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !text.isEmpty {
+                    strings.append(text)
+                }
+            } else if isAttr {
+                if let value = el[attrName], !value.isEmpty {
+                    strings.append(value)
+                }
+            } else {
+                if let text = el.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !text.isEmpty {
+                    strings.append(text)
+                }
+            }
+        }
+
+        return strings
     }
 
     /// 通用播放列表提取（无 XPath 规则时的兜底）
