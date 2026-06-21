@@ -11,7 +11,6 @@ struct ContentView: View {
         case search = "搜索"
         case live = "直播"
         case profile = "我的"
-        case settings = "设置"
 
         // 未选中空心图标
         var iconOutline: String {
@@ -20,7 +19,6 @@ struct ContentView: View {
             case .search: return "magnifyingglass"
             case .live: return "antenna.radiowaves.left.and.right"
             case .profile: return "person"
-            case .settings: return "gearshape"
             }
         }
 
@@ -31,7 +29,6 @@ struct ContentView: View {
             case .search: return "magnifyingglass.circle.fill"
             case .live: return "dot.radiowaves.left.and.right"
             case .profile: return "person.fill"
-            case .settings: return "gearshape.fill"
             }
         }
     }
@@ -57,7 +54,6 @@ struct ContentView: View {
                     case .search: SearchView()
                     case .live: LiveTVView()
                     case .profile: ProfileView()
-                    case .settings: SettingsView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -35,6 +35,11 @@ struct VideoDetailView: View {
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
 
+    // 收藏
+    @State private var isFavorite = false
+    @State private var favoriteId: Int? = nil
+    @State private var showDownloadTip = false
+
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
     private var displayVideo: VodItem { detailVideo ?? video }
 
@@ -133,6 +138,69 @@ struct VideoDetailView: View {
            let rootVC = windowScene.windows.first?.rootViewController {
             rootVC.present(activityVC, animated: true)
         }
+    }
+
+    // MARK: - 收藏
+    private func checkFavorite() {
+        let sourceName = allSources.first?.name ?? ""
+        if let favId = DatabaseManager.shared.isFavorite2(detailurl: video.vodId, laiyuan: sourceName) {
+            isFavorite = true
+            favoriteId = favId
+        } else {
+            isFavorite = false
+            favoriteId = nil
+        }
+    }
+
+    private func toggleFavorite() {
+        if isFavorite, let favId = favoriteId {
+            DatabaseManager.shared.removeFavorite(id: favId)
+            isFavorite = false
+            favoriteId = nil
+        } else {
+            let sourceName = allSources.first?.name ?? ""
+            let record = FavoriteRecord(
+                name: displayVideo.vodName,
+                laiyuan: sourceName,
+                imgurl: displayVideo.vodPic ?? "",
+                detailurl: video.vodId,
+                detailua: "",
+                xianlu: 0,
+                jishu: 0,
+                addedAt: Int64(Date().timeIntervalSince1970)
+            )
+            DatabaseManager.shared.addFavorite(record)
+            isFavorite = true
+            // 重新查询获取 id
+            if let favId = DatabaseManager.shared.isFavorite2(detailurl: video.vodId, laiyuan: sourceName) {
+                favoriteId = favId
+            }
+        }
+    }
+
+    // MARK: - 下载
+    private func handleDownload() {
+        guard !episodes.isEmpty else {
+            showDownloadTip = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
+            return
+        }
+        let episode = episodes[0]
+        let sourceName = allSources.first?.name ?? ""
+        let record = DownloadRecord(
+            name: "\(displayVideo.vodName) \(episode.name)",
+            laiyuan: sourceName,
+            imgurl: displayVideo.vodPic ?? "",
+            detailurl: video.vodId,
+            playurl: episode.url,
+            jishu: 1,
+            progress: 0,
+            status: "pending",
+            addedAt: Int64(Date().timeIntervalSince1970)
+        )
+        DatabaseManager.shared.addDownload(record)
+        showDownloadTip = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
     }
 
     // MARK: - 选集
@@ -257,7 +325,15 @@ struct VideoDetailView: View {
 
                     // 信息区
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.primary)
+                        HStack {
+                            Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.primary)
+                            Spacer()
+                            Button(action: toggleFavorite) {
+                                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
+                            }
+                        }
                         HStack(spacing: 12) {
                             TagLabel(text: displayVideo.vodRemarks ?? "")
                             TagLabel(text: displayVideo.vodYear ?? "")
@@ -370,7 +446,7 @@ struct VideoDetailView: View {
                 HStack(spacing: 0) {
                     BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
                     BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
-                    BottomBarButton(icon: "square.and.arrow.down", title: "下载") { }
+                    BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
                     BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
                 }
                 .padding(.horizontal, 10)
@@ -386,6 +462,22 @@ struct VideoDetailView: View {
                 )
                 .clipShape(Capsule())
                 .padding(.bottom, 20)
+            }
+
+            // 下载提示
+            if showDownloadTip {
+                VStack {
+                    Spacer()
+                    Text(episodes.isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
+                        .font(.system(size: 14))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.black.opacity(0.75)))
+                        .foregroundColor(.white)
+                        .padding(.bottom, 100)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut, value: showDownloadTip)
             }
         }
         // 播放器
@@ -410,6 +502,7 @@ struct VideoDetailView: View {
             if isCloudVideo { loadPanLinks() }
             loadRealDetailIfNeeded()
             loadCredits()
+            checkFavorite()
         }
         .edgeSwipeBack { dismiss() }
     }

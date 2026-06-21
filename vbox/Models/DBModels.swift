@@ -284,6 +284,74 @@ struct HistoryRecord: Codable, Identifiable, FetchableRecord, PersistableRecord 
     }
 }
 
+// MARK: - DownloadRecord
+
+struct DownloadRecord: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "download"
+    var id: Int?
+    var name: String
+    var laiyuan: String
+    var imgurl: String
+    var detailurl: String
+    var playurl: String
+    var jishu: Int
+    var progress: Double
+    var status: String        // "pending", "downloading", "completed", "failed"
+    var filePath: String
+    var fileSize: Int64
+    var downloadedSize: Int64
+    var addedAt: Int64
+
+    init(id: Int? = nil,
+         name: String,
+         laiyuan: String = "",
+         imgurl: String = "",
+         detailurl: String = "",
+         playurl: String = "",
+         jishu: Int = 0,
+         progress: Double = 0,
+         status: String = "pending",
+         filePath: String = "",
+         fileSize: Int64 = 0,
+         downloadedSize: Int64 = 0,
+         addedAt: Int64 = Int64(Date().timeIntervalSince1970))
+    {
+        self.id = id
+        self.name = name
+        self.laiyuan = laiyuan
+        self.imgurl = imgurl
+        self.detailurl = detailurl
+        self.playurl = playurl
+        self.jishu = jishu
+        self.progress = progress
+        self.status = status
+        self.filePath = filePath
+        self.fileSize = fileSize
+        self.downloadedSize = downloadedSize
+        self.addedAt = addedAt
+    }
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let name = Column(CodingKeys.name)
+        static let laiyuan = Column(CodingKeys.laiyuan)
+        static let imgurl = Column(CodingKeys.imgurl)
+        static let detailurl = Column(CodingKeys.detailurl)
+        static let playurl = Column(CodingKeys.playurl)
+        static let jishu = Column(CodingKeys.jishu)
+        static let progress = Column(CodingKeys.progress)
+        static let status = Column(CodingKeys.status)
+        static let filePath = Column(CodingKeys.filePath)
+        static let fileSize = Column(CodingKeys.fileSize)
+        static let downloadedSize = Column(CodingKeys.downloadedSize)
+        static let addedAt = Column(CodingKeys.addedAt)
+    }
+
+    mutating func didInsert(with rowID: Int64, for column: String?) {
+        id = Int(rowID)
+    }
+}
+
 // MARK: - UserSetting
 
 struct UserSetting: Codable, Identifiable, FetchableRecord, PersistableRecord {
