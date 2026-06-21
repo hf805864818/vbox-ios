@@ -358,6 +358,7 @@ struct SearchBarHeader: View {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(Color.secondary)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 12)
@@ -384,6 +385,7 @@ struct SearchBarHeader: View {
                     .font(.system(size: 22))
                     .foregroundColor(Color(hex: "E11D48"))
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -882,6 +884,7 @@ struct SearchView: View {
                             }
                             .font(.system(size: 13))
                             .foregroundColor(Color(hex: "E11D48"))
+                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
@@ -1088,9 +1091,10 @@ struct SearchBar: View {
                 TextField("搜索视频、剧集...", text: $searchText).foregroundColor(.primary).onSubmit { performSearch() }
                 if !searchText.isEmpty {
                     Button(action: { searchText = ""; isSearching = false }) { Image(systemName: "xmark.circle.fill").foregroundColor(Color.gray) }
+                    .buttonStyle(.plain)
                 }
             }.padding(.horizontal, 14).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.gray.opacity(0.1))).overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.gray.opacity(0.3), lineWidth: 1))
-            if isSearching { Button("取消") { searchText = ""; isSearching = false; UIApplication.shared.endEditing() }.foregroundColor(Color(hex: "E11D48")) }
+            if isSearching { Button("取消") { searchText = ""; isSearching = false; UIApplication.shared.endEditing() }.foregroundColor(Color(hex: "E11D48")).buttonStyle(.plain) }
         }.padding(.horizontal, 16).padding(.vertical, 12).background(Color(uiColor: .systemBackground))
     }
     private func performSearch() { guard !searchText.isEmpty else { return }; onSearch?() }
