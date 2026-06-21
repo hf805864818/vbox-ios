@@ -1,55 +1,66 @@
 {
   "dyname": "网盘资源聚合",
   "dyzuozhe": "vbox-ios",
-  "apiyuan": [
-    {
-      "name": "玩偶┃4K弹幕",
-      "searchurl": "http://wogg.xxooo.cf/index.php/vod/search.html?wd=",
-      "detailurl": "http://wogg.xxooo.cf/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
+  "cloudSites": [
     {
       "name": "木偶影视",
       "searchurl": "https://666.666291.xyz/index.php/vod/search.html?wd=",
-      "detailurl": "https://666.666291.xyz/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "4KTOP蓝光",
-      "searchurl": "https://4ktop.com/index.php/vod/search.html?wd=",
-      "detailurl": "https://4ktop.com/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "盘Ta资源",
-      "searchurl": "https://www.91panta.cn/index.php/vod/search.html?wd=",
-      "detailurl": "https://www.91panta.cn/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
-    },
-    {
-      "name": "LibVio影视",
-      "searchurl": "https://libvio.mov/search/-------------.html?wd=",
-      "detailurl": "https://libvio.mov/voddetail/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+      "detailBase": "https://666.666291.xyz"
     },
     {
       "name": "多多资源",
       "searchurl": "https://tv.yydsys.top/index.php/vod/search.html?wd=",
-      "detailurl": "https://tv.yydsys.top/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+      "detailBase": "https://tv.yydsys.top"
+    },
+    {
+      "name": "至臻影视",
+      "searchurl": "http://www.miqk.cc/index.php/vod/search.html?wd=",
+      "detailBase": "http://www.miqk.cc"
+    },
+    {
+      "name": "飞猫影视",
+      "searchurl": "http://feimo.fun/index.php/vod/search.html?wd=",
+      "detailBase": "http://feimo.fun"
+    },
+    {
+      "name": "2小盘",
+      "searchurl": "https://www.2xiaopan.top/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.2xiaopan.top"
+    },
+    {
+      "name": "430520",
+      "searchurl": "https://by1.430520.xyz/index.php/vod/search.html?wd=",
+      "detailBase": "https://by1.430520.xyz"
+    },
+    {
+      "name": "92CJ云盘",
+      "searchurl": "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=",
+      "detailBase": "https://yun.92cj.com/yunbox"
+    },
+    {
+      "name": "玩偶┃4K弹幕",
+      "searchurl": "http://wogg.xxooo.cf/index.php/vod/search.html?wd=",
+      "detailBase": "http://wogg.xxooo.cf"
+    },
+    {
+      "name": "4KTOP蓝光",
+      "searchurl": "https://4ktop.com/index.php/vod/search.html?wd=",
+      "detailBase": "https://4ktop.com"
+    },
+    {
+      "name": "盘Ta资源",
+      "searchurl": "https://www.91panta.cn/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.91panta.cn"
+    },
+    {
+      "name": "LibVio影视",
+      "searchurl": "https://libvio.mov/search/-------------.html?wd=",
+      "detailBase": "https://libvio.mov"
     },
     {
       "name": "趣盘资源",
       "searchurl": "https://pan.funletu.com/index.php/vod/search.html?wd=",
-      "detailurl": "https://pan.funletu.com/index.php/vod/detail/id/",
-      "searchua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "detailua": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+      "detailBase": "https://pan.funletu.com"
     }
   ],
   "parses": [

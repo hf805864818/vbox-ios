@@ -1523,8 +1523,7 @@ globalThis.__JS_SPIDER__ = _spider;
         return nil
     }
 
-    // MARK: - 网盘资源专用搜索（独立通道）
-    /// 只搜索网盘资源站（video_sources.json 中的 HTML 网页站点）
+    // MARK: - 网盘资源专用搜索（从 video_sources.json 读取站点列表）
     /// 返回的 VodItem.vodId 存的是详情页完整 URL，播放时直接抓取解析
     /// 支持两种模式：
     ///   1. 带 onBatch 回调：每个站点出结果立即回调（用于 searchStream 优先通道）
@@ -1535,15 +1534,13 @@ globalThis.__JS_SPIDER__ = _spider;
         let log = onLog ?? { print("[cloudSearch] \($0)") }
         log("====== cloudSearch: \(keyword) ======")
 
-        let cloudSites: [(name: String, searchURL: String, detailBase: String)] = [
-            ("木偶影视", "https://666.666291.xyz/index.php/vod/search.html?wd=", "https://666.666291.xyz"),
-            ("多多资源", "https://tv.yydsys.top/index.php/vod/search.html?wd=", "https://tv.yydsys.top"),
-            ("至臻影视", "http://www.miqk.cc/index.php/vod/search.html?wd=", "http://www.miqk.cc"),
-            ("飞猫影视", "http://feimo.fun/index.php/vod/search.html?wd=", "http://feimo.fun"),
-            ("2小盘", "https://www.2xiaopan.top/index.php/vod/search.html?wd=", "https://www.2xiaopan.top"),
-            ("430520", "https://by1.430520.xyz/index.php/vod/search.html?wd=", "https://by1.430520.xyz"),
-            ("92CJ云盘", "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=", "https://yun.92cj.com/yunbox"),
-        ]
+        // 从 video_sources.json 读取网盘站列表
+        let cloudSites = loadCloudSitesFromJSON()
+        log("☁️ 从 video_sources.json 加载 \(cloudSites.count) 个网盘站")
+        guard !cloudSites.isEmpty else {
+            log("⚠️ video_sources.json 中无可用网盘站")
+            return []
+        }
 
         // 并发搜索所有网盘站，每个站点出结果立即回调
         await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
@@ -1568,6 +1565,31 @@ globalThis.__JS_SPIDER__ = _spider;
 
         print("[SpiderManager] ====== cloudSearch 完成: \(results.count) 条 ======")
         return results
+    }
+
+    /// 从 video_sources.json 读取网盘站配置
+    private func loadCloudSitesFromJSON() -> [(name: String, searchURL: String, detailBase: String)] {
+        guard let url = Bundle.main.url(forResource: "video_sources", withExtension: "json") else {
+            print("[SpiderManager] video_sources.json 未找到")
+            return []
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let sites = json?["cloudSites"] as? [[String: String]] else {
+                print("[SpiderManager] video_sources.json 中无 cloudSites 字段")
+                return []
+            }
+            return sites.compactMap { item in
+                guard let name = item["name"],
+                      let searchURL = item["searchurl"],
+                      let detailBase = item["detailBase"] else { return nil }
+                return (name: name, searchURL: searchURL, detailBase: detailBase)
+            }
+        } catch {
+            print("[SpiderManager] 读取 video_sources.json 失败: \(error)")
+            return []
+        }
     }
 
     /// 搜索单个网盘站
