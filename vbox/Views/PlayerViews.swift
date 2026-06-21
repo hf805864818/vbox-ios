@@ -32,11 +32,6 @@ struct VideoDetailView: View {
     @State private var writers: [DoubanCelebrity] = []
     @State private var isLoadingCredits = false
 
-    // 豆瓣大封面图
-    @State private var wallpaperURL: String? = nil
-    @State private var isLoadingWallpaper = false
-    @State private var doubanSubjectId: String? = nil
-
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
 
@@ -93,20 +88,9 @@ struct VideoDetailView: View {
                 actors = result.actors
                 directors = result.directors
                 writers = result.writers
-                doubanSubjectId = result.subjectId
                 isLoadingCredits = false
             }
-            // 搜索到 subjectId 后顺便拉大封面图
-            if let id = result.subjectId {
-                let url = await DoubanService.shared.fetchWallpaperURL(subjectId: id)
-                await MainActor.run { wallpaperURL = url }
-            }
         }
-    }
-
-    // MARK: - 加载豆瓣大封面图
-    private func loadWallpaper() {
-        // 已合并到 loadCredits 中，保留方法体以防后续独立调用
     }
 
     // MARK: - 网盘
@@ -306,96 +290,57 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 背景：仅当豆瓣大封面图拉到时才显示，否则纯黑底（避免源站 vodPic 变形）
-            if let wallpaper = wallpaperURL,
-               let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: wallpaper) {
-                AsyncImage(url: coverURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .overlay(
-                                LinearGradient(
-                                    stops: [
-                                        .init(color: .black.opacity(0.15), location: 0),
-                                        .init(color: .black.opacity(0.35), location: 0.4),
-                                        .init(color: .black.opacity(0.75), location: 0.8),
-                                        .init(color: .black.opacity(0.92), location: 1)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                    case .failure, .empty:
-                        Color.black
-                    @unknown default:
-                        Color.black
-                    }
+            // 背景
+            Group {
+                if settings.usesLiquidSkin {
+                    AppLiquidBackground().ignoresSafeArea()
+                } else if settings.usesFrostedSkin {
+                    AppFrostedBackground().ignoresSafeArea()
+                } else {
+                    Color(uiColor: .systemBackground).ignoresSafeArea()
                 }
-                .ignoresSafeArea()
-            } else {
-                Color.black.ignoresSafeArea()
             }
 
             // 内容
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // 内容卡片
+                    // 封面
+                    ZStack(alignment: .bottomLeading) {
+                        AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
+                            switch phase {
+                            case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                            default: Rectangle().fill(Color.gray.opacity(0.3))
+                            }
+                        }.frame(height: 220).clipped()
+
+                        LinearGradient(colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
+
+                        Button(action: handlePlay) {
+                            ZStack {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 28, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
+                    }
+
+                    // 信息区
                     VStack(alignment: .leading, spacing: 16) {
-                        // 顶部区域：小长方形封面 + 标题信息
-                        HStack(alignment: .top, spacing: 12) {
-                            // 小封面 + 播放按钮
-                            ZStack(alignment: .bottomTrailing) {
-                                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image.resizable().aspectRatio(contentMode: .fill)
-                                    default:
-                                        Rectangle().fill(Color.gray.opacity(0.3))
-                                    }
-                                }
-                                .frame(width: 85, height: 115)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                Button(action: handlePlay) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(Color(hex: "E11D48"))
-                                            .frame(width: 28, height: 28)
-                                        Image(systemName: "play.fill")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundColor(.white)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .offset(x: 6, y: 6)
+                        HStack {
+                            Text(displayVideo.vodName).font(.system(size: 22, weight: .bold)).foregroundColor(.primary)
+                            Spacer()
+                            Button(action: toggleFavorite) {
+                                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
                             }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(displayVideo.vodName)
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(2)
-
-                                HStack(spacing: 8) {
-                                    TagLabel(text: displayVideo.vodRemarks ?? "")
-                                    TagLabel(text: displayVideo.vodYear ?? "")
-                                }
-
-                                Button(action: toggleFavorite) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
-                                        Text(isFavorite ? "已收藏" : "收藏")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.gray)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .buttonStyle(.plain)
+                        }
+                        HStack(spacing: 12) {
+                            TagLabel(text: displayVideo.vodRemarks ?? "")
+                            TagLabel(text: displayVideo.vodYear ?? "")
                         }
 
                         // 剧情简介
@@ -489,9 +434,15 @@ struct VideoDetailView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 100)
+                    .background(
+                        settings.usesVisualSkin
+                        ? Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.16 : 0.42)
+                        : Color(uiColor: .systemBackground)
+                    )
                 }
             }
-            .background(Color.clear)
+            .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
+            .ignoresSafeArea()
 
             // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
             VStack(spacing: 0) {
@@ -527,7 +478,7 @@ struct VideoDetailView: View {
                         .padding(.vertical, 10)
                         .background(Capsule().fill(Color.black.opacity(0.75)))
                         .foregroundColor(.white)
-                    .padding(.bottom, 100)
+                        .padding(.bottom, 100)
                 }
                 .transition(.opacity)
                 .animation(.easeInOut, value: showDownloadTip)
@@ -555,7 +506,6 @@ struct VideoDetailView: View {
             if isCloudVideo { loadPanLinks() }
             loadRealDetailIfNeeded()
             loadCredits()
-            loadWallpaper()
             checkFavorite()
         }
         .edgeSwipeBack { dismiss() }
