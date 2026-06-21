@@ -21,6 +21,7 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
     var isActive: Bool
     var updatedAt: Int64
 
+    static let databaseTableName = "zhanyuan"
     static let defaultUA = "Mozilla/5.0 (Linux; Android 12; Redmi K30 Pro Build/SKQ1.220303.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/99.0.4844.88 Mobile Safari/537.36"
 
     init(id: Int? = nil,
@@ -90,6 +91,7 @@ struct ZhanyuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
 // MARK: - ApiYuanSite
 
 struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "apiyuan"
     var id: Int?
     var name: String
     var searchurl: String
@@ -133,6 +135,7 @@ struct ApiYuanSite: Codable, Identifiable, FetchableRecord, PersistableRecord {
 // MARK: - SubscriptionRecord
 
 struct SubscriptionRecord: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "subscription"
     var id: Int?
     var dyname: String
     var dyurl: String
@@ -168,6 +171,7 @@ struct SubscriptionRecord: Codable, Identifiable, FetchableRecord, PersistableRe
 // MARK: - FavoriteRecord
 
 struct FavoriteRecord: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "favorite"
     var id: Int?
     var name: String
     var laiyuan: String
@@ -219,6 +223,7 @@ struct FavoriteRecord: Codable, Identifiable, FetchableRecord, PersistableRecord
 // MARK: - HistoryRecord
 
 struct HistoryRecord: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "history"
     var id: Int?
     var name: String
     var laiyuan: String
@@ -330,6 +335,7 @@ struct JiexiSetting: Codable, Identifiable, FetchableRecord, PersistableRecord {
 // MARK: - SearchHistoryRecord
 
 struct SearchHistoryRecord: Codable, Identifiable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "search_history"
     var id: Int?
     var keyword: String
     var searchedAt: Int64
