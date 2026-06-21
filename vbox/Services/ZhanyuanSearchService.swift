@@ -80,8 +80,11 @@ final class ZhanyuanSearchService {
     static func searchZhanyuan(site: ZhanyuanSite, keyword: String) async throws -> [VodItem] {
         guard let urlString = buildSearchURL(site: site, keyword: keyword),
               let url = URL(string: urlString) else {
+            print("[ZhanyuanSearch] ❌ URL构建失败: \(site.name) | websearchurl=\(site.websearchurl.prefix(50)) | searchUrl=\(site.searchUrl.prefix(30))")
             return []
         }
+
+        print("[ZhanyuanSearch] 🔍 \(site.name): \(urlString.prefix(100))")
 
         var request = URLRequest(url: url, timeoutInterval: 5)
         let ua = site.searchUA.isEmpty ? ZhanyuanSite.defaultUA : site.searchUA
@@ -113,37 +116,55 @@ final class ZhanyuanSearchService {
 
     /// 并发搜索所有启用的站源站点
     /// 优先从 SQLite 读取，如果为空则从 SpiderManager 内存数据回退
-    static func searchAllZhanyuan(keyword: String, onBatch: @escaping ([VodItem]) -> Void) async {
+    static func searchAllZhanyuan(keyword: String, onBatch: @escaping ([VodItem]) -> Void, onLog: ((String) -> Void)? = nil) async {
+        let log = onLog ?? { print("[ZhanyuanSearch] \($0)") }
         var sites = DatabaseManager.shared.queryActiveZhanyuanSites()
+        log("zhanyuan SQLite查询: \(sites.count) 个站点")
 
         // SQLite 为空时，从 SpiderManager 内存中的 zhanyuan 站点回退
         if sites.isEmpty {
             sites = await loadZhanyuanSitesFromMemory()
+            log("zhanyuan 内存回退: \(sites.count) 个站点")
         }
 
-        guard !sites.isEmpty else { return }
+        guard !sites.isEmpty else {
+            log("⚠️ zhanyuan 无可用站点，跳过")
+            return
+        }
 
-        print("[ZhanyuanSearch] 共 \(sites.count) 个站源站点参与搜索")
+        // 打印前3个站点的关键信息用于调试
+        for (i, site) in sites.prefix(3).enumerated() {
+            log("zhanyuan[\(i)]: \(site.name) | websearchurl=\(site.websearchurl.prefix(60)) | searchUrl=\(site.searchUrl.prefix(40))")
+        }
+        log("zhanyuan 共 \(sites.count) 个站源站点参与搜索")
 
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
-        await withTaskGroup(of: [VodItem].self) { group in
+        var successCount = 0
+        var failCount = 0
+        await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
             for site in sites {
                 group.addTask {
                     do {
-                        return try await searchZhanyuan(site: site, keyword: keyword)
+                        let results = try await searchZhanyuan(site: site, keyword: keyword)
+                        return (name: site.name, items: results)
                     } catch {
-                        return []
+                        return (name: site.name, items: [])
                     }
                 }
             }
 
-            for await results in group {
-                if !results.isEmpty {
-                    onBatch(results)
+            for await result in group {
+                if !result.items.isEmpty {
+                    log("✅ zhanyuan[\(result.name)] +\(result.items.count)条")
+                    successCount += 1
+                    onBatch(result.items)
+                } else {
+                    failCount += 1
                 }
             }
         }
+        log("zhanyuan 搜索完成: 成功\(successCount)/失败\(failCount)/总计\(sites.count)")
     }
 
     /// 从 SpiderManager 内存数据中提取 zhanyuan 站点配置
