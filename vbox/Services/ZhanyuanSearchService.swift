@@ -64,30 +64,11 @@ final class ZhanyuanSearchService {
             }
         }
 
-        // 2. websearchurl 为空，尝试从 searchid 推断搜索 URL
-        //    searchid 有两种用途：
-        //    a) URL 路径（含 # 占位符）- 如 "https://www.6789dy.com/vod/#.html"
-        //    b) XPath 表达式 - 如 "//a[@class='title']/@href"
-        if !site.searchid.isEmpty {
-            let sid = site.searchid.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // 绝对 URL：以 http:// 或 https:// 开头
-            if sid.hasPrefix("http://") || sid.hasPrefix("https://") {
-                return sid.replacingOccurrences(of: "#", with: encodedKeyword)
-            }
-
-            // 相对路径：以 / 开头但不以 // 开头（// 开头是 XPath 表达式）
-            if sid.hasPrefix("/") && !sid.hasPrefix("//") {
-                let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                let path = sid.replacingOccurrences(of: "#", with: encodedKeyword)
-                return "\(baseURL)\(path)"
-            }
-        }
-
-        // 3. 兜底：searchUrl 直接拼接 ?wd= 参数
+        // 2. websearchurl 为空，使用标准 Apple CMS 搜索 URL
+        //    注意：searchid 字段在此场景下是详情页 URL 模板（如 https://xxx.com/vod/detail/id/#.html）
+        //    不是搜索 URL，不能直接用于搜索。必须使用标准 Apple CMS 搜索模式。
         let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let separator = site.searchUrl.contains("?") ? "&" : "?"
-        return "\(baseURL)\(separator)wd=\(encodedKeyword)"
+        return "\(baseURL)/vodsearch/-------------.html?wd=\(encodedKeyword)"
     }
 
     /// 单个站点搜索
@@ -164,14 +145,14 @@ final class ZhanyuanSearchService {
         }
 
         for batch in batches {
-            await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
+            await withTaskGroup(of: (name: String, items: [VodItem], error: String?).self) { group in
                 for site in batch {
                     group.addTask {
                         do {
                             let results = try await searchZhanyuan(site: site, keyword: keyword)
-                            return (name: site.name, items: results)
+                            return (name: site.name, items: results, error: nil)
                         } catch {
-                            return (name: site.name, items: [])
+                            return (name: site.name, items: [], error: error.localizedDescription)
                         }
                     }
                 }
@@ -181,7 +162,11 @@ final class ZhanyuanSearchService {
                         log("✅ zhanyuan[\(result.name)] +\(result.items.count)条")
                         successCount += 1
                         onBatch(result.items)
+                    } else if let err = result.error {
+                        log("❌ zhanyuan[\(result.name)] 错误: \(err)")
+                        failCount += 1
                     } else {
+                        log("⚠️ zhanyuan[\(result.name)] 无结果")
                         failCount += 1
                     }
                 }
