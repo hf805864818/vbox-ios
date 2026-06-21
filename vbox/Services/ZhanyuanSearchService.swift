@@ -41,39 +41,53 @@ final class ZhanyuanSearchService {
     static func buildSearchURL(site: ZhanyuanSite, keyword: String) -> String? {
         let encodedKeyword = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
 
+        // 1. 优先使用 websearchurl
         if !site.websearchurl.isEmpty {
             let url = site.websearchurl
             let hasPlaceholder = url.contains("wd=") || url.contains("keyword") || url.contains("searchword")
 
             if hasPlaceholder {
                 var searchURL = url
-                // 先替换 ** 占位符
                 searchURL = searchURL.replacingOccurrences(of: "**", with: encodedKeyword)
-                // 如果 wd= 后面没有值（或值仍是 **），才补充关键词
-                // 避免 wd= 已经有值时重复拼接
                 if let range = searchURL.range(of: "wd=") {
                     let afterWd = String(searchURL[range.upperBound...])
                     if afterWd.isEmpty || afterWd == "**" || afterWd.hasPrefix("&") {
-                        // wd= 后面是空的、是占位符、或直接跟 &，替换为关键词
                         searchURL.replaceSubrange(range.upperBound..., with: encodedKeyword)
                     }
                 }
                 return searchURL
             } else {
-                let separator = url.contains("?") ? "&" : "?"
-                return "\(url)\(separator)wd=\(encodedKeyword)"
+                // websearchurl 不带 wd=/keyword/searchword 参数，也需替换 ** 占位符
+                var searchURL = url.replacingOccurrences(of: "**", with: encodedKeyword)
+                let separator = searchURL.contains("?") ? "&" : "?"
+                return "\(searchURL)\(separator)wd=\(encodedKeyword)"
             }
         }
 
-        if site.searchid.contains("#") {
-            return nil
+        // 2. websearchurl 为空，尝试从 searchid 推断搜索 URL
+        //    searchid 有两种用途：
+        //    a) URL 路径（含 # 占位符）- 如 "https://www.6789dy.com/vod/#.html"
+        //    b) XPath 表达式 - 如 "//a[@class='title']/@href"
+        if !site.searchid.isEmpty {
+            let sid = site.searchid.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // 绝对 URL：以 http:// 或 https:// 开头
+            if sid.hasPrefix("http://") || sid.hasPrefix("https://") {
+                return sid.replacingOccurrences(of: "#", with: encodedKeyword)
+            }
+
+            // 相对路径：以 / 开头但不以 // 开头（// 开头是 XPath 表达式）
+            if sid.hasPrefix("/") && !sid.hasPrefix("//") {
+                let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let path = sid.replacingOccurrences(of: "#", with: encodedKeyword)
+                return "\(baseURL)\(path)"
+            }
         }
 
+        // 3. 兜底：searchUrl 直接拼接 ?wd= 参数
         let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if site.searchid.isEmpty {
-            return "\(baseURL)/search/-------------.html?wd=\(encodedKeyword)"
-        }
-        return "\(baseURL)/\(site.searchid)?wd=\(encodedKeyword)"
+        let separator = site.searchUrl.contains("?") ? "&" : "?"
+        return "\(baseURL)\(separator)wd=\(encodedKeyword)"
     }
 
     /// 单个站点搜索
@@ -86,7 +100,7 @@ final class ZhanyuanSearchService {
 
         print("[ZhanyuanSearch] 🔍 \(site.name): \(urlString.prefix(100))")
 
-        var request = URLRequest(url: url, timeoutInterval: 5)
+        var request = URLRequest(url: url, timeoutInterval: 10)
         let ua = site.searchUA.isEmpty ? ZhanyuanSite.defaultUA : site.searchUA
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
@@ -142,25 +156,34 @@ final class ZhanyuanSearchService {
 
         var successCount = 0
         var failCount = 0
-        await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
-            for site in sites {
-                group.addTask {
-                    do {
-                        let results = try await searchZhanyuan(site: site, keyword: keyword)
-                        return (name: site.name, items: results)
-                    } catch {
-                        return (name: site.name, items: [])
+        let maxConcurrency = 30  // 限制并发数，避免网络拥塞
+
+        // 分批处理，每批最多 maxConcurrency 个并发任务
+        let batches = stride(from: 0, to: sites.count, by: maxConcurrency).map {
+            Array(sites[$0..<min($0 + maxConcurrency, sites.count)])
+        }
+
+        for batch in batches {
+            await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
+                for site in batch {
+                    group.addTask {
+                        do {
+                            let results = try await searchZhanyuan(site: site, keyword: keyword)
+                            return (name: site.name, items: results)
+                        } catch {
+                            return (name: site.name, items: [])
+                        }
                     }
                 }
-            }
 
-            for await result in group {
-                if !result.items.isEmpty {
-                    log("✅ zhanyuan[\(result.name)] +\(result.items.count)条")
-                    successCount += 1
-                    onBatch(result.items)
-                } else {
-                    failCount += 1
+                for await result in group {
+                    if !result.items.isEmpty {
+                        log("✅ zhanyuan[\(result.name)] +\(result.items.count)条")
+                        successCount += 1
+                        onBatch(result.items)
+                    } else {
+                        failCount += 1
+                    }
                 }
             }
         }
