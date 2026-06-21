@@ -233,8 +233,16 @@ class SubscriptionManager: ObservableObject {
                 }
             }
 
-            // 用转换后的站点创建新 config
-            let finalConfig = config ?? SubscribeConfig(sites: sites, spider: jsonDict["spider"] as? String, wallpaper: jsonDict["wallpaper"] as? String, lives: nil, flags: nil, banned: nil, parses: parseConfigs.isEmpty ? nil : parseConfigs)
+            // 用转换后的站点创建新 config（即使原始 config 不为空，也使用合并后的 sites）
+            let finalConfig = SubscribeConfig(
+                sites: sites,
+                spider: jsonDict["spider"] as? String,
+                wallpaper: jsonDict["wallpaper"] as? String,
+                lives: config?.lives,
+                flags: config?.flags,
+                banned: config?.banned,
+                parses: parseConfigs.isEmpty ? config?.parses : parseConfigs
+            )
 
             // 写入 SQLite 数据库（持久化）
             persistToDatabase(
