@@ -1137,7 +1137,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // 写入搜索历史
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
-        // ========== 0. 网盘站优先搜索（结果最稳定，排最前）==========
+        // ========== 0. 网盘站优先搜索 ==========
         log("☁️ 网盘站优先搜索...")
         await cloudSearch(keyword: keyword, onBatch: { items in
             if !items.isEmpty {
@@ -1146,28 +1146,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }, onLog: onLog)
 
-        // ========== 1. QuickJS 蜘蛛（每个引擎一个任务）==========
-        log("QuickJS引擎: \(engines.count) 个")
-        for (key, engine) in engines {
-            do {
-                if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
-                    var tagged = items
-                    for i in 0..<tagged.count {
-                        if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
-                            tagged[i].vodRemarks = key
-                        }
-                    }
-                    log("✅ QuickJS[\(key)] +\(tagged.count)条")
-                    onBatch(tagged)
-                } else {
-                    log("⬜ QuickJS[\(key)] 0条")
-                }
-            } catch {
-                log("❌ QuickJS[\(key)] 错误: \(error.localizedDescription.prefix(50))")
-            }
-        }
-
-        // ========== 2. zhanyuan 原生搜索（Swift + Kanna）==========
+        // ========== 1. zhanyuan 原生搜索（Swift + Kanna）==========
         await ZhanyuanSearchService.searchAllZhanyuan(keyword: keyword, onBatch: { items in
             if !items.isEmpty {
                 onBatch(items)
@@ -1176,7 +1155,7 @@ globalThis.__JS_SPIDER__ = _spider;
             log("zhanyuan: \(msg)")
         })
 
-        // ========== 3. 合并订阅源 + ibox内置源 + 兜底源 ==========
+        // ========== 2. API 站点 + 兜底源 ==========
         struct Site { let name: String; let api: String }
         var sites: [Site] = []
         // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
@@ -1251,7 +1230,29 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
-        log("====== Stream完成: 成功\(successCount)/空\(emptyCount)/失败\(failCount) ======")
+        log("====== API+兜底源完成: 成功\(successCount)/空\(emptyCount)/失败\(failCount) ======")
+
+        // ========== 3. QuickJS 蜘蛛（兜底，放最后）==========
+        log("QuickJS引擎: \(engines.count) 个")
+        for (key, engine) in engines {
+            do {
+                if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
+                    var tagged = items
+                    for i in 0..<tagged.count {
+                        if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
+                            tagged[i].vodRemarks = key
+                        }
+                    }
+                    log("✅ QuickJS[\(key)] +\(tagged.count)条")
+                    onBatch(tagged)
+                } else {
+                    log("⬜ QuickJS[\(key)] 0条")
+                }
+            } catch {
+                log("❌ QuickJS[\(key)] 错误: \(error.localizedDescription.prefix(50))")
+            }
+        }
+        log("====== Stream全部完成 ======")
     }
 
     /// 根据 URL 域名查找匹配的 zhanyuan 站点配置
