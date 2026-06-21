@@ -701,7 +701,66 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
+        // 【关键修复】将当前 allSites 中的 type=2 站源强制同步到 SQLite
+        // 确保即使 SubscriptionManager.persistToDatabase 因各种原因未写入，数据库也有数据
+        syncZhanyuanSitesToDatabase()
+
         await loadHomeData()
+    }
+
+    /// 将内存中的 type=2 站源同步到 SQLite
+    private func syncZhanyuanSitesToDatabase() {
+        let zhanSites = self.allSites.filter { $0.type == 2 && $0.api?.isEmpty == false }
+        guard !zhanSites.isEmpty else {
+            print("[SpiderManager] 无 type=2 站源需要同步到 SQLite")
+            return
+        }
+
+        let now = Int64(Date().timeIntervalSince1970)
+        let zhanyuanSites: [ZhanyuanSite] = zhanSites.compactMap { site in
+            guard let api = site.api, !api.isEmpty else { return nil }
+            let extJSON = site.ext ?? "{}"
+            if let data = extJSON.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return ZhanyuanSite(
+                    name: json["name"] as? String ?? site.name,
+                    searchUrl: json["searchUrl"] as? String ?? api,
+                    searchUA: json["searchUA"] as? String ?? "",
+                    playUA: json["playUA"] as? String ?? "",
+                    websearchurl: json["websearchurl"] as? String ?? "",
+                    searchname: json["searchname"] as? String ?? "",
+                    searchid: json["searchid"] as? String ?? "",
+                    searchpic: json["searchpic"] as? String ?? "",
+                    searchstarr: json["searchstarr"] as? String ?? "",
+                    detaillist: json["detaillist"] as? String ?? "",
+                    detailxl: json["detailxl"] as? String ?? "",
+                    detailjs: json["detailjs"] as? String ?? "",
+                    detailjsurl: json["detailjsurl"] as? String ?? "",
+                    isActive: true,
+                    updatedAt: now
+                )
+            }
+            return ZhanyuanSite(
+                name: site.name,
+                searchUrl: api,
+                searchUA: "",
+                playUA: "",
+                websearchurl: "",
+                searchname: "",
+                searchid: "",
+                searchpic: "",
+                searchstarr: "",
+                detaillist: "",
+                detailxl: "",
+                detailjs: "",
+                detailjsurl: "",
+                isActive: true,
+                updatedAt: now
+            )
+        }
+
+        print("[SpiderManager] 强制同步 \(zhanyuanSites.count) 个 zhanyuan 站点到 SQLite")
+        DatabaseManager.shared.saveZhanyuanSites(zhanyuanSites)
     }
 
     /// 加载蜘蛛 JS 到引擎 — 支持双引擎自动回退（JSC 优先，失败时尝试 QuickJS）
