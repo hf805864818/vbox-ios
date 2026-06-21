@@ -35,6 +35,7 @@ struct VideoDetailView: View {
     // 豆瓣大封面图
     @State private var wallpaperURL: String? = nil
     @State private var isLoadingWallpaper = false
+    @State private var doubanSubjectId: String? = nil
 
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
@@ -92,26 +93,20 @@ struct VideoDetailView: View {
                 actors = result.actors
                 directors = result.directors
                 writers = result.writers
+                doubanSubjectId = result.subjectId
                 isLoadingCredits = false
+            }
+            // 搜索到 subjectId 后顺便拉大封面图
+            if let id = result.subjectId {
+                let url = await DoubanService.shared.fetchWallpaperURL(subjectId: id)
+                await MainActor.run { wallpaperURL = url }
             }
         }
     }
 
     // MARK: - 加载豆瓣大封面图
     private func loadWallpaper() {
-        guard !isLoadingWallpaper, wallpaperURL == nil else { return }
-        isLoadingWallpaper = true
-        Task {
-            guard let subjectId = await DoubanService.shared.fetchSubjectIdByName(displayVideo.vodName) else {
-                await MainActor.run { isLoadingWallpaper = false }
-                return
-            }
-            let url = await DoubanService.shared.fetchWallpaperURL(subjectId: subjectId)
-            await MainActor.run {
-                wallpaperURL = url
-                isLoadingWallpaper = false
-            }
-        }
+        // 已合并到 loadCredits 中，保留方法体以防后续独立调用
     }
 
     // MARK: - 网盘

@@ -264,7 +264,7 @@ class DoubanService: ObservableObject {
     // MARK: - 演职人员搜索
 
     /// 根据作品名称搜索演职人员信息
-    func fetchCredits(for workName: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
+    func fetchCredits(for workName: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity], subjectId: String?) {
         // 1. 先搜索作品获取 ID（使用豆瓣搜索API）
         let encodedName = workName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workName
         
@@ -286,7 +286,8 @@ class DoubanService: ObservableObject {
                    let first = json.first,
                    let id = first["id"] as? String {
                     print("[DoubanService] 找到作品ID (suggest): \(id)")
-                    return await fetchCreditsById(id)
+                    let result = await fetchCreditsById(id)
+                    return (result.actors, result.directors, result.writers, id)
                 }
                 
                 // 尝试解析标准搜索格式
@@ -296,7 +297,8 @@ class DoubanService: ObservableObject {
                        let first = items.first,
                        let targetId = first["id"] as? String ?? first["target_id"] as? String {
                         print("[DoubanService] 找到作品ID (items): \(targetId)")
-                        return await fetchCreditsById(targetId)
+                        let result = await fetchCreditsById(targetId)
+                        return (result.actors, result.directors, result.writers, targetId)
                     }
                     
                     // 尝试 subjects 字段
@@ -304,7 +306,8 @@ class DoubanService: ObservableObject {
                        let first = subjects.first,
                        let id = first["id"] as? String {
                         print("[DoubanService] 找到作品ID (subjects): \(id)")
-                        return await fetchCreditsById(id)
+                        let result = await fetchCreditsById(id)
+                        return (result.actors, result.directors, result.writers, id)
                     }
                     
                     // 尝试 data 字段
@@ -312,7 +315,8 @@ class DoubanService: ObservableObject {
                        let first = dataArr.first,
                        let id = first["id"] as? String {
                         print("[DoubanService] 找到作品ID (data): \(id)")
-                        return await fetchCreditsById(id)
+                        let result = await fetchCreditsById(id)
+                        return (result.actors, result.directors, result.writers, id)
                     }
                 }
             } catch {
@@ -322,7 +326,8 @@ class DoubanService: ObservableObject {
 
         print("[DoubanService] 所有搜索方式都失败，尝试名称匹配")
         // 搜索失败时尝试直接用名称匹配
-        return await fetchCreditsByName(workName)
+        let result = await fetchCreditsByName(workName)
+        return (result.actors, result.directors, result.writers, nil)
     }
 
     private func fetchCreditsById(_ id: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
@@ -399,10 +404,10 @@ class DoubanService: ObservableObject {
         return nil
     }
 
-    private func fetchCreditsByName(_ name: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity]) {
+    private func fetchCreditsByName(_ name: String) async -> (actors: [DoubanCelebrity], directors: [DoubanCelebrity], writers: [DoubanCelebrity], subjectId: String?) {
         // 兜底：尝试搜索并解析第一个结果
         guard let url = URL(string: "\(baseURL)/search/movie?q=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)&count=1") else {
-            return ([], [], [])
+            return ([], [], [], nil)
         }
         do {
             let (data, _) = try await session.data(from: url)
@@ -410,12 +415,13 @@ class DoubanService: ObservableObject {
                let subjects = json["subjects"] as? [[String: Any]],
                let first = subjects.first,
                let id = first["id"] as? String {
-                return await fetchCreditsById(id)
+                let result = await fetchCreditsById(id)
+                return (result.actors, result.directors, result.writers, id)
             }
         } catch {
             print("[DoubanService] 名称搜索演职人员失败: \(error)")
         }
-        return ([], [], [])
+        return ([], [], [], nil)
     }
 }
 
