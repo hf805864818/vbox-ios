@@ -302,10 +302,10 @@ struct VideoDetailView: View {
                             .overlay(
                                 LinearGradient(
                                     stops: [
-                                        .init(color: .black.opacity(0.25), location: 0),
-                                        .init(color: .black.opacity(0.45), location: 0.3),
-                                        .init(color: .black.opacity(0.85), location: 0.7),
-                                        .init(color: .black.opacity(0.95), location: 1)
+                                        .init(color: .black.opacity(0.10), location: 0),
+                                        .init(color: .black.opacity(0.30), location: 0.4),
+                                        .init(color: .black.opacity(0.70), location: 0.8),
+                                        .init(color: .black.opacity(0.90), location: 1)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
@@ -475,11 +475,10 @@ struct VideoDetailView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 100)
-                    .background(.ultraThinMaterial)
+                    .background(Color.black.opacity(0.35))
                 }
             }
             .background(Color.clear)
-            .ignoresSafeArea()
 
             // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
             VStack(spacing: 0) {
