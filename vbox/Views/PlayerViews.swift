@@ -290,7 +290,7 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 封面图全屏高斯模糊背景（方案二：中重模糊 + 纵向渐变暗化）
+            // 封面图全屏背景 + 纵向渐变暗化
             if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic) {
                 AsyncImage(url: coverURL) { phase in
                     switch phase {
@@ -298,14 +298,13 @@ struct VideoDetailView: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .blur(radius: 30)
                             .overlay(
                                 LinearGradient(
                                     stops: [
-                                        .init(color: .black.opacity(0.10), location: 0),
-                                        .init(color: .black.opacity(0.30), location: 0.4),
-                                        .init(color: .black.opacity(0.70), location: 0.8),
-                                        .init(color: .black.opacity(0.90), location: 1)
+                                        .init(color: .black.opacity(0.15), location: 0),
+                                        .init(color: .black.opacity(0.35), location: 0.4),
+                                        .init(color: .black.opacity(0.75), location: 0.8),
+                                        .init(color: .black.opacity(0.92), location: 1)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
@@ -475,6 +474,7 @@ struct VideoDetailView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 100)
+                    .background(.regularMaterial)
                 }
             }
             .background(Color.clear)
@@ -513,7 +513,7 @@ struct VideoDetailView: View {
                         .padding(.vertical, 10)
                         .background(Capsule().fill(Color.black.opacity(0.75)))
                         .foregroundColor(.white)
-                        .padding(.bottom, 100)
+                    .padding(.bottom, 100)
                 }
                 .transition(.opacity)
                 .animation(.easeInOut, value: showDownloadTip)
