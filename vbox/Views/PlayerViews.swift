@@ -32,6 +32,10 @@ struct VideoDetailView: View {
     @State private var writers: [DoubanCelebrity] = []
     @State private var isLoadingCredits = false
 
+    // 豆瓣大封面图
+    @State private var wallpaperURL: String? = nil
+    @State private var isLoadingWallpaper = false
+
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
 
@@ -89,6 +93,23 @@ struct VideoDetailView: View {
                 directors = result.directors
                 writers = result.writers
                 isLoadingCredits = false
+            }
+        }
+    }
+
+    // MARK: - 加载豆瓣大封面图
+    private func loadWallpaper() {
+        guard !isLoadingWallpaper, wallpaperURL == nil else { return }
+        isLoadingWallpaper = true
+        Task {
+            guard let subjectId = await DoubanService.shared.fetchSubjectIdByName(displayVideo.vodName) else {
+                await MainActor.run { isLoadingWallpaper = false }
+                return
+            }
+            let url = await DoubanService.shared.fetchWallpaperURL(subjectId: subjectId)
+            await MainActor.run {
+                wallpaperURL = url
+                isLoadingWallpaper = false
             }
         }
     }
@@ -290,8 +311,9 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 封面图全屏背景 + 纵向渐变暗化
-            if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic) {
+            // 封面图全屏背景 + 纵向渐变暗化（优先豆瓣大封面图）
+            let coverString = wallpaperURL ?? video.vodPic
+            if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: coverString) {
                 AsyncImage(url: coverURL) { phase in
                     switch phase {
                     case .success(let image):
@@ -538,6 +560,7 @@ struct VideoDetailView: View {
             if isCloudVideo { loadPanLinks() }
             loadRealDetailIfNeeded()
             loadCredits()
+            loadWallpaper()
             checkFavorite()
         }
         .edgeSwipeBack { dismiss() }
