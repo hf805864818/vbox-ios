@@ -88,19 +88,16 @@ struct ProfileView: View {
                 showSettingsSheet = true
             }) {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 18))
                     .foregroundColor(accentColor)
-                    .padding(12)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.15))
-                    )
             }
+            .padding(.trailing, 16)
             .padding(.top, 8)
         }
         .sheet(isPresented: $showSettingsSheet) {
             NavigationView {
                 SettingsView()
+                    .environment(\.colorScheme, settings.preferredColorScheme ?? (settings.usesVisualSkin ? .dark : nil))
             }
         }
     }
@@ -124,11 +121,14 @@ struct ProfileView: View {
                             .foregroundColor(accentColor)
                             .frame(width: 80, height: 80)
                     } else {
-                        Image(systemName: "person.crop.circle")
-                            .resizable()
-                            .scaledToFit()
+                        Circle()
+                            .stroke(textColor.opacity(0.3), lineWidth: 1)
                             .frame(width: 80, height: 80)
-                            .foregroundColor(.gray)
+                            .overlay(
+                                Image(systemName: "person")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(textColor.opacity(0.5))
+                            )
                     }
                 }
             }

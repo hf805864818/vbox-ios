@@ -1606,8 +1606,12 @@ globalThis.__JS_SPIDER__ = _spider;
             let (data, _) = try await URLSession.shared.data(for: req)
             guard let html = String(data: data, encoding: .utf8) else { return [] }
 
-            // 从 HTML 中提取视频卡片：标题 + 详情页 URL + 封面
-            let pattern = #"<a[^>]*href="(/index.php/vod/detail/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#
+            // 匹配多种详情页 URL 格式：
+            // /index.php/vod/detail/id/123.html
+            // /voddetail/123.html
+            // /detail/123.html
+            // /vod/123.html
+            let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>([^<]+)</a>"#
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
             let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
