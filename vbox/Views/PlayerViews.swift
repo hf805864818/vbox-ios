@@ -290,7 +290,7 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 封面图全屏背景 + 纵向渐变暗化
+            // 封面图全屏背景 + 底部渐变暗化（仅底部变黑，上半保持通透）
             if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic) {
                 AsyncImage(url: coverURL) { phase in
                     switch phase {
@@ -298,13 +298,14 @@ struct VideoDetailView: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .clipped()
                             .overlay(
                                 LinearGradient(
                                     stops: [
-                                        .init(color: .black.opacity(0.15), location: 0),
-                                        .init(color: .black.opacity(0.35), location: 0.4),
-                                        .init(color: .black.opacity(0.75), location: 0.8),
-                                        .init(color: .black.opacity(0.92), location: 1)
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .clear, location: 0.55),
+                                        .init(color: .black.opacity(0.5), location: 0.78),
+                                        .init(color: .black, location: 0.94)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
