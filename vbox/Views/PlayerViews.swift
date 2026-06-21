@@ -324,65 +324,63 @@ struct VideoDetailView: View {
             // 内容
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // 顶部区域：小长方形封面 + 标题信息
-                    HStack(alignment: .top, spacing: 12) {
-                        // 小封面 + 播放按钮
-                        ZStack(alignment: .bottomTrailing) {
-                            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image.resizable().aspectRatio(contentMode: .fill)
-                                default:
-                                    Rectangle().fill(Color.gray.opacity(0.3))
-                                }
-                            }
-                            .frame(width: 85, height: 115)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                            Button(action: handlePlay) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color(hex: "E11D48"))
-                                        .frame(width: 28, height: 28)
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .offset(x: 6, y: 6)
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(displayVideo.vodName)
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.primary)
-                                .lineLimit(2)
-
-                            HStack(spacing: 8) {
-                                TagLabel(text: displayVideo.vodRemarks ?? "")
-                                TagLabel(text: displayVideo.vodYear ?? "")
-                            }
-
-                            Button(action: toggleFavorite) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
-                                    Text(isFavorite ? "已收藏" : "收藏")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 16)
-
-                    // 信息区
+                    // 内容卡片
                     VStack(alignment: .leading, spacing: 16) {
+                        // 顶部区域：小长方形封面 + 标题信息
+                        HStack(alignment: .top, spacing: 12) {
+                            // 小封面 + 播放按钮
+                            ZStack(alignment: .bottomTrailing) {
+                                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable().aspectRatio(contentMode: .fill)
+                                    default:
+                                        Rectangle().fill(Color.gray.opacity(0.3))
+                                    }
+                                }
+                                .frame(width: 85, height: 115)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Button(action: handlePlay) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color(hex: "E11D48"))
+                                            .frame(width: 28, height: 28)
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: 6, y: 6)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(displayVideo.vodName)
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
+
+                                HStack(spacing: 8) {
+                                    TagLabel(text: displayVideo.vodRemarks ?? "")
+                                    TagLabel(text: displayVideo.vodYear ?? "")
+                                }
+
+                                Button(action: toggleFavorite) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
+                                        Text(isFavorite ? "已收藏" : "收藏")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         // 剧情简介
                         VStack(alignment: .leading, spacing: 8) {
                             Text("剧情简介").font(.system(size: 16, weight: .semibold)).foregroundColor(.primary)
