@@ -28,11 +28,7 @@ struct ProfileView: View {
     }
 
     var backgroundColor: Color {
-        if settings.usesVisualSkin {
-            return Color.clear
-        } else {
-            return Color(uiColor: .systemBackground)
-        }
+        return Color.clear
     }
 
     var body: some View {
@@ -91,6 +87,7 @@ struct ProfileView: View {
                     .font(.system(size: 18))
                     .foregroundColor(accentColor)
             }
+            .buttonStyle(.plain)
             .padding(.trailing, 16)
             .padding(.top, 8)
         }
@@ -147,6 +144,7 @@ struct ProfileView: View {
                         .font(.system(size: 15))
                         .foregroundColor(accentColor)
                 }
+                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity)
@@ -178,6 +176,7 @@ struct ProfileView: View {
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
+                .buttonStyle(.plain)
             }
 
             // 横向滚动封面列表
@@ -229,6 +228,7 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
             }
+            .buttonStyle(.plain)
 
             // 分享免广告
             Button(action: {
@@ -245,6 +245,7 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
             }
+            .buttonStyle(.plain)
 
             // 下载管理
             Button(action: {
@@ -261,6 +262,7 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
             }
+            .buttonStyle(.plain)
         }
     }
 
@@ -382,7 +384,6 @@ struct LoginSheetView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 280)
-        .background(settings.usesVisualSkin ? Color(UIColor.systemGray6) : Color(uiColor: .secondarySystemBackground))
         .cornerRadius(16)
     }
 
@@ -460,6 +461,8 @@ struct WatchHistoryView: View {
             }
         }
         .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("观看记录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
@@ -471,6 +474,7 @@ struct WatchHistoryView: View {
                     Image(systemName: "xmark")
                         .foregroundColor(textColor)
                 }
+                .buttonStyle(.plain)
             }
 
             if !historyRecords.isEmpty {
@@ -482,6 +486,7 @@ struct WatchHistoryView: View {
                         Text("清空")
                             .foregroundColor(accentColor)
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -581,6 +586,8 @@ struct FavoriteView: View {
             }
         }
         .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("我的收藏")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
@@ -592,6 +599,7 @@ struct FavoriteView: View {
                     Image(systemName: "xmark")
                         .foregroundColor(textColor)
                 }
+                .buttonStyle(.plain)
             }
 
             if !favorites.isEmpty {
@@ -607,6 +615,7 @@ struct FavoriteView: View {
                         Text("清空")
                             .foregroundColor(accentColor)
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -702,6 +711,8 @@ struct DownloadView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
         .navigationTitle("下载管理")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
@@ -713,6 +724,7 @@ struct DownloadView: View {
                     Image(systemName: "xmark")
                         .foregroundColor(textColor)
                 }
+                .buttonStyle(.plain)
             }
             if !downloadRecords.isEmpty {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -723,6 +735,7 @@ struct DownloadView: View {
                     .font(.system(size: 14))
                     .foregroundColor(.red)
                 }
+                .buttonStyle(.plain)
             }
         }
         .onAppear {

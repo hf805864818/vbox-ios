@@ -321,7 +321,9 @@ struct VideoDetailView: View {
                                     .font(.system(size: 28, weight: .bold))
                                     .foregroundColor(.white)
                             }
-                        }.padding(16)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
                     }
 
                     // 信息区
@@ -334,6 +336,7 @@ struct VideoDetailView: View {
                                     .font(.system(size: 22))
                                     .foregroundColor(isFavorite ? Color(hex: "E11D48") : .gray)
                             }
+                            .buttonStyle(.plain)
                         }
                         HStack(spacing: 12) {
                             TagLabel(text: displayVideo.vodRemarks ?? "")
