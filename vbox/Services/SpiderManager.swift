@@ -1886,38 +1886,13 @@ globalThis.__JS_SPIDER__ = _spider;
 
         print("[SpiderManager] 开始解析播放页：\(actualUrl.prefix(60))...")
 
-        // 2. 优先使用自定义解析器
-        if !customParsers.isEmpty {
-            print("[SpiderManager] 尝试自定义解析器，共\(customParsers.count)个")
-            for (idx, parser) in customParsers.enumerated() {
-                print("[SpiderManager] [\(idx+1)/\(customParsers.count)] 尝试：\(parser.name) - \(parser.url)")
-                if let parsedUrl = await tryParser(parser.url, url: actualUrl) {
-                    print("[SpiderManager] ✅ 自定义解析器成功：\(parser.name)")
-                    return parsedUrl
-                }
-            }
-        }
-
-        // 3. 优先使用订阅源的解析器（次优先）
-        if !subManager.parses.isEmpty {
-            print("[SpiderManager] 使用订阅源解析器，共\(subManager.parses.count)个")
-            for (idx, parse) in subManager.parses.enumerated() {
-                print("[SpiderManager] [\(idx+1)/\(subManager.parses.count)] 尝试：\(parse.name) - \(parse.url)")
-                if let parsedUrl = await tryParser(parse.url, url: actualUrl) {
-                    print("[SpiderManager] ✅ 订阅源解析器成功：\(parse.name)")
-                    print("[SpiderManager] 解析结果：\(parsedUrl.prefix(80))...")
-                    return parsedUrl
-                }
-            }
-        }
-
-        // 4. 尝试直接请求播放页提取 m3u8
+        // 2. 尝试直接请求播放页提取 m3u8
         if let directUrl = await extractDirectPlayURL(from: actualUrl) {
             print("[SpiderManager] ✅ 从播放页直接提取成功：\(directUrl.prefix(80))...")
             return directUrl
         }
 
-        // 4.5 WKWebView 客户端解析回退（最后手段）
+        // 3. WKWebView 客户端解析回退（最后手段）
         if let wkResult = await tryWKWebViewParse(originalURL: actualUrl) {
             return wkResult
         }
