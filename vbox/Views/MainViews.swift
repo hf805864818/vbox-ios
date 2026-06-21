@@ -1002,43 +1002,17 @@ struct SearchView: View {
         // 取消之前的搜索任务
         searchTask?.cancel()
         searchTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    await self.spiderManager.searchStream(keyword: keyword, onBatch: { batch in
-                        if !batch.isEmpty {
-                            Task { @MainActor in
-                                self.searchResults.append(contentsOf: batch)
-                                self.isSearchLoading = false
-                            }
-                        }
-                    }, onLog: { msg in
-                        self.addSearchLog(msg)
-                    })
-                }
-                
-                group.addTask {
-                    let cloudItems = await self.spiderManager.cloudSearch(keyword: keyword, onLog: { msg in
-                        self.addSearchLog(msg)
-                    })
-                    if !cloudItems.isEmpty {
-                        let newItems = cloudItems.map { item -> VodItem in
-                            var newItem = item
-                            newItem.vodRemarks = "☁️" + (item.vodRemarks ?? "网盘")
-                            return newItem
-                        }
-                        self.addSearchLog("☁️ 合计 +\(newItems.count)条")
-                        await MainActor.run {
-                            self.searchResults.append(contentsOf: newItems)
-                            self.isSearchLoading = false
-                        }
-                    } else {
-                        self.addSearchLog("☁️ 合计 0条")
+            await self.spiderManager.searchStream(keyword: keyword, onBatch: { batch in
+                if !batch.isEmpty {
+                    Task { @MainActor in
+                        self.searchResults.append(contentsOf: batch)
+                        self.isSearchLoading = false
                     }
                 }
-                
-                await group.waitForAll()
-            }
-            
+            }, onLog: { msg in
+                self.addSearchLog(msg)
+            })
+
             let totalCount = self.searchResults.count
             let sourceCount = Set(self.searchResults.compactMap { $0.vodRemarks }).count
             self.addSearchLog("✅ 搜索结束: 共\(totalCount)条/\(sourceCount)个源")
