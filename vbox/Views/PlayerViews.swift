@@ -475,7 +475,6 @@ struct VideoDetailView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 100)
-                    .background(Color.black.opacity(0.35))
                 }
             }
             .background(Color.clear)
