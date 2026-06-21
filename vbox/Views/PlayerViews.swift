@@ -306,9 +306,9 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 封面图全屏背景 + 纵向渐变暗化（优先豆瓣大封面图）
-            let coverString = wallpaperURL ?? video.vodPic
-            if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: coverString) {
+            // 背景：仅当豆瓣大封面图拉到时才显示，否则纯黑底（避免源站 vodPic 变形）
+            if let wallpaper = wallpaperURL,
+               let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: wallpaper) {
                 AsyncImage(url: coverURL) { phase in
                     switch phase {
                     case .success(let image):
