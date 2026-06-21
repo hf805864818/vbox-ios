@@ -1067,6 +1067,9 @@ globalThis.__JS_SPIDER__ = _spider;
         let log = onLog ?? { print("[searchStream] \($0)") }
         log("====== 开始流式搜索: \(keyword) ======")
 
+        // 写入搜索历史
+        DatabaseManager.shared.addSearchHistory(keyword: keyword)
+
         // 1. QuickJS 蜘蛛（每个引擎一个任务）
         log("QuickJS引擎: \(engines.count) 个")
         for (key, engine) in engines {

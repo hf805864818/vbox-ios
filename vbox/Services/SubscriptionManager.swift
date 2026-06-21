@@ -312,8 +312,17 @@ class SubscriptionManager: ObservableObject {
         if let zhanyuanArray = jsonDict["zhanyuan"] as? [[String: Any]] {
             print("[SubscriptionManager] 从 jsonDict['zhanyuan'] 读取 \(zhanyuanArray.count) 个站点")
             let zhanyuanSites: [ZhanyuanSite] = zhanyuanArray.compactMap { item in
-                guard let name = item["name"] as? String,
-                      let searchUrl = item["searchUrl"] as? String else { return nil }
+                // 兼容多种字段名格式：name / siteName / title
+                let name = item["name"] as? String
+                        ?? item["siteName"] as? String
+                        ?? item["title"] as? String
+                        ?? ""
+                // 兼容 searchUrl / search_url / url
+                let searchUrl = item["searchUrl"] as? String
+                             ?? item["search_url"] as? String
+                             ?? item["url"] as? String
+                             ?? ""
+                guard !name.isEmpty, !searchUrl.isEmpty else { return nil }
                 return ZhanyuanSite(
                     name: name,
                     searchUrl: searchUrl,
