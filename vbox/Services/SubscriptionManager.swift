@@ -174,45 +174,43 @@ class SubscriptionManager: ObservableObject {
                 print("[SubscriptionManager] 标准格式解码失败，尝试 apiyuan 格式...")
             }
 
-            // 如果标准格式没有 sites，尝试从 apiyuan/zhanyuan 转换
+            // 始终从 apiyuan/zhanyuan 转换站点（追加到现有 sites，不再受 sites.isEmpty 限制）
             var sites: [SiteConfig] = config?.sites ?? []
-            if sites.isEmpty {
-                // 从 apiyuan 转换
-                if let apiyuan = jsonDict["apiyuan"] as? [[String: Any]] {
-                    print("[SubscriptionManager] 从 apiyuan 转换 \(apiyuan.count) 个站点")
-                    for item in apiyuan {
-                        if let name = item["name"] as? String,
-                           let searchUrl = item["searchurl"] as? String {
-                            let key = "api_\(sites.count + 1)"
-                            // 用完整 searchurl 作为 api，nativeSearch 会拼接 &wd= 参数
-                            let api = searchUrl.hasSuffix("=") ? searchUrl : (searchUrl.hasSuffix("&") || searchUrl.hasSuffix("?") ? searchUrl : searchUrl + "&")
-                            let site = SiteConfig(key: key, name: name, type: 1, api: api)
+            // 从 apiyuan 转换
+            if let apiyuan = jsonDict["apiyuan"] as? [[String: Any]] {
+                print("[SubscriptionManager] 从 apiyuan 转换 \(apiyuan.count) 个站点")
+                for item in apiyuan {
+                    if let name = item["name"] as? String,
+                       let searchUrl = item["searchurl"] as? String {
+                        let key = "api_\(sites.count + 1)"
+                        // 用完整 searchurl 作为 api，nativeSearch 会拼接 &wd= 参数
+                        let api = searchUrl.hasSuffix("=") ? searchUrl : (searchUrl.hasSuffix("&") || searchUrl.hasSuffix("?") ? searchUrl : searchUrl + "&")
+                        let site = SiteConfig(key: key, name: name, type: 1, api: api)
+                        if !sites.contains(where: { $0.name == name }) {
+                            sites.append(site)
+                        }
+                    }
+                }
+            }
+            // 从 zhanyuan 转换（完整配置存到 ext）
+            if let zhanyuan = jsonDict["zhanyuan"] as? [[String: Any]] {
+                print("[SubscriptionManager] 从 zhanyuan 转换 \(zhanyuan.count) 个蜘蛛站")
+                for item in zhanyuan {
+                    if let name = item["name"] as? String,
+                       let searchUrl = item["searchUrl"] as? String {
+                        let key = "zhan_\(sites.count + 1)"
+                        // 把完整 zhanyuan 配置编码到 ext
+                        if let extData = try? JSONSerialization.data(withJSONObject: item),
+                           let extStr = String(data: extData, encoding: .utf8) {
+                            let site = SiteConfig(key: key, name: name, type: 2, api: searchUrl, ext: extStr)
                             if !sites.contains(where: { $0.name == name }) {
                                 sites.append(site)
                             }
-                        }
-                    }
-                }
-                // 从 zhanyuan 转换（完整配置存到 ext）
-                if let zhanyuan = jsonDict["zhanyuan"] as? [[String: Any]] {
-                    print("[SubscriptionManager] 从 zhanyuan 转换 \(zhanyuan.count) 个蜘蛛站")
-                    for item in zhanyuan {
-                        if let name = item["name"] as? String,
-                           let searchUrl = item["searchUrl"] as? String {
-                            let key = "zhan_\(sites.count + 1)"
-                            // 把完整 zhanyuan 配置编码到 ext
-                            if let extData = try? JSONSerialization.data(withJSONObject: item),
-                               let extStr = String(data: extData, encoding: .utf8) {
-                                let site = SiteConfig(key: key, name: name, type: 2, api: searchUrl, ext: extStr)
-                                if !sites.contains(where: { $0.name == name }) {
-                                    sites.append(site)
-                                }
                             }
                         }
-                    }
                 }
-                print("[SubscriptionManager] 转换后共有 \(sites.count) 个站点")
             }
+            print("[SubscriptionManager] 转换后共有 \(sites.count) 个站点")
 
             // 如果仍然没有站点，报错
             if sites.isEmpty {
