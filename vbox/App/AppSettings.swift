@@ -65,6 +65,7 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(skinFollowsSystem, forKey: Self.skinFollowsSystemKey)
         }
     }
+    @Published var showSettings = false
 
     init() {
         let rawSkin = UserDefaults.standard.string(forKey: Self.skinModeKey)

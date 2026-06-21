@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var showWatchHistory: Bool = false
     @State private var showFavorites: Bool = false
     @State private var showDownloads: Bool = false
+    @State private var showSettingsSheet: Bool = false
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -35,50 +36,72 @@ struct ProfileView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // MARK: 头部登录区
-                loginSection
+        ZStack(alignment: .topTrailing) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // MARK: 头部登录区
+                    loginSection
 
-                // MARK: 观看记录模块
-                watchHistorySection
+                    // MARK: 观看记录模块
+                    watchHistorySection
 
-                // MARK: 三大功能入口
-                featureEntriesSection
+                    // MARK: 三大功能入口
+                    featureEntriesSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 40)
+            .background(backgroundColor)
+            .onAppear {
+                loadInitialState()
+                reloadHistory()
+            }
+            .sheet(isPresented: $showLoginSheet) {
+                LoginSheetView(
+                    isLoggedIn: $isLoggedIn,
+                    username: $username,
+                    isPresented: $showLoginSheet
+                )
+            }
+            .sheet(isPresented: $showWatchHistory) {
+                NavigationView {
+                    WatchHistoryView()
+                }
+            }
+            .sheet(isPresented: $showFavorites) {
+                NavigationView {
+                    FavoriteView()
+                }
+            }
+            .sheet(isPresented: $showDownloads) {
+                NavigationView {
+                    DownloadView()
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _ in
+                handlePhotoSelection()
+            }
+
+            // 右上角设置入口
+            Button(action: {
+                showSettingsSheet = true
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(accentColor)
+                    .padding(12)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                    )
+            }
+            .padding(.top, 8)
         }
-        .background(backgroundColor)
-        .onAppear {
-            loadInitialState()
-            reloadHistory()
-        }
-        .sheet(isPresented: $showLoginSheet) {
-            LoginSheetView(
-                isLoggedIn: $isLoggedIn,
-                username: $username,
-                isPresented: $showLoginSheet
-            )
-        }
-        .sheet(isPresented: $showWatchHistory) {
+        .sheet(isPresented: $showSettingsSheet) {
             NavigationView {
-                WatchHistoryView()
+                SettingsView()
             }
-        }
-        .sheet(isPresented: $showFavorites) {
-            NavigationView {
-                FavoriteView()
-            }
-        }
-        .sheet(isPresented: $showDownloads) {
-            NavigationView {
-                DownloadView()
-            }
-        }
-        .onChange(of: selectedPhotoItem) { _ in
-            handlePhotoSelection()
         }
     }
 
@@ -96,14 +119,10 @@ struct ProfileView: View {
                             .frame(width: 80, height: 80)
                             .clipShape(Circle())
                     } else if isLoggedIn && !username.isEmpty {
-                        Circle()
-                            .fill(accentColor)
+                        Text(String(username.prefix(1)))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(accentColor)
                             .frame(width: 80, height: 80)
-                            .overlay(
-                                Text(String(username.prefix(1)))
-                                    .font(.system(size: 32, weight: .bold))
-                                    .foregroundColor(.white)
-                            )
                     } else {
                         Image(systemName: "person.crop.circle")
                             .resizable()
@@ -127,13 +146,6 @@ struct ProfileView: View {
                     Text("点击登录")
                         .font(.system(size: 15))
                         .foregroundColor(accentColor)
-                        .frame(width: 200, height: 44)
-                        .background(Color.clear)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22)
-                                .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                        )
-                        .cornerRadius(22)
                 }
             }
         }
@@ -216,10 +228,6 @@ struct ProfileView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(settings.usesVisualSkin ? 0.12 : 0.08))
-                )
             }
 
             // 分享免广告
@@ -236,10 +244,6 @@ struct ProfileView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(settings.usesVisualSkin ? 0.12 : 0.08))
-                )
             }
 
             // 下载管理
@@ -256,10 +260,6 @@ struct ProfileView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 80)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(settings.usesVisualSkin ? 0.12 : 0.08))
-                )
             }
         }
     }
@@ -645,6 +645,7 @@ struct FavoriteView: View {
 struct DownloadView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.presentationMode) private var presentationMode
+    @State private var downloadRecords: [DownloadRecord] = []
 
     var textColor: Color {
         if settings.usesVisualSkin { return .white }
@@ -652,14 +653,55 @@ struct DownloadView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Text("暂无下载内容")
-                .font(.system(size: 14))
-                .foregroundColor(.gray)
-            Spacer()
+        List {
+            if downloadRecords.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer().frame(height: 100)
+                    Text("暂无下载内容")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(downloadRecords) { record in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(record.name)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(textColor)
+                                .lineLimit(1)
+                            Text(record.laiyuan)
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            if record.status == "downloading" {
+                                ProgressView(value: record.progress)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                                    .frame(height: 3)
+                            }
+                            Text(statusText(record.status))
+                                .font(.system(size: 10))
+                                .foregroundColor(statusColor(record.status))
+                        }
+                        Spacer()
+                        if record.status == "completed" {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 20))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let record = downloadRecords[index]
+                        DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
+                    }
+                    reloadDownloads()
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .listStyle(.plain)
         .navigationTitle("下载管理")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
@@ -672,6 +714,43 @@ struct DownloadView: View {
                         .foregroundColor(textColor)
                 }
             }
+            if !downloadRecords.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("清空") {
+                        DatabaseManager.shared.clearDownloads()
+                        reloadDownloads()
+                    }
+                    .font(.system(size: 14))
+                    .foregroundColor(.red)
+                }
+            }
+        }
+        .onAppear {
+            reloadDownloads()
+        }
+    }
+
+    private func reloadDownloads() {
+        downloadRecords = DatabaseManager.shared.queryDownloads()
+    }
+
+    private func statusText(_ status: String) -> String {
+        switch status {
+        case "pending": return "等待下载"
+        case "downloading": return "下载中..."
+        case "completed": return "已完成"
+        case "failed": return "下载失败"
+        default: return status
+        }
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "pending": return .gray
+        case "downloading": return .blue
+        case "completed": return .green
+        case "failed": return .red
+        default: return .gray
         }
     }
 }

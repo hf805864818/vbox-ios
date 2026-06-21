@@ -180,6 +180,27 @@ class DatabaseManager {
             print("[DatabaseManager] v2 迁移完成：zhanyuan/aphiyuan 添加 dyurl 列，唯一约束改为 (name, dyurl)")
         }
 
+        migrator.registerMigration("v3_add_download") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS download (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    laiyuan TEXT NOT NULL DEFAULT '',
+                    imgurl TEXT NOT NULL DEFAULT '',
+                    detailurl TEXT NOT NULL DEFAULT '',
+                    playurl TEXT NOT NULL DEFAULT '',
+                    jishu INTEGER NOT NULL DEFAULT 0,
+                    progress REAL NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    filePath TEXT NOT NULL DEFAULT '',
+                    fileSize INTEGER NOT NULL DEFAULT 0,
+                    downloadedSize INTEGER NOT NULL DEFAULT 0,
+                    addedAt INTEGER NOT NULL
+                )
+            """)
+            print("[DatabaseManager] v3 迁移完成：创建 download 表")
+        }
+
         return migrator
     }
 
@@ -526,6 +547,20 @@ class DatabaseManager {
         }
     }
 
+    /// 根据 detailurl + laiyuan 查询收藏记录，返回 id（用于取消收藏）
+    func isFavorite2(detailurl: String, laiyuan: String) -> Int? {
+        do {
+            return try dbPool.read { db in
+                try FavoriteRecord
+                    .filter(FavoriteRecord.Columns.detailurl == detailurl)
+                    .filter(FavoriteRecord.Columns.laiyuan == laiyuan)
+                    .fetchOne(db)?.id
+            }
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - History CRUD
 
     func addOrUpdateHistory(_ record: HistoryRecord) {
@@ -701,6 +736,68 @@ class DatabaseManager {
             }
         } catch {
             print("[DatabaseManager] 清空搜索历史失败: \(error)")
+        }
+    }
+
+    // MARK: - Download CRUD
+
+    func addDownload(_ record: DownloadRecord) {
+        do {
+            try dbPool.write { db in
+                try record.save(db, onConflict: .replace)
+            }
+            print("[DatabaseManager] 添加下载: \(record.name)")
+        } catch {
+            print("[DatabaseManager] 添加下载失败: \(error)")
+        }
+    }
+
+    func queryDownloads() -> [DownloadRecord] {
+        do {
+            return try dbPool.read { db in
+                try DownloadRecord
+                    .order(DownloadRecord.Columns.addedAt.desc)
+                    .fetchAll(db)
+            }
+        } catch {
+            print("[DatabaseManager] 查询下载列表失败: \(error)")
+            return []
+        }
+    }
+
+    func updateDownloadProgress(id: Int, progress: Double, downloadedSize: Int64, status: String) {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: """
+                    UPDATE download SET progress = ?, downloadedSize = ?, status = ? WHERE id = ?
+                """, arguments: [progress, downloadedSize, status, id])
+            }
+        } catch {
+            print("[DatabaseManager] 更新下载进度失败: \(error)")
+        }
+    }
+
+    func deleteDownload(id: Int) {
+        do {
+            try dbPool.write { db in
+                try DownloadRecord
+                    .filter(DownloadRecord.Columns.id == id)
+                    .deleteAll(db)
+            }
+            print("[DatabaseManager] 删除下载: id=\(id)")
+        } catch {
+            print("[DatabaseManager] 删除下载失败: \(error)")
+        }
+    }
+
+    func clearDownloads() {
+        do {
+            try dbPool.write { db in
+                try DownloadRecord.deleteAll(db)
+            }
+            print("[DatabaseManager] 已清空下载列表")
+        } catch {
+            print("[DatabaseManager] 清空下载失败: \(error)")
         }
     }
 }
