@@ -290,15 +290,36 @@ struct VideoDetailView: View {
     // MARK: - Body
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 背景
-            Group {
-                if settings.usesLiquidSkin {
-                    AppLiquidBackground().ignoresSafeArea()
-                } else if settings.usesFrostedSkin {
-                    AppFrostedBackground().ignoresSafeArea()
-                } else {
-                    Color(uiColor: .systemBackground).ignoresSafeArea()
+            // 封面图全屏高斯模糊背景（方案二：中重模糊 + 纵向渐变暗化）
+            if let coverURL = DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic) {
+                AsyncImage(url: coverURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .blur(radius: 30)
+                            .overlay(
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .black.opacity(0.25), location: 0),
+                                        .init(color: .black.opacity(0.45), location: 0.3),
+                                        .init(color: .black.opacity(0.85), location: 0.7),
+                                        .init(color: .black.opacity(0.95), location: 1)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    case .failure, .empty:
+                        Color.black
+                    @unknown default:
+                        Color.black
+                    }
                 }
+                .ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
             }
 
             // 内容
@@ -441,7 +462,7 @@ struct VideoDetailView: View {
                     )
                 }
             }
-            .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
+            .background(Color.clear)
             .ignoresSafeArea()
 
             // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
