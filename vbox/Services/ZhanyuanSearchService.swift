@@ -81,7 +81,7 @@ final class ZhanyuanSearchService {
 
         print("[ZhanyuanSearch] 🔍 \(site.name): \(urlString.prefix(100))")
 
-        var request = URLRequest(url: url, timeoutInterval: 10)
+        var request = URLRequest(url: url, timeoutInterval: 5)
         let ua = site.searchUA.isEmpty ? ZhanyuanSite.defaultUA : site.searchUA
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
@@ -514,7 +514,7 @@ final class ZhanyuanSearchService {
         let ua = site.playUA.isEmpty ? site.searchUA : site.playUA
         let host = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        var request = URLRequest(url: URL(string: detailUrl)!, timeoutInterval: 8)
+        var request = URLRequest(url: URL(string: detailUrl)!, timeoutInterval: 5)
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
 

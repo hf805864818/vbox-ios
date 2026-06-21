@@ -431,6 +431,10 @@ globalThis.__JS_SPIDER__ = _spider;
                 self.allSites = []
                 loadedSiteCount = 0
                 errorMessage = "订阅源配置为空"
+                // 无订阅源时清空数据库中的 zhanyuan/aphiyuan 残留数据
+                DatabaseManager.shared.clearAllZhanyuanSites()
+                DatabaseManager.shared.clearAllApiYuanSites()
+                print("[SpiderManager] 无订阅源，已清空数据库站源残留")
                 return
             }
             // 加载引擎
@@ -1345,11 +1349,20 @@ globalThis.__JS_SPIDER__ = _spider;
     func removeSubscriptionURL(_ url: String) {
         subManager.removeURL(url)
         savedURLs = subManager.configURLs
+
+        // 清除数据库中的订阅源数据（zhanyuan、aphiyuan、subscription）
+        let db = DatabaseManager.shared
+        db.clearAllZhanyuanSites()
+        db.clearAllApiYuanSites()
+        db.clearAllSubscriptions()
+        print("[SpiderManager] 已清除订阅源 \(url) 的数据库记录")
+
         // 彻底清空 SpiderManager 的站点数据
         allSites = []
         loadedSiteCount = 0
         // 清除残留数据：如果删除的是当前激活的订阅源，重新加载站点
         Task { [self] in
+            // 重新加载剩下的订阅源（如果有的话）
             await loadSitesFromSubscription()
         }
     }
