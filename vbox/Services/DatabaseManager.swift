@@ -205,6 +205,42 @@ class DatabaseManager {
         }
     }
 
+    /// 清空 zhanyuan 表（删除订阅源时调用）
+    func clearAllZhanyuanSites() {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM zhanyuan")
+            }
+            print("[DatabaseManager] 已清空 zhanyuan 表")
+        } catch {
+            print("[DatabaseManager] 清空 zhanyuan 失败: \(error)")
+        }
+    }
+
+    /// 清空 apiyuan 表（删除订阅源时调用）
+    func clearAllApiYuanSites() {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM apiyuan")
+            }
+            print("[DatabaseManager] 已清空 apiyuan 表")
+        } catch {
+            print("[DatabaseManager] 清空 apiyuan 失败: \(error)")
+        }
+    }
+
+    /// 清空 subscription 表（删除订阅源时调用）
+    func clearAllSubscriptions() {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: "DELETE FROM subscription")
+            }
+            print("[DatabaseManager] 已清空 subscription 表")
+        } catch {
+            print("[DatabaseManager] 清空 subscription 失败: \(error)")
+        }
+    }
+
     func queryActiveZhanyuanSites() -> [ZhanyuanSite] {
         do {
             return try dbPool.read { db in
