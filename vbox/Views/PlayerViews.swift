@@ -455,11 +455,7 @@ struct VideoDetailView: View {
                     }
                     .padding(20)
                     .padding(.bottom, 100)
-                    .background(
-                        settings.usesVisualSkin
-                        ? Color(uiColor: .systemBackground).opacity(settings.usesLiquidSkin ? 0.16 : 0.42)
-                        : Color(uiColor: .systemBackground)
-                    )
+                    .background(.ultraThinMaterial)
                 }
             }
             .background(Color.clear)
