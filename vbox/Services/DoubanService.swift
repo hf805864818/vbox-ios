@@ -465,3 +465,90 @@ enum DoubanError: LocalizedError {
         }
     }
 }
+
+// MARK: - 豆瓣大封面图（海报）
+
+extension DoubanService {
+
+    /// 根据作品名称搜索豆瓣 subject ID
+    func fetchSubjectIdByName(_ name: String) async -> String? {
+        let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
+        let searchURLs = [
+            "\(baseURL)/search?q=\(encodedName)&type=movie",
+            "https://movie.douban.com/j/subject_suggest?q=\(encodedName)",
+            "https://m.douban.com/rexxar/api/v2/search?type=movie&q=\(encodedName)"
+        ]
+        for urlString in searchURLs {
+            guard let searchURL = URL(string: urlString) else { continue }
+            guard let (data, _) = try? await session.data(from: searchURL) else { continue }
+
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let first = json.first,
+               let id = first["id"] as? String {
+                print("[DoubanService] fetchSubjectIdByName 找到ID (suggest): \(id)")
+                return id
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let items = json["items"] as? [[String: Any]],
+                   let first = items.first,
+                   let id = first["id"] as? String ?? first["target_id"] as? String {
+                    print("[DoubanService] fetchSubjectIdByName 找到ID (items): \(id)")
+                    return id
+                }
+                if let subjects = json["subjects"] as? [[String: Any]],
+                   let first = subjects.first,
+                   let id = first["id"] as? String {
+                    print("[DoubanService] fetchSubjectIdByName 找到ID (subjects): \(id)")
+                    return id
+                }
+                if let dataArr = json["data"] as? [[String: Any]],
+                   let first = dataArr.first,
+                   let id = first["id"] as? String {
+                    print("[DoubanService] fetchSubjectIdByName 找到ID (data): \(id)")
+                    return id
+                }
+            }
+        }
+        print("[DoubanService] fetchSubjectIdByName 未找到匹配: \(name)")
+        return nil
+    }
+
+    /// 拉取豆瓣大封面图（优先竖版海报）
+    func fetchWallpaperURL(subjectId: String) async -> String? {
+        let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=R&count=30")!
+        guard let (data, _) = try? await session.data(from: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let photos = json["photos"] as? [[String: Any]] else {
+            print("[DoubanService] fetchWallpaperURL 照片API请求失败")
+            return nil
+        }
+
+        var portraitURL: String? = nil
+        var landscapeURL: String? = nil
+
+        for photo in photos {
+            guard let image = photo["image"] as? [String: Any],
+                  let large = image["large"] as? [String: Any],
+                  let rawURL = large["url"] as? String,
+                  let w = large["width"] as? Int,
+                  let h = large["height"] as? Int else { continue }
+
+            if h > w {
+                if portraitURL == nil { portraitURL = rawURL }
+            } else {
+                if landscapeURL == nil { landscapeURL = rawURL }
+            }
+            if portraitURL != nil { break }
+        }
+
+        let bestURL = portraitURL ?? landscapeURL
+        guard let bestURL else {
+            print("[DoubanService] fetchWallpaperURL 未找到海报")
+            return nil
+        }
+
+        let rawURL = bestURL.replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+        print("[DoubanService] fetchWallpaperURL 成功: \(portraitURL != nil ? "竖版" : "横版") \(rawURL)")
+        return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
+    }
+}
