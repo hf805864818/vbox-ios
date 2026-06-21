@@ -1528,37 +1528,57 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 支持两种模式：
     ///   1. 带 onBatch 回调：每个站点出结果立即回调（用于 searchStream 优先通道）
     ///   2. 返回数组：全部完成后返回（兼容旧调用）
+    ///
+    /// 站点类型：
+    ///   - cms:   标准AppleCMS站点，通用 /index.php/vod/search?wd= 搜索路径
+    ///   - forum: 论坛程序（Xiuno BBS/NodeBB），搜索结果页含网盘链接
+    ///   - spa:   单页Vue/React应用，需API接口
+
+    /// 站点类型枚举
+    enum CloudSiteType: String, Codable {
+        case cms
+        case forum
+        case spa
+    }
+
+    struct CloudSiteConfig: Codable {
+        let name: String
+        let type: CloudSiteType
+        let searchurl: String
+        let detailBase: String
+        var ua: String?
+        var threadPattern: String?
+        var threadURL: String?
+        var apiSearch: String?
+        var resultField: String?
+        var titleField: String?
+        var urlField: String?
+    }
+
+    /// 云盘搜索引擎入口（按类型分发）
     func cloudSearch(keyword: String, onBatch: (([VodItem]) -> Void)? = nil, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
         var results: [VodItem] = []
-        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
         let log = onLog ?? { print("[cloudSearch] \($0)") }
         log("====== cloudSearch: \(keyword) ======")
 
-        // 从 video_sources.json 读取网盘站列表
-        let cloudSites = loadCloudSitesFromJSON()
-        log("☁️ 从 video_sources.json 加载 \(cloudSites.count) 个网盘站")
-        guard !cloudSites.isEmpty else {
+        let sites = loadCloudSitesFromJSONConfig()
+        log("☁️ 从 video_sources.json 加载 \(sites.count) 个网盘站")
+        guard !sites.isEmpty else {
             log("⚠️ video_sources.json 中无可用网盘站")
             return []
         }
 
-        // 并发搜索所有网盘站，每个站点出结果立即回调
-        await withTaskGroup(of: (name: String, items: [VodItem]).self) { group in
-            for site in cloudSites {
+        await withTaskGroup(of: [VodItem].self) { group in
+            for site in sites {
                 group.addTask {
-                    let items = await self.searchOneCloudSite(site: site, keyword: encodedKW, onLog: log)
-                    return (name: site.name, items: items)
+                    await self.searchOneCloudSite2(keyword: keyword, site: site, onLog: log)
                 }
             }
-            for await result in group {
-                if !result.items.isEmpty {
-                    log("☁️ ✅ \(result.name) +\(result.items.count)条")
-                    if let onBatch = onBatch {
-                        onBatch(result.items)
-                    }
-                    results.append(contentsOf: result.items)
-                } else {
-                    log("☁️ ⬜ \(result.name) 0条")
+            for await items in group {
+                if !items.isEmpty {
+                    log("☁️ ✅ 获得 \(items.count) 条")
+                    onBatch?(items)
+                    results.append(contentsOf: items)
                 }
             }
         }
@@ -1567,90 +1587,294 @@ globalThis.__JS_SPIDER__ = _spider;
         return results
     }
 
-    /// 从 video_sources.json 读取网盘站配置
-    private func loadCloudSitesFromJSON() -> [(name: String, searchURL: String, detailBase: String)] {
-        guard let url = Bundle.main.url(forResource: "video_sources", withExtension: "json") else {
-            print("[SpiderManager] video_sources.json 未找到")
+    /// 按站点类型分发搜索
+    private func searchOneCloudSite2(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        switch site.type {
+        case .cms:
+            return await searchOneCMSSite(keyword: keyword, site: site, onLog: onLog)
+        case .forum:
+            return await searchOneForumSite(keyword: keyword, site: site, onLog: onLog)
+        case .spa:
+            return await searchOneSpaSite(keyword: keyword, site: site, onLog: onLog)
+        }
+    }
+
+    /// 从 JSON 加载云盘站点配置
+    private func loadCloudSitesFromJSONConfig() -> [CloudSiteConfig] {
+        let fileManager = FileManager.default
+        // 优先加载 Documents 目录下的外部 JSON
+        if let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let externalPath = documentsPath.appendingPathComponent("video_sources.json")
+            if fileManager.fileExists(atPath: externalPath.path) {
+                do {
+                    let data = try Data(contentsOf: externalPath)
+                    let wrapper = try JSONDecoder().decode(CloudSitesWrapper.self, from: data)
+                    print("[SpiderManager] ✅ 从外部加载站点配置，共 \(wrapper.cloudSites.count) 个站点")
+                    return wrapper.cloudSites
+                } catch {
+                    print("[SpiderManager] ⚠️ 外部JSON加载失败: \(error.localizedDescription)")
+                }
+            }
+        }
+        // 回退到 Bundle 资源
+        guard let bundlePath = Bundle.main.path(forResource: "video_sources", ofType: "json") else {
+            print("[SpiderManager] ❌ 找不到默认 video_sources.json 文件")
             return []
         }
         do {
-            let data = try Data(contentsOf: url)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            guard let sites = json?["cloudSites"] as? [[String: String]] else {
-                print("[SpiderManager] video_sources.json 中无 cloudSites 字段")
-                return []
-            }
-            return sites.compactMap { item in
-                guard let name = item["name"],
-                      let searchURL = item["searchurl"],
-                      let detailBase = item["detailBase"] else { return nil }
-                return (name: name, searchURL: searchURL, detailBase: detailBase)
-            }
+            let data = try Data(contentsOf: URL(fileURLWithPath: bundlePath))
+            let wrapper = try JSONDecoder().decode(CloudSitesWrapper.self, from: data)
+            print("[SpiderManager] ✅ 从Bundle加载站点配置，共 \(wrapper.cloudSites.count) 个站点")
+            return wrapper.cloudSites
         } catch {
-            print("[SpiderManager] 读取 video_sources.json 失败: \(error)")
+            print("[SpiderManager] ❌ JSON解析失败: \(error.localizedDescription)")
             return []
         }
     }
 
-    /// 搜索单个网盘站
-    private func searchOneCloudSite(site: (name: String, searchURL: String, detailBase: String), keyword: String, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+    private struct CloudSitesWrapper: Codable {
+        let cloudSites: [CloudSiteConfig]
+    }
+
+    // MARK: - CMS 型站点搜索
+
+    /// PC 浏览器 UA（用于穿透 Cloudflare）
+    let cloudPcUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    /// 移动端 UA（用于未开启防护的站点）
+    let cloudMobileUA = "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
+    private func searchOneCMSSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
         let log = onLog ?? { _ in }
-        let fullURL = site.searchURL + keyword
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        let fullURL = site.searchurl + encodedKW
         log("☁️ \(site.name) 请求中...")
 
         guard let url = URL(string: fullURL) else { return [] }
         do {
             var req = URLRequest(url: url)
             req.timeoutInterval = 8
-            req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
-            let (data, _) = try await URLSession.shared.data(for: req)
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            req.setValue(site.ua == "pc" ? cloudPcUA : cloudMobileUA, forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
 
-            // 匹配多种详情页 URL 格式：
-            // /index.php/vod/detail/id/123.html
-            // /voddetail/123.html
-            // /detail/123.html
-            // /vod/123.html
-            let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>([^<]+)</a>"#
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
-            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-
-            var items: [VodItem] = []
-            for match in matches {
-                guard match.numberOfRanges >= 4 else { continue }
-                let hrefRange = match.range(at: 1)
-                let nameRange = match.range(at: 3)
-                guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
-                      let hRange = Range(hrefRange, in: html),
-                      let nRange = Range(nameRange, in: html) else { continue }
-                let detailPath = String(html[hRange])
-                let title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                // 过滤掉菜单项
-                if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
-
-                // 尝试提取封面图
-                var pic = ""
-                if let picRegex = try? NSRegularExpression(pattern: #"data-original="([^"]+)"#),
-                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                   let pRange = Range(picMatch.range(at: 1), in: html) {
-                    pic = String(html[pRange])
+            // Cloudflare 拦截（503/403）
+            if let httpResp = response as? HTTPURLResponse {
+                guard httpResp.statusCode == 200 else {
+                    log("☁️ \(site.name) HTTP \(httpResp.statusCode)")
+                    return []
                 }
-                if pic.isEmpty,
-                   let picRegex = try? NSRegularExpression(pattern: #"<img[^>]*class="[^"]*lazy[^"]*"[^>]*data-src="([^"]+)"#),
-                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                   let pRange = Range(picMatch.range(at: 1), in: html) {
-                    pic = String(html[pRange])
-                }
-
-                let detailURL = site.detailBase + detailPath
-                let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name)
-                items.append(item)
             }
-            print("[SpiderManager] cloudSearch \(site.name): \(items.count) 条")
-            return items
+
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            return extractCMSSearchItems(from: html, site: site)
         } catch {
             log("☁️ ❌ \(site.name) 失败")
-            print("[SpiderManager] cloudSearch \(site.name) 失败: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// 从 CMS 搜索结果 HTML 中提取条目
+    private func extractCMSSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
+        let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>([^<]+)</a>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+        var items: [VodItem] = []
+        for match in matches {
+            guard match.numberOfRanges >= 4 else { continue }
+            let hrefRange = match.range(at: 1)
+            let nameRange = match.range(at: 3)
+            guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                  let hRange = Range(hrefRange, in: html),
+                  let nRange = Range(nameRange, in: html) else { continue }
+            let detailPath = String(html[hRange])
+            let title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
+
+            var pic = ""
+            if let picRegex = try? NSRegularExpression(pattern: #"data-original="([^"]+)"#),
+               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let pRange = Range(picMatch.range(at: 1), in: html) {
+                pic = String(html[pRange])
+            }
+            if pic.isEmpty,
+               let picRegex = try? NSRegularExpression(pattern: #"<img[^>]*class="[^"]*lazy[^"]*"[^>]*data-src="([^"]+)"#),
+               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let pRange = Range(picMatch.range(at: 1), in: html) {
+                pic = String(html[pRange])
+            }
+
+            let detailURL = site.detailBase + detailPath
+            let item = VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name)
+            items.append(item)
+        }
+        // 去重
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.vodId).inserted }
+    }
+
+    // MARK: - 论坛型站点搜索
+
+    private func searchOneForumSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        let fullURL = site.searchurl + encodedKW
+        log("☁️ \(site.name) 请求中...")
+
+        guard let url = URL(string: fullURL) else { return [] }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            if let httpResp = response as? HTTPURLResponse {
+                guard httpResp.statusCode == 200 else {
+                    log("☁️ \(site.name) HTTP \(httpResp.statusCode)")
+                    return []
+                }
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+
+            // 策略 A: 搜索结果页直接含网盘链接（最常见）
+            let cloudLinks = parseCloudLinksFromHTML(html: html, siteName: site.name)
+            if !cloudLinks.isEmpty {
+                log("☁️ \(site.name)(论坛直链接): \(cloudLinks.count) 条")
+                return cloudLinks
+            }
+
+            // 策略 B: 搜索结果只是主题列表，提取主题 URL 供后续点击详情解析
+            if let threadPattern = site.threadPattern, let threadURL = site.threadURL {
+                guard let regex = try? NSRegularExpression(pattern: threadPattern, options: []) else { return [] }
+                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                var items: [VodItem] = []
+                for match in matches.prefix(10) {
+                    let ranges = (0..<match.numberOfRanges).dropFirst()
+                    var id = ""
+                    for i in ranges {
+                        if let r = Range(match.range(at: i), in: html) {
+                            if !id.isEmpty { id += "-" }
+                            id += String(html[r])
+                        }
+                    }
+                    let resolved = threadURL.replacingOccurrences(of: "{id}", with: id)
+                    let fullVodId = resolved.hasPrefix("http") ? resolved : site.detailBase + resolved
+                    var title = site.name
+                    let pos = match.range.location
+                    let start = max(0, pos - 200)
+                    let len = min(pos + 200, html.count) - start
+                    if start >= 0, start + len <= html.count {
+                        let ctx = String(html[html.index(html.startIndex, offsetBy: start)..<html.index(html.startIndex, offsetBy: start + len)])
+                        if let t = ctx.range(of: #"title="([^"]+)""#, options: .regularExpression) {
+                            title = String(ctx[t]).replacingOccurrences(of: #"title="([^"]+)""#, with: "$1", options: .regularExpression)
+                        }
+                    }
+                    items.append(VodItem(vodId: fullVodId, vodName: title, vodPic: "", vodRemarks: site.name))
+                }
+                log("☁️ \(site.name)(论坛主题): \(items.count) 条")
+                return items
+            }
+
+            // 策略 C: 全页扫描兜底
+            let fallback = parseCloudLinksFromHTML(html: html, siteName: site.name)
+            return fallback
+        } catch {
+            log("☁️ ❌ \(site.name) 失败")
+            return []
+        }
+    }
+
+    /// 从 HTML 中提取所有网盘链接（论坛/详情页通用）
+    private func parseCloudLinksFromHTML(html: String, siteName: String) -> [VodItem] {
+        let panPatterns: [(pattern: String, driveName: String)] = [
+            (#"(https?://115cdn\.com/s/[^\s\"<>'\\]*)"#, "115网盘"),
+            (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>'\\]*)"#, "阿里云盘"),
+            (#"(https?://pan\.quark\.cn/s/[^\s\"<>'\\]*)"#, "夸克网盘"),
+            (#"(https?://pan\.baidu\.com/s/[^\s\"<>'\\]*)"#, "百度网盘"),
+            (#"(https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>'\\]*)"#, "UC网盘"),
+            (#"(https?://yun\.139\.com/[^\s\"<>'\\]*)"#, "天翼云盘"),
+            (#"(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)"#, "123云盘"),
+        ]
+        var items: [VodItem] = []
+        var seen = Set<String>()
+        for (pattern, driveName) in panPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                if let r = Range(match.range(at: 1), in: html) {
+                    let panURL = String(html[r])
+                    guard seen.insert(panURL).inserted else { continue }
+                    items.append(VodItem(vodId: panURL, vodName: "\(driveName)-\(siteName)", vodPic: "", vodRemarks: siteName))
+                }
+            }
+        }
+        return items
+    }
+
+    // MARK: - SPA 型站点搜索
+
+    private func searchOneSpaSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        log("☁️ \(site.name) 请求中...")
+
+        guard let apiTemplate = site.apiSearch,
+              let apiURL = URL(string: apiTemplate.replacingOccurrences(of: "{kw}", with: encodedKW)) else {
+            return []
+        }
+
+        do {
+            var req = URLRequest(url: apiURL)
+            req.timeoutInterval = 8
+            req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode != 200 {
+                log("☁️ \(site.name) HTTP \(httpResp.statusCode)")
+                return []
+            }
+
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+
+            var list: [[String: Any]] = []
+            if let path = site.resultField {
+                let keys = path.split(separator: ".")
+                var current: Any = json
+                for key in keys {
+                    guard let d = current as? [String: Any], let n = d[String(key)] else { break }
+                    current = n
+                }
+                if let arr = current as? [[String: Any]] {
+                    list = arr
+                } else if let dict = current as? [String: Any] {
+                    // PanSou 格式: merged_by_type = { "quark": [...], "baidu": [...], ... }
+                    // 扁平化所有网盘类型的数组
+                    var flat: [[String: Any]] = []
+                    for (_, value) in dict {
+                        if let subArr = value as? [[String: Any]] {
+                            flat.append(contentsOf: subArr)
+                        }
+                    }
+                    list = flat
+                }
+            } else {
+                if let arr = json["data"] as? [[String: Any]] { list = arr }
+                else if let d = json["data"] as? [String: Any] { list = [d] }
+            }
+
+            let tField = site.titleField ?? "title"
+            let uField = site.urlField ?? "url"
+            var items: [VodItem] = []
+            for entry in list.prefix(20) {
+                guard let title = entry[tField] as? String,
+                      let detailURL = entry[uField] as? String else { continue }
+                let fullURL = detailURL.hasPrefix("http") ? detailURL : site.detailBase + detailURL
+                items.append(VodItem(vodId: fullURL, vodName: title, vodPic: "", vodRemarks: site.name))
+            }
+            log("☁️ \(site.name)(SPA): \(items.count) 条")
+            return items
+        } catch {
+            log("☁️ ❌ \(site.name) 失败: \(error.localizedDescription)")
             return []
         }
     }
@@ -1662,15 +1886,27 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] resolveCloudPlay 命中缓存: \(cached.links.count) 条")
             return (cached.links, cached.siteName)
         }
+
+        // 直通: URL 本身就是网盘链接（论坛搜索结果）
+        if isCloudDriveLink(detailURL) {
+            let driveName = cloudDriveName(for: detailURL)
+            let result = (links: [(url: detailURL, name: driveName)], siteName: "云盘直链")
+            cacheCloudPlay(result, for: detailURL)
+            return result
+        }
+
         guard let url = URL(string: detailURL) else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = 10
-        req.setValue("Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
         req.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode != 200 {
+                print("[SpiderManager] resolveCloudPlay HTTP \(httpResp.statusCode)")
+                return nil
+            }
             guard let html = String(data: data, encoding: .utf8) else {
-                // 尝试 GBK 编码
                 if let gbkData = try? NSString(data: data, encoding: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))) as String? {
                     let result = try await parseCloudHTML(html: gbkData)
                     if let result { cacheCloudPlay(result, for: detailURL) }
@@ -1686,6 +1922,28 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 判断 URL 是否是已知网盘链接
+    private func isCloudDriveLink(_ url: String) -> Bool {
+        let patterns = [
+            "pan.quark.cn/s/", "115cdn.com/s/", "aliyundrive.com/s/", "alipan.com/s/",
+            "pan.baidu.com/s/", "drive.uc.cn/s/", "pan.uc.cn/s/",
+            "yun.139.com/", "www.123", ".com/s/"
+        ]
+        return patterns.contains { url.contains($0) }
+    }
+
+    /// 识别网盘类型名称
+    private func cloudDriveName(for url: String) -> String {
+        if url.contains("pan.quark.cn") { return "夸克网盘" }
+        if url.contains("115cdn.com") { return "115网盘" }
+        if url.contains("aliyundrive.com") || url.contains("alipan.com") { return "阿里云盘" }
+        if url.contains("pan.baidu.com") { return "百度网盘" }
+        if url.contains("drive.uc.cn") || url.contains("pan.uc.cn") { return "UC网盘" }
+        if url.contains("yun.139.com") { return "天翼云盘" }
+        if url.contains("www.123") && url.contains("/s/") { return "123云盘" }
+        return "网盘链接"
     }
 
     private func cacheCloudPlay(_ result: (links: [(url: String, name: String)], siteName: String), for detailURL: String) {
