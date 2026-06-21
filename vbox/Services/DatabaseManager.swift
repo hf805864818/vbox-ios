@@ -249,7 +249,7 @@ class DatabaseManager {
         do {
             try dbPool.write { db in
                 for site in sites {
-                    try site.save(db)
+                    try site.save(db, onConflict: .replace)
                 }
             }
             print("[DatabaseManager] 保存 \(sites.count) 个 apiyuan 站点")
@@ -301,7 +301,7 @@ class DatabaseManager {
     func saveSubscription(_ record: SubscriptionRecord) {
         do {
             try dbPool.write { db in
-                try record.save(db)
+                try record.save(db, onConflict: .replace)
             }
         } catch {
             print("[DatabaseManager] 保存订阅记录失败: \(error)")
