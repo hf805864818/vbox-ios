@@ -92,10 +92,8 @@ struct CategoryDetailView: View {
     }
 
     private func checkSubscription() {
-        let spider = SpiderManager.shared
-        let sub = spider.subManager
-        hasSubscription = spider.isInitialized && !spider.allSites.isEmpty
-            || sub.isLoaded && !sub.allSites.isEmpty
+        let sub = SpiderManager.shared.subManager
+        hasSubscription = !sub.configURLs.isEmpty
     }
 
     private func loadData() {
