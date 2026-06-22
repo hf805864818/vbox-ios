@@ -36,17 +36,11 @@ class SpiderManager: ObservableObject {
     static let builtinFallbackSites: [(name: String, api: String)] = [
         ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
         ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
-        ("新浪资源",   "https://api.xinlangapi.com/xinlangapi.php/provide/vod"),
         ("量子资源",   "https://cj.lziapi.com/api.php/provide/vod"),
         ("暴风资源",   "https://bfzyapi.com/api.php/provide/vod"),
-
-        ("红牛资源",   "https://www.hongniuzy2.com/api.php/provide/vod"),
-
-        ("4KTOP蓝光",  "https://4ktop.com/api.php/provide/vod"),
         ("盘Ta资源",   "https://www.91panta.cn/api.php/provide/vod"),
         ("多多资源",   "https://tv.yydsys.top/api.php/provide/vod"),
         ("至臻影视",   "http://www.miqk.cc/api.php/provide/vod"),
-        ("LibVio影视", "https://libvio.mov/api.php/provide/vod"),
     ]
 
     let subManager = SubscriptionManager()

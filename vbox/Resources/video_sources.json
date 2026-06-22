@@ -35,18 +35,6 @@
       "detailBase": "https://sd.sduc.site"
     },
     {
-      "name": "4KTOP蓝光",
-      "type": "cms",
-      "searchurl": "https://4ktop.com/index.php/vod/search.html?wd=",
-      "detailBase": "https://4ktop.com"
-    },
-    {
-      "name": "LibVio影视",
-      "type": "cms",
-      "searchurl": "https://libvio.mov/search/-------------.html?wd=",
-      "detailBase": "https://libvio.mov"
-    },
-    {
       "name": "欧歌资源",
       "type": "cms",
       "searchurl": "https://woog.nxog.eu.org/index.php/vod/search.html?wd=",
