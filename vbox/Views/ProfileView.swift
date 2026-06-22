@@ -648,6 +648,8 @@ struct WatchHistoryView: View {
             VideoDetailView(video: video)
         }
     }
+
+    private func coverThumbnail(urlString: String) -> some View {
         Group {
             if urlString.isEmpty {
                 Rectangle()
