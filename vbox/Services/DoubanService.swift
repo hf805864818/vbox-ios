@@ -472,6 +472,308 @@ enum DoubanError: LocalizedError {
     }
 }
 
+// MARK: - 豆瓣筛选参数模型
+struct DoubanFilterParams {
+    var genre: String?       // 类型: 喜剧、爱情、动作等
+    var year: String?        // 年代: 2026、2025、2010年代等
+    var platform: String?    // 平台: Netflix、HBO、BBC等
+    var sort: SortType       // 排序方式
+    var region: String?      // 地区: 华语、欧美、日本、韩国等
+    
+    enum SortType: String, CaseIterable {
+        case hot = "recommend"      // 热度排序（默认）
+        case rating = "rank"        // 评分排序
+        case year = "time"          // 年份排序
+        case latest = "latest"      // 最新上映
+        
+        var displayName: String {
+            switch self {
+            case .hot: return "热度"
+            case .rating: return "评分"
+            case .year: return "年份"
+            case .latest: return "最新"
+            }
+        }
+    }
+    
+    init(genre: String? = nil, year: String? = nil, platform: String? = nil, sort: SortType = .hot, region: String? = nil) {
+        self.genre = genre
+        self.year = year
+        self.platform = platform
+        self.sort = sort
+        self.region = region
+    }
+}
+
+// MARK: - 豆瓣分类配置
+struct DoubanCategoryConfig: Identifiable {
+    let id = UUID()
+    let type: String
+    let name: String
+    let icon: String
+    let collectionId: String
+    let filters: FilterOptions
+    
+    struct FilterOptions {
+        let genres: [String]
+        let years: [String]
+        let platforms: [String]
+        let regions: [String]
+    }
+}
+
+// MARK: - 豆瓣分类预设
+extension DoubanCategoryConfig {
+    // 电影分类
+    static let movie = DoubanCategoryConfig(
+        type: "movie",
+        name: "电影",
+        icon: "film.fill",
+        collectionId: "movie_hot_gaia",
+        filters: FilterOptions(
+            genres: ["全部", "喜剧", "爱情", "动作", "科幻", "悬疑", "恐怖", "动画", "剧情", "犯罪", "冒险", "奇幻", "战争", "历史", "传记", "音乐", "家庭", "武侠", "古装"],
+            years: ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "2000年代", "90年代", "更早"],
+            platforms: ["全部", "Netflix", "HBO", "BBC", "Hulu", "Apple TV+", "Disney+", "Amazon", "YouTube", "院线"],
+            regions: ["全部", "华语", "欧美", "日本", "韩国", "印度", "泰国", "其他"]
+        )
+    )
+    
+    // 剧集分类
+    static let tv = DoubanCategoryConfig(
+        type: "tv",
+        name: "剧集",
+        icon: "tv.fill",
+        collectionId: "tv_real_time_hotest",
+        filters: FilterOptions(
+            genres: ["全部", "剧情", "喜剧", "爱情", "悬疑", "犯罪", "科幻", "动画", "动作", "战争", "恐怖", "家庭", "古装", "武侠", "历史", "传记", "音乐", "真人秀", "脱口秀"],
+            years: ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "2000年代", "90年代", "更早"],
+            platforms: ["全部", "Netflix", "HBO", "BBC", "Hulu", "Apple TV+", "Disney+", "Amazon", "YouTube", "腾讯视频", "爱奇艺", "优酷", "芒果TV", "央视"],
+            regions: ["全部", "华语", "欧美", "日本", "韩国", "其他"]
+        )
+    )
+    
+    // 综艺分类
+    static let variety = DoubanCategoryConfig(
+        type: "variety",
+        name: "综艺",
+        icon: "theatermasks.fill",
+        collectionId: "tv_variety_show",
+        filters: FilterOptions(
+            genres: ["全部", "真人秀", "脱口秀", "音乐", "舞蹈", "美食", "旅行", "竞技", "访谈", "情感", "喜剧", "游戏", "文化", "职场"],
+            years: ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "更早"],
+            platforms: ["全部", "腾讯视频", "爱奇艺", "优酷", "芒果TV", "央视", "Netflix", "HBO", "BBC", "Hulu", "Apple TV+", "Disney+", "Amazon"],
+            regions: ["全部", "华语", "欧美", "日本", "韩国", "其他"]
+        )
+    )
+    
+    // 动漫分类
+    static let animation = DoubanCategoryConfig(
+        type: "animation",
+        name: "动漫",
+        icon: "paintbrush.fill",
+        collectionId: "tv_animation",
+        filters: FilterOptions(
+            genres: ["全部", "剧情", "喜剧", "动作", "科幻", "奇幻", "冒险", "悬疑", "恐怖", "爱情", "家庭", "动画", "短片"],
+            years: ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "2000年代", "90年代", "更早"],
+            platforms: ["全部", "Netflix", "Crunchyroll", "Bilibili", "腾讯视频", "爱奇艺", "优酷", "Disney+", "HBO", "Hulu", "Amazon", "YouTube"],
+            regions: ["全部", "日本", "华语", "欧美", "韩国", "其他"]
+        )
+    )
+    
+    // 纪录片分类
+    static let documentary = DoubanCategoryConfig(
+        type: "documentary",
+        name: "纪录片",
+        icon: "doc.text.fill",
+        collectionId: "movie_documentary",
+        filters: FilterOptions(
+            genres: ["全部", "历史", "自然", "科学", "社会", "文化", "传记", "战争", "探险", "美食", "旅行", "音乐", "艺术", "体育"],
+            years: ["全部", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2010年代", "2000年代", "90年代", "更早"],
+            platforms: ["全部", "Netflix", "BBC", "Discovery", "National Geographic", "HBO", "Apple TV+", "Disney+", "Amazon", "YouTube", "央视", "Bilibili"],
+            regions: ["全部", "华语", "欧美", "日本", "韩国", "其他"]
+        )
+    )
+    
+    // 所有分类
+    static let allCategories: [DoubanCategoryConfig] = [.movie, .tv, .variety, .animation, .documentary]
+}
+
+// MARK: - DoubanService 增强：带筛选的分类获取
+extension DoubanService {
+    
+    /// 带筛选的分类获取（统一入口）
+    func fetchCategory(
+        config: DoubanCategoryConfig,
+        filters: DoubanFilterParams,
+        start: Int = 0,
+        count: Int = 20
+    ) async throws -> [DoubanSubject] {
+        var subjects = try await fetchCollection(config.collectionId, start: start, count: count)
+        
+        // 应用筛选
+        subjects = applyFilters(subjects: subjects, filters: filters)
+        
+        // 应用排序
+        subjects = applySort(subjects: subjects, sort: filters.sort)
+        
+        return subjects
+    }
+    
+    // MARK: - 筛选逻辑
+    private func applyFilters(subjects: [DoubanSubject], filters: DoubanFilterParams) -> [DoubanSubject] {
+        var result = subjects
+        
+        // 类型筛选
+        if let genre = filters.genre, genre != "全部" {
+            result = result.filter { subject in
+                subject.genres?.contains(genre) ?? false
+            }
+        }
+        
+        // 年代筛选
+        if let year = filters.year, year != "全部" {
+            result = result.filter { subject in
+                guard let subjectYear = subject.year else { return false }
+                
+                switch year {
+                case "2010年代":
+                    return subjectYear >= "2010" && subjectYear < "2020"
+                case "2000年代":
+                    return subjectYear >= "2000" && subjectYear < "2010"
+                case "90年代":
+                    return subjectYear >= "1990" && subjectYear < "2000"
+                case "更早":
+                    return subjectYear < "1990"
+                default:
+                    return subjectYear == year
+                }
+            }
+        }
+        
+        // 地区筛选（通过card_subtitle或intro判断）
+        if let region = filters.region, region != "全部" {
+            result = result.filter { subject in
+                let text = "\(subject.card_subtitle ?? "") \(subject.intro ?? "")"
+                switch region {
+                case "华语":
+                    return text.contains("中国大陆") || text.contains("中国") || text.contains("台湾") || text.contains("香港") || text.contains("华语")
+                case "欧美":
+                    return text.contains("美国") || text.contains("英国") || text.contains("法国") || text.contains("德国") || text.contains("意大利") || text.contains("西班牙") || text.contains("加拿大")
+                case "日本":
+                    return text.contains("日本")
+                case "韩国":
+                    return text.contains("韩国")
+                case "印度":
+                    return text.contains("印度")
+                case "泰国":
+                    return text.contains("泰国")
+                default:
+                    return true
+                }
+            }
+        }
+        
+        // 平台筛选（通过card_subtitle或intro判断）
+        if let platform = filters.platform, platform != "全部" {
+            result = result.filter { subject in
+                let text = "\(subject.card_subtitle ?? "") \(subject.intro ?? "") \(subject.title)"
+                return text.contains(platform)
+            }
+        }
+        
+        return result
+    }
+    
+    // MARK: - 排序逻辑
+    private func applySort(subjects: [DoubanSubject], sort: DoubanFilterParams.SortType) -> [DoubanSubject] {
+        var result = subjects
+        
+        switch sort {
+        case .rating:
+            result.sort { $0.ratingValue > $1.ratingValue }
+        case .year, .latest:
+            result.sort { ($0.year ?? "") > ($1.year ?? "") }
+        case .hot:
+            // 保持原始顺序（豆瓣返回的就是热度排序）
+            break
+        }
+        
+        return result
+    }
+}
+
+// MARK: - ViewModel for SwiftUI 分类浏览
+@MainActor
+class DoubanCategoryViewModel: ObservableObject {
+    @Published var subjects: [DoubanSubject] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var hasMoreData = true
+    
+    private let service = DoubanService.shared
+    private var currentPage = 0
+    private let pageSize = 20
+    
+    // 当前筛选状态
+    @Published var filters = DoubanFilterParams(sort: .hot)
+    @Published var selectedCategory: DoubanCategoryConfig = .movie
+    
+    // 加载数据
+    func loadData(reset: Bool = true) async {
+        if reset {
+            currentPage = 0
+            subjects = []
+            hasMoreData = true
+        }
+        
+        guard !isLoading && hasMoreData else { return }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            let newSubjects = try await service.fetchCategory(
+                config: selectedCategory,
+                filters: filters,
+                start: currentPage * pageSize,
+                count: pageSize
+            )
+            
+            if reset {
+                subjects = newSubjects
+            } else {
+                subjects.append(contentsOf: newSubjects)
+            }
+            
+            hasMoreData = newSubjects.count == pageSize
+            currentPage += 1
+            
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        
+        isLoading = false
+    }
+    
+    // 加载更多
+    func loadMore() async {
+        await loadData(reset: false)
+    }
+    
+    // 更新筛选条件
+    func updateFilters(_ newFilters: DoubanFilterParams) async {
+        filters = newFilters
+        await loadData(reset: true)
+    }
+    
+    // 切换分类
+    func switchCategory(_ category: DoubanCategoryConfig) async {
+        selectedCategory = category
+        filters = DoubanFilterParams(sort: .hot) // 重置筛选
+        await loadData(reset: true)
+    }
+}
+
 // MARK: - 豆瓣大封面图（海报）
 
 extension DoubanService {
