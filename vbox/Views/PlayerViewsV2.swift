@@ -464,6 +464,7 @@ struct VideoPlayerViewV2: View {
             // 监听PiP恢复全屏和暂停/播放通知
             NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { _ in
                 playerState.isPiPActive = false
+                playerState.isSmallWindowActive = false
             }
             NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { _ in
                 playerState.togglePlayback(player: playerState.player)
@@ -478,9 +479,34 @@ struct VideoPlayerViewV2: View {
             NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
         }
         .onChange(of: scenePhase) { newPhase in
-            // 返回桌面时自动进入画中画
-            if newPhase == .background && !playerState.isPiPActive {
-                togglePiPAuto()
+            if newPhase == .background {
+                // 进入后台：优先把应用内小窗切换为系统画中画
+                if playerState.isSmallWindowActive {
+                    MPVFloatingWindowManager.shared.transitionToSystemPiP()
+                    playerState.isSmallWindowActive = false
+                    playerState.isPiPActive = true
+                    #if canImport(Libmpv)
+                    MPVPiPManager.shared.initializePiP()
+                    MPVPiPManager.shared.startPiP()
+                    #endif
+                } else if !playerState.isPiPActive {
+                    // 返回桌面时自动进入画中画
+                    togglePiPAuto()
+                }
+            } else if newPhase == .active {
+                // 回到前台：关闭系统画中画
+                if playerState.isPiPActive {
+                    #if canImport(Libmpv)
+                    MPVPiPManager.shared.stopPiP()
+                    #endif
+                    playerState.isPiPActive = false
+
+                    // 如果后台前是应用内小窗，则恢复小窗
+                    if MPVFloatingWindowManager.shared.wasFloatingBeforeBackground {
+                        MPVFloatingWindowManager.shared.restoreFromSystemPiP()
+                        playerState.isSmallWindowActive = true
+                    }
+                }
             }
         }
     }
@@ -624,6 +650,7 @@ class PlayerState: ObservableObject {
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
     @Published var isPiPActive = false
+    @Published var isSmallWindowActive = false   // 新增：应用内小窗
     @Published var videoGravity: VideoGravityMode = .aspectFill
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
@@ -644,6 +671,12 @@ class PlayerState: ObservableObject {
     
     // 通用集数列表（所有资源类型共用）
     @Published var episodeItems: [EpisodeItem] = []
+
+    /// 当前集资源类型（用于判断走系统画中画还是应用内小窗）
+    var currentEpisodeSourceType: EpisodeItem.EpisodeSourceType {
+        guard currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count else { return .normal }
+        return episodeItems[currentEpisodeIndex].sourceType
+    }
     
     var baiduBduss: String = ""                  // 百度Token
     var baiduPcsCookie: String = ""              // 百度PCS下载Cookie
@@ -3520,7 +3553,7 @@ struct PlayerTopBarView: View {
                     // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
                     HStack(spacing: 0) {
                         Button(action: { onTogglePiP() }) {
-                            Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                            Image(systemName: (playerState.isPiPActive || playerState.isSmallWindowActive) ? "pip.exit" : "pip.enter")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
                                 .frame(width: 44, height: 44)
@@ -3870,6 +3903,21 @@ struct PlayerControlsView: View {
     }
 
     private func togglePiP() {
+        // 百度 / 夸克走应用内小窗；其它资源走系统画中画
+        let useInAppFloating = playerState.compatibilityURL != nil
+            && playerState.isCurrentCompatibilityEngineSupportsPiP
+            && (playerState.currentEpisodeSourceType == .baidu
+                || playerState.currentEpisodeSourceType == .quark)
+
+        if playerState.isSmallWindowActive {
+            // 关闭应用内小窗
+            MPVFloatingWindowManager.shared.hideFloatingWindow(restoreFullscreen: false)
+            LibmpvMoltenVKPlayerCore.shared.stop()
+            LibmpvMoltenVKPlayerCore.shared.teardown()
+            playerState.isSmallWindowActive = false
+            return
+        }
+
         if playerState.isPiPActive {
             // 停止 PiP
             if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
@@ -3888,11 +3936,17 @@ struct PlayerControlsView: View {
         } else {
             // 启动 PiP
             if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
-                // MPV 帧桥接 PiP：启动
                 #if canImport(Libmpv)
-                MPVPiPManager.shared.initializePiP()
-                MPVPiPManager.shared.startPiP()
-                playerState.isPiPActive = true
+                if useInAppFloating {
+                    // 百度 / 夸克：应用内真正 MPV 小窗
+                    MPVFloatingWindowManager.shared.showFloatingWindow()
+                    playerState.isSmallWindowActive = true
+                } else {
+                    // 普通切片资源：系统级画中画
+                    MPVPiPManager.shared.initializePiP()
+                    MPVPiPManager.shared.startPiP()
+                    playerState.isPiPActive = true
+                }
                 #else
                 // 降级为浮动窗口
                 if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -4093,7 +4147,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
     }
 
     final class Coordinator {
-        private let core = LibmpvMoltenVKPlayerCore()
+        private let core = LibmpvMoltenVKPlayerCore.shared
         private var observers: [NSObjectProtocol] = []
         private weak var playerState: PlayerState?
         private var isStopped = false
@@ -4191,8 +4245,13 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             observers.removeAll()
             core.onLog = nil
             core.onStateChange = nil
-            core.stop()
-            core.teardown()
+
+            // 如果还在小窗或系统画中画，不要销毁 mpv，让播放继续
+            if !MPVFloatingWindowManager.shared.isKeepingCoreAlive {
+                core.stop()
+                core.teardown()
+            }
+
             currentURL = nil
             playerState = nil
         }
