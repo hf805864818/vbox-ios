@@ -45,6 +45,9 @@ final class LibmpvMoltenVKRenderView: UIView {
 
 final class LibmpvMoltenVKPlayerCore: NSObject {
 
+    /// 全局共享实例，用于应用内小窗和全屏之间复用同一个 mpv 上下文
+    static let shared = LibmpvMoltenVKPlayerCore()
+
     // MARK: - PiP 帧捕获属性
 
     /// PiP 帧捕获开关
@@ -70,11 +73,20 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     var onStateChange: ((PlayerEngineState) -> Void)?
 
     private(set) var state = PlayerEngineState()
-    private let renderView = LibmpvMoltenVKRenderView()
+    let renderView = LibmpvMoltenVKRenderView()
     private weak var containerView: UIView?
     private var mpv: OpaquePointer?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
     private var isShuttingDown = false
+
+    /// 供悬浮窗使用的渲染视图
+    var videoRenderView: UIView { renderView }
+
+    /// 当前是否有活跃的 mpv 实例
+    var hasActivePlayback: Bool { mpv != nil && !isShuttingDown }
+
+    /// 当前播放状态（只读）
+    var currentState: PlayerEngineState { state }
 
     deinit {
         teardown()
@@ -245,6 +257,16 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     func seek(to seconds: Double) {
         guard !isShuttingDown else { return }
         command("seek", args: [String(seconds), "absolute"])
+    }
+
+    func togglePause() {
+        guard !isShuttingDown else { return }
+        command(state.isPlaying ? "set pause yes" : "set pause no")
+    }
+
+    func seekRelative(seconds: Double) {
+        guard !isShuttingDown else { return }
+        command("seek", args: [String(seconds), "relative"])
     }
 
     func setRate(_ rate: Double) {
