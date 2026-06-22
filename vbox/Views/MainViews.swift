@@ -990,7 +990,7 @@ struct SearchView: View {
         }
     }
 
-    private func addSearchLog(_ msg: String) {
+    private func performSearch() {
         searchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !searchText.isEmpty else {
             resetSearchState()

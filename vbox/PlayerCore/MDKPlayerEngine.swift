@@ -111,6 +111,9 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         onEvent?(.buffering(true))
         onEvent?(.log("MDK 内核加载线路：\(route.title)"))
         startProgressTimer()
+
+        // MDK 需要 prepare() 初始化解码管线，否则 renderCallback 不触发，画面无帧
+        player.prepare()
         #else
         let message = "当前构建未包含 MDK 内核"
         state.errorMessage = message
