@@ -33,7 +33,9 @@ final class DoubanImageProxyServer {
         "img1.douban.com",
         "img2.douban.com",
         "img3.douban.com",
-        "img9.douban.com"
+        "img9.douban.com",
+        "image.tmdb.org",
+        "media.themoviedb.org"
     ]
 
     private init() {
