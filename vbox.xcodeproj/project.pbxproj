@@ -80,7 +80,7 @@
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
 		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
 		A10030 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* CategoryDetailView.swift */; };
-		A10033 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* BaiduWebViewBridge.swift */; };
+		A10033 /* MDKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MDKPlayerRepresentable.swift */; };
 		A10034 /* DoubanImageProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034 /* DoubanImageProxyServer.swift */; };
 		A10035 /* BaiduProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11000 /* BaiduProxyClient.swift */; };
 		A10036 /* MPVKitDebugPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10036 /* MPVKitDebugPlayerView.swift */; };
@@ -127,7 +127,6 @@
 		A12027 /* MDKPipManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12027 /* MDKPipManager.swift */; };
 		A12028 /* MPVPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12028 /* MPVPiPManager.swift */; };
 		A12030 /* MDKRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12030 /* MDKRenderView.swift */; };
-		A10033 /* MDKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MDKPlayerRepresentable.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -267,7 +266,7 @@
 		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
 		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
 		B10032 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
-		B10033 /* BaiduWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWebViewBridge.swift; sourceTree = "<group>"; };
+		B10033 /* MDKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPlayerRepresentable.swift; sourceTree = "<group>"; };
 		B10034 /* DoubanImageProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanImageProxyServer.swift; sourceTree = "<group>"; };
 		B10036 /* MPVKitDebugPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVKitDebugPlayerView.swift; sourceTree = "<group>"; };
 		B10037 /* MPVRenderContextDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVRenderContextDebugView.swift; sourceTree = "<group>"; };
@@ -315,7 +314,6 @@
 		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
 		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
 		B12030 /* MDKRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKRenderView.swift; sourceTree = "<group>"; };
-		B10033 /* MDKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPlayerRepresentable.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -508,7 +506,7 @@
 				B10016 /* CloudDriveManager.swift */,
 				B10024 /* LogVarDanmakuService.swift */,
 				B10026 /* DoubanService.swift */,
-				B10033 /* BaiduWebViewBridge.swift */,
+				B10033 /* MDKPlayerRepresentable.swift */,
 				B10034 /* DoubanImageProxyServer.swift */,
 				B11000 /* BaiduProxyClient.swift */,
 				B10136 /* CloudDriveAuthManager.swift */,
@@ -736,7 +734,7 @@
 				A10028 /* DoubanHomeView.swift in Sources */,
 				A10030 /* CategoryDetailView.swift in Sources */,
 				A10029 /* TokenWebView.swift in Sources */,
-				A10033 /* BaiduWebViewBridge.swift in Sources */,
+				A10033 /* MDKPlayerRepresentable.swift in Sources */,
 				A10034 /* DoubanImageProxyServer.swift in Sources */,
 				A10035 /* BaiduProxyClient.swift in Sources */,
 				A10036 /* MPVKitDebugPlayerView.swift in Sources */,
