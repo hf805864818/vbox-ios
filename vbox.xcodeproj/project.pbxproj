@@ -78,8 +78,6 @@
 		A10026 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10027 /* DoubanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* DoubanService.swift */; };
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
-		A10150 /* DoubanCategoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* DoubanCategoryBrowserView.swift */; };
-		A10151 /* DoubanRankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10151 /* DoubanRankingView.swift */; };
 		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
 		A10030 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* CategoryDetailView.swift */; };
 		A10033 /* MDKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MDKPlayerRepresentable.swift */; };
@@ -102,6 +100,7 @@
 		A10143 /* LiveTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10143 /* LiveTVService.swift */; };
 		A10144 /* video_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10144 /* video_sources.json */; };
 		A10150 /* DoubanCategoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* DoubanCategoryBrowserView.swift */; };
+		A10151 /* DoubanRankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10151 /* DoubanRankingView.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
 		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
@@ -267,8 +266,6 @@
 		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
 		B10026 /* DoubanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanService.swift; sourceTree = "<group>"; };
 		B10027 /* DoubanHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanHomeView.swift; sourceTree = "<group>"; };
-		B10150 /* DoubanCategoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanCategoryBrowserView.swift; sourceTree = "<group>"; };
-		B10151 /* DoubanRankingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanRankingView.swift; sourceTree = "<group>"; };
 		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
 		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
 		B10032 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
@@ -288,6 +285,7 @@
 		B10143 /* LiveTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVService.swift; sourceTree = "<group>"; };
 		B10144 /* video_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = video_sources.json; sourceTree = "<group>"; };
 		B10150 /* DoubanCategoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanCategoryBrowserView.swift; sourceTree = "<group>"; };
+		B10151 /* DoubanRankingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanRankingView.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
