@@ -249,6 +249,65 @@ class DoubanService: ObservableObject {
             throw DoubanError.unknownTab(tabName)
         }
     }
+
+    // MARK: - 排行榜数据获取
+
+    /// 排行榜类型
+    enum RankingType: String, CaseIterable, Identifiable {
+        case movieWeekly = "movie_weekly_best"
+        case movieTop250 = "movie_top250"
+        case movieShowing = "movie_showing"
+        case movieHot = "movie_hot_gaia"
+        case tvHot = "tv_real_time_hotest"
+        case tvChinese = "tv_chinese_best_weekly"
+        case tvAmerican = "tv_american"
+        case variety = "tv_variety_show"
+        case animation = "tv_animation"
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .movieWeekly: return "口碑榜"
+            case .movieTop250: return "TOP250"
+            case .movieShowing: return "热映"
+            case .movieHot: return "热门电影"
+            case .tvHot: return "热门剧集"
+            case .tvChinese: return "华语剧集"
+            case .tvAmerican: return "英美剧集"
+            case .variety: return "综艺"
+            case .animation: return "动漫"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .movieWeekly: return "star.fill"
+            case .movieTop250: return "crown.fill"
+            case .movieShowing: return "film.fill"
+            case .movieHot: return "flame.fill"
+            case .tvHot: return "tv.fill"
+            case .tvChinese: return "flag.fill"
+            case .tvAmerican: return "globe"
+            case .variety: return "theatermasks.fill"
+            case .animation: return "paintbrush.fill"
+            }
+        }
+
+        var collectionId: String { rawValue }
+    }
+
+    /// 获取排行榜数据
+    func fetchRanking(_ type: RankingType, start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        switch type {
+        case .tvAmerican:
+            return try await fetchCollectionWithTVCovers(type.collectionId, start: start, count: count)
+        case .variety, .animation:
+            return try await fetchCollectionWithTVCovers(type.collectionId, start: start, count: count)
+        default:
+            return try await fetchCollection(type.collectionId, start: start, count: count)
+        }
+    }
     
     func toVodItem(subject: DoubanSubject) -> VodItem {
         let coverUrl = subject.coverImageURL ?? ""
