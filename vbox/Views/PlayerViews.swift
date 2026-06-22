@@ -485,8 +485,7 @@ struct VideoDetailView: View {
                             }
 
                             // 演职人员（横向滑动）
-                            let allPeople = actors + directors + writers
-                            if !allPeople.isEmpty || isLoadingCredits {
+                            if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text("演职人员")
                                         .font(.system(size: 16, weight: .semibold))
@@ -494,7 +493,7 @@ struct VideoDetailView: View {
 
                                     ScrollView(.horizontal, showsIndicators: false) {
                                         HStack(spacing: 14) {
-                                            ForEach(allPeople, id: \.id) { person in
+                                            ForEach(actors + directors + writers, id: \.id) { person in
                                                 VStack(spacing: 6) {
                                                     AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL)) { phase in
                                                         switch phase {
