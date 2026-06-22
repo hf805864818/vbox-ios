@@ -540,6 +540,7 @@ class PlayerState: ObservableObject {
     enum PlaybackEnginePreference: String, CaseIterable, Identifiable {
         case auto = "自动"
         case system = "系统"
+        case mdk = "MDK"
         case vlc = "VLC"
         case mpv = "MPV"
 
@@ -551,6 +552,8 @@ class PlayerState: ObservableObject {
                 return "普通资源走系统内核，特殊格式自动走兼容内核"
             case .system:
                 return "强制使用 AVPlayer，适合普通 MP4"
+            case .mdk:
+                return "MDK 内核，Metal 硬解，支持系统画中画"
             case .vlc:
                 return "优先使用 VLC，不支持系统画中画"
             case .mpv:
@@ -701,6 +704,8 @@ class PlayerState: ObservableObject {
             return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable)
         case .system:
             return false
+        case .mdk:
+            return isMDKBuildAvailable
         case .vlc:
             return isVLCBuildAvailable
         case .mpv:
@@ -737,6 +742,8 @@ class PlayerState: ObservableObject {
             return "自动"
         case .system:
             return "系统"
+        case .mdk:
+            return "MDK"
         case .vlc:
             return "VLC"
         case .mpv:
@@ -746,6 +753,8 @@ class PlayerState: ObservableObject {
 
     private func preferredCompatibilityEngineName(for url: URL? = nil) -> String {
         switch enginePreference {
+        case .mdk:
+            return isMDKBuildAvailable ? "MDK" : "VLC"
         case .mpv:
             return isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC"
         case .vlc:
@@ -808,6 +817,8 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 已切换内核策略：自动")
         case .system:
             log("[PlayerV2] 已切换内核策略：系统内核")
+        case .mdk:
+            log("[PlayerV2] 已切换内核策略：MDK\(isMDKBuildAvailable ? "" : "（当前构建未包含 MDK）")")
         case .vlc:
             log("[PlayerV2] 已切换内核策略：VLC\(isVLCBuildAvailable ? "" : "（当前构建未包含 VLC）")")
         case .mpv:
@@ -1936,13 +1947,20 @@ class PlayerState: ObservableObject {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
 
-        if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
+        if isBaiduLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "百度原画本地代理"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流")
-            log("[Baidu] 自动模式下百度原画本地代理优先使用 MPV-MoltenVK，跳过系统内核 0x0 画面等待")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream 本地代理原画流")
+            log("[Baidu] 自动模式下百度原画本地代理优先使用 MDK，Metal 硬解 + 帧桥接 PiP")
+        } else if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "百度原画本地代理"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流（MDK 不可用）")
+            log("[Baidu] MDK 不可用，降级使用 MPV-MoltenVK，跳过系统内核 0x0 画面等待")
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
                 playbackEngineMode = .system
@@ -1951,20 +1969,27 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
+        } else if isQuarkLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "夸克网盘直链"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "quark-stream直链优先MDK")
+            log("[Quark] 自动模式下夸克直链优先使用 MDK，Metal 硬解 + 帧桥接 PiP")
         } else if isQuarkLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链优先MPV")
-            log("[Quark] 自动模式下夸克直链优先使用 MPV-MoltenVK，与百度一致")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链优先MPV（MDK不可用）")
+            log("[Quark] MDK 不可用，降级使用 MPV-MoltenVK")
         } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链MPV不可用降级VLC")
-            log("[Quark] MPV 不可用，降级使用 VLC 兼容内核")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链MDK/MPV均不可用降级VLC")
+            log("[Quark] MDK/MPV 均不可用，降级使用 VLC 兼容内核")
         } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility

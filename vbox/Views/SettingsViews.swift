@@ -863,6 +863,8 @@ struct SettingsView: View {
         case "quark": return "q.circle.fill"
         case "baidu": return "b.circle.fill"
         case "uc": return "u.circle.fill"
+        case "123pan": return "3.circle.fill"
+        case "139pan": return "9.circle.fill"
         default: return "cloud.fill"
         }
     }
@@ -1108,6 +1110,8 @@ struct CloudAuthCenterView: View {
     @State private var showUCNativeQR = false
     @State private var showBaiduNativeQR = false
     @State private var showAliNativeQR = false
+    @State private var show123NativeQR = false
+    @State private var show139NativeQR = false
     @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
     @State private var driveTokenName = ""
@@ -1122,6 +1126,8 @@ struct CloudAuthCenterView: View {
                     providerAccountCard(type: .ali, note: "支持原生扫码登录自动获取 Refresh Token；也可使用网页登录兜底或手动粘贴。")
                     providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
+                    providerAccountCard(type: .pan123, note: "123云盘支持网页扫码登录回收 Cookie，播放分享链接时自动使用。")
+                    providerAccountCard(type: .pan139, note: "139云盘（移动云盘）支持网页扫码登录回收 Cookie。")
                     manualTokenFallbackCard
 
                     Text("播放前不会强制检测授权状态；解析失败且像授权失效时才反向标记。手动粘贴入口继续保留为高级兜底。")
@@ -1159,6 +1165,12 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $showAliNativeQR) {
                 NativeCloudQRLoginView(driveType: .ali)
+            }
+            .sheet(isPresented: $show123NativeQR) {
+                CloudDriveWebAuthView(driveType: .pan123)
+            }
+            .sheet(isPresented: $show139NativeQR) {
+                CloudDriveWebAuthView(driveType: .pan139)
             }
             .sheet(item: $webAuthDriveType) { type in
                 CloudDriveWebAuthView(driveType: type)

@@ -77,7 +77,9 @@ final class MDKRenderView: MTKView {
     }
 
     private func configure() {
-        colorPixelFormat = .bgra8Unorm
+        // MDK Metal 渲染器内部使用 RGBA8 格式
+        // 使用 rgba8Unorm 避免 BGRA↔RGBA 通道错位导致画面偏紫
+        colorPixelFormat = .rgba8Unorm
         framebufferOnly = false          // 需要读取/拷贝
         autoResizeDrawable = true
         enableSetNeedsDisplay = true
@@ -155,7 +157,7 @@ final class MDKRenderView: MTKView {
         let height = Int(size.height)
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm,
+            pixelFormat: .rgba8Unorm,
             width: width,
             height: height,
             mipmapped: false
@@ -206,7 +208,7 @@ final class MDKRenderView: MTKView {
             kCFAllocatorDefault,
             width,
             height,
-            kCVPixelFormatType_32BGRA,
+            kCVPixelFormatType_32RGBA,
             attrs as CFDictionary,
             &pixelBuffer
         )
@@ -222,7 +224,7 @@ final class MDKRenderView: MTKView {
         }
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm,
+            pixelFormat: .rgba8Unorm,
             width: width,
             height: height,
             mipmapped: false
