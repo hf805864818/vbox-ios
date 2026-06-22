@@ -113,7 +113,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         startProgressTimer()
 
         // MDK 需要 prepare() 初始化解码管线，否则 renderCallback 不触发，画面无帧
-        player.prepare()
+        player.prepare(from: 0, complete: nil)
         #else
         let message = "当前构建未包含 MDK 内核"
         state.errorMessage = message
