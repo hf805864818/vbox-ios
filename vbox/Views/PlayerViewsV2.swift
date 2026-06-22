@@ -4203,7 +4203,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             core.onStateChange = nil
 
             // 如果还在系统画中画，不要销毁 mpv，让播放继续
-            if !playerState?.isPiPActive ?? false {
+            if !(playerState?.isPiPActive ?? false) {
                 core.stop()
                 core.teardown()
             }

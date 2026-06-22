@@ -13,9 +13,9 @@ import mdk
 
 // MARK: - 桥接辅助（与 swift-mdk 内部 bridge 一致）
 
-private func bridge<T: AnyObject>(_ obj: T?) -> UnsafeMutableRawPointer? {
+private func bridge<T: AnyObject>(_ obj: T?) -> UnsafeRawPointer? {
     guard let obj = obj else { return nil }
-    return UnsafeMutableRawPointer(Unmanaged.passUnretained(obj).toOpaque())
+    return UnsafeRawPointer(Unmanaged.passUnretained(obj).toOpaque())
 }
 
 private func bridge<T: AnyObject>(ptr: UnsafeRawPointer) -> T {
@@ -138,14 +138,14 @@ final class MDKRenderView: MTKView {
 
         var ra = mdkMetalRenderAPI()
         ra.type = MDK_RenderAPI_Metal
-        ra.device = bridge(device)
-        ra.cmdQueue = bridge(queue)
-        ra.opaque = bridge(self)
+        ra.device = bridge(device)!
+        ra.cmdQueue = bridge(queue)!
+        ra.opaque = bridge(self)!
         ra.currentRenderTarget = { opaque in
-            guard let opaque = opaque else { return nil }
+            guard let opaque = opaque else { return UnsafeRawPointer(bitPattern: 0)! }
             let view = bridge(ptr: opaque) as MDKRenderView
-            guard let tex = view.renderTexture else { return nil }
-            return bridge(tex)
+            guard let tex = view.renderTexture else { return UnsafeRawPointer(bitPattern: 0)! }
+            return bridge(tex)!
         }
         ra.layer = nil  // 我们自己 present，不需要 MDK 操作 layer
         player.setRenderAPI(&ra, vid: nil)
@@ -290,10 +290,7 @@ final class MDKRenderView: MTKView {
     deinit {
         pipTexture = nil
         renderTexture = nil
-        if let pb = pipPixelBuffer {
-            CVPixelBufferRelease(pb)
-            pipPixelBuffer = nil
-        }
+        pipPixelBuffer = nil
     }
 }
 
