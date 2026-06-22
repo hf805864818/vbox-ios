@@ -6,8 +6,7 @@ import swift_mdk
 #endif
 
 /// MDK 播放内核封装（wang-bin mdk-sdk + swift-mdk）。
-/// 支持帧回调画中画（PiP: AVSampleBufferDisplayLayer 帧桥接）。
-/// 当前只接入 PlayerCore，不替换现有 PlayerViewsV2 播放主流程。
+/// 通过 Metal 离屏纹理渲染 + AVSampleBufferDisplayLayer 帧桥接实现系统级画中画。
 final class MDKPlayerEngine: NSObject, PlayerEngine {
     let type: PlayerEngineType = .mdk
     let name = "MDK"
@@ -16,13 +15,14 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     var onEvent: ((PlayerEngineEvent) -> Void)?
 
     private weak var containerView: UIView?
-    private var renderView: UIView?
+    private var renderView: MDKRenderView?
 
     #if canImport(swift_mdk)
     private let player = Player()
     private var progressTimer: Timer?
     private var didFinish = false
     private var currentRoute: PlaybackRoute?
+    private var observers: [NSObjectProtocol] = []
     #endif
 
     deinit {
@@ -32,12 +32,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     func attach(to view: UIView) {
         containerView = view
 
-        let drawable: UIView
+        let drawable: MDKRenderView
         if let existingView = renderView {
             drawable = existingView
         } else {
-            drawable = UIView(frame: view.bounds)
-            drawable.backgroundColor = .black
+            drawable = MDKRenderView(frame: view.bounds)
             drawable.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             renderView = drawable
         }
@@ -49,8 +48,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         }
 
         #if canImport(swift_mdk)
-        player.setVideoSurfaceSize(Int32(view.bounds.width),
-                                   Int32(view.bounds.height))
+        drawable.attach(player: player)
         #endif
     }
 
@@ -64,7 +62,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         // 设置 Media URL
         player.media = route.url.absoluteString
 
-        // 设置 HTTP Headers（通过 property 接口）
+        // 设置 HTTP Headers
         var headerFields = ""
         for (key, value) in route.headers {
             let lowerKey = key.lowercased()
@@ -80,11 +78,9 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
-        // 硬件解码 + copy=1（使VT解码输出可被CPU访问的CVPixelBuffer，用于PiP帧桥接）
+        // 开启硬解；copy=1 让 VT 解码器输出可 CPU 访问的 buffer（部分场景备用）
         player.setProperty(name: "hwdec", value: "videotoolbox")
         player.setProperty(name: "copy", value: "1")
-
-        // 设置解码器优先级
         player.videoDecoders = ["VT", "FFmpeg"]
 
         // 绑定状态回调
@@ -104,6 +100,12 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
                 break
             }
         }
+
+        // 监听 PiP 播放控制
+        setupPiPControlObservers()
+
+        // 激活音频会话（PiP 与后台播放需要）
+        activateAudioSession()
 
         state = PlayerEngineState(isBuffering: true)
         onEvent?(.buffering(true))
@@ -169,6 +171,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         progressTimer?.invalidate()
         progressTimer = nil
         #if canImport(swift_mdk)
+        player.setRenderCallback(nil)
         player.state = .Stopped
         #endif
         renderView?.removeFromSuperview()
@@ -176,6 +179,23 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         containerView = nil
         currentRoute = nil
         state = PlayerEngineState()
+        removePiPControlObservers()
+    }
+
+    // MARK: - PiP 控制
+
+    func startPiP() {
+        #if canImport(swift_mdk)
+        renderView?.setPiPEnabled(true)
+        MDKPipManager.shared.startPiP()
+        #endif
+    }
+
+    func stopPiP() {
+        #if canImport(swift_mdk)
+        renderView?.setPiPEnabled(false)
+        MDKPipManager.shared.stopPiP()
+        #endif
     }
 
     // MARK: - 进度轮询
@@ -202,6 +222,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             state.duration = total
         }
 
+        if let video = player.mediaInfo.video.first {
+            state.width = Int(video.codec.width)
+            state.height = Int(video.codec.height)
+        }
+
         onEvent?(.progress(current: state.currentTime, duration: state.duration))
 
         if !didFinish, total > 1, current >= max(0, total - 0.8) {
@@ -214,6 +239,41 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
 
     private func currentDuration() -> Double {
         Double(player.mediaInfo.duration) / 1000.0
+    }
+
+    private func activateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
+            try session.setActive(true)
+        } catch {
+            print("[MDK] 音频会话激活失败: \(error.localizedDescription)")
+        }
+    }
+
+    private func setupPiPControlObservers() {
+        removePiPControlObservers()
+
+        observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] note in
+            guard let playing = note.object as? Bool else { return }
+            playing ? self?.play() : self?.pause()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(forName: .vboxMDKPiPSkip, object: nil, queue: .main) { [weak self] note in
+            guard let interval = note.object as? CMTime else { return }
+            let seconds = CMTimeGetSeconds(interval)
+            let current = self?.state.currentTime ?? 0
+            self?.seek(to: current + seconds)
+        })
+
+        observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { [weak self] _ in
+            self?.stopPiP()
+        })
+    }
+
+    private func removePiPControlObservers() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
     }
     #endif
 }

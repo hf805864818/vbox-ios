@@ -464,7 +464,6 @@ struct VideoPlayerViewV2: View {
             // 监听PiP恢复全屏和暂停/播放通知
             NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { _ in
                 playerState.isPiPActive = false
-                playerState.isSmallWindowActive = false
             }
             NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { _ in
                 playerState.togglePlayback(player: playerState.player)
@@ -479,62 +478,47 @@ struct VideoPlayerViewV2: View {
             NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .background {
-                // 进入后台：优先把应用内小窗切换为系统画中画
-                if playerState.isSmallWindowActive {
-                    MPVFloatingWindowManager.shared.transitionToSystemPiP()
-                    playerState.isSmallWindowActive = false
-                    playerState.isPiPActive = true
-                    #if canImport(Libmpv)
-                    MPVPiPManager.shared.initializePiP()
-                    MPVPiPManager.shared.startPiP()
-                    #endif
-                } else if !playerState.isPiPActive {
-                    // 返回桌面时自动进入画中画
-                    togglePiPAuto()
-                }
-            } else if newPhase == .active {
-                // 回到前台：关闭系统画中画
+            if newPhase == .active {
+                // 回到前台：关闭系统画中画，让用户继续全屏看
                 if playerState.isPiPActive {
                     #if canImport(Libmpv)
                     MPVPiPManager.shared.stopPiP()
                     #endif
+                    #if canImport(swift_mdk)
+                    MDKPipManager.shared.stopPiP()
+                    #endif
                     playerState.isPiPActive = false
-
-                    // 如果后台前是应用内小窗，则恢复小窗
-                    if MPVFloatingWindowManager.shared.wasFloatingBeforeBackground {
-                        MPVFloatingWindowManager.shared.restoreFromSystemPiP()
-                        playerState.isSmallWindowActive = true
-                    }
                 }
             }
         }
     }
-    
+
+    /// 用户点击小窗按钮：震动 -> 启动系统画中画 -> 立即返回桌面
     private func togglePiPAuto() {
-        if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
-            // MPV/MDK 帧桥接 PiP
-            #if canImport(Libmpv)
-            // 初始化 PiP 控制器（尺寸未知时延迟到首帧自动初始化）
-            MPVPiPManager.shared.initializePiP()
-            MPVPiPManager.shared.startPiP()
-            #else
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
-            }
-            #endif
-        } else if playerState.compatibilityURL != nil {
-            // VLC：浮动窗口
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        if playerState.compatibilityURL != nil {
+            if playerState.compatibilityEngineName.contains("MDK") {
+                #if canImport(swift_mdk)
+                NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
+                #endif
+            } else if playerState.compatibilityEngineName.contains("MPV") {
+                #if canImport(Libmpv)
+                MPVPiPManager.shared.initializePiP()
+                MPVPiPManager.shared.startPiP()
+                #endif
             }
         } else if let avPlayer = playerState.player {
-            // 原生AVPlayer：使用系统画中画
+            // 原生 AVPlayer：使用系统画中画
             PiPHelper.shared.setupPiP(for: avPlayer)
         }
+
         playerState.isPiPActive = true
+
+        // 返回桌面（等同于按下 Home 键），PiP 小窗留在屏幕上
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+        }
     }
 }
 
@@ -650,7 +634,6 @@ class PlayerState: ObservableObject {
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
     @Published var isPiPActive = false
-    @Published var isSmallWindowActive = false   // 新增：应用内小窗
     @Published var videoGravity: VideoGravityMode = .aspectFill
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
@@ -731,10 +714,18 @@ class PlayerState: ObservableObject {
         #endif
     }
 
+    private var isMDKBuildAvailable: Bool {
+        #if canImport(swift_mdk)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var shouldUseCompatibilityEngine: Bool {
         switch enginePreference {
         case .auto:
-            return playbackEngineMode == .compatibility && (isMPVBuildAvailable || isVLCBuildAvailable)
+            return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable)
         case .system:
             return false
         case .vlc:
@@ -747,9 +738,9 @@ class PlayerState: ObservableObject {
     /// 当前使用的兼容内核是否支持系统级画中画
     var isCurrentCompatibilityEngineSupportsPiP: Bool {
         guard playbackEngineMode == .compatibility else { return true }
-        // MPV 支持帧桥接 PiP，VLC 不支持
+        // MDK / MPV 支持帧桥接 PiP，VLC 不支持
         let engineName = compatibilityEngineName
-        return engineName.contains("MPV") || engineName.contains("mpv")
+        return engineName.contains("MDK") || engineName.contains("MPV") || engineName.contains("mpv")
     }
 
     /// 当前引擎是否支持系统级画中画（用于 UI 按钮状态）
@@ -765,6 +756,9 @@ class PlayerState: ObservableObject {
         switch enginePreference {
         case .auto:
             if playbackEngineMode == .compatibility {
+                if isMDKBuildAvailable, shouldPreferMDK(for: nil) {
+                    return "自动/MDK"
+                }
                 return isMPVBuildAvailable ? "自动/MPV" : "自动/VLC"
             }
             return "自动"
@@ -784,6 +778,9 @@ class PlayerState: ObservableObject {
         case .vlc:
             return isVLCBuildAvailable ? "VLC" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .auto:
+            if isMDKBuildAvailable, shouldPreferMDK(for: url) {
+                return "MDK"
+            }
             if isMPVBuildAvailable, shouldPreferMPV(for: url) {
                 return "MPV-MoltenVK"
             }
@@ -796,10 +793,19 @@ class PlayerState: ObservableObject {
         }
     }
 
+    /// 百度/夸克本地代理走 MDK，硬解 + Metal 帧桥接实现桌面 PiP
+    private func shouldPreferMDK(for url: URL?) -> Bool {
+        guard isMDKBuildAvailable else { return false }
+        guard let url else { return false }
+        let text = url.absoluteString.lowercased()
+        return text.contains("baidu-stream") || text.contains("quark-stream")
+    }
+
     private func shouldPreferMPV(for url: URL?) -> Bool {
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        if text.contains("baidu-stream") { return true }
+        if text.contains("baidu-stream") { return false } // 网盘由 MDK 处理
+        if text.contains("quark-stream") { return false }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
         if compatibilityHint?.contains("百度原画") == true { return true }
@@ -3119,7 +3125,14 @@ struct PlayerContainerView: View {
         ZStack {
             // 视频层（如果有播放器）
             if let url = playerState.compatibilityURL {
-                if playerState.compatibilityEngineName.contains("MPV") {
+                if playerState.compatibilityEngineName.contains("MDK") {
+                    #if canImport(swift_mdk)
+                    MDKPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
+                        .ignoresSafeArea()
+                    #else
+                    CompatibilityUnavailableView(engineName: "MDK", message: "当前构建未包含 MDK，请等待兼容内核构建包")
+                    #endif
+                } else if playerState.compatibilityEngineName.contains("MPV") {
                     #if canImport(Libmpv)
                     LibmpvMoltenVKPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                         .ignoresSafeArea()
@@ -3553,7 +3566,7 @@ struct PlayerTopBarView: View {
                     // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
                     HStack(spacing: 0) {
                         Button(action: { onTogglePiP() }) {
-                            Image(systemName: (playerState.isPiPActive || playerState.isSmallWindowActive) ? "pip.exit" : "pip.enter")
+                            Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
                                 .frame(width: 44, height: 44)
@@ -3903,72 +3916,19 @@ struct PlayerControlsView: View {
     }
 
     private func togglePiP() {
-        // 百度 / 夸克走应用内小窗；其它资源走系统画中画
-        let useInAppFloating = playerState.compatibilityURL != nil
-            && playerState.isCurrentCompatibilityEngineSupportsPiP
-            && (playerState.currentEpisodeSourceType == .baidu
-                || playerState.currentEpisodeSourceType == .quark)
-
-        if playerState.isSmallWindowActive {
-            // 关闭应用内小窗
-            MPVFloatingWindowManager.shared.hideFloatingWindow(restoreFullscreen: false)
-            LibmpvMoltenVKPlayerCore.shared.stop()
-            LibmpvMoltenVKPlayerCore.shared.teardown()
-            playerState.isSmallWindowActive = false
-            return
-        }
-
         if playerState.isPiPActive {
-            // 停止 PiP
-            if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
-                // MPV 帧桥接 PiP：停止
-                #if canImport(Libmpv)
-                MPVPiPManager.shared.stopPiP()
-                #endif
-            } else if playerState.compatibilityURL != nil {
-                // VLC：隐藏浮动窗口
-                PiPHelper.shared.hideFloatingWindow()
-            } else {
-                // AVPlayer 原生 PiP：停止
-                PiPHelper.shared.stopPiP()
-            }
+            // 当前正在画中画：停止
+            #if canImport(Libmpv)
+            MPVPiPManager.shared.stopPiP()
+            #endif
+            #if canImport(swift_mdk)
+            MDKPipManager.shared.stopPiP()
+            #endif
+            PiPHelper.shared.stopPiP()
             playerState.isPiPActive = false
         } else {
-            // 启动 PiP
-            if playerState.isCurrentCompatibilityEngineSupportsPiP && playerState.compatibilityURL != nil {
-                #if canImport(Libmpv)
-                if useInAppFloating {
-                    // 百度 / 夸克：应用内真正 MPV 小窗
-                    MPVFloatingWindowManager.shared.showFloatingWindow()
-                    playerState.isSmallWindowActive = true
-                } else {
-                    // 普通切片资源：系统级画中画
-                    MPVPiPManager.shared.initializePiP()
-                    MPVPiPManager.shared.startPiP()
-                    playerState.isPiPActive = true
-                }
-                #else
-                // 降级为浮动窗口
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                    PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
-                }
-                playerState.isPiPActive = true
-                #endif
-            } else if playerState.compatibilityURL != nil {
-                // VLC：浮动窗口
-                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                   let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                    PiPHelper.shared.showFloatingWindow(sourceView: rootVC.view)
-                }
-                playerState.isPiPActive = true
-            } else if let avPlayer = player {
-                // AVPlayer 原生 PiP
-                PiPHelper.shared.setupPiP(for: avPlayer)
-                playerState.isPiPActive = true
-            } else {
-                print("[PiP] 无法启动小窗口：player 为 nil")
-            }
+            // 启动系统画中画并返回桌面
+            togglePiPAuto()
         }
     }
 
@@ -4246,8 +4206,8 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             core.onLog = nil
             core.onStateChange = nil
 
-            // 如果还在小窗或系统画中画，不要销毁 mpv，让播放继续
-            if !MPVFloatingWindowManager.shared.isKeepingCoreAlive {
+            // 如果还在系统画中画，不要销毁 mpv，让播放继续
+            if !playerState?.isPiPActive ?? false {
                 core.stop()
                 core.teardown()
             }
