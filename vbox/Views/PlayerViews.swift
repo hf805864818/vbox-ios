@@ -152,6 +152,10 @@ struct VideoDetailView: View {
                     directors = credits.directors
                     writers = credits.writers
                 }
+                // 如果 TMDB 没找到任何演职人员，触发豆瓣兜底
+                if actors.isEmpty && directors.isEmpty && writers.isEmpty {
+                    loadCredits()
+                }
 
                 isLoadingTMDB = false
             }
@@ -366,6 +370,8 @@ struct VideoDetailView: View {
                                 image
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
                             default:
                                 fallbackBackground
                             }
@@ -374,6 +380,7 @@ struct VideoDetailView: View {
                         fallbackBackground
                     }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height)
                 .ignoresSafeArea()
 
                 // 底部渐变遮罩，保证内容可读
@@ -394,7 +401,7 @@ struct VideoDetailView: View {
                     VStack(spacing: 0) {
                         // 顶部占位，露出背景封面
                         Color.clear
-                            .frame(height: geometry.size.height * 0.42)
+                            .frame(height: geometry.size.height * 0.40)
 
                         // 内容区
                         VStack(spacing: 24) {
@@ -403,7 +410,7 @@ struct VideoDetailView: View {
                                 name: displayVideo.vodName,
                                 logoURL: tmdbLogoURL
                             )
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: 70)
 
                             // 副标题 / 剧情 / 年代
                             HStack(spacing: 10) {
@@ -451,38 +458,6 @@ struct VideoDetailView: View {
                                 .cornerRadius(28)
                             }
                             .buttonStyle(.plain)
-
-                            // 选集区（横向滑动）
-                            if !episodes.isEmpty {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    HStack {
-                                        Text("选集")
-                                            .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(.white)
-                                        Spacer()
-                                        if isLoadingDetail {
-                                            ProgressView().scaleEffect(0.8)
-                                        }
-                                    }
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 12) {
-                                            ForEach(Array(episodes.enumerated()), id: \.offset) { _, episode in
-                                                Button(action: { handleEpisodeSelect(episode) }) {
-                                                    Text(episode.name)
-                                                        .font(.system(size: 13, weight: .medium))
-                                                        .foregroundColor(.white)
-                                                        .lineLimit(1)
-                                                        .frame(width: 64, height: 44)
-                                                        .background(Color.white.opacity(0.12))
-                                                        .cornerRadius(8)
-                                                }
-                                                .buttonStyle(.plain)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
 
                             // 演职人员（横向滑动）
                             if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
@@ -615,7 +590,20 @@ struct VideoDetailView: View {
                             }.padding(.top, 8)
                         }
                         .padding(.horizontal, 20)
+                        .padding(.vertical, 24)
                         .padding(.bottom, 120)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color.black.opacity(0.2),
+                                    Color.black.opacity(0.75),
+                                    Color.black.opacity(0.95)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .ignoresSafeArea(edges: .bottom)
+                        )
                     }
                 }
                 .ignoresSafeArea()
@@ -688,7 +676,6 @@ struct VideoDetailView: View {
         .edgeSwipeBack { dismiss() }
     }
 }
-}
 
 // MARK: - 大标题视图（TMDB logo 优先，马善政毛笔楷体兜底）
 struct HeroTitleView: View {
@@ -704,7 +691,7 @@ struct HeroTitleView: View {
                     image
                         .resizable()
                         .scaledToFit()
-                        .frame(maxHeight: 90)
+                        .frame(maxHeight: 70)
                 default:
                     fallbackTitle
                 }

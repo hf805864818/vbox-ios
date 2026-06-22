@@ -7,7 +7,6 @@ final class TMDBService {
     static let shared = TMDBService()
 
     private let apiKey = "eea47c6a97dbc2b7cfad319971719cec"
-    private let baseURL = "https://api.themoviedb.org/3"
     private let imageBaseURL = "https://image.tmdb.org/t/p"
     private let proxyBaseURL = "https://vbox.ltd"
     private let proxyToken = "199114"
@@ -23,10 +22,21 @@ final class TMDBService {
 
     // MARK: - 代理 URL
 
-    /// 把远程图片 URL 转为 vbox.ltd 代理 URL
-    func proxiedImageURL(_ originalURL: String, size: String = "w500") -> String {
+    /// 把任意远程 URL 转为 vbox.ltd 代理 URL
+    func proxiedURL(_ originalURL: String) -> String {
         let encoded = originalURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? originalURL
         return "\(proxyBaseURL)?token=\(proxyToken)&url=\(encoded)"
+    }
+
+    /// 把远程图片 URL 转为 vbox.ltd 代理 URL
+    func proxiedImageURL(_ originalURL: String, size: String = "w500") -> String {
+        return proxiedURL(originalURL)
+    }
+
+    /// 生成 TMDB API 代理 URL
+    private func apiURL(path: String) -> URL? {
+        let original = "https://api.themoviedb.org/3\(path)"
+        return URL(string: proxiedURL(original))
     }
 
     /// 生成 TMDB 图片原始 URL
@@ -39,12 +49,12 @@ final class TMDBService {
     /// 根据片名和年份搜索 TMDB，返回最佳匹配的 movie/tv id
     func searchMovie(name: String, year: String? = nil) async -> TMDBSearchResult? {
         let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
-        var urlString = "\(baseURL)/search/multi?api_key=\(apiKey)&language=zh-CN&query=\(encodedName)&page=1"
+        var path = "/search/multi?api_key=\(apiKey)&language=zh-CN&query=\(encodedName)&page=1"
         if let year = year, let y = Int(year) {
-            urlString += "&year=\(y)"
+            path += "&year=\(y)"
         }
 
-        guard let url = URL(string: urlString) else { return nil }
+        guard let url = apiURL(path: path) else { return nil }
         guard let (data, _) = try? await session.data(from: url) else { return nil }
 
         do {
@@ -63,8 +73,7 @@ final class TMDBService {
     /// 获取影片图片（logos/posters/backdrops）
     func fetchImages(id: Int, mediaType: String = "movie") async -> TMDBImages? {
         let endpoint = mediaType == "tv" ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(endpoint)/\(id)/images?api_key=\(apiKey)&include_image_language=zh,en,null"
-        guard let url = URL(string: urlString) else { return nil }
+        guard let url = apiURL(path: "/\(endpoint)/\(id)/images?api_key=\(apiKey)&include_image_language=zh,en,null") else { return nil }
         guard let (data, _) = try? await session.data(from: url) else { return nil }
 
         do {
@@ -80,8 +89,7 @@ final class TMDBService {
     /// 获取演职人员
     func fetchCredits(id: Int, mediaType: String = "movie") async -> TMDBCredits? {
         let endpoint = mediaType == "tv" ? "tv" : "movie"
-        let urlString = "\(baseURL)/\(endpoint)/\(id)/credits?api_key=\(apiKey)&language=zh-CN"
-        guard let url = URL(string: urlString) else { return nil }
+        guard let url = apiURL(path: "/\(endpoint)/\(id)/credits?api_key=\(apiKey)&language=zh-CN") else { return nil }
         guard let (data, _) = try? await session.data(from: url) else { return nil }
 
         do {
