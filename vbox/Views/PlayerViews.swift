@@ -5,6 +5,7 @@ import AVFoundation
 // MARK: - 视频详情视图 (新版：底栏 + 演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
+    let searchKeyword: String? = nil
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
 
@@ -49,6 +50,7 @@ struct VideoDetailView: View {
 
     private var isCloudVideo: Bool { video.vodRemarks?.hasPrefix("☁️") == true }
     private var displayVideo: VodItem { detailVideo ?? video }
+    private var searchName: String { searchKeyword ?? video.vodName }
 
     private var fallbackBackground: some View {
         LinearGradient(
@@ -102,7 +104,7 @@ struct VideoDetailView: View {
         guard !isLoadingCredits else { return }
         isLoadingCredits = true
         Task {
-            let result = await DoubanService.shared.fetchCredits(for: video.vodName)
+            let result = await DoubanService.shared.fetchCredits(for: searchName)
             await MainActor.run {
                 actors = result.actors
                 directors = result.directors
@@ -117,7 +119,7 @@ struct VideoDetailView: View {
         guard !isLoadingTMDB else { return }
         isLoadingTMDB = true
         Task {
-            guard let searchResult = await TMDBService.shared.searchMovie(name: video.vodName, year: video.vodYear) else {
+            guard let searchResult = await TMDBService.shared.searchMovie(name: searchName, year: video.vodYear) else {
                 await MainActor.run { isLoadingTMDB = false }
                 return
             }
@@ -404,44 +406,49 @@ struct VideoDetailView: View {
                             .frame(height: geometry.size.height * 0.40)
 
                         // 内容区
-                        VStack(spacing: 24) {
-                            // TMDB logo 或毛笔字片名
-                            HeroTitleView(
-                                name: displayVideo.vodName,
-                                logoURL: tmdbLogoURL
-                            )
-                            .frame(maxWidth: .infinity, maxHeight: 70)
-
-                            // 副标题 / 剧情 / 年代
-                            HStack(spacing: 10) {
-                                Text(displayVideo.vodName)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white.opacity(0.9))
-                                    .lineLimit(1)
-
-                                Text("剧情")
-                                    .font(.system(size: 11))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(Color.white.opacity(0.15))
-                                    .foregroundColor(.white.opacity(0.85))
-                                    .cornerRadius(4)
-
-                                if let year = displayVideo.vodYear, !year.isEmpty {
-                                    Text(year)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.6))
-                                }
+                        VStack(spacing: 20) {
+                            // TMDB logo / 毛笔字片名 + 收藏按钮
+                            HStack(alignment: .center, spacing: 16) {
+                                HeroTitleView(
+                                    name: displayVideo.vodName,
+                                    logoURL: tmdbLogoURL
+                                )
+                                .frame(maxHeight: 70)
 
                                 Spacer()
 
                                 Button(action: toggleFavorite) {
                                     Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.8))
+                                        .font(.system(size: 24))
+                                        .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.9))
                                 }
                                 .buttonStyle(.plain)
                             }
+
+                            // 副标题 / 类型标签 / 年代（居中）
+                            VStack(spacing: 8) {
+                                Text(displayVideo.vodName)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.9))
+                                    .lineLimit(1)
+
+                                HStack(spacing: 8) {
+                                    Text("剧情")
+                                        .font(.system(size: 11))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.15))
+                                        .foregroundColor(.white.opacity(0.85))
+                                        .cornerRadius(4)
+
+                                    if let year = displayVideo.vodYear, !year.isEmpty {
+                                        Text(year)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.6))
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
 
                             // 立即播放按钮
                             Button(action: handlePlay) {
@@ -452,54 +459,19 @@ struct VideoDetailView: View {
                                         .font(.system(size: 16, weight: .semibold))
                                 }
                                 .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
+                                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
                                 .padding(.vertical, 14)
                                 .background(Color(hex: "93C5FD"))
                                 .cornerRadius(28)
                             }
                             .buttonStyle(.plain)
 
-                            // 演职人员（横向滑动）
+                            // 演职人员分类展示
                             if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("演职人员")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 14) {
-                                            ForEach(actors + directors + writers, id: \.id) { person in
-                                                VStack(spacing: 6) {
-                                                    AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL)) { phase in
-                                                        switch phase {
-                                                        case .success(let image):
-                                                            image
-                                                                .resizable()
-                                                                .aspectRatio(contentMode: .fill)
-                                                        default:
-                                                            Color.gray.opacity(0.3)
-                                                        }
-                                                    }
-                                                    .frame(width: 70, height: 70)
-                                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                                    Text(person.name)
-                                                        .font(.system(size: 12))
-                                                        .foregroundColor(.white)
-                                                        .lineLimit(1)
-                                                        .frame(width: 70)
-
-                                                    if let role = person.character ?? person.roles?.first {
-                                                        Text(role)
-                                                            .font(.system(size: 10))
-                                                            .foregroundColor(.white.opacity(0.6))
-                                                            .lineLimit(1)
-                                                            .frame(width: 70)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                VStack(alignment: .leading, spacing: 20) {
+                                    CastSectionView(title: "演员", people: actors)
+                                    CastSectionView(title: "导演", people: directors)
+                                    CastSectionView(title: "编剧", people: writers)
                                 }
                             }
 
@@ -676,6 +648,7 @@ struct VideoDetailView: View {
         .edgeSwipeBack { dismiss() }
     }
 }
+}
 
 // MARK: - 大标题视图（TMDB logo 优先，马善政毛笔楷体兜底）
 struct HeroTitleView: View {
@@ -706,6 +679,61 @@ struct HeroTitleView: View {
             .font(.custom("Ma Shan Zheng", size: 48))
             .foregroundColor(.white)
             .shadow(color: .black.opacity(0.6), radius: 8, x: 0, y: 2)
+    }
+}
+
+// MARK: - 演职人员分类行
+struct CastSectionView: View {
+    let title: String
+    let people: [DoubanCelebrity]
+
+    var body: some View {
+        if !people.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.1))
+                    .cornerRadius(6)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(people, id: \.id) { person in
+                            VStack(spacing: 6) {
+                                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    default:
+                                        Color.gray.opacity(0.3)
+                                    }
+                                }
+                                .frame(width: 70, height: 70)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Text(person.name)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .frame(width: 70)
+
+                                if let role = person.character ?? person.roles?.first {
+                                    Text(role)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white.opacity(0.6))
+                                        .lineLimit(1)
+                                        .frame(width: 70)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
