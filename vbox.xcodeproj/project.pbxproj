@@ -78,6 +78,7 @@
 		A10026 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* SubscriptionManager.swift */; };
 		A10027 /* DoubanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* DoubanService.swift */; };
 		A10028 /* DoubanHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* DoubanHomeView.swift */; };
+		A10150 /* DoubanCategoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* DoubanCategoryBrowserView.swift */; };
 		A10029 /* TokenWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* TokenWebView.swift */; };
 		A10030 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* CategoryDetailView.swift */; };
 		A10033 /* MDKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033 /* MDKPlayerRepresentable.swift */; };
@@ -264,6 +265,7 @@
 		B10025 /* PlayerViewsV2_Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewsV2_Extensions.swift; sourceTree = "<group>"; };
 		B10026 /* DoubanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanService.swift; sourceTree = "<group>"; };
 		B10027 /* DoubanHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanHomeView.swift; sourceTree = "<group>"; };
+		B10150 /* DoubanCategoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanCategoryBrowserView.swift; sourceTree = "<group>"; };
 		B10030 /* js */ = {isa = PBXFileReference; lastKnownFileType = folder; path = js; sourceTree = "<group>"; };
 		B10031 /* TokenWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenWebView.swift; sourceTree = "<group>"; };
 		B10032 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
@@ -535,6 +537,7 @@
 				B10025 /* PlayerViewsV2_Extensions.swift */,
 				B10021 /* UpdateSheet.swift */,
 				B10027 /* DoubanHomeView.swift */,
+				B10150 /* DoubanCategoryBrowserView.swift */,
 				B10032 /* CategoryDetailView.swift */,
 				B10031 /* TokenWebView.swift */,
 				B10036 /* MPVKitDebugPlayerView.swift */,
@@ -735,6 +738,7 @@
 				A10025 /* PlayerViewsV2_Extensions.swift in Sources */,
 				A10027 /* DoubanService.swift in Sources */,
 				A10028 /* DoubanHomeView.swift in Sources */,
+				A10150 /* DoubanCategoryBrowserView.swift in Sources */,
 				A10030 /* CategoryDetailView.swift in Sources */,
 				A10029 /* TokenWebView.swift in Sources */,
 				A10033 /* MDKPlayerRepresentable.swift in Sources */,
