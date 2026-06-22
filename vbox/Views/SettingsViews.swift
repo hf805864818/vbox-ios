@@ -69,7 +69,7 @@ struct SettingsView: View {
             Button("确定", role: .destructive) {
                 spiderManager.clearCloudPlayCache()
                 _ = cloudDriveManager.clearAllBaiduPlaybackCaches()
-                DoubanImageProxyServer.shared.cleanupExpiredCaches(olderThan: 0)
+                DoubanImageProxyServer.shared.baiduStreamCache.cleanupExpiredCaches(olderThan: 0)
                 cacheSize = "0 MB"
             }
         } message: { Text("确定要清除所有缓存数据吗？") }
