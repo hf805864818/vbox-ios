@@ -94,8 +94,9 @@ final class MDKRenderView: MTKView {
         commandQueue = device?.makeCommandQueue()
         guard commandQueue != nil else { return }
 
-        setupRenderAPIIfNeeded()
+        // 先创建离屏纹理，再设置渲染 API（ra.texture 需要纹理已存在）
         updateSurfaceSize()
+        setupRenderAPIIfNeeded()
 
         player.setRenderCallback { [weak self] in
             DispatchQueue.main.async { [weak self] in
@@ -134,20 +135,16 @@ final class MDKRenderView: MTKView {
     #if canImport(swift_mdk)
     private func setupRenderAPIIfNeeded() {
         guard !hasSetupRenderAPI, let player = player, let device = device, let queue = commandQueue else { return }
+        guard let tex = renderTexture else { return }
         hasSetupRenderAPI = true
 
         var ra = mdkMetalRenderAPI()
         ra.type = MDK_RenderAPI_Metal
         ra.device = bridge(device)!
         ra.cmdQueue = bridge(queue)!
-        ra.opaque = bridge(self)!
-        ra.currentRenderTarget = { opaque in
-            guard let opaque = opaque else { return UnsafeRawPointer(bitPattern: 0)! }
-            let view = bridge(ptr: opaque) as MDKRenderView
-            guard let tex = view.renderTexture else { return UnsafeRawPointer(bitPattern: 0)! }
-            return bridge(tex)!
-        }
-        ra.layer = nil  // 我们自己 present，不需要 MDK 操作 layer
+        ra.texture = bridge(tex)!
+        // Render To Texture 模式：MDK 自己管理渲染通道，直接渲染到 ra.texture
+        // 不需要 currentRenderTarget 回调，也不需要 layer
         player.setRenderAPI(&ra, vid: nil)
     }
     #endif
@@ -170,6 +167,18 @@ final class MDKRenderView: MTKView {
         desc.storageMode = .managed
         #endif
         renderTexture = device.makeTexture(descriptor: desc)
+
+        // 纹理重建后需要更新 MDK 的 ra.texture 指针
+        #if canImport(swift_mdk)
+        if hasSetupRenderAPI, let player = player, let tex = renderTexture, let queue = commandQueue {
+            var ra = mdkMetalRenderAPI()
+            ra.type = MDK_RenderAPI_Metal
+            ra.device = bridge(device)!
+            ra.cmdQueue = bridge(queue)!
+            ra.texture = bridge(tex)!
+            player.setRenderAPI(&ra, vid: nil)
+        }
+        #endif
     }
 
     // MARK: - PiP 纹理
