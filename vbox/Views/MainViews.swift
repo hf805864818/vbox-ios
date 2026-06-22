@@ -1214,54 +1214,68 @@ struct SearchResultsView: View {
             if grouped.count <= 1 {
                 singleColumnList(results)
             } else {
-                GeometryReader { geometry in
-                    HStack(spacing: 0) {
-                        // 左侧：资源站列表
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(spacing: 2) {
-                                ForEach(sources, id: \.self) { name in
-                                    let sel = (selectedSource ?? sources.first ?? "") == name
-                                    Button(action: { selectedSource = name }) {
-                                        SourceNameLabel(name: name, isSelected: sel)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.vertical, 10)
-                                            .padding(.horizontal, 7)
-                                            .background(sel ? Color(hex: "E11D48") : Color.clear)
-                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 6)
-                        }
-                        .frame(width: min(108, max(98, geometry.size.width * 0.23)))
-                        .background(searchPanelBackground)
-
-                        Divider().background(settings.usesVisualSkin ? Color.white.opacity(0.22) : Color.gray.opacity(0.3))
-
-                        // 右侧：该资源站的结果（按剧名排序）
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(spacing: 12) {
-                                ForEach(currentVideos) { item in
-                                    SearchResultRow(video: item).onTapGesture { selectedVideo = item }
-                                }
-                            }
-                            .padding(12)
-                        }
-                        .background(searchPanelBackground)
-                    }
-                }
-                .fullScreenCover(item: $selectedVideo) { video in
-                    VideoDetailView(video: video, searchKeyword: searchText)
-                }
-                .onAppear { if selectedSource == nil { selectedSource = sources.first } }
+                multiColumnList()
             }
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video, searchKeyword: searchText)
         }
     }
 
     private func singleColumnList(_ items: [VodItem]) -> some View {
-        ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.background(searchPanelBackground).fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video, searchKeyword: searchText) }
+        ScrollView(showsIndicators: false) {
+            LazyVStack(spacing: 12) {
+                ForEach(items) { item in
+                    SearchResultRow(video: item)
+                        .onTapGesture { selectedVideo = item }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 20)
+        }
+        .background(searchPanelBackground)
+    }
+
+    private func multiColumnList() -> some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // 左侧：资源站列表
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 2) {
+                        ForEach(sources, id: \.self) { name in
+                            let sel = (selectedSource ?? sources.first ?? "") == name
+                            Button(action: { selectedSource = name }) {
+                                SourceNameLabel(name: name, isSelected: sel)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 10)
+                                    .padding(.horizontal, 7)
+                                    .background(sel ? Color(hex: "E11D48") : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 6)
+                }
+                .frame(width: min(108, max(98, geometry.size.width * 0.23)))
+                .background(searchPanelBackground)
+
+                Divider().background(settings.usesVisualSkin ? Color.white.opacity(0.22) : Color.gray.opacity(0.3))
+
+                // 右侧：该资源站的结果（按剧名排序）
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 12) {
+                        ForEach(currentVideos) { item in
+                            SearchResultRow(video: item).onTapGesture { selectedVideo = item }
+                        }
+                    }
+                    .padding(12)
+                }
+                .background(searchPanelBackground)
+            }
+        }
+        .onAppear { if selectedSource == nil { selectedSource = sources.first } }
     }
 
     private var searchPanelBackground: Color {
