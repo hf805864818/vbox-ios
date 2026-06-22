@@ -300,6 +300,12 @@ struct ProfileView: View {
            savedLoggedIn == "true" {
             isLoggedIn = true
         }
+        // 恢复已保存的头像
+        if let base64 = DatabaseManager.shared.getSetting(key: "avatar_image"),
+           let data = Data(base64Encoded: base64),
+           let uiImage = UIImage(data: data) {
+            avatarImage = Image(uiImage: uiImage)
+        }
     }
 
     private func reloadHistory() {
@@ -312,10 +318,29 @@ struct ProfileView: View {
         item.loadTransferable(type: Data.self) { result in
             DispatchQueue.main.async {
                 if case .success(let data) = result, let data = data, let uiImage = UIImage(data: data) {
-                    avatarImage = Image(uiImage: uiImage)
+                    // 压缩并持久化头像
+                    let resized = Self.resizeImage(uiImage, maxSide: 200)
+                    avatarImage = Image(uiImage: resized)
+                    if let pngData = resized.pngData() {
+                        let base64 = pngData.base64EncodedString()
+                        DatabaseManager.shared.setSetting(key: "avatar_image", value: base64)
+                    }
                 }
             }
         }
+    }
+
+    private static func resizeImage(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let size = image.size
+        let maxDim = max(size.width, size.height)
+        guard maxDim > maxSide else { return image }
+        let scale = maxSide / maxDim
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let result = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return result ?? image
     }
 
     private func makeVodItem(from record: HistoryRecord) -> VodItem {

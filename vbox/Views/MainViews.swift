@@ -1659,36 +1659,10 @@ struct CategoryCard: View {
 struct UserInfoSection: View {
     var body: some View {
         VStack(spacing: 16) {
-            // 头像
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 80, height: 80)
-
-                Image(systemName: "person.fill")
-                    .font(.system(size: 36))
-                    .foregroundColor(.white)
-            }
-            .overlay(
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color(uiColor: .systemBackground).opacity(0.2),
-                                Color(uiColor: .systemBackground).opacity(0.0)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 3
-                    )
-            )
+            // 头像（无背景框，仅图标）
+            Image(systemName: "person.circle.fill")
+                .font(.system(size: 64))
+                .foregroundColor(Color(hex: "E11D48"))
 
             Text("访客用户")
                 .font(.system(size: 18, weight: .semibold))
