@@ -688,6 +688,7 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var doubanLoading = false
     @State private var hasLoadedDefaultData = false
+    @State private var showRankingView = false
     
     private let doubanTabs = ["豆瓣周榜", "华语口碑剧集", "一周口碑电影榜", "国内即将上映"]
     
@@ -723,15 +724,18 @@ struct SearchView: View {
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(10)
                 
-                // 豆瓣高分开关
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.gray.opacity(0.15))
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(hex: "E11D48"))
+                // 豆瓣排行榜入口
+                Button(action: { showRankingView = true }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.gray.opacity(0.15))
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(hex: "E11D48"))
+                    }
+                    .frame(width: 36, height: 36)
                 }
-                .frame(width: 36, height: 36)
+                .buttonStyle(PlainButtonStyle())
                 
                 // 搜索按钮
                 Button(action: { performSearch() }) {
@@ -977,9 +981,16 @@ struct SearchView: View {
             .padding(.bottom, 100)
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .sheet(isPresented: $showRankingView) {
+            DoubanRankingView { keyword in
+                searchText = keyword
+                performSearch()
+            }
+            .environmentObject(settings)
+        }
     }
-    
-    private func performSearch() {
+
+    private func addSearchLog(_ msg: String) {
         searchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !searchText.isEmpty else {
             resetSearchState()
