@@ -1252,7 +1252,7 @@ struct SearchResultsView: View {
                     }
                 }
                 .fullScreenCover(item: $selectedVideo) { video in
-                    VideoDetailView(video: video)
+                    VideoDetailView(video: video, searchKeyword: searchText)
                 }
                 .onAppear { if selectedSource == nil { selectedSource = sources.first } }
             }
@@ -1260,7 +1260,7 @@ struct SearchResultsView: View {
     }
 
     private func singleColumnList(_ items: [VodItem]) -> some View {
-        ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.background(searchPanelBackground).fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video) }
+        ScrollView(showsIndicators: false) { LazyVStack(spacing: 12) { ForEach(items) { item in SearchResultRow(video: item).onTapGesture { selectedVideo = item } } }.padding(.horizontal, 16).padding(.vertical, 20) }.background(searchPanelBackground).fullScreenCover(item: $selectedVideo) { video in VideoDetailView(video: video, searchKeyword: searchText) }
     }
 
     private var searchPanelBackground: Color {
