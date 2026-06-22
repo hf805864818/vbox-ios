@@ -40,6 +40,9 @@ struct VideoDetailView: View {
     @State private var tmdbMediaType: String = "movie"
     @State private var isLoadingTMDB = false
 
+    // 演职人员分类
+    @State private var selectedCastTab = "演员"
+
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
 
@@ -407,23 +410,12 @@ struct VideoDetailView: View {
 
                         // 内容区
                         VStack(spacing: 20) {
-                            // TMDB logo / 毛笔字片名 + 收藏按钮
-                            HStack(alignment: .center, spacing: 16) {
-                                HeroTitleView(
-                                    name: displayVideo.vodName,
-                                    logoURL: tmdbLogoURL
-                                )
-                                .frame(maxHeight: 70)
-
-                                Spacer()
-
-                                Button(action: toggleFavorite) {
-                                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.9))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            // TMDB logo / 毛笔字片名
+                            HeroTitleView(
+                                name: displayVideo.vodName,
+                                logoURL: tmdbLogoURL
+                            )
+                            .frame(maxHeight: 70)
 
                             // 副标题 / 类型标签 / 年代（居中）
                             VStack(spacing: 8) {
@@ -468,18 +460,67 @@ struct VideoDetailView: View {
 
                             // 演职人员分类展示
                             if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
-                                VStack(alignment: .leading, spacing: 20) {
-                                    CastSectionView(title: "演员", people: actors)
-                                    CastSectionView(title: "导演", people: directors)
-                                    CastSectionView(title: "编剧", people: writers)
+                                VStack(alignment: .leading, spacing: 12) {
+                                    // 分类标签
+                                    HStack(spacing: 12) {
+                                        ForEach(["演员", "导演", "编剧"], id: \.self) { tab in
+                                            let available = (tab == "演员" && !actors.isEmpty) ||
+                                                           (tab == "导演" && !directors.isEmpty) ||
+                                                           (tab == "编剧" && !writers.isEmpty)
+                                            if available {
+                                                Button(action: { selectedCastTab = tab }) {
+                                                    Text(tab)
+                                                        .font(.system(size: 14, weight: selectedCastTab == tab ? .semibold : .medium))
+                                                        .foregroundColor(selectedCastTab == tab ? .white : .white.opacity(0.6))
+                                                        .padding(.horizontal, 12)
+                                                        .padding(.vertical, 6)
+                                                        .background(selectedCastTab == tab ? Color.white.opacity(0.2) : Color.clear)
+                                                        .cornerRadius(6)
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                        }
+                                    }
+
+                                    // 当前分类人员
+                                    let currentPeople: [DoubanCelebrity] = {
+                                        switch selectedCastTab {
+                                        case "导演": return directors
+                                        case "编剧": return writers
+                                        default: return actors
+                                        }
+                                    }()
+
+                                    if !currentPeople.isEmpty {
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 14) {
+                                                ForEach(currentPeople, id: \.id) { person in
+                                                    CastPersonCard(person: person)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Text("暂无\(selectedCastTab)信息")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.white.opacity(0.5))
+                                    }
                                 }
                             }
 
                             // 剧情简介
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("剧情简介")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
+                                HStack {
+                                    Text("剧情简介")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Spacer()
+                                    Button(action: toggleFavorite) {
+                                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                            .font(.system(size: 24))
+                                            .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.9))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                                 Text(displayVideo.vodContent ?? "暂无简介")
                                     .font(.system(size: 14))
                                     .foregroundColor(.white.opacity(0.75))
@@ -682,56 +723,37 @@ struct HeroTitleView: View {
     }
 }
 
-// MARK: - 演职人员分类行
-struct CastSectionView: View {
-    let title: String
-    let people: [DoubanCelebrity]
+// MARK: - 演职人员卡片
+struct CastPersonCard: View {
+    let person: DoubanCelebrity
 
     var body: some View {
-        if !people.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(6)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(people, id: \.id) { person in
-                            VStack(spacing: 6) {
-                                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL)) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    default:
-                                        Color.gray.opacity(0.3)
-                                    }
-                                }
-                                .frame(width: 70, height: 70)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                Text(person.name)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white)
-                                    .lineLimit(1)
-                                    .frame(width: 70)
-
-                                if let role = person.character ?? person.roles?.first {
-                                    Text(role)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.white.opacity(0.6))
-                                        .lineLimit(1)
-                                        .frame(width: 70)
-                                }
-                            }
-                        }
-                    }
+        VStack(spacing: 6) {
+            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: person.avatarURL)) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                default:
+                    Color.gray.opacity(0.3)
                 }
+            }
+            .frame(width: 70, height: 70)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            Text(person.name)
+                .font(.system(size: 12))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .frame(width: 70)
+
+            if let role = person.character ?? person.roles?.first {
+                Text(role)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .frame(width: 70)
             }
         }
     }

@@ -808,7 +808,7 @@ struct SearchView: View {
             ZStack {
                 if isSearching && !isSearchLoading && !searchResults.isEmpty {
                     // 已有搜索结果：展示结果页
-                    SearchResultsView(results: searchResults)
+                    SearchResultsView(results: searchResults, searchText: searchText)
                 } else if isSearching && !isSearchLoading && searchResults.isEmpty {
                     // 已结束搜索但无结果：展示空态
                     VStack(spacing: 20) {
@@ -1179,6 +1179,7 @@ struct SearchHistoryDeleteButton: View {
 
 struct SearchResultsView: View {
     let results: [VodItem]
+    let searchText: String
     @EnvironmentObject private var settings: AppSettings
     @State private var selectedSource: String? = nil
     @State private var selectedVideo: VodItem? = nil
