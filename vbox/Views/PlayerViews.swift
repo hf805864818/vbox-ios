@@ -5,7 +5,13 @@ import AVFoundation
 // MARK: - 视频详情视图 (新版：底栏 + 演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
-    let searchKeyword: String? = nil
+    let searchKeyword: String?
+
+    init(video: VodItem, searchKeyword: String? = nil) {
+        self.video = video
+        self.searchKeyword = searchKeyword
+    }
+
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
 
