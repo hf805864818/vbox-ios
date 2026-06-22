@@ -307,14 +307,15 @@ struct CategoryTilesView: View {
     ]
     @State private var selectedCategory: (type: String, name: String)?
     @State private var showCategorySheet = false
-    
+    @State private var showDoubanBrowser = false
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(categories, id: \.0) { item in
                     CategoryTile(icon: item.1, title: item.2, settings: settings) {
                         selectedCategory = (type: item.0, name: item.2)
-                        showCategorySheet = true
+                        showDoubanBrowser = true
                     }
                 }
             }
@@ -326,6 +327,10 @@ struct CategoryTilesView: View {
             if let category = selectedCategory {
                 CategoryDetailView(categoryType: category.type, categoryName: category.name)
             }
+        }
+        .sheet(isPresented: $showDoubanBrowser) {
+            DoubanCategoryBrowserView()
+                .environmentObject(settings)
         }
     }
 }
