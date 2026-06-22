@@ -1674,7 +1674,8 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 从 CMS 搜索结果 HTML 中提取条目
     private func extractCMSSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
-        let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>([^<]+)</a>"#
+        // 匹配常见的 CMS 详情页链接，捕获 innerHTML 而非仅文本
+        let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>(.+?)</a>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
         let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
@@ -1687,35 +1688,41 @@ globalThis.__JS_SPIDER__ = _spider;
                   let hRange = Range(hrefRange, in: html),
                   let nRange = Range(nameRange, in: html) else { continue }
             let detailPath = String(html[hRange])
-            var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let innerHTML = String(html[nRange])
+
+            // 去掉 HTML 标签，只保留文本
+            var title = innerHTML.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
 
             let episodePatterns = ["更新到", "更新至", "连载至", "已完结", "更新中"]
             let looksLikeEpisode = episodePatterns.contains(where: { title.contains($0) })
             if looksLikeEpisode || title.count < 4 {
                 var found = false
-                if let aStart = html.range(of: detailPath, options: .backwards, range: html.startIndex..<nRange.lowerBound) {
-                    let before = String(html[aStart.upperBound...nRange.upperBound])
-                    let attrPattern = #"title="([^"]+)"#
-                    if let attrRegex = try? NSRegularExpression(pattern: attrPattern),
-                       let attrMatch = attrRegex.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)),
-                       let attrRange = Range(attrMatch.range(at: 1), in: before) {
-                        let attrTitle = String(before[attrRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if attrTitle.count > 2 {
-                            title = attrTitle
-                            found = true
-                        }
+                // 优先从 <a> 标签的 title 属性获取
+                let aTagPattern = #"<a[^>]*title="([^"]+)"#
+                if let aRegex = try? NSRegularExpression(pattern: aTagPattern),
+                   let aMatch = aRegex.firstMatch(in: innerHTML.contains("title=") ? innerHTML : String(html[html.range(of: detailPath)?.lowerBound ?? html.startIndex..<nRange.upperBound]), range: NSRange(innerHTML.contains("title=") ? innerHTML.startIndex : html.startIndex, in: innerHTML.contains("title=") ? innerHTML : html)),
+                   let aRange = Range(aMatch.range(at: 1), in: innerHTML.contains("title=") ? innerHTML : html) {
+                    let attrTitle = String((innerHTML.contains("title=") ? innerHTML : html)[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if attrTitle.count > 2 {
+                        title = attrTitle
+                        found = true
                     }
                 }
                 if !found {
-                    let searchStart = max(0, match.range.location - 200)
-                    let searchEnd = min(match.range.location + 200, html.count)
+                    // 在链接前后 300 个字符内搜索标题
+                    let searchStart = max(0, match.range.location - 300)
+                    let searchEnd = min(match.range.location + 300, html.count)
                     if searchStart < searchEnd,
                        let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
                        let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) {
                         let ctx = String(html[sIdx..<eIdx])
                         let altPatterns = [
-                            #"<img[^>]+alt="([^"]{2,60})""#,
-                            #"<h[2-4][^>]*>([^<]{2,60})</h[2-4]>"#,
+                            #"<img[^>]+alt="([^"]{2,80})""#,
+                            #"<h[2-4][^>]*>([^<]{2,80})</h[2-4]>"#,
+                            #"<span[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</span>"#,
+                            #"<div[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</div>"#,
+                            #"<a[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</a>"#,
                         ]
                         for ap in altPatterns {
                             if let ar = try? NSRegularExpression(pattern: ap, options: [.caseInsensitive]),
@@ -1724,10 +1731,20 @@ globalThis.__JS_SPIDER__ = _spider;
                                 let altText = String(ctx[arr]).trimmingCharacters(in: .whitespacesAndNewlines)
                                 if altText.count > 2 && !episodePatterns.contains(where: { altText.contains($0) }) {
                                     title = altText
+                                    found = true
                                     break
                                 }
                             }
                         }
+                    }
+                }
+                // 最后兜底：把 "更新到第X集" 换成站点名，至少不是空白
+                if !found && looksLikeEpisode {
+                    let cleanTitle = title.replacingOccurrences(of: #"更新到第?\d+集"#, with: "", options: .regularExpression)
+                        .replacingOccurrences(of: #"更新至第?\d+集"#, with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if cleanTitle.count > 2 {
+                        title = cleanTitle
                     }
                 }
             }

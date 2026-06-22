@@ -199,14 +199,19 @@ struct CategoryDetailView: View {
     }
 
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
+        // 优先订阅源，其次豆瓣，任意失败都尝试另一个
         if hasSubscription {
-            let items = try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
-            if !items.isEmpty { return items }
-            return try await fetchDoubanCategoryData(start: start, count: count)
+            let subItems = (try? await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)) ?? []
+            if !subItems.isEmpty { return subItems }
+            let doubanItems = (try? await fetchDoubanCategoryData(start: start, count: count)) ?? []
+            if !doubanItems.isEmpty { return doubanItems }
+            return [] // 两者都为空
         } else {
-            let items = try await fetchDoubanCategoryData(start: start, count: count)
-            if !items.isEmpty { return items }
-            return try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
+            let doubanItems = (try? await fetchDoubanCategoryData(start: start, count: count)) ?? []
+            if !doubanItems.isEmpty { return doubanItems }
+            let subItems = (try? await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)) ?? []
+            if !subItems.isEmpty { return subItems }
+            return [] // 两者都为空
         }
     }
 
