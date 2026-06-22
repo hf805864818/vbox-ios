@@ -74,8 +74,10 @@ class AppSettings: ObservableObject {
     }
 
     var preferredColorScheme: ColorScheme? {
+        if skinFollowsSystem {
+            return skinMode == .liquid ? .dark : nil
+        }
         if skinMode == .liquid { return .dark }
-        if skinFollowsSystem { return nil }
         if skinMode == .frosted { return nil }
         return skinMode.preferredColorScheme
     }
@@ -93,9 +95,7 @@ class AppSettings: ObservableObject {
     }
 
     func selectSkin(_ mode: AppSkinMode) {
-        if mode == .dark || mode == .light {
-            skinFollowsSystem = false
-        }
+        skinFollowsSystem = false
         skinMode = mode
     }
 

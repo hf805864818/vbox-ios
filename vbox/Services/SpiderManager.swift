@@ -1689,11 +1689,10 @@ globalThis.__JS_SPIDER__ = _spider;
             let detailPath = String(html[hRange])
             var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // 如果链接文字是更新信息（如「更新到12集」），尝试从 title 属性提取真正的视频名称
             let episodePatterns = ["更新到", "更新至", "连载至", "已完结", "更新中"]
             let looksLikeEpisode = episodePatterns.contains(where: { title.contains($0) })
             if looksLikeEpisode || title.count < 4 {
-                // 尝试从包含此链接的 a 标签中提取 title 属性
+                var found = false
                 if let aStart = html.range(of: detailPath, options: .backwards, range: html.startIndex..<nRange.lowerBound) {
                     let before = String(html[aStart.upperBound...nRange.upperBound])
                     let attrPattern = #"title="([^"]+)"#
@@ -1703,6 +1702,31 @@ globalThis.__JS_SPIDER__ = _spider;
                         let attrTitle = String(before[attrRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                         if attrTitle.count > 2 {
                             title = attrTitle
+                            found = true
+                        }
+                    }
+                }
+                if !found {
+                    let searchStart = max(0, match.range.location - 200)
+                    let searchEnd = min(match.range.location + 200, html.count)
+                    if searchStart < searchEnd,
+                       let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
+                       let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) {
+                        let ctx = String(html[sIdx..<eIdx])
+                        let altPatterns = [
+                            #"<img[^>]+alt="([^"]{2,60})""#,
+                            #"<h[2-4][^>]*>([^<]{2,60})</h[2-4]>"#,
+                        ]
+                        for ap in altPatterns {
+                            if let ar = try? NSRegularExpression(pattern: ap, options: [.caseInsensitive]),
+                               let am = ar.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+                               let arr = Range(am.range(at: 1), in: ctx) {
+                                let altText = String(ctx[arr]).trimmingCharacters(in: .whitespacesAndNewlines)
+                                if altText.count > 2 && !episodePatterns.contains(where: { altText.contains($0) }) {
+                                    title = altText
+                                    break
+                                }
+                            }
                         }
                     }
                 }
@@ -1823,7 +1847,49 @@ globalThis.__JS_SPIDER__ = _spider;
                 if let r = Range(match.range(at: 1), in: html) {
                     let panURL = String(html[r])
                     guard seen.insert(panURL).inserted else { continue }
-                    items.append(VodItem(vodId: panURL, vodName: "\(driveName)-\(siteName)", vodPic: "", vodRemarks: siteName))
+
+                    var name = "\(driveName)-\(siteName)"
+
+                    if let htmlIdx = html.index(html.startIndex, offsetBy: match.range.location, limitedBy: html.endIndex) {
+                        let beforeHTML = String(html[html.startIndex..<htmlIdx])
+                        let titleRegex = try? NSRegularExpression(pattern: #"<title>(.+?)</title>"#, options: [.caseInsensitive])
+                        if let titleMatch = titleRegex?.firstMatch(in: beforeHTML, range: NSRange(beforeHTML.startIndex..., in: beforeHTML)),
+                           let tr = Range(titleMatch.range(at: 1), in: beforeHTML) {
+                            let pageTitle = String(beforeHTML[tr]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            if pageTitle.count > 2 && !pageTitle.contains("搜索") {
+                                name = pageTitle
+                            }
+                        }
+                    }
+
+                    let searchRange = max(0, match.range.location - 800)
+                    let searchLen = min(match.range.location + match.range.length + 200, html.count) - searchRange
+                    if searchRange >= 0, searchRange + searchLen <= html.count,
+                       let startIdx = html.index(html.startIndex, offsetBy: searchRange, limitedBy: html.endIndex),
+                       let endIdx = html.index(startIdx, offsetBy: searchLen, limitedBy: html.endIndex) {
+                        let ctx = String(html[startIdx..<endIdx])
+
+                        let namePatterns = [
+                            #"<a[^>]*title="([^"]+)"[^>]*>\s*(?:</a>)?"#,
+                            #"<h[1-4][^>]*>([^<]+)</h[1-4]>"#,
+                            #"alt="([^"]{2,40})""#,
+                        ]
+                        for np in namePatterns {
+                            if let nr = try? NSRegularExpression(pattern: np, options: [.caseInsensitive]),
+                               let nm = nr.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+                               let nrr = Range(nm.range(at: 1), in: ctx) {
+                                let candidate = String(ctx[nrr]).trimmingCharacters(in: .whitespacesAndNewlines)
+                                if candidate.count > 2 && candidate.count < 80 &&
+                                   !candidate.contains("pan.quark") && !candidate.contains("pan.baidu") &&
+                                   !candidate.contains("aliyundrive") && !candidate.contains("alipan.com") &&
+                                   candidate != siteName {
+                                    name = candidate
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    items.append(VodItem(vodId: panURL, vodName: name, vodPic: "", vodRemarks: siteName))
                 }
             }
         }

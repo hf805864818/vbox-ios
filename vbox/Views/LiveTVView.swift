@@ -952,52 +952,240 @@ struct MiniPlayerView: View {
 struct FullScreenPlayerView: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
-    @State private var showControls = false
+    @State private var currentTime: TimeInterval = 0
+    @State private var duration: TimeInterval = 0
+    @State private var playbackRate: Double = 1.0
+    @State private var isPlaying = true
+    @State private var isMuted = false
+    @State private var showControls = true
+    @State private var seekTarget: TimeInterval? = nil
+    @State private var rateTarget: Double? = nil
+    @State private var isSeeking = false
+    @State private var seekPreviewTime: TimeInterval = 0
+
+    @State private var hideTimer: Timer?
+
+    private let speedOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.black.ignoresSafeArea()
+
             MiniVLCPlayerContainer(
                 url: url,
-                isPlaying: .constant(true),
+                isPlaying: $isPlaying,
                 volume: .constant(1),
-                isMuted: .constant(false)
+                isMuted: $isMuted,
+                seekRequest: $seekTarget,
+                rateRequest: $rateTarget,
+                onTimeUpdate: { time, dur, rate in
+                    if !isSeeking {
+                        currentTime = time
+                    }
+                    duration = dur
+                },
+                onPlayStateChange: { playing in
+                    isPlaying = playing
+                }
             )
 
-            // 点击显示/隐藏控制条
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showControls.toggle()
                     }
+                    if showControls { resetHideTimer() }
                 }
 
-            // 右上角关闭按钮
             if showControls {
-                VStack {
+                VStack(spacing: 0) {
                     HStack {
-                        Spacer()
-                        Button(action: {
-                            dismiss()
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 18, weight: .medium))
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 20, weight: .medium))
                                 .foregroundColor(.white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .padding(.top, 8)
-                        .padding(.trailing, 8)
+                        Spacer()
                     }
+                    .padding(.top, 50)
+                    .padding(.horizontal, 12)
+
                     Spacer()
+
+                    VStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text(formatTime(currentTime))
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.8))
+                                .frame(width: 48, alignment: .leading)
+
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.25))
+                                        .frame(height: 4)
+                                        .clipShape(Capsule())
+
+                                    if duration > 0 {
+                                        Rectangle()
+                                            .fill(Color.white)
+                                            .frame(width: geo.size.width * CGFloat(isSeeking ? seekPreviewTime / duration : currentTime / duration), height: 4)
+                                            .clipShape(Capsule())
+                                    }
+
+                                    Circle()
+                                        .fill(Color.white)
+                                        .frame(width: 14, height: 14)
+                                        .position(x: geo.size.width * CGFloat(isSeeking ? seekPreviewTime / duration : (duration > 0 ? currentTime / duration : 0)), y: 7)
+                                }
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            isSeeking = true
+                                            let ratio = max(0, min(1, value.location.x / geo.size.width))
+                                            seekPreviewTime = ratio * duration
+                                        }
+                                        .onEnded { value in
+                                            let ratio = max(0, min(1, value.location.x / geo.size.width))
+                                            let target = ratio * duration
+                                            seekTarget = target
+                                            currentTime = target
+                                            isSeeking = false
+                                            resetHideTimer()
+                                        }
+                                )
+                            }
+                            .frame(height: 20)
+
+                            Text(formatTime(duration))
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.8))
+                                .frame(width: 48, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 12)
+
+                        HStack(spacing: 24) {
+                            Spacer()
+
+                            Button(action: {
+                                seekTarget = max(0, currentTime - 10)
+                                currentTime = max(0, currentTime - 10)
+                                resetHideTimer()
+                            }) {
+                                Image(systemName: "gobackward.10")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                isPlaying.toggle()
+                                resetHideTimer()
+                            }) {
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Button(action: {
+                                let target = min(duration > 0 ? duration : currentTime + 10, currentTime + 10)
+                                seekTarget = target
+                                currentTime = target
+                                resetHideTimer()
+                            }) {
+                                Image(systemName: "goforward.10")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Menu {
+                                ForEach(speedOptions, id: \.self) { speed in
+                                    Button(action: {
+                                        rateTarget = speed
+                                        playbackRate = speed
+                                        resetHideTimer()
+                                    }) {
+                                        HStack {
+                                            Text(speed == 1.0 ? "\(String(format: "%.2f", speed))x 正常" : "\(String(format: "%.2f", speed))x")
+                                            if abs(speed - playbackRate) < 0.01 {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text(String(format: "%.2f", playbackRate) + "x")
+                                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.white.opacity(0.2))
+                                    .clipShape(Capsule())
+                            }
+
+                            Button(action: {
+                                isMuted.toggle()
+                                resetHideTimer()
+                            }) {
+                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            Spacer()
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 36)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                 }
                 .transition(.opacity)
             }
         }
-        .ignoresSafeArea()
         .statusBar(hidden: true)
+        .onAppear { resetHideTimer() }
+        .onDisappear { hideTimer?.invalidate() }
+    }
+
+    private func resetHideTimer() {
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showControls = false
+            }
+        }
+    }
+
+    private func formatTime(_ t: TimeInterval) -> String {
+        guard t.isFinite && t >= 0 else { return "00:00" }
+        let h = Int(t) / 3600
+        let m = (Int(t) % 3600) / 60
+        let s = Int(t) % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%02d:%02d", m, s)
     }
 }
 
@@ -1007,24 +1195,88 @@ struct MiniVLCPlayerContainer: UIViewRepresentable {
     @Binding var isPlaying: Bool
     @Binding var volume: Double
     @Binding var isMuted: Bool
+    var seekRequest: Binding<TimeInterval?>
+    var rateRequest: Binding<Double?>
+    var onTimeUpdate: ((TimeInterval, TimeInterval, Double) -> Void)?
+    var onPlayStateChange: ((Bool) -> Void)?
+
+    init(url: URL,
+         isPlaying: Binding<Bool>,
+         volume: Binding<Double>,
+         isMuted: Binding<Bool>,
+         seekRequest: Binding<TimeInterval?> = .constant(nil),
+         rateRequest: Binding<Double?> = .constant(nil),
+         onTimeUpdate: ((TimeInterval, TimeInterval, Double) -> Void)? = nil,
+         onPlayStateChange: ((Bool) -> Void)? = nil) {
+        self.url = url
+        self._isPlaying = isPlaying
+        self._volume = volume
+        self._isMuted = isMuted
+        self.seekRequest = seekRequest
+        self.rateRequest = rateRequest
+        self.onTimeUpdate = onTimeUpdate
+        self.onPlayStateChange = onPlayStateChange
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTimeUpdate: onTimeUpdate, onPlayStateChange: onPlayStateChange)
+    }
 
     func makeUIView(context: Context) -> MiniVLCPlayerView {
         let view = MiniVLCPlayerView()
         view.load(url: url)
+        context.coordinator.playerView = view
+        context.coordinator.startPolling()
         return view
     }
 
     func updateUIView(_ uiView: MiniVLCPlayerView, context: Context) {
+        context.coordinator.onTimeUpdate = onTimeUpdate
+        context.coordinator.onPlayStateChange = onPlayStateChange
         if isPlaying {
             uiView.play()
         } else {
             uiView.pause()
         }
-        uiView.setVolume(volume)
+        uiView.setVolume(isMuted ? 0 : volume)
+        if let seekTo = seekRequest.wrappedValue {
+            uiView.seek(to: seekTo)
+            seekRequest.wrappedValue = nil
+        }
+        if let rateTo = rateRequest.wrappedValue {
+            uiView.setRate(rateTo)
+            rateRequest.wrappedValue = nil
+        }
     }
 
-    static func dismantleUIView(_ uiView: MiniVLCPlayerView, coordinator: ()) {
+    static func dismantleUIView(_ uiView: MiniVLCPlayerView, coordinator: Coordinator) {
+        coordinator.stopPolling()
         uiView.stop()
+    }
+
+    class Coordinator: NSObject {
+        weak var playerView: MiniVLCPlayerView?
+        private var timer: Timer?
+        var onTimeUpdate: ((TimeInterval, TimeInterval, Double) -> Void)?
+        var onPlayStateChange: ((Bool) -> Void)?
+
+        init(onTimeUpdate: ((TimeInterval, TimeInterval, Double) -> Void)?, onPlayStateChange: ((Bool) -> Void)?) {
+            self.onTimeUpdate = onTimeUpdate
+            self.onPlayStateChange = onPlayStateChange
+        }
+
+        func startPolling() {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                guard let self, let view = self.playerView else { return }
+                self.onTimeUpdate?(view.currentPlayTime, view.mediaDuration, view.currentRate)
+                self.onPlayStateChange?(view.isCurrentlyPlaying)
+            }
+        }
+
+        func stopPolling() {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 }
 
@@ -1089,6 +1341,71 @@ class MiniVLCPlayerView: UIView {
         #if canImport(MobileVLCKit)
         let vol = Int32(volume * 100)
         mediaPlayer.audio?.volume = max(0, min(200, vol))
+        #endif
+    }
+
+    var position: Float {
+        #if canImport(MobileVLCKit)
+        return mediaPlayer.position
+        #else
+        return 0
+        #endif
+    }
+
+    var currentPlayTime: TimeInterval {
+        #if canImport(MobileVLCKit)
+        return TimeInterval(mediaPlayer.time.value?.doubleValue ?? 0) / 1000.0
+        #else
+        return 0
+        #endif
+    }
+
+    var mediaDuration: TimeInterval {
+        #if canImport(MobileVLCKit)
+        return TimeInterval(mediaPlayer.media.length.value?.doubleValue ?? 0) / 1000.0
+        #else
+        return 0
+        #endif
+    }
+
+    var isCurrentlyPlaying: Bool {
+        #if canImport(MobileVLCKit)
+        return mediaPlayer.isPlaying
+        #else
+        return false
+        #endif
+    }
+
+    var currentRate: Double {
+        #if canImport(MobileVLCKit)
+        return Double(mediaPlayer.rate)
+        #else
+        return 1.0
+        #endif
+    }
+
+    func seek(to time: TimeInterval) {
+        #if canImport(MobileVLCKit)
+        let vlctime = VLCTime(int: Int32(time * 1000))
+        mediaPlayer.time = vlctime
+        #endif
+    }
+
+    func setRate(_ rate: Double) {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.rate = Float(rate)
+        #endif
+    }
+
+    func jumpForward(_ seconds: Int32 = 10) {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.jumpForward(seconds)
+        #endif
+    }
+
+    func jumpBackward(_ seconds: Int32 = 10) {
+        #if canImport(MobileVLCKit)
+        mediaPlayer.jumpBackward(seconds)
         #endif
     }
 
