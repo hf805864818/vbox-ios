@@ -2040,6 +2040,10 @@ globalThis.__JS_SPIDER__ = _spider;
         }
     }
 
+    func clearCloudPlayCache() {
+        cloudPlayCache.removeAll()
+    }
+
     private func parseCloudHTML(html: String) async -> (links: [(url: String, name: String)], siteName: String)? {
         // 提取视频名称
         var videoName = ""
