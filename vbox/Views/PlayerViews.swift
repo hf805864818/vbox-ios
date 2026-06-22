@@ -688,6 +688,7 @@ struct VideoDetailView: View {
         .edgeSwipeBack { dismiss() }
     }
 }
+}
 
 // MARK: - 大标题视图（TMDB logo 优先，马善政毛笔楷体兜底）
 struct HeroTitleView: View {
