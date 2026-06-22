@@ -30,7 +30,6 @@ struct SettingsView: View {
     @State private var showZhanyuanSheet = false
     @State private var showBaiduTestView = false
     @State private var showUniversalPlayTestView = false
-    @State private var showCloudCacheSheet = false
     @State private var showAuthCenter = false
     @State private var showMPVKitDebugView = false
     @State private var showMPVRenderContextDebugView = false
@@ -67,7 +66,12 @@ struct SettingsView: View {
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .alert("清除缓存", isPresented: $showCacheAlert) {
             Button("取消", role: .cancel) {}
-            Button("确定", role: .destructive) {}
+            Button("确定", role: .destructive) {
+                spiderManager.clearCloudPlayCache()
+                _ = cloudDriveManager.clearAllBaiduPlaybackCaches()
+                DoubanImageProxyServer.shared.cleanupExpiredCaches(olderThan: 0)
+                cacheSize = "0 MB"
+            }
         } message: { Text("确定要清除所有缓存数据吗？") }
         .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
     }
@@ -328,29 +332,6 @@ struct SettingsView: View {
                     .background(Color.gray.opacity(0.04))
                 }
 
-                Button(action: { showCloudCacheSheet = true }) {
-                    HStack {
-                        Image(systemName: "externaldrive.badge.icloud")
-                            .font(.system(size: 16))
-                            .foregroundColor(Color(hex: "E11D48"))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("网盘播放缓存管理")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.primary)
-                            Text("百度已接入，夸克/阿里/UC/115 预留")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.04))
-                }
-                
             }.padding(16)
         }
         .sheet(isPresented: $showBaiduTestView) {
@@ -367,9 +348,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLibmpvMoltenVKDebugView) {
             LibmpvMoltenVKDebugView()
-        }
-        .sheet(isPresented: $showCloudCacheSheet) {
-            CloudPlaybackCacheView()
         }
         .sheet(isPresented: $showAuthCenter) {
             CloudAuthCenterView()

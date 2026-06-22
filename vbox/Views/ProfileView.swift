@@ -121,9 +121,9 @@ struct ProfileView: View {
                             .foregroundColor(accentColor)
                             .frame(width: 80, height: 80)
                     } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 80))
-                            .foregroundColor(accentColor.opacity(0.6))
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.gray.opacity(0.4))
                     }
                 }
             }

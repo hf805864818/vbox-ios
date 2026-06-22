@@ -94,7 +94,8 @@ struct CategoryDetailView: View {
     private func checkSubscription() {
         let spider = SpiderManager.shared
         let sub = spider.subManager
-        hasSubscription = sub.isLoaded && !sub.allSites.isEmpty
+        hasSubscription = spider.isInitialized && !spider.allSites.isEmpty
+            || sub.isLoaded && !sub.allSites.isEmpty
     }
 
     private func loadData() {
@@ -201,34 +202,40 @@ struct CategoryDetailView: View {
 
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
         if hasSubscription {
-            // 有订阅源时：通过 SpiderManager 搜索该分类关键词获取数据
-            return try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
+            let items = try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
+            if !items.isEmpty { return items }
+            return try await fetchDoubanCategoryData(start: start, count: count)
         } else {
-            // 无订阅源时：显示豆瓣默认数据
-            switch categoryType {
-            case "movie", "电影":
-                return try await doubanService.fetchHotMovies(start: start, count: count)
-            case "tv", "电视剧", "剧集":
-                return try await doubanService.fetchHotTV(start: start, count: count)
-            case "variety", "综艺":
-                return try await doubanService.fetchHotVariety(start: start, count: count)
-            case "top250", "榜单":
-                return try await doubanService.fetchTop250(start: start, count: count)
-            case "animation", "动漫":
-                return try await doubanService.fetchHotAnimation(start: start, count: count)
-            case "hot", "热门":
-                return try await doubanService.fetchRecommendFeed(start: start, count: count)
-            case "documentary", "纪录片":
-                return try await doubanService.fetchHotMovies(start: start, count: count)
-            case "live", "直播":
-                return []
-            case "music", "音乐":
-                return try await doubanService.fetchHotMovies(start: start, count: count)
-            case "sports", "体育":
-                return try await doubanService.fetchHotMovies(start: start, count: count)
-            default:
-                return []
-            }
+            let items = try await fetchDoubanCategoryData(start: start, count: count)
+            if !items.isEmpty { return items }
+            return try await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)
+        }
+    }
+
+    private func fetchDoubanCategoryData(start: Int, count: Int) async throws -> [DoubanSubject] {
+        switch categoryType {
+        case "movie", "电影":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "tv", "电视剧", "剧集":
+            return try await doubanService.fetchHotTV(start: start, count: count)
+        case "variety", "综艺":
+            return try await doubanService.fetchHotVariety(start: start, count: count)
+        case "top250", "榜单":
+            return try await doubanService.fetchTop250(start: start, count: count)
+        case "animation", "动漫":
+            return try await doubanService.fetchHotAnimation(start: start, count: count)
+        case "hot", "热门":
+            return try await doubanService.fetchRecommendFeed(start: start, count: count)
+        case "documentary", "纪录片":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "live", "直播":
+            return []
+        case "music", "音乐":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        case "sports", "体育":
+            return try await doubanService.fetchHotMovies(start: start, count: count)
+        default:
+            return []
         }
     }
 
