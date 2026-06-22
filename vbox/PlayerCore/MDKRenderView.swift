@@ -7,6 +7,9 @@ import AVFoundation
 #if canImport(swift_mdk)
 import swift_mdk
 #endif
+#if canImport(mdk)
+import mdk
+#endif
 
 // MARK: - 桥接辅助（与 swift-mdk 内部 bridge 一致）
 
@@ -95,8 +98,9 @@ final class MDKRenderView: MTKView {
         updateSurfaceSize()
 
         player.setRenderCallback { [weak self] in
-            guard let self else { return }
-            self.renderFrame()
+            DispatchQueue.main.async { [weak self] in
+                self?.renderFrame()
+            }
         }
     }
     #endif
@@ -179,10 +183,7 @@ final class MDKRenderView: MTKView {
         }
 
         pipTexture = nil
-        if let pb = pipPixelBuffer {
-            CVPixelBufferRelease(pb)
-            pipPixelBuffer = nil
-        }
+        pipPixelBuffer = nil
 
         let attrs: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
@@ -270,7 +271,7 @@ final class MDKRenderView: MTKView {
             sourceLevel: 0,
             sourceOrigin: MTLOriginMake(0, 0, 0),
             sourceSize: MTLSizeMake(width, height, 1),
-            toTexture: pipTex,
+            to: pipTex,
             destinationSlice: 0,
             destinationLevel: 0,
             destinationOrigin: MTLOriginMake(0, 0, 0)
@@ -321,7 +322,7 @@ extension MDKRenderView: MTKViewDelegate {
             sourceLevel: 0,
             sourceOrigin: MTLOriginMake(0, 0, 0),
             sourceSize: MTLSizeMake(renderTex.width, renderTex.height, 1),
-            toTexture: drawable.texture,
+            to: drawable.texture,
             destinationSlice: 0,
             destinationLevel: 0,
             destinationOrigin: MTLOriginMake(0, 0, 0)
