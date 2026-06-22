@@ -918,13 +918,6 @@ struct MiniPlayerView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.clear, .black.opacity(0.5)]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
                 }
                 .transition(.opacity)
             }
@@ -1129,10 +1122,6 @@ struct FullScreenPlayerView: View {
                                 Text(String(format: "%.2f", playbackRate) + "x")
                                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(Color.white.opacity(0.2))
-                                    .clipShape(Capsule())
                             }
 
                             Button(action: {
@@ -1152,13 +1141,6 @@ struct FullScreenPlayerView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 36)
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
                 }
                 .transition(.opacity)
             }
@@ -1362,7 +1344,7 @@ class MiniVLCPlayerView: UIView {
 
     var mediaDuration: TimeInterval {
         #if canImport(MobileVLCKit)
-        return TimeInterval(mediaPlayer.media.length.value?.doubleValue ?? 0) / 1000.0
+        return TimeInterval(mediaPlayer.media?.length.value?.doubleValue ?? 0) / 1000.0
         #else
         return 0
         #endif
