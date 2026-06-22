@@ -493,33 +493,6 @@ struct VideoPlayerViewV2: View {
         }
     }
 
-    /// 用户点击小窗按钮：震动 -> 启动系统画中画 -> 立即返回桌面
-    private func togglePiPAuto() {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-
-        if playerState.compatibilityURL != nil {
-            if playerState.compatibilityEngineName.contains("MDK") {
-                #if canImport(swift_mdk)
-                NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
-                #endif
-            } else if playerState.compatibilityEngineName.contains("MPV") {
-                #if canImport(Libmpv)
-                MPVPiPManager.shared.initializePiP()
-                MPVPiPManager.shared.startPiP()
-                #endif
-            }
-        } else if let avPlayer = playerState.player {
-            // 原生 AVPlayer：使用系统画中画
-            PiPHelper.shared.setupPiP(for: avPlayer)
-        }
-
-        playerState.isPiPActive = true
-
-        // 返回桌面（等同于按下 Home 键），PiP 小窗留在屏幕上
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
-        }
-    }
 }
 
 // MARK: - 通用集数项
@@ -3928,7 +3901,30 @@ struct PlayerControlsView: View {
             playerState.isPiPActive = false
         } else {
             // 启动系统画中画并返回桌面
-            togglePiPAuto()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+            if playerState.compatibilityURL != nil {
+                if playerState.compatibilityEngineName.contains("MDK") {
+                    #if canImport(swift_mdk)
+                    NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
+                    #endif
+                } else if playerState.compatibilityEngineName.contains("MPV") {
+                    #if canImport(Libmpv)
+                    MPVPiPManager.shared.initializePiP()
+                    MPVPiPManager.shared.startPiP()
+                    #endif
+                }
+            } else if let avPlayer = player {
+                // 原生 AVPlayer：使用系统画中画
+                PiPHelper.shared.setupPiP(for: avPlayer)
+            }
+
+            playerState.isPiPActive = true
+
+            // 返回桌面（等同于按下 Home 键），PiP 小窗留在屏幕上
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            }
         }
     }
 

@@ -186,15 +186,19 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
 
     func startPiP() {
         #if canImport(swift_mdk)
-        renderView?.setPiPEnabled(true)
-        MDKPipManager.shared.startPiP()
+        DispatchQueue.main.async { [weak self] in
+            self?.renderView?.setPiPEnabled(true)
+            MDKPipManager.shared.startPiP()
+        }
         #endif
     }
 
     func stopPiP() {
         #if canImport(swift_mdk)
-        renderView?.setPiPEnabled(false)
-        MDKPipManager.shared.stopPiP()
+        DispatchQueue.main.async { [weak self] in
+            self?.renderView?.setPiPEnabled(false)
+            MDKPipManager.shared.stopPiP()
+        }
         #endif
     }
 
