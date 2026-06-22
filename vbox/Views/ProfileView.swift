@@ -95,7 +95,6 @@ struct ProfileView: View {
         .sheet(isPresented: $showSettingsSheet) {
             NavigationView {
                 SettingsView()
-                    .environment(\.colorScheme, settings.preferredColorScheme ?? .dark)
             }
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
