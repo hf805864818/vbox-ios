@@ -1701,19 +1701,12 @@ globalThis.__JS_SPIDER__ = _spider;
                 // 优先从 <a> 标签的 title 属性获取
                 let aTagPattern = #"<a[^>]*title="([^"]+)"#
                 if let aRegex = try? NSRegularExpression(pattern: aTagPattern) {
-                    let searchString: String
-                    if innerHTML.contains("title=") {
-                        searchString = innerHTML
-                    } else {
-                        let lowerBound = html.range(of: detailPath)?.lowerBound ?? html.startIndex
-                        let upperBound = nRange.upperBound
-                        searchString = String(html[lowerBound..<upperBound])
-                    }
-                    let rangeInString = innerHTML.contains("title=") ? innerHTML : html
-                    let nsRange = NSRange(rangeInString.startIndex..., in: rangeInString)
-                    if let aMatch = aRegex.firstMatch(in: searchString, range: nsRange),
-                       let aRange = Range(aMatch.range(at: 1), in: innerHTML.contains("title=") ? innerHTML : html) {
-                        let attrTitle = String((innerHTML.contains("title=") ? innerHTML : html)[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    // 统一在 innerHTML 中搜索 title 属性，避免 searchString 和 rangeInString 不一致导致崩溃
+                    let searchTarget = innerHTML.contains("title=") ? innerHTML : innerHTML
+                    let nsRange = NSRange(searchTarget.startIndex..., in: searchTarget)
+                    if let aMatch = aRegex.firstMatch(in: searchTarget, range: nsRange),
+                       let aRange = Range(aMatch.range(at: 1), in: searchTarget) {
+                        let attrTitle = String(searchTarget[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                         if attrTitle.count > 2 {
                             title = attrTitle
                             found = true
