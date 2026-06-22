@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var showFavorites: Bool = false
     @State private var showDownloads: Bool = false
     @State private var showSettingsSheet: Bool = false
+    @State private var selectedVideoItem: VodItem? = nil
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -97,6 +98,9 @@ struct ProfileView: View {
                     .environment(\.colorScheme, settings.preferredColorScheme ?? .dark)
             }
         }
+        .fullScreenCover(item: $selectedVideoItem) { video in
+            VideoDetailView(video: video)
+        }
     }
 
     // MARK: - 头部登录区
@@ -118,14 +122,9 @@ struct ProfileView: View {
                             .foregroundColor(accentColor)
                             .frame(width: 80, height: 80)
                     } else {
-                        Circle()
-                            .stroke(textColor.opacity(0.3), lineWidth: 1)
-                            .frame(width: 80, height: 80)
-                            .overlay(
-                                Image(systemName: "person")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(textColor.opacity(0.5))
-                            )
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 80))
+                            .foregroundColor(accentColor.opacity(0.6))
                     }
                 }
             }
@@ -202,6 +201,7 @@ struct ProfileView: View {
                                     .lineLimit(1)
                                     .frame(width: 100, alignment: .leading)
                             }
+                            .onTapGesture { selectedVideoItem = makeVodItem(from: record) }
                         }
                     }
                 }
@@ -318,6 +318,14 @@ struct ProfileView: View {
             }
         }
     }
+
+    private func makeVodItem(from record: HistoryRecord) -> VodItem {
+        VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+    }
+
+    private func makeVodItem(from record: FavoriteRecord) -> VodItem {
+        VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+    }
 }
 
 // MARK: - LoginSheetView
@@ -328,72 +336,210 @@ struct LoginSheetView: View {
     @Binding var username: String
     @Binding var isPresented: Bool
     @State private var inputUsername: String = ""
+    @State private var inputPassword: String = ""
+    @State private var showPassword: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var loginError: String? = nil
 
-    var accentColor: Color {
-        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
-        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
-        return Color(hex: "E11D48")
-    }
-
-    var textColor: Color {
-        if settings.usesVisualSkin { return .white }
-        return Color(uiColor: .label)
-    }
+    private let gradientColors: [Color] = [Color(hex: "3B82F6"), Color(hex: "2563EB"), Color(hex: "1D4ED8")]
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("登录")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(textColor)
-                .padding(.top, 20)
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer().frame(height: 12)
 
-            TextField("请输入用户名", text: $inputUsername)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal, 32)
+                // App 图标
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 72, height: 72)
+                        .shadow(color: Color(hex: "3B82F6").opacity(0.4), radius: 16, y: 6)
 
-            HStack(spacing: 16) {
-                Button(action: {
-                    isPresented = false
-                }) {
-                    Text("取消")
-                        .font(.system(size: 16))
-                        .foregroundColor(textColor)
-                        .frame(width: 120, height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22)
-                                .fill(Color.gray.opacity(0.2))
-                        )
-                }
-
-                Button(action: {
-                    performLogin()
-                }) {
-                    Text("确认")
-                        .font(.system(size: 16))
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 30))
                         .foregroundColor(.white)
-                        .frame(width: 120, height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22)
-                                .fill(accentColor)
-                        )
                 }
-            }
-            .padding(.horizontal, 32)
+                .padding(.bottom, 20)
 
-            Spacer()
+                // 标题
+                Text("欢迎回来")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.primary)
+
+                Text("登录你的账号继续使用")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 6)
+
+                Spacer().frame(height: 28)
+
+                // 登录卡片
+                VStack(spacing: 16) {
+                    // 用户名输入框
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "3B82F6"))
+                            .frame(width: 22)
+
+                        TextField("用户名", text: $inputUsername)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(12)
+
+                    // 密码输入框
+                    HStack(spacing: 10) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "3B82F6"))
+                            .frame(width: 22)
+
+                        if showPassword {
+                            TextField("密码", text: $inputPassword)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                        } else {
+                            SecureField("密码", text: $inputPassword)
+                        }
+
+                        Button(action: { showPassword.toggle() }) {
+                            Image(systemName: showPassword ? "eye.fill" : "eye.slash.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(12)
+
+                    // 错误提示
+                    if let error = loginError {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+
+                    // 登录/注册按钮
+                    Button(action: { performLogin() }) {
+                        Group {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text(isRegistered ? "登录" : "登录 / 注册")
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            LinearGradient(colors: gradientColors, startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(14)
+                        .shadow(color: Color(hex: "3B82F6").opacity(0.35), radius: 10, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(inputUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                    .opacity(inputUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+
+                    // 上级用户
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("上级用户：没有上级用户")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 14)
+                    .background(Color(uiColor: .systemGray6).opacity(0.6))
+                    .cornerRadius(20)
+                    .padding(.top, 6)
+
+                    // 取消按钮
+                    Button(action: { isPresented = false }) {
+                        Text("取消")
+                            .font(.system(size: 15))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                }
+                .padding(24)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(uiColor: .systemBackground))
+                        .shadow(color: Color.black.opacity(0.08), radius: 20, y: 4)
+                )
+                .padding(.horizontal, 24)
+
+                Spacer().frame(height: 20)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 280)
-        .cornerRadius(16)
+        .background(
+            Color(uiColor: .systemGroupedBackground).opacity(0.5).ignoresSafeArea()
+        )
+    }
+
+    private var isRegistered: Bool {
+        let trimmed = inputUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let savedPassword = DatabaseManager.shared.getSetting(key: "password_\(trimmed)")
+        return savedPassword != nil && !savedPassword!.isEmpty
     }
 
     private func performLogin() {
         let trimmed = inputUsername.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        username = trimmed
+        let trimmedPassword = inputPassword.trimmingCharacters(in: .whitespaces)
+
+        guard !trimmed.isEmpty else {
+            loginError = "请输入用户名"
+            return
+        }
+
+        guard !trimmedPassword.isEmpty else {
+            loginError = "请输入密码"
+            return
+        }
+
+        isLoading = true
+        loginError = nil
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let savedPassword = DatabaseManager.shared.getSetting(key: "password_\(trimmed)")
+
+            if let saved = savedPassword, !saved.isEmpty {
+                // 已注册，验证密码
+                if saved == trimmedPassword {
+                    loginSuccess(name: trimmed)
+                } else {
+                    loginError = "密码错误，请重试"
+                    isLoading = false
+                }
+            } else {
+                // 未注册，直接注册
+                DatabaseManager.shared.setSetting(key: "password_\(trimmed)", value: trimmedPassword)
+                loginSuccess(name: trimmed)
+            }
+        }
+    }
+
+    private func loginSuccess(name: String) {
+        username = name
         isLoggedIn = true
-        DatabaseManager.shared.setSetting(key: "username", value: trimmed)
+        DatabaseManager.shared.setSetting(key: "username", value: name)
         DatabaseManager.shared.setSetting(key: "isLoggedIn", value: "true")
+        isLoading = false
         isPresented = false
     }
 }
@@ -404,6 +550,7 @@ struct WatchHistoryView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.presentationMode) private var presentationMode
     @State private var historyRecords: [HistoryRecord] = []
+    @State private var selectedVideo: VodItem? = nil
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -455,6 +602,10 @@ struct WatchHistoryView: View {
 
                         Spacer()
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                    }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
                 }
@@ -493,9 +644,10 @@ struct WatchHistoryView: View {
         .onAppear {
             historyRecords = DatabaseManager.shared.queryHistory()
         }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
+        }
     }
-
-    private func coverThumbnail(urlString: String) -> some View {
         Group {
             if urlString.isEmpty {
                 Rectangle()
@@ -533,6 +685,7 @@ struct FavoriteView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.presentationMode) private var presentationMode
     @State private var favorites: [FavoriteRecord] = []
+    @State private var selectedVideo: VodItem? = nil
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -580,6 +733,10 @@ struct FavoriteView: View {
 
                         Spacer()
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                    }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
                 }
@@ -621,6 +778,9 @@ struct FavoriteView: View {
         }
         .onAppear {
             favorites = DatabaseManager.shared.queryFavorites()
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
         }
     }
 

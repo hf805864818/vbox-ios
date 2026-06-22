@@ -1687,7 +1687,27 @@ globalThis.__JS_SPIDER__ = _spider;
                   let hRange = Range(hrefRange, in: html),
                   let nRange = Range(nameRange, in: html) else { continue }
             let detailPath = String(html[hRange])
-            let title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            var title = String(html[nRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // 如果链接文字是更新信息（如「更新到12集」），尝试从 title 属性提取真正的视频名称
+            let episodePatterns = ["更新到", "更新至", "连载至", "已完结", "更新中"]
+            let looksLikeEpisode = episodePatterns.contains(where: { title.contains($0) })
+            if looksLikeEpisode || title.count < 4 {
+                // 尝试从包含此链接的 a 标签中提取 title 属性
+                if let aStart = html.range(of: detailPath, options: .backwards, range: html.startIndex..<nRange.lowerBound) {
+                    let before = String(html[aStart.upperBound...nRange.upperBound])
+                    let attrPattern = #"title="([^"]+)"#
+                    if let attrRegex = try? NSRegularExpression(pattern: attrPattern),
+                       let attrMatch = attrRegex.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)),
+                       let attrRange = Range(attrMatch.range(at: 1), in: before) {
+                        let attrTitle = String(before[attrRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if attrTitle.count > 2 {
+                            title = attrTitle
+                        }
+                    }
+                }
+            }
+
             if title.count < 2 || title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
 
             var pic = ""

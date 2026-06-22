@@ -75,8 +75,9 @@ class AppSettings: ObservableObject {
 
     var preferredColorScheme: ColorScheme? {
         if skinMode == .liquid { return .dark }
+        if skinFollowsSystem { return nil }
         if skinMode == .frosted { return nil }
-        return skinFollowsSystem ? nil : skinMode.preferredColorScheme
+        return skinMode.preferredColorScheme
     }
 
     var usesLiquidSkin: Bool {
