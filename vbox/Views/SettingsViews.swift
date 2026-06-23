@@ -169,23 +169,62 @@ struct SettingsView: View {
                 .padding(.vertical, 14)
 
                 if settings.enableTMDB {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("代理地址")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 16)
-                        TextField("https://vbox.ltd", text: $settings.tmdbProxyURL)
-                            .font(.system(size: 14))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                            )
-                            .padding(.horizontal, 16)
-                            .keyboardType(.URL)
-                            .autocapitalization(.none)
-                            .disableAutocorrection(true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        // 代理地址
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("代理地址")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 16)
+                            TextField("https://vbox.ltd", text: $settings.tmdbProxyURL)
+                                .font(.system(size: 14))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                                )
+                                .padding(.horizontal, 16)
+                                .keyboardType(.URL)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                        }
+
+                        // Token 开关
+                        HStack {
+                            Image(systemName: "key.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(Color(hex: "F59E0B"))
+                            Text("代理需要 Token")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Toggle("", isOn: $settings.tmdbUseToken)
+                                .labelsHidden()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+
+                        // Token 输入框
+                        if settings.tmdbUseToken {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("代理 Token")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 16)
+                                TextField("199114", text: $settings.tmdbProxyToken)
+                                    .font(.system(size: 14))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                                    )
+                                    .padding(.horizontal, 16)
+                                    .autocapitalization(.none)
+                                    .disableAutocorrection(true)
+                            }
+                        }
                     }
                     .padding(.vertical, 6)
                 }

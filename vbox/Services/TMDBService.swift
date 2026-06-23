@@ -9,7 +9,8 @@ final class TMDBService {
     private let apiKey = "eea47c6a97dbc2b7cfad319971719cec"
     private let imageBaseURL = "https://image.tmdb.org/t/p"
     private var proxyBaseURL: String
-    private let proxyToken = "199114"
+    private var useProxyToken: Bool
+    private var proxyToken: String
 
     private let session: URLSession
 
@@ -19,6 +20,8 @@ final class TMDBService {
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
         self.proxyBaseURL = UserDefaults.standard.string(forKey: "app_tmdb_proxy_url") ?? "https://vbox.ltd"
+        self.useProxyToken = UserDefaults.standard.object(forKey: "app_tmdb_use_token") as? Bool ?? true
+        self.proxyToken = UserDefaults.standard.string(forKey: "app_tmdb_proxy_token") ?? "199114"
     }
 
     /// 更新 TMDB 代理地址
@@ -26,18 +29,28 @@ final class TMDBService {
         self.proxyBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 更新 TMDB 代理 Token 配置
+    func updateToken(useToken: Bool, token: String) {
+        self.useProxyToken = useToken
+        self.proxyToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - 代理 URL
 
     /// 把任意远程 URL 转为 vbox.ltd 代理 URL
     /// 注意：传入的 originalURL 应当是已经编码好的完整 URL，这里只对作为 query 参数的整体做一次编码
     func proxiedURL(_ originalURL: String) -> String {
-        // 把整体 URL 作为 vbox.ltd 的 `url` query 参数编码。
+        // 把整体 URL 作为代理的 `url` query 参数编码。
         // allowed 字符集保留 URL 结构和已编码的 %XX，但会把 `&` `=` 等作为 query 分隔符意义的字符编码，
-        // 避免 vbox.ltd 把被代理 URL 内部的参数解析成自己的 query 参数。
+        // 避免代理把被代理 URL 内部的参数解析成自己的 query 参数。
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: ":/?+$,;-.~_#[]!%")
         let encoded = originalURL.addingPercentEncoding(withAllowedCharacters: allowed) ?? originalURL
-        return "\(proxyBaseURL)?token=\(proxyToken)&url=\(encoded)"
+        if useProxyToken && !proxyToken.isEmpty {
+            return "\(proxyBaseURL)?token=\(proxyToken)&url=\(encoded)"
+        } else {
+            return "\(proxyBaseURL)?url=\(encoded)"
+        }
     }
 
     /// 把远程图片 URL 转为本地代理 URL（优先本地代理，没有则走 vbox.ltd 云端代理）
