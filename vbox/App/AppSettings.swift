@@ -49,6 +49,8 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
 class AppSettings: ObservableObject {
     private static let skinModeKey = "app_skin_mode"
     private static let skinFollowsSystemKey = "app_skin_follows_system"
+    private static let enableTMDBKey = "app_enable_tmdb"
+    private static let tmdbProxyURLKey = "app_tmdb_proxy_url"
 
     @Published var isSpiderReady = false
     @Published var subscribedSites: [SiteConfig] = []
@@ -66,11 +68,23 @@ class AppSettings: ObservableObject {
         }
     }
     @Published var showSettings = false
+    @Published var enableTMDB: Bool {
+        didSet {
+            UserDefaults.standard.set(enableTMDB, forKey: Self.enableTMDBKey)
+        }
+    }
+    @Published var tmdbProxyURL: String {
+        didSet {
+            UserDefaults.standard.set(tmdbProxyURL, forKey: Self.tmdbProxyURLKey)
+        }
+    }
 
     init() {
         let rawSkin = UserDefaults.standard.string(forKey: Self.skinModeKey)
         skinMode = AppSkinMode(rawValue: rawSkin ?? "") ?? .light
         skinFollowsSystem = UserDefaults.standard.object(forKey: Self.skinFollowsSystemKey) as? Bool ?? false
+        enableTMDB = UserDefaults.standard.object(forKey: Self.enableTMDBKey) as? Bool ?? true
+        tmdbProxyURL = UserDefaults.standard.string(forKey: Self.tmdbProxyURLKey) ?? "https://vbox.ltd"
     }
 
     var preferredColorScheme: ColorScheme? {

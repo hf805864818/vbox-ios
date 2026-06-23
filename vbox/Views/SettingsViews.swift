@@ -89,6 +89,7 @@ struct SettingsView: View {
         VStack(spacing: 20) {
             skinSettingsSection
             playbackSettingsSection
+            tmdbSettingsSection
             subscriptionSection
             siteDiagnosticsSection
             fallbackSection
@@ -147,6 +148,48 @@ struct SettingsView: View {
             SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
             SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
             SettingsToggleRow(title: "搜索调试面板", isOn: $showSearchDebug)
+        }
+    }
+
+    private var tmdbSettingsSection: some View {
+        SettingsSection(title: "TMDB 设置") {
+            VStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "3B82F6"))
+                    Text("加载 TMDB 封面与演职人员")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Toggle("", isOn: $settings.enableTMDB)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                if settings.enableTMDB {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("代理地址")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 16)
+                        TextField("https://vbox.ltd", text: $settings.tmdbProxyURL)
+                            .font(.system(size: 14))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                            )
+                            .padding(.horizontal, 16)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
         }
     }
 

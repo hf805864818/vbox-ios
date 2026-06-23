@@ -47,7 +47,7 @@ struct VideoDetailView: View {
     @State private var isLoadingTMDB = false
 
     // 演职人员分类
-    @State private var selectedCastTab = "演员"
+    @State private var selectedCastTab = "全部"
 
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
@@ -125,7 +125,8 @@ struct VideoDetailView: View {
 
     // MARK: - 加载 TMDB 数据（logo、海报、演员）
     private func loadTMDBData() {
-        guard !isLoadingTMDB else { return }
+        guard settings.enableTMDB, !isLoadingTMDB else { return }
+        TMDBService.shared.updateProxy(baseURL: settings.tmdbProxyURL)
         isLoadingTMDB = true
         Task {
             guard let searchResult = await TMDBService.shared.searchMovie(name: searchName, year: video.vodYear) else {
@@ -616,31 +617,31 @@ struct VideoDetailView: View {
                 .ignoresSafeArea()
 
                 // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
-            VStack(spacing: 0) {
-                Spacer()
-                HStack(spacing: 0) {
-                    BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
-                    BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
-                    BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
-                    BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
+                VStack(spacing: 0) {
+                    Spacer()
+                    HStack(spacing: 0) {
+                        BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
+                        BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
+                        BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
+                        BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
+                            .overlay(
+                                Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                    )
+                    .clipShape(Capsule())
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-                .background(
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
-                        .overlay(
-                            Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
-                        )
-                )
-                .clipShape(Capsule())
-                .padding(.bottom, 20)
-            }
 
-            // 下载提示
-            if showDownloadTip {
+                // 下载提示
+                if showDownloadTip {
                 VStack {
                     Spacer()
                     Text(episodes.isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
