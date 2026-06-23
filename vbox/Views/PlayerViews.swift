@@ -443,7 +443,7 @@ struct VideoDetailView: View {
                             .aspectRatio(contentMode: .fill)
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
-                            .overlay(bottomDimmingOverlay(height: geometry.size.height * 0.30))
+                            .overlay(bottomDimmingOverlay(height: geometry.size.height * 0.55))
                     default:
                         fallbackBackground
                     }
@@ -460,7 +460,11 @@ struct VideoDetailView: View {
         VStack(spacing: 0) {
             Spacer()
             LinearGradient(
-                colors: [.clear, Color.black.opacity(0.20)],
+                gradient: Gradient(stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: Color.black.opacity(0.10), location: 0.35),
+                    .init(color: Color.black.opacity(0.35), location: 1.0)
+                ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
