@@ -1369,11 +1369,11 @@ struct SearchResultRow: View {
 
                 Spacer(minLength: 0)
 
-                // 资源站名称放在信息区底部，向右对齐，名称过长时向左侧延伸
+                // 资源站名称放在信息区底部，向左对齐，名称过长时向右侧延伸
                 if let r = video.vodRemarks, !r.isEmpty {
                     HStack {
-                        Spacer()
                         SourceTagBadge(text: r)
+                        Spacer()
                     }
                 }
             }
