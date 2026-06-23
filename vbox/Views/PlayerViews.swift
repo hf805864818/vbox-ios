@@ -394,12 +394,12 @@ struct VideoDetailView: View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 backgroundLayer(geometry: geometry)
+                    .ignoresSafeArea()
                 contentLayer(geometry: geometry)
-                bottomBarLayer(geometry: geometry)
+                bottomBarLayer
                 downloadTipLayer
             }
         }
-        .ignoresSafeArea()
         // 播放器
         .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
         .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
@@ -435,7 +435,7 @@ struct VideoDetailView: View {
     private func backgroundLayer(geometry: GeometryProxy) -> some View {
         Group {
             if let poster = tmdbPosterURL ?? tmdbBackdropURL ?? doubanBackdropURL,
-               let url = URL(string: poster) {
+               let url = DoubanImageProxyServer.shared.resolvedURL(for: poster) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -522,7 +522,6 @@ struct VideoDetailView: View {
                 .padding(.bottom, 120)
             }
         }
-        .ignoresSafeArea()
     }
 
     // MARK: - 立即播放按钮
@@ -703,31 +702,39 @@ struct VideoDetailView: View {
         }.padding(.top, 8)
     }
 
-    // MARK: - 底部胶囊悬浮操作栏
-    private func bottomBarLayer(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
-            Spacer()
-            HStack(spacing: 0) {
-                BottomBarButton(icon: "play.fill", title: "播放", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handlePlay() }
-                BottomBarButton(icon: "list.bullet", title: "选集", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { showEpisodeSheet = true }
-                BottomBarButton(icon: "square.and.arrow.down", title: "下载", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleDownload() }
-                BottomBarButton(icon: "square.and.arrow.up", title: "分享", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleShare() }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
-            .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .background(Capsule().fill(Color.black.opacity(0.22)))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                    )
-            )
-            .clipShape(Capsule())
-            .padding(.bottom, max(geometry.safeAreaInsets.bottom + 8, 8))
+    // MARK: - 底部胶囊悬浮操作栏（与首页 GlassBottomTabBar 保持一致）
+    private var bottomBarLayer: some View {
+        HStack(spacing: 2) {
+            BottomBarButton(icon: "play.fill", title: "播放", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handlePlay() }
+            BottomBarButton(icon: "list.bullet", title: "选集", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { showEpisodeSheet = true }
+            BottomBarButton(icon: "square.and.arrow.down", title: "下载", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleDownload() }
+            BottomBarButton(icon: "square.and.arrow.up", title: "分享", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleShare() }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+        .background(
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .background(Capsule().fill(bottomBarBaseColor))
+                .overlay(
+                    Capsule()
+                        .stroke(bottomBarStrokeColor, lineWidth: 1)
+                )
+        )
+        .clipShape(Capsule())
+        .padding(.horizontal, 36)
+        .padding(.bottom, 8)
+    }
+
+    private var bottomBarBaseColor: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.34) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemBackground).opacity(0.62) }
+        return Color(uiColor: .systemBackground).opacity(0.86)
+    }
+
+    private var bottomBarStrokeColor: Color {
+        settings.usesVisualSkin ? Color.white.opacity(0.28) : Color.gray.opacity(0.2)
     }
 
     private var bottomBarActiveColor: Color {
