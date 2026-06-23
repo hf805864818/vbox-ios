@@ -391,13 +391,20 @@ struct VideoDetailView: View {
 
     // MARK: - Body
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                backgroundLayer(geometry: geometry)
-                    .ignoresSafeArea()
-                contentLayer(geometry: geometry)
-                bottomBarLayer
-                downloadTipLayer
+        ZStack(alignment: .bottom) {
+            // 背景层：铺满全屏（包括安全区）
+            GeometryReader { fullGeometry in
+                backgroundLayer(geometry: fullGeometry)
+            }
+            .ignoresSafeArea()
+
+            // 内容层 + 底栏：只在安全区内
+            GeometryReader { safeGeometry in
+                ZStack(alignment: .bottom) {
+                    contentLayer(geometry: safeGeometry)
+                    bottomBarLayer
+                    downloadTipLayer
+                }
             }
         }
         // 播放器
