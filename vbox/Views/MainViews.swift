@@ -587,18 +587,6 @@ struct VideoCard: View {
                     }
                     .frame(height: 140)
                     .clipped()
-
-                    // 播放时长
-                    Text(video.vodRemarks ?? "")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule()
-                                .fill(Color.black.opacity(0.7))
-                        )
-                        .padding(8)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
@@ -610,18 +598,25 @@ struct VideoCard: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
+                    // 来源标签
+                    if let remarks = video.vodRemarks, !remarks.isEmpty {
+                        Text(remarks)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(hex: "E11D48"))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Color(hex: "E11D48").opacity(0.12))
+                            )
+                    }
+
                     HStack(spacing: 8) {
-                        Text(video.vodRemarks ?? "")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.secondary)
-
-                        Text("•")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.secondary)
-
-                        Text(video.vodYear ?? "")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.secondary)
+                        if let year = video.vodYear, !year.isEmpty {
+                            Text(year)
+                                .font(.system(size: 11))
+                                .foregroundColor(Color.secondary)
+                        }
                     }
                 }
             }
