@@ -65,13 +65,15 @@ struct MainTabView: View {
 }
 
 extension View {
+    /// 全局边缘侧滑返回（放宽触发区域和距离）
     func edgeSwipeBack(_ action: @escaping () -> Void) -> some View {
         simultaneousGesture(
-            DragGesture(minimumDistance: 24, coordinateSpace: .global)
+            DragGesture(minimumDistance: 12, coordinateSpace: .global)
                 .onEnded { value in
                     let dx = value.translation.width
                     let dy = abs(value.translation.height)
-                    guard value.startLocation.x < 28, dx > 90, dx > dy * 1.4 else { return }
+                    // 放宽：左侧 55pt 内起滑，水平滑动超过 45pt，且基本水平
+                    guard value.startLocation.x < 55, dx > 45, dx > dy else { return }
                     action()
                 }
         )
@@ -1361,13 +1363,7 @@ struct SearchResultRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let r = video.vodRemarks, !r.isEmpty {
-                    Text(r)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.65))
-                        .clipShape(Capsule())
+                    SourceTagBadge(text: r)
                         .padding(4)
                 }
             }
@@ -1416,6 +1412,7 @@ struct SourceTagBadge: View {
         Text(text)
             .font(.system(size: 10, weight: .medium))
             .foregroundColor(Color(hex: "E11D48"))
+            .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Color(hex: "E11D48").opacity(0.12))
