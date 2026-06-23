@@ -139,9 +139,29 @@ class DoubanService: ObservableObject {
     
     private func fetchCollection(_ collectionId: String, start: Int, count: Int) async throws -> [DoubanSubject] {
         let url = URL(string: "\(baseURL)/subject_collection/\(collectionId)/items?start=\(start)&count=\(count)")!
-        let (data, _) = try await session.data(from: url)
-        let result = try JSONDecoder().decode(DoubanCollectionResponse.self, from: data)
-        return result.subject_collection_items ?? []
+        
+        // 首次请求可能因 session 未预热而返回空数据，添加重试
+        for attempt in 0..<2 {
+            let (data, response) = try await session.data(from: url)
+            
+            // 检查是否被重定向到登录页
+            if let httpResponse = response as? HTTPURLResponse,
+               (httpResponse.statusCode == 403 || httpResponse.statusCode == 302) {
+                if attempt == 1 { throw NSError(domain: "DoubanService", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "豆瓣 API 访问受限 (HTTP \(httpResponse.statusCode))"]) }
+                try await Task.sleep(nanoseconds: 800_000_000)
+                continue
+            }
+            
+            let result = try JSONDecoder().decode(DoubanCollectionResponse.self, from: data)
+            let subjects = result.subject_collection_items ?? []
+            
+            if !subjects.isEmpty || attempt == 1 {
+                return subjects
+            }
+            // 空数据则等待后重试
+            try await Task.sleep(nanoseconds: 800_000_000)
+        }
+        return []
     }
 
     private func fetchCollectionWithTVCovers(_ collectionId: String, start: Int, count: Int) async throws -> [DoubanSubject] {
