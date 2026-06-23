@@ -46,6 +46,9 @@ struct VideoDetailView: View {
     @State private var tmdbMediaType: String = "movie"
     @State private var isLoadingTMDB = false
 
+    // 豆瓣大封面图（TMDB 关闭或 TMDB 失败时使用）
+    @State private var doubanBackdropURL: String? = nil
+
     // 演职人员分类
     @State private var selectedCastTab = "全部"
 
@@ -108,16 +111,29 @@ struct VideoDetailView: View {
         }
     }
 
-    // MARK: - 加载演职人员
-    private func loadCredits() {
+    // MARK: - 加载豆瓣数据（大封面图 + 演职人员）
+    private func loadDoubanData() {
         guard !isLoadingCredits else { return }
         isLoadingCredits = true
         Task {
             let result = await DoubanService.shared.fetchCredits(for: searchName)
+
+            var backdropURL: String? = nil
+            if let subjectId = result.subjectId {
+                backdropURL = await DoubanService.shared.fetchWallpaperURL(subjectId: subjectId)
+            }
+
             await MainActor.run {
-                actors = result.actors
-                directors = result.directors
-                writers = result.writers
+                // 仅当当前没有任何演职人员时才写入（避免 TMDB 已获取到的数据被覆盖）
+                if actors.isEmpty && directors.isEmpty && writers.isEmpty {
+                    actors = result.actors
+                    directors = result.directors
+                    writers = result.writers
+                }
+                // 仅当没有 TMDB 大封面时才写入豆瓣封面
+                if tmdbPosterURL == nil && tmdbBackdropURL == nil {
+                    doubanBackdropURL = backdropURL
+                }
                 isLoadingCredits = false
             }
         }
@@ -131,6 +147,7 @@ struct VideoDetailView: View {
         Task {
             guard let searchResult = await TMDBService.shared.searchMovie(name: searchName, year: video.vodYear) else {
                 await MainActor.run { isLoadingTMDB = false }
+                loadDoubanData()
                 return
             }
 
@@ -158,18 +175,21 @@ struct VideoDetailView: View {
                     tmdbBackdropURL = TMDBService.shared.proxiedImageURL(backdropPath, size: "original")
                 }
 
-                // 演职人员：TMDB 有则替换，没有保留豆瓣
+                // 演职人员：TMDB 有则替换豆瓣
                 if let credits, !credits.actors.isEmpty {
                     actors = credits.actors
                     directors = credits.directors
                     writers = credits.writers
                 }
-                // 如果 TMDB 没找到任何演职人员，触发豆瓣兜底
-                if actors.isEmpty && directors.isEmpty && writers.isEmpty {
-                    loadCredits()
-                }
 
                 isLoadingTMDB = false
+
+                // 如果 TMDB 没找到大封面图或演职人员，触发豆瓣兜底
+                let hasTMDBBackdrop = tmdbPosterURL != nil || tmdbBackdropURL != nil
+                let hasTMDBCredits = !actors.isEmpty || !directors.isEmpty || !writers.isEmpty
+                if !hasTMDBBackdrop || !hasTMDBCredits {
+                    loadDoubanData()
+                }
             }
         }
     }
@@ -399,8 +419,11 @@ struct VideoDetailView: View {
             initializeSources()
             if isCloudVideo { loadPanLinks() }
             loadRealDetailIfNeeded()
-            loadCredits()
-            loadTMDBData()
+            if settings.enableTMDB {
+                loadTMDBData()
+            } else {
+                loadDoubanData()
+            }
             checkFavorite()
         }
         .edgeSwipeBack { dismiss() }
@@ -409,7 +432,7 @@ struct VideoDetailView: View {
     // MARK: - 背景层
     private func backgroundLayer(geometry: GeometryProxy) -> some View {
         Group {
-            if let poster = tmdbPosterURL,
+            if let poster = tmdbPosterURL ?? tmdbBackdropURL ?? doubanBackdropURL,
                let url = URL(string: poster) {
                 AsyncImage(url: url) { phase in
                     switch phase {
