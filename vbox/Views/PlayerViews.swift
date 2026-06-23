@@ -394,60 +394,49 @@ struct VideoDetailView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .ignoresSafeArea()
 
-                // 底部渐变遮罩，保证内容可读
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        .black.opacity(0.5),
-                        .black.opacity(0.85),
-                        .black
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                // MARK: 可滚动内容
+                // MARK: 可滚动内容 + logo（一起滚动）
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        // 顶部占位，露出背景封面
-                        Color.clear
-                            .frame(height: geometry.size.height * 0.40)
+                        // 顶部 hero 区域：logo 直接透底
+                        VStack(spacing: 12) {
+                            Spacer()
+                                .frame(height: geometry.safeAreaInsets.top + 20)
 
-                        // 内容区
-                        VStack(spacing: 20) {
-                            // TMDB logo / 毛笔字片名
                             HeroTitleView(
                                 name: displayVideo.vodName,
                                 logoURL: tmdbLogoURL
                             )
                             .frame(maxHeight: 70)
 
-                            // 副标题 / 类型标签 / 年代（居中）
-                            VStack(spacing: 8) {
-                                Text(displayVideo.vodName)
-                                    .font(.system(size: 14))
+                            Text(displayVideo.vodName)
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.9))
+                                .lineLimit(1)
+                                .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 1)
+
+                            HStack(spacing: 8) {
+                                Text("剧情")
+                                    .font(.system(size: 11))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.black.opacity(0.25))
                                     .foregroundColor(.white.opacity(0.9))
-                                    .lineLimit(1)
+                                    .cornerRadius(4)
 
-                                HStack(spacing: 8) {
-                                    Text("剧情")
+                                if let year = displayVideo.vodYear, !year.isEmpty {
+                                    Text(year)
                                         .font(.system(size: 11))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(Color.white.opacity(0.15))
                                         .foregroundColor(.white.opacity(0.85))
-                                        .cornerRadius(4)
-
-                                    if let year = displayVideo.vodYear, !year.isEmpty {
-                                        Text(year)
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.white.opacity(0.6))
-                                    }
+                                        .shadow(color: .black.opacity(0.6), radius: 3, x: 0, y: 1)
                                 }
                             }
-                            .frame(maxWidth: .infinity)
 
+                            Spacer()
+                        }
+                        .frame(height: geometry.size.height * 0.42)
+
+                        // 内容区
+                        VStack(spacing: 20) {
                             // 立即播放按钮
                             Button(action: handlePlay) {
                                 HStack(spacing: 8) {
@@ -618,18 +607,12 @@ struct VideoDetailView: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
                         .padding(.bottom, 120)
-                        // 内容区背景：始终使用从透明到深色的渐变，透出底层封面图
+                        // 内容区背景：毛玻璃 + 极淡黑色叠加，直接透出底层封面图
                         .background(
-                            LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.05),
-                                    Color.black.opacity(0.35),
-                                    Color.black.opacity(0.75),
-                                    Color.black.opacity(0.92)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                            ZStack {
+                                .ultraThinMaterial
+                                Color.black.opacity(0.08)
+                            }
                             .ignoresSafeArea(edges: .bottom)
                         )
                     }
