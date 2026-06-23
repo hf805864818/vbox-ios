@@ -715,16 +715,6 @@ struct VideoDetailView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
             .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .background(Capsule().fill(Color.black.opacity(0.22)))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                    )
-            )
-            .clipShape(Capsule())
             .padding(.bottom, 8)
         }
     }
