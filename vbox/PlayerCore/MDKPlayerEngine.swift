@@ -78,10 +78,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
-        // 开启硬解；copy=1 让 VT 解码器输出可 CPU 访问的 buffer（部分场景备用）
-        player.setProperty(name: "hwdec", value: "videotoolbox")
-        player.setProperty(name: "copy", value: "1")
-        player.videoDecoders = ["VT", "FFmpeg"]
+        // 开启硬解：VT 使用 0-copy 输出 GPU 纹理，避免 copy 模式下的色彩/格式异常
+        player.videoDecoders = ["VT:copy=0", "FFmpeg"]
 
         // 绑定状态回调
         player.onStateChanged { [weak self] newState in

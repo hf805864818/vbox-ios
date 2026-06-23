@@ -3409,7 +3409,7 @@ struct PlayerContainerView: View {
 
                         EnginePickerPanelV2(playerState: playerState, isPortrait: false)
                             .environmentObject(settings)
-                            .frame(width: 100, height: 160)
+                            .frame(width: 130, height: 160)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
@@ -3418,6 +3418,7 @@ struct PlayerContainerView: View {
                                 RoundedRectangle(cornerRadius: 10)
                                     .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
                             )
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                             .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
                             // 固定在进度条上方（与倍数弹窗同位置区域）
                             .position(x: geo.size.width - 38, y: geo.size.height - 200)
@@ -4863,18 +4864,18 @@ struct EnginePickerPanelV2: View {
                                 .foregroundColor(selectedColor)
                         }
                     }
-                    .padding(.horizontal, isPortrait ? 16 : 12)
-                    .padding(.vertical, isPortrait ? 14 : 10)
                     .background(
                         playerState.enginePreference == engine ? selectedColor.opacity(0.15) : Color.clear
                     )
+                    .padding(.horizontal, isPortrait ? 16 : 12)
+                    .padding(.vertical, isPortrait ? 14 : 10)
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 if engine != PlayerState.PlaybackEnginePreference.allCases.last {
                     Divider()
                         .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
-                        .padding(.leading, isPortrait ? 16 : 12)
+                        .padding(.horizontal, isPortrait ? 16 : 12)
                 }
             }
         }
