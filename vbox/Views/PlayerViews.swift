@@ -714,25 +714,15 @@ struct VideoDetailView: View {
             .background(
                 Capsule()
                     .fill(.ultraThinMaterial)
-                    .background(Capsule().fill(bottomBarBaseColor))
+                    .background(Capsule().fill(Color.black.opacity(0.22)))
                     .overlay(
                         Capsule()
-                            .stroke(bottomBarStrokeColor, lineWidth: 1)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                     )
             )
             .clipShape(Capsule())
             .padding(.bottom, 8)
         }
-    }
-
-    private var bottomBarBaseColor: Color {
-        if settings.usesLiquidSkin { return Color.black.opacity(0.34) }
-        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemBackground).opacity(0.62) }
-        return Color(uiColor: .systemBackground).opacity(0.86)
-    }
-
-    private var bottomBarStrokeColor: Color {
-        settings.usesVisualSkin ? Color.white.opacity(0.28) : Color.gray.opacity(0.2)
     }
 
     private var bottomBarActiveColor: Color {

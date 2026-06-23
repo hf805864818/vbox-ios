@@ -909,7 +909,13 @@ extension DoubanService {
             return nil
         }
 
-        let rawURL = portraitURL.replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+        // 去掉 imageView2 处理参数，并把 /photo/large/ 或 /photo/l/ 都转成 /photo/raw/ 取原图
+        var components = URLComponents(string: portraitURL)
+        components?.query = nil
+        let cleanURL = components?.string ?? portraitURL
+        let rawURL = cleanURL
+            .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
+            .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
         print("[DoubanService] fetchWallpaperURL 成功: 竖版 \(rawURL)")
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
     }
