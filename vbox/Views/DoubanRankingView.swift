@@ -101,9 +101,16 @@ struct DoubanRankingView: View {
             LazyVStack(spacing: 0) {
                 if isLoading && subjects.isEmpty {
                     // 首次加载中
-                    ForEach(0..<6, id: \.self) { _ in
-                        ChartSkeletonRow()
+                    let columns = [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ]
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            ChartSkeletonRow()
+                        }
                     }
+                    .padding(.horizontal, 16)
                     .padding(.top, 12)
                 } else if let error = errorMessage {
                     // 错误提示
@@ -146,8 +153,12 @@ struct DoubanRankingView: View {
                     }
                     .padding(.top, 100)
                 } else {
-                    // 榜单列表（双列横排）
-                    LazyVStack(spacing: 12) {
+                    // 双列横排榜单
+                    let columns = [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ]
+                    LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(subjects) { subject in
                             ChartRowItem(subject: subject, settings: settings)
                                 .onTapGesture {
@@ -255,9 +266,9 @@ struct ChartRowItem: View {
     let settings: AppSettings
 
     var body: some View {
-        HStack(spacing: 12) {
-            // 左侧封面
-            ZStack(alignment: .topTrailing) {
+        VStack(alignment: .leading, spacing: 6) {
+            // 封面 + 排名角标
+            ZStack(alignment: .topLeading) {
                 if let coverURL = subject.coverURL,
                    let proxiedURL = DoubanImageProxyServer.shared.proxiedURL(for: coverURL) {
                     AsyncImage(url: proxiedURL) { phase in
@@ -280,65 +291,46 @@ struct ChartRowItem: View {
                 ZStack {
                     Circle()
                         .fill(rankColor)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                     Text("\(subject.rank)")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                 }
-                .offset(x: 6, y: -6)
+                .padding(4)
             }
-            .frame(width: 90, height: 130)
+            .frame(height: 130)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipped()
 
-            // 右侧详情
-            VStack(alignment: .leading, spacing: 6) {
-                Text(subject.title)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
+            // 标题
+            Text(subject.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let originalTitle = subject.originalTitle, !originalTitle.isEmpty, originalTitle != subject.title {
-                    Text(originalTitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-                        .lineLimit(1)
-                }
-
-                if let year = subject.year, !year.isEmpty {
-                    Text(year)
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                }
-
+            // 评分
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.yellow)
+                Text(String(format: "%.1f", subject.rating))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Color(hex: "E11D48"))
                 if let info = subject.info, !info.isEmpty {
                     Text(info)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(.yellow)
-                    Text(String(format: "%.1f", subject.rating))
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(Color(hex: "E11D48"))
-                    if let count = subject.ratingCount, !count.isEmpty {
-                        Text("(\(count)人评价)")
-                            .font(.system(size: 11))
-                            .foregroundColor(.gray)
-                    }
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.vertical, 4)
 
-            Spacer()
+            if let ratingCount = subject.ratingCount, !ratingCount.isEmpty {
+                Text("\(ratingCount)人评价")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+            }
         }
-        .frame(height: 130)
-        .padding(.vertical, 6)
     }
 
     private var rankColor: Color {
@@ -355,7 +347,7 @@ struct ChartRowItem: View {
             Rectangle()
                 .fill(Color.gray.opacity(0.15))
             Image(systemName: "photo")
-                .font(.system(size: 24))
+                .font(.system(size: 20))
                 .foregroundColor(.gray.opacity(0.5))
         }
     }
@@ -364,32 +356,23 @@ struct ChartRowItem: View {
 // MARK: - 骨架屏
 struct ChartSkeletonRow: View {
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.gray.opacity(0.15))
-                .frame(width: 90, height: 130)
+                .frame(height: 130)
 
-            VStack(alignment: .leading, spacing: 8) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 150, height: 16)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 80, height: 12)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 120, height: 12)
-                Spacer()
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 60, height: 14)
-            }
-            .padding(.vertical, 4)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.15))
+                .frame(height: 14)
 
-            Spacer()
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.15))
+                .frame(width: 80, height: 12)
+
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.15))
+                .frame(width: 60, height: 10)
         }
-        .frame(height: 130)
-        .padding(.vertical, 6)
         .modifier(ShimmerEffect())
     }
 }
