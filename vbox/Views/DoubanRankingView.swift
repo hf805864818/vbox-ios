@@ -298,7 +298,8 @@ struct ChartRowItem: View {
                 }
                 .padding(4)
             }
-            .frame(height: 130)
+            .aspectRatio(2/3, contentMode: .fill)
+            .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .clipped()
 
@@ -359,7 +360,8 @@ struct ChartSkeletonRow: View {
         VStack(alignment: .leading, spacing: 6) {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.gray.opacity(0.15))
-                .frame(height: 130)
+                .aspectRatio(2/3, contentMode: .fill)
+                .frame(maxWidth: .infinity)
 
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color.gray.opacity(0.15))
