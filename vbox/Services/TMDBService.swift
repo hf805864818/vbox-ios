@@ -25,9 +25,9 @@ final class TMDBService {
     /// 把任意远程 URL 转为 vbox.ltd 代理 URL
     /// 注意：传入的 originalURL 应当是已经编码好的完整 URL，这里只对作为 query 参数的整体做一次编码
     func proxiedURL(_ originalURL: String) -> String {
-        // 使用 .alphanumerics + 保留 URL 专用字符，避免对已经编码的 %XX 再次编码
+        // 使用 .alphanumerics + 保留 URL 专用字符 + %，避免对已经编码的 %XX 再次编码
         var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: ":/?&=@+$,;-.~_#[]!")
+        allowed.insert(charactersIn: ":/?&=@+$,;-.~_#[]!%")
         let encoded = originalURL.addingPercentEncoding(withAllowedCharacters: allowed) ?? originalURL
         return "\(proxyBaseURL)?token=\(proxyToken)&url=\(encoded)"
     }
