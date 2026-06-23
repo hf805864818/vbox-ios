@@ -3409,7 +3409,7 @@ struct PlayerContainerView: View {
 
                         EnginePickerPanelV2(playerState: playerState, isPortrait: false)
                             .environmentObject(settings)
-                            .frame(width: 130, height: 160)
+                            .frame(width: 100, height: 160)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
@@ -4848,15 +4848,17 @@ struct EnginePickerPanelV2: View {
                             .font(.system(size: isPortrait ? 16 : 13, weight: playerState.enginePreference == engine ? .semibold : .regular))
                             .foregroundColor(playerState.enginePreference == engine ? selectedColor : textPrimary)
                         Spacer()
-                        // PiP 支持状态标注
-                        if engine == .vlc {
-                            Text("无画中画")
-                                .font(.system(size: isPortrait ? 11 : 9))
-                                .foregroundColor(.white.opacity(0.4))
-                        } else if engine == .mpv {
-                            Text("画中画")
-                                .font(.system(size: isPortrait ? 11 : 9))
-                                .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
+                        // PiP 支持状态标注（仅竖屏显示，横屏弹窗宽度有限不展示）
+                        if isPortrait {
+                            if engine == .vlc {
+                                Text("无画中画")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.4))
+                            } else if engine == .mpv {
+                                Text("画中画")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
+                            }
                         }
                         if playerState.enginePreference == engine {
                             Image(systemName: "checkmark")
