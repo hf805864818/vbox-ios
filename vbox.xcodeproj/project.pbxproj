@@ -101,9 +101,9 @@
 		A10144 /* video_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10144 /* video_sources.json */; };
 		A10150 /* DoubanCategoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* DoubanCategoryBrowserView.swift */; };
 		A10151 /* DoubanRankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10151 /* DoubanRankingView.swift */; };
-		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
 		A10152 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10152 /* TMDBService.swift */; };
 		A10153 /* MaShanZheng-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B10153 /* MaShanZheng-Regular.ttf */; };
+		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
 		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
@@ -289,9 +289,9 @@
 		B10144 /* video_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = video_sources.json; sourceTree = "<group>"; };
 		B10150 /* DoubanCategoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanCategoryBrowserView.swift; sourceTree = "<group>"; };
 		B10151 /* DoubanRankingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanRankingView.swift; sourceTree = "<group>"; };
-		B10154 /* DoubanChartService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanChartService.swift; sourceTree = "<group>"; };
 		B10152 /* TMDBService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBService.swift; sourceTree = "<group>"; };
 		B10153 /* MaShanZheng-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/MaShanZheng-Regular.ttf"; sourceTree = "<group>"; };
+		B10154 /* DoubanChartService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanChartService.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
