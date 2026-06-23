@@ -685,7 +685,7 @@ struct VideoDetailView: View {
         }.padding(.top, 8)
     }
 
-    // MARK: - 底部悬浮操作栏
+    // MARK: - 底部胶囊悬浮操作栏
     private var bottomBarLayer: some View {
         VStack(spacing: 0) {
             Spacer()
@@ -695,11 +695,31 @@ struct VideoDetailView: View {
                 BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
                 BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
             .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-            .padding(.bottom, 20)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .background(Capsule().fill(bottomBarBaseColor))
+                    .overlay(
+                        Capsule()
+                            .stroke(bottomBarStrokeColor, lineWidth: 1)
+                    )
+            )
+            .clipShape(Capsule())
+            .padding(.bottom, 8)
         }
+    }
+
+    private var bottomBarBaseColor: Color {
+        if settings.usesLiquidSkin { return Color.black.opacity(0.34) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondarySystemBackground).opacity(0.62) }
+        return Color(uiColor: .systemBackground).opacity(0.86)
+    }
+
+    private var bottomBarStrokeColor: Color {
+        settings.usesVisualSkin ? Color.white.opacity(0.28) : Color.gray.opacity(0.2)
     }
 
     // MARK: - 下载提示
@@ -790,7 +810,7 @@ struct CastPersonCard: View {
     }
 }
 
-// MARK: - 底部栏按钮
+// MARK: - 底部栏按钮（胶囊底栏样式）
 struct BottomBarButton: View {
     let icon: String
     let title: String
@@ -798,13 +818,14 @@ struct BottomBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: 1) {
                 Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(LinearGradient(colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")], startPoint: .top, endPoint: .bottom))
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(height: 22)
                 Text(title)
-                    .font(.system(size: 11))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundColor(.white.opacity(0.9))
             }
             .frame(maxWidth: .infinity)
         }
