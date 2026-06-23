@@ -618,24 +618,18 @@ struct VideoDetailView: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
                         .padding(.bottom, 120)
-                        // 没有 TMDB 大封面时避免全黑，使用半透明深色玻璃背景
+                        // 内容区背景：始终使用从透明到深色的渐变，透出底层封面图
                         .background(
-                            Group {
-                                if tmdbPosterURL == nil {
-                                    Color.black.opacity(0.55)
-                                        .background(.ultraThinMaterial)
-                                } else {
-                                    LinearGradient(
-                                        colors: [
-                                            Color.black.opacity(0.2),
-                                            Color.black.opacity(0.75),
-                                            Color.black.opacity(0.95)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                }
-                            }
+                            LinearGradient(
+                                colors: [
+                                    Color.black.opacity(0.05),
+                                    Color.black.opacity(0.35),
+                                    Color.black.opacity(0.75),
+                                    Color.black.opacity(0.92)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                             .ignoresSafeArea(edges: .bottom)
                         )
                     }
