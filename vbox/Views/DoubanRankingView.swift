@@ -1,19 +1,21 @@
 import SwiftUI
 
-// MARK: - 豆瓣排行榜视图
+// MARK: - 豆瓣排行榜视图（基于 movie.douban.com/chart HTML 爬取）
 struct DoubanRankingView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
 
-    // 所有排行榜类型
-    private let rankingTypes = DoubanService.RankingType.allCases
-    @State private var selectedType: DoubanService.RankingType = .movieWeekly
+    // 所有分类榜单
+    private let categories = DoubanChartService.ChartCategory.all
+    @State private var selectedCategory: DoubanChartService.ChartCategory = .all[6] // 默认悬疑
 
     // 数据状态
-    @State private var subjectsMap: [DoubanService.RankingType: [DoubanSubject]] = [:]
-    @State private var isLoadingMap: [DoubanService.RankingType: Bool] = [:]
-    @State private var hasMoreMap: [DoubanService.RankingType: Bool] = [:]
-    @State private var pageMap: [DoubanService.RankingType: Int] = [:]
+    @State private var subjects: [DoubanChartService.ChartSubject] = []
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorMessage: String?
+    @State private var hasMoreData = true
+    @State private var currentStart = 0
     private let pageSize = 20
 
     // 回调：点击条目后返回搜索关键词
@@ -25,7 +27,7 @@ struct DoubanRankingView: View {
             headerView
 
             // 分类榜单横向滑动
-            typeScrollView
+            categoryScrollView
 
             // 分隔线
             Divider()
@@ -36,7 +38,7 @@ struct DoubanRankingView: View {
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .task {
-            await loadData(for: selectedType, reset: true)
+            await loadData(reset: true)
         }
     }
 
@@ -69,19 +71,19 @@ struct DoubanRankingView: View {
     }
 
     // MARK: - 分类榜单横向滑动
-    private var typeScrollView: some View {
+    private var categoryScrollView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(rankingTypes) { type in
-                    TypeChip(
-                        type: type,
-                        isSelected: selectedType == type,
+            HStack(spacing: 10) {
+                ForEach(categories) { category in
+                    CategoryChip(
+                        category: category,
+                        isSelected: selectedCategory == category,
                         action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedType = type
+                                selectedCategory = category
                             }
                             Task {
-                                await loadData(for: type, reset: true)
+                                await loadData(reset: true)
                             }
                         }
                     )
@@ -97,13 +99,42 @@ struct DoubanRankingView: View {
     private var contentView: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                if isLoading(for: selectedType) && subjects(for: selectedType).isEmpty {
+                if isLoading && subjects.isEmpty {
                     // 首次加载中
                     ForEach(0..<6, id: \.self) { _ in
-                        RankingSkeletonRow()
+                        ChartSkeletonRow()
                     }
                     .padding(.top, 12)
-                } else if subjects(for: selectedType).isEmpty {
+                } else if let error = errorMessage {
+                    // 错误提示
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 50))
+                            .foregroundColor(.orange)
+
+                        Text("加载失败")
+                            .font(.system(size: 16, weight: .bold))
+
+                        Text(error)
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+
+                        Button(action: {
+                            Task { await loadData(reset: true) }
+                        }) {
+                            Text("重新加载")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 10)
+                                .background(Color(hex: "E11D48"))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding(.top, 80)
+                } else if subjects.isEmpty {
                     // 空数据
                     VStack(spacing: 16) {
                         Image(systemName: "chart.bar")
@@ -115,27 +146,19 @@ struct DoubanRankingView: View {
                     }
                     .padding(.top, 100)
                 } else {
-                    // 榜单列表
-                    let subjects = subjects(for: selectedType)
+                    // 榜单列表（双列横排）
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
-                            RankingRowItem(
-                                rank: index + 1,
-                                subject: subject,
-                                settings: settings
-                            )
-                            .onTapGesture {
-                                onSelectSubject?(subject.title)
-                                dismiss()
-                            }
-                            .onAppear {
-                                // 接近底部加载更多
-                                if index >= subjects.count - 5 {
-                                    Task {
-                                        await loadMore(for: selectedType)
+                        ForEach(subjects) { subject in
+                            ChartRowItem(subject: subject, settings: settings)
+                                .onTapGesture {
+                                    onSelectSubject?(subject.title)
+                                    dismiss()
+                                }
+                                .onAppear {
+                                    if subject.id == subjects.last?.id {
+                                        Task { await loadMore() }
                                     }
                                 }
-                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -143,7 +166,7 @@ struct DoubanRankingView: View {
                     .padding(.bottom, 20)
 
                     // 加载更多指示器
-                    if isLoading(for: selectedType) && !subjects.isEmpty {
+                    if isLoadingMore {
                         ProgressView()
                             .padding(.vertical, 16)
                     }
@@ -152,78 +175,71 @@ struct DoubanRankingView: View {
         }
     }
 
-    // MARK: - 数据操作
-    private func subjects(for type: DoubanService.RankingType) -> [DoubanSubject] {
-        subjectsMap[type] ?? []
-    }
-
-    private func isLoading(for type: DoubanService.RankingType) -> Bool {
-        isLoadingMap[type] ?? false
-    }
-
-    private func hasMore(for type: DoubanService.RankingType) -> Bool {
-        hasMoreMap[type] ?? true
-    }
-
-    private func page(for type: DoubanService.RankingType) -> Int {
-        pageMap[type] ?? 0
-    }
-
+    // MARK: - 数据加载
     @MainActor
-    private func loadData(for type: DoubanService.RankingType, reset: Bool) async {
+    private func loadData(reset: Bool) async {
         if reset {
-            subjectsMap[type] = []
-            pageMap[type] = 0
-            hasMoreMap[type] = true
+            currentStart = 0
+            subjects = []
+            hasMoreData = true
+            errorMessage = nil
         }
 
-        guard !isLoading(for: type) && hasMore(for: type) else { return }
+        guard !isLoading && hasMoreData else { return }
 
-        isLoadingMap[type] = true
+        if reset {
+            isLoading = true
+        } else {
+            isLoadingMore = true
+        }
 
         do {
-            let start = page(for: type) * pageSize
-            let newSubjects = try await DoubanService.shared.fetchRanking(type, start: start, count: pageSize)
+            let newSubjects = try await DoubanChartService.shared.fetchCategoryRanking(
+                category: selectedCategory,
+                start: currentStart,
+                count: pageSize
+            )
 
-            var current = subjects(for: type)
             if reset {
-                current = newSubjects
+                subjects = newSubjects
             } else {
-                current.append(contentsOf: newSubjects)
+                subjects.append(contentsOf: newSubjects)
             }
-            subjectsMap[type] = current
-            hasMoreMap[type] = newSubjects.count == pageSize
-            pageMap[type] = page(for: type) + 1
+
+            hasMoreData = newSubjects.count == pageSize
+            currentStart += newSubjects.count
+
         } catch {
-            print("[DoubanRanking] 加载失败 \(type.displayName): \(error)")
+            errorMessage = error.localizedDescription
         }
 
-        isLoadingMap[type] = false
+        isLoading = false
+        isLoadingMore = false
     }
 
     @MainActor
-    private func loadMore(for type: DoubanService.RankingType) async {
-        await loadData(for: type, reset: false)
+    private func loadMore() async {
+        await loadData(reset: false)
     }
 }
 
 // MARK: - 分类芯片
-struct TypeChip: View {
-    let type: DoubanService.RankingType
+struct CategoryChip: View {
+    let category: DoubanChartService.ChartCategory
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: type.icon)
-                    .font(.system(size: 12))
-                Text(type.displayName)
+            HStack(spacing: 5) {
+                Image(systemName: category.icon)
+                    .font(.system(size: 11))
+                Text(category.name)
                     .font(.system(size: 13, weight: isSelected ? .bold : .medium))
             }
             .foregroundColor(isSelected ? .white : .primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
             .background(
                 Capsule()
                     .fill(isSelected ? Color(hex: "E11D48") : Color(uiColor: .secondarySystemBackground))
@@ -234,18 +250,17 @@ struct TypeChip: View {
 }
 
 // MARK: - 榜单行条目（双列横排：左封面、右详情，右上角标排名）
-struct RankingRowItem: View {
-    let rank: Int
-    let subject: DoubanSubject
+struct ChartRowItem: View {
+    let subject: DoubanChartService.ChartSubject
     let settings: AppSettings
 
     var body: some View {
         HStack(spacing: 12) {
             // 左侧封面
             ZStack(alignment: .topTrailing) {
-                if let urlString = subject.coverImageURL,
-                   let url = DoubanImageProxyServer.shared.proxiedURL(for: urlString) {
-                    AsyncImage(url: url) { phase in
+                if let coverURL = subject.coverURL,
+                   let proxiedURL = DoubanImageProxyServer.shared.proxiedURL(for: coverURL) {
+                    AsyncImage(url: proxiedURL) { phase in
                         switch phase {
                         case .success(let image):
                             image
@@ -266,7 +281,7 @@ struct RankingRowItem: View {
                     Circle()
                         .fill(rankColor)
                         .frame(width: 28, height: 28)
-                    Text("\(rank)")
+                    Text("\(subject.rank)")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -282,23 +297,23 @@ struct RankingRowItem: View {
                     .foregroundColor(.primary)
                     .lineLimit(2)
 
+                if let originalTitle = subject.originalTitle, !originalTitle.isEmpty, originalTitle != subject.title {
+                    Text(originalTitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+
                 if let year = subject.year, !year.isEmpty {
                     Text(year)
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
 
-                if let genres = subject.genres, !genres.isEmpty {
-                    Text(genres.joined(separator: " / "))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                if let subtitle = subject.card_subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
+                if let info = subject.info, !info.isEmpty {
+                    Text(info)
                         .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                        .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
 
@@ -308,10 +323,10 @@ struct RankingRowItem: View {
                     Image(systemName: "star.fill")
                         .font(.system(size: 10))
                         .foregroundColor(.yellow)
-                    Text(String(format: "%.1f", subject.ratingValue))
+                    Text(String(format: "%.1f", subject.rating))
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(Color(hex: "E11D48"))
-                    if let count = subject.rating?.count, count > 0 {
+                    if let count = subject.ratingCount, !count.isEmpty {
                         Text("(\(count)人评价)")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
@@ -327,7 +342,7 @@ struct RankingRowItem: View {
     }
 
     private var rankColor: Color {
-        switch rank {
+        switch subject.rank {
         case 1: return Color(hex: "FFD700") // 金色
         case 2: return Color(hex: "C0C0C0") // 银色
         case 3: return Color(hex: "CD7F32") // 铜色
@@ -347,7 +362,7 @@ struct RankingRowItem: View {
 }
 
 // MARK: - 骨架屏
-struct RankingSkeletonRow: View {
+struct ChartSkeletonRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8)
@@ -375,12 +390,12 @@ struct RankingSkeletonRow: View {
         }
         .frame(height: 130)
         .padding(.vertical, 6)
-        .shimmering()
+        .modifier(ShimmerEffect())
     }
 }
 
-// MARK: -  shimmer 效果扩展
-private struct ShimmerModifier: ViewModifier {
+// MARK: - Shimmer 效果
+private struct ShimmerEffect: ViewModifier {
     @State private var phase: CGFloat = 0
 
     func body(content: Content) -> some View {
@@ -388,25 +403,19 @@ private struct ShimmerModifier: ViewModifier {
             .overlay(
                 GeometryReader { geo in
                     LinearGradient(
-                        gradient: Gradient(colors: [.clear, Color.white.opacity(0.3), .clear]),
+                        gradient: Gradient(colors: [.clear, Color.white.opacity(0.35), .clear]),
                         startPoint: .leading,
                         endPoint: .trailing
                     )
                     .frame(width: geo.size.width * 2)
                     .offset(x: -geo.size.width + phase * geo.size.width * 2)
+                    .mask(content)
                 }
-                .mask(content)
             )
             .onAppear {
                 withAnimation(Animation.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     phase = 1
                 }
             }
-    }
-}
-
-private extension View {
-    func shimmering() -> some View {
-        modifier(ShimmerModifier())
     }
 }
