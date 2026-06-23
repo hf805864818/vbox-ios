@@ -1353,17 +1353,10 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // 封面图 + 底部资源站名称
-            ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }
-                    .frame(width: 85, height: 110)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                if let r = video.vodRemarks, !r.isEmpty {
-                    SourceTagBadge(text: r)
-                        .padding(4)
-                }
-            }
+            // 封面图
+            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }
+                .frame(width: 85, height: 110)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2)
@@ -1373,6 +1366,13 @@ struct SearchResultRow: View {
                 }
                 if let d = video.vodDirector, !d.isEmpty { Text("导演: \(d)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }
                 if let a = video.vodActor, !a.isEmpty { Text("主演: \(a)").font(.system(size: 11)).foregroundColor(.gray).lineLimit(1) }
+
+                Spacer(minLength: 0)
+
+                // 资源站名称放在信息区底部
+                if let r = video.vodRemarks, !r.isEmpty {
+                    SourceTagBadge(text: r)
+                }
             }
             .frame(minHeight: 110, alignment: .top)
             Spacer()
