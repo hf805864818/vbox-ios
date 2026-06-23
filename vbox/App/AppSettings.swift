@@ -51,6 +51,8 @@ class AppSettings: ObservableObject {
     private static let skinFollowsSystemKey = "app_skin_follows_system"
     private static let enableTMDBKey = "app_enable_tmdb"
     private static let tmdbProxyURLKey = "app_tmdb_proxy_url"
+    private static let tmdbUseTokenKey = "app_tmdb_use_token"
+    private static let tmdbProxyTokenKey = "app_tmdb_proxy_token"
 
     @Published var isSpiderReady = false
     @Published var subscribedSites: [SiteConfig] = []
@@ -78,6 +80,16 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(tmdbProxyURL, forKey: Self.tmdbProxyURLKey)
         }
     }
+    @Published var tmdbUseToken: Bool {
+        didSet {
+            UserDefaults.standard.set(tmdbUseToken, forKey: Self.tmdbUseTokenKey)
+        }
+    }
+    @Published var tmdbProxyToken: String {
+        didSet {
+            UserDefaults.standard.set(tmdbProxyToken, forKey: Self.tmdbProxyTokenKey)
+        }
+    }
 
     init() {
         let rawSkin = UserDefaults.standard.string(forKey: Self.skinModeKey)
@@ -85,6 +97,8 @@ class AppSettings: ObservableObject {
         skinFollowsSystem = UserDefaults.standard.object(forKey: Self.skinFollowsSystemKey) as? Bool ?? false
         enableTMDB = UserDefaults.standard.object(forKey: Self.enableTMDBKey) as? Bool ?? true
         tmdbProxyURL = UserDefaults.standard.string(forKey: Self.tmdbProxyURLKey) ?? "https://vbox.ltd"
+        tmdbUseToken = UserDefaults.standard.object(forKey: Self.tmdbUseTokenKey) as? Bool ?? true
+        tmdbProxyToken = UserDefaults.standard.string(forKey: Self.tmdbProxyTokenKey) ?? "199114"
     }
 
     var preferredColorScheme: ColorScheme? {

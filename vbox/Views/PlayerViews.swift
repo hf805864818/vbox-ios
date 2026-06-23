@@ -143,6 +143,7 @@ struct VideoDetailView: View {
     private func loadTMDBData() {
         guard settings.enableTMDB, !isLoadingTMDB else { return }
         TMDBService.shared.updateProxy(baseURL: settings.tmdbProxyURL)
+        TMDBService.shared.updateToken(useToken: settings.tmdbUseToken, token: settings.tmdbProxyToken)
         isLoadingTMDB = true
         Task {
             guard let searchResult = await TMDBService.shared.searchMovie(name: searchName, year: video.vodYear) else {
