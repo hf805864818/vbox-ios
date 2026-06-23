@@ -1354,14 +1354,27 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }.frame(width: 85, height: 110).clipShape(RoundedRectangle(cornerRadius: 8))
+            // 封面图 + 底部资源站名称
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: video.vodPic)) { phase in switch phase { case .success(let image): image.resizable().aspectRatio(contentMode: .fill); case .failure(_): ZStack { Rectangle().fill(Color.gray.opacity(0.15)); VStack { Image(systemName: "film").font(.title2).foregroundColor(.gray); Text("加载失败").font(.caption2).foregroundColor(.gray) } }; case .empty: ZStack { Rectangle().fill(Color.gray.opacity(0.1)); ProgressView() }; @unknown default: Rectangle().fill(Color.gray.opacity(0.15)) } }
+                    .frame(width: 85, height: 110)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                if let r = video.vodRemarks, !r.isEmpty {
+                    Text(r)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.65))
+                        .clipShape(Capsule())
+                        .padding(4)
+                }
+            }
+
             VStack(alignment: .leading, spacing: 5) {
                 Text(video.vodName).font(.system(size: 15, weight: .semibold)).foregroundColor(.primary).lineLimit(2)
                 HStack(spacing: 5) {
-                    // 源名称标签（红色高亮）
-                    if let r = video.vodRemarks, !r.isEmpty {
-                        SourceTagBadge(text: r)
-                    }
                     if let y = video.vodYear, !y.isEmpty { PlainTagBadge(text: y) }
                     if let a = video.vodArea, !a.isEmpty { PlainTagBadge(text: a) }
                 }

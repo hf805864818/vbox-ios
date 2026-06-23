@@ -28,8 +28,11 @@ final class TMDBService {
         return "\(proxyBaseURL)?token=\(proxyToken)&url=\(encoded)"
     }
 
-    /// 把远程图片 URL 转为 vbox.ltd 代理 URL
+    /// 把远程图片 URL 转为本地代理 URL（优先本地代理，没有则走 vbox.ltd 云端代理）
     func proxiedImageURL(_ originalURL: String, size: String = "w500") -> String {
+        if let localURL = DoubanImageProxyServer.shared.proxiedURL(for: originalURL) {
+            return localURL.absoluteString
+        }
         return proxiedURL(originalURL)
     }
 
@@ -55,15 +58,20 @@ final class TMDBService {
         }
 
         guard let url = apiURL(path: path) else { return nil }
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
-
+        print("[TMDBService] search url: \(url.absoluteString)")
         do {
-            let response = try JSONDecoder().decode(TMDBSearchResponse.self, from: data)
-            // 优先 movie 和 tv，且名字最相似的排前面
-            let candidates = response.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
+            let (data, response) = try await session.data(from: url)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                print("[TMDBService] search http status: \(httpResponse.statusCode)")
+                let body = String(data: data, encoding: .utf8) ?? ""
+                print("[TMDBService] search response body: \(body.prefix(500))")
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(TMDBSearchResponse.self, from: data)
+            let candidates = decoded.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
             return candidates.first
         } catch {
-            print("[TMDBService] search decode error: \(error)")
+            print("[TMDBService] search error: \(error)")
             return nil
         }
     }
@@ -74,12 +82,16 @@ final class TMDBService {
     func fetchImages(id: Int, mediaType: String = "movie") async -> TMDBImages? {
         let endpoint = mediaType == "tv" ? "tv" : "movie"
         guard let url = apiURL(path: "/\(endpoint)/\(id)/images?api_key=\(apiKey)&include_image_language=zh,en,null") else { return nil }
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
-
         do {
+            let (data, response) = try await session.data(from: url)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                print("[TMDBService] images http status: \(httpResponse.statusCode), body: \(body.prefix(300))")
+                return nil
+            }
             return try JSONDecoder().decode(TMDBImages.self, from: data)
         } catch {
-            print("[TMDBService] images decode error: \(error)")
+            print("[TMDBService] images error: \(error)")
             return nil
         }
     }
@@ -90,12 +102,16 @@ final class TMDBService {
     func fetchCredits(id: Int, mediaType: String = "movie") async -> TMDBCredits? {
         let endpoint = mediaType == "tv" ? "tv" : "movie"
         guard let url = apiURL(path: "/\(endpoint)/\(id)/credits?api_key=\(apiKey)&language=zh-CN") else { return nil }
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
-
         do {
+            let (data, response) = try await session.data(from: url)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                print("[TMDBService] credits http status: \(httpResponse.statusCode), body: \(body.prefix(300))")
+                return nil
+            }
             return try JSONDecoder().decode(TMDBCredits.self, from: data)
         } catch {
-            print("[TMDBService] credits decode error: \(error)")
+            print("[TMDBService] credits error: \(error)")
             return nil
         }
     }
