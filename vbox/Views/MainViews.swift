@@ -1369,9 +1369,13 @@ struct SearchResultRow: View {
 
                 Spacer(minLength: 0)
 
-                // 资源站名称放在信息区底部
+                // 资源站名称放在信息区底部居中
                 if let r = video.vodRemarks, !r.isEmpty {
-                    SourceTagBadge(text: r)
+                    HStack {
+                        Spacer()
+                        SourceTagBadge(text: r)
+                        Spacer()
+                    }
                 }
             }
             .frame(minHeight: 110, alignment: .top)
