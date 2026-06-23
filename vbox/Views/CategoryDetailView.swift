@@ -201,17 +201,17 @@ struct CategoryDetailView: View {
     private func fetchDataForCategory(start: Int, count: Int) async throws -> [DoubanSubject] {
         // 优先订阅源，其次豆瓣，任意失败都尝试另一个
         if hasSubscription {
-            let subItems = (try? await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)) ?? []
-            if !subItems.isEmpty { return subItems }
-            let doubanItems = (try? await fetchDoubanCategoryData(start: start, count: count)) ?? []
-            if !doubanItems.isEmpty { return doubanItems }
-            return [] // 两者都为空
+            if let subItems = try? await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count), !subItems.isEmpty {
+                return subItems
+            }
+            if let doubanItems = try? await fetchDoubanCategoryData(start: start, count: count), !doubanItems.isEmpty {
+                return doubanItems
+            }
+            // 两者都失败了，直接尝试获取豆瓣数据并让它抛出真实错误
+            return try await fetchDoubanCategoryData(start: start, count: count)
         } else {
-            let doubanItems = (try? await fetchDoubanCategoryData(start: start, count: count)) ?? []
-            if !doubanItems.isEmpty { return doubanItems }
-            let subItems = (try? await fetchSubscriptionCategoryData(keyword: categorySearchKeyword, start: start, count: count)) ?? []
-            if !subItems.isEmpty { return subItems }
-            return [] // 两者都为空
+            // 直接尝试豆瓣，让它抛出真实错误
+            return try await fetchDoubanCategoryData(start: start, count: count)
         }
     }
 
