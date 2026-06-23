@@ -5,7 +5,7 @@ struct CategoryDetailView: View {
     let categoryType: String
     let categoryName: String
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var doubanService = DoubanService.shared
+    private let doubanService = DoubanService.shared
     @State private var subjects: [DoubanSubject] = []
     @State private var filteredSubjects: [DoubanSubject] = []
     @State private var isLoading = true
