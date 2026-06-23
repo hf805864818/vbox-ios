@@ -491,11 +491,10 @@ struct VideoDetailView: View {
         .padding(.vertical, 24)
         .padding(.bottom, 120)
         .background(
-            ZStack {
-                .ultraThinMaterial
-                Color.black.opacity(0.08)
-            }
-            .ignoresSafeArea(edges: .bottom)
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.08))
+                .ignoresSafeArea(edges: .bottom)
         )
     }
 
