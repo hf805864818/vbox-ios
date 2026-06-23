@@ -880,7 +880,7 @@ extension DoubanService {
         return nil
     }
 
-    /// 拉取豆瓣大封面图（优先竖版海报）
+    /// 拉取豆瓣大封面图（仅竖版海报）
     func fetchWallpaperURL(subjectId: String) async -> String? {
         let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=R&count=30")!
         guard let (data, _) = try? await session.data(from: url),
@@ -891,31 +891,26 @@ extension DoubanService {
         }
 
         var portraitURL: String? = nil
-        var landscapeURL: String? = nil
 
         for photo in photos {
             guard let image = photo["image"] as? [String: Any],
                   let large = image["large"] as? [String: Any],
                   let rawURL = large["url"] as? String,
                   let w = large["width"] as? Int,
-                  let h = large["height"] as? Int else { continue }
+                  let h = large["height"] as? Int,
+                  h > w else { continue }
 
-            if h > w {
-                if portraitURL == nil { portraitURL = rawURL }
-            } else {
-                if landscapeURL == nil { landscapeURL = rawURL }
-            }
+            if portraitURL == nil { portraitURL = rawURL }
             if portraitURL != nil { break }
         }
 
-        let bestURL = portraitURL ?? landscapeURL
-        guard let bestURL else {
-            print("[DoubanService] fetchWallpaperURL 未找到海报")
+        guard let portraitURL else {
+            print("[DoubanService] fetchWallpaperURL 未找到竖版海报")
             return nil
         }
 
-        let rawURL = bestURL.replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
-        print("[DoubanService] fetchWallpaperURL 成功: \(portraitURL != nil ? "竖版" : "横版") \(rawURL)")
+        let rawURL = portraitURL.replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+        print("[DoubanService] fetchWallpaperURL 成功: 竖版 \(rawURL)")
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
     }
 }
