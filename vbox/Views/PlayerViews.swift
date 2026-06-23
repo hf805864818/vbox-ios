@@ -443,6 +443,7 @@ struct VideoDetailView: View {
                             .aspectRatio(contentMode: .fill)
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
+                            .overlay(bottomDimmingOverlay(height: geometry.size.height * 0.30))
                     default:
                         fallbackBackground
                     }
@@ -453,6 +454,18 @@ struct VideoDetailView: View {
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .ignoresSafeArea()
+    }
+
+    private func bottomDimmingOverlay(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+            LinearGradient(
+                colors: [.clear, Color.black.opacity(0.20)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: height)
+        }
     }
 
     // MARK: - 内容滚动层
@@ -690,10 +703,10 @@ struct VideoDetailView: View {
         VStack(spacing: 0) {
             Spacer()
             HStack(spacing: 0) {
-                BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
-                BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
-                BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
-                BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
+                BottomBarButton(icon: "play.fill", title: "播放", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handlePlay() }
+                BottomBarButton(icon: "list.bullet", title: "选集", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { showEpisodeSheet = true }
+                BottomBarButton(icon: "square.and.arrow.down", title: "下载", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleDownload() }
+                BottomBarButton(icon: "square.and.arrow.up", title: "分享", iconColor: bottomBarActiveColor, titleColor: bottomBarInactiveColor) { handleShare() }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
@@ -720,6 +733,18 @@ struct VideoDetailView: View {
 
     private var bottomBarStrokeColor: Color {
         settings.usesVisualSkin ? Color.white.opacity(0.28) : Color.gray.opacity(0.2)
+    }
+
+    private var bottomBarActiveColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color.blue
+    }
+
+    private var bottomBarInactiveColor: Color {
+        if settings.usesLiquidSkin { return Color.white.opacity(0.72) }
+        if settings.usesFrostedSkin { return Color(uiColor: .secondaryLabel) }
+        return Color.gray
     }
 
     // MARK: - 下载提示
@@ -814,6 +839,8 @@ struct CastPersonCard: View {
 struct BottomBarButton: View {
     let icon: String
     let title: String
+    let iconColor: Color
+    let titleColor: Color
     let action: () -> Void
 
     var body: some View {
@@ -821,11 +848,11 @@ struct BottomBarButton: View {
             VStack(spacing: 1) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(iconColor)
                     .frame(height: 22)
                 Text(title)
                     .font(.system(size: 10, weight: .regular))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundColor(titleColor)
             }
             .frame(maxWidth: .infinity)
         }

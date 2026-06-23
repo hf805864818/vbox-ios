@@ -19,9 +19,9 @@ final class TMDBService {
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
-        self.proxyBaseURL = UserDefaults.standard.string(forKey: "app_tmdb_proxy_url") ?? "https://vbox.ltd"
-        self.useProxyToken = UserDefaults.standard.object(forKey: "app_tmdb_use_token") as? Bool ?? true
-        self.proxyToken = UserDefaults.standard.string(forKey: "app_tmdb_proxy_token") ?? "199114"
+        self.proxyBaseURL = UserDefaults.standard.string(forKey: "app_tmdb_proxy_url") ?? ""
+        self.useProxyToken = UserDefaults.standard.object(forKey: "app_tmdb_use_token") as? Bool ?? false
+        self.proxyToken = UserDefaults.standard.string(forKey: "app_tmdb_proxy_token") ?? ""
     }
 
     /// 更新 TMDB 代理地址

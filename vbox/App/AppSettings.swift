@@ -96,9 +96,9 @@ class AppSettings: ObservableObject {
         skinMode = AppSkinMode(rawValue: rawSkin ?? "") ?? .light
         skinFollowsSystem = UserDefaults.standard.object(forKey: Self.skinFollowsSystemKey) as? Bool ?? false
         enableTMDB = UserDefaults.standard.object(forKey: Self.enableTMDBKey) as? Bool ?? true
-        tmdbProxyURL = UserDefaults.standard.string(forKey: Self.tmdbProxyURLKey) ?? "https://vbox.ltd"
-        tmdbUseToken = UserDefaults.standard.object(forKey: Self.tmdbUseTokenKey) as? Bool ?? true
-        tmdbProxyToken = UserDefaults.standard.string(forKey: Self.tmdbProxyTokenKey) ?? "199114"
+        tmdbProxyURL = UserDefaults.standard.string(forKey: Self.tmdbProxyURLKey) ?? ""
+        tmdbUseToken = UserDefaults.standard.object(forKey: Self.tmdbUseTokenKey) as? Bool ?? false
+        tmdbProxyToken = UserDefaults.standard.string(forKey: Self.tmdbProxyTokenKey) ?? ""
     }
 
     var preferredColorScheme: ColorScheme? {
