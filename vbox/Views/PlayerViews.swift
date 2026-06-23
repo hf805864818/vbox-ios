@@ -611,16 +611,24 @@ struct VideoDetailView: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
                         .padding(.bottom, 120)
+                        // 没有 TMDB 大封面时避免全黑，使用半透明深色玻璃背景
                         .background(
-                            LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.2),
-                                    Color.black.opacity(0.75),
-                                    Color.black.opacity(0.95)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                            Group {
+                                if tmdbPosterURL == nil {
+                                    Color.black.opacity(0.55)
+                                        .background(.ultraThinMaterial)
+                                } else {
+                                    LinearGradient(
+                                        colors: [
+                                            Color.black.opacity(0.2),
+                                            Color.black.opacity(0.75),
+                                            Color.black.opacity(0.95)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                }
+                            }
                             .ignoresSafeArea(edges: .bottom)
                         )
                     }
@@ -745,21 +753,21 @@ struct CastPersonCard: View {
                     Color.gray.opacity(0.3)
                 }
             }
-            .frame(width: 70, height: 70)
+            .frame(width: 60, height: 90)
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(person.name)
                 .font(.system(size: 12))
                 .foregroundColor(.white)
                 .lineLimit(1)
-                .frame(width: 70)
+                .frame(width: 60)
 
             if let role = person.character ?? person.roles?.first {
                 Text(role)
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.6))
                     .lineLimit(1)
-                    .frame(width: 70)
+                    .frame(width: 60)
             }
         }
     }
