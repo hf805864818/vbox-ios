@@ -469,10 +469,16 @@ struct VideoDetailView: View {
                                 VStack(alignment: .leading, spacing: 12) {
                                     // 分类标签
                                     HStack(spacing: 12) {
-                                        ForEach(["演员", "导演", "编剧"], id: \.self) { tab in
-                                            let available = (tab == "演员" && !actors.isEmpty) ||
-                                                           (tab == "导演" && !directors.isEmpty) ||
-                                                           (tab == "编剧" && !writers.isEmpty)
+                                        ForEach(["全部", "演员", "导演", "编剧"], id: \.self) { tab in
+                                            let available: Bool = {
+                                                switch tab {
+                                                case "全部": return !actors.isEmpty || !directors.isEmpty || !writers.isEmpty
+                                                case "演员": return !actors.isEmpty
+                                                case "导演": return !directors.isEmpty
+                                                case "编剧": return !writers.isEmpty
+                                                default: return false
+                                                }
+                                            }()
                                             if available {
                                                 Button(action: { selectedCastTab = tab }) {
                                                     Text(tab)
@@ -491,6 +497,7 @@ struct VideoDetailView: View {
                                     // 当前分类人员
                                     let currentPeople: [DoubanCelebrity] = {
                                         switch selectedCastTab {
+                                        case "全部": return actors + directors + writers
                                         case "导演": return directors
                                         case "编剧": return writers
                                         default: return actors
