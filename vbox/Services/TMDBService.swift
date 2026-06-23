@@ -8,7 +8,7 @@ final class TMDBService {
 
     private let apiKey = "eea47c6a97dbc2b7cfad319971719cec"
     private let imageBaseURL = "https://image.tmdb.org/t/p"
-    private let proxyBaseURL = "https://vbox.ltd"
+    private var proxyBaseURL: String
     private let proxyToken = "199114"
 
     private let session: URLSession
@@ -18,6 +18,12 @@ final class TMDBService {
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
+        self.proxyBaseURL = UserDefaults.standard.string(forKey: "app_tmdb_proxy_url") ?? "https://vbox.ltd"
+    }
+
+    /// 更新 TMDB 代理地址
+    func updateProxy(baseURL: String) {
+        self.proxyBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - 代理 URL
