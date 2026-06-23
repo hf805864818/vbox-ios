@@ -416,6 +416,21 @@ struct VideoDetailView: View {
 
                         // 内容区
                         VStack(spacing: 20) {
+                            // 左上角返回按钮区域（扩大热区）
+                            HStack {
+                                Button(action: { dismiss() }) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 24, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .frame(width: 44, height: 44)
+                                        .background(Color.black.opacity(0.25))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, -geometry.safeAreaInsets.top - 12)
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity)
                             // TMDB logo / 毛笔字片名
                             HeroTitleView(
                                 name: displayVideo.vodName,
