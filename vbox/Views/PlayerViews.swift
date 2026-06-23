@@ -372,288 +372,10 @@ struct VideoDetailView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                // MARK: 全屏背景（TMDB poster 优先 > 蓝调深色渐变）
-                Group {
-                    if let poster = tmdbPosterURL,
-                       let url = URL(string: poster) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .clipped()
-                            default:
-                                fallbackBackground
-                            }
-                        }
-                    } else {
-                        fallbackBackground
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .ignoresSafeArea()
-
-                // MARK: 可滚动内容 + logo（一起滚动）
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // 顶部 hero 区域：logo 直接透底
-                        VStack(spacing: 12) {
-                            Spacer()
-                                .frame(height: geometry.safeAreaInsets.top + 20)
-
-                            HeroTitleView(
-                                name: displayVideo.vodName,
-                                logoURL: tmdbLogoURL
-                            )
-                            .frame(maxHeight: 70)
-
-                            Text(displayVideo.vodName)
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.9))
-                                .lineLimit(1)
-
-                            HStack(spacing: 8) {
-                                Text("剧情")
-                                    .font(.system(size: 11))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .foregroundColor(.white.opacity(0.9))
-
-                                if let year = displayVideo.vodYear, !year.isEmpty {
-                                    Text(year)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.85))
-                                }
-                            }
-
-                            Spacer()
-                        }
-                        .frame(height: geometry.size.height * 0.42)
-
-                        // 内容区
-                        VStack(spacing: 20) {
-                            // 立即播放按钮
-                            Button(action: handlePlay) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 16, weight: .semibold))
-                                    Text("立即播放")
-                                        .font(.system(size: 16, weight: .semibold))
-                                }
-                                .foregroundColor(.black)
-                                .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-                                .padding(.vertical, 14)
-                                .background(Color(hex: "93C5FD"))
-                                .cornerRadius(28)
-                            }
-                            .buttonStyle(.plain)
-
-                            // 演职人员分类展示
-                            if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    // 分类标签
-                                    HStack(spacing: 12) {
-                                        ForEach(["全部", "演员", "导演", "编剧"], id: \.self) { tab in
-                                            let available: Bool = {
-                                                switch tab {
-                                                case "全部": return !actors.isEmpty || !directors.isEmpty || !writers.isEmpty
-                                                case "演员": return !actors.isEmpty
-                                                case "导演": return !directors.isEmpty
-                                                case "编剧": return !writers.isEmpty
-                                                default: return false
-                                                }
-                                            }()
-                                            if available {
-                                                Button(action: { selectedCastTab = tab }) {
-                                                    Text(tab)
-                                                        .font(.system(size: 14, weight: selectedCastTab == tab ? .semibold : .medium))
-                                                        .foregroundColor(selectedCastTab == tab ? .white : .white.opacity(0.6))
-                                                        .padding(.horizontal, 12)
-                                                        .padding(.vertical, 6)
-                                                        .background(selectedCastTab == tab ? Color.white.opacity(0.2) : Color.clear)
-                                                        .cornerRadius(6)
-                                                }
-                                                .buttonStyle(.plain)
-                                            }
-                                        }
-                                    }
-
-                                    // 当前分类人员
-                                    let currentPeople: [DoubanCelebrity] = {
-                                        switch selectedCastTab {
-                                        case "全部": return actors + directors + writers
-                                        case "导演": return directors
-                                        case "编剧": return writers
-                                        default: return actors
-                                        }
-                                    }()
-
-                                    if !currentPeople.isEmpty {
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 14) {
-                                                ForEach(currentPeople, id: \.id) { person in
-                                                    CastPersonCard(person: person)
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        Text("暂无\(selectedCastTab)信息")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.white.opacity(0.5))
-                                    }
-                                }
-                            }
-
-                            // 剧情简介
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("剧情简介")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                    Button(action: toggleFavorite) {
-                                        Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                            .font(.system(size: 24))
-                                            .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.9))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                Text(displayVideo.vodContent ?? "暂无简介")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white.opacity(0.75))
-                                    .lineSpacing(4)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            // 网盘资源
-                            if isCloudVideo {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack {
-                                        Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
-                                        if isLoadingPan {
-                                            Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.gray)
-                                            Spacer(); ProgressView().scaleEffect(0.8)
-                                        } else if panLinks.isEmpty {
-                                            Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.gray)
-                                        } else {
-                                            Text("网盘资源 (\(panLinks.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
-                                        }
-                                        Spacer()
-                                    }
-                                    if !isLoadingPan, !panLinks.isEmpty {
-                                        ForEach(Array(panLinks.enumerated()), id: \.offset) { _, link in
-                                            Button(action: { playPanLink(link) }) {
-                                                HStack(spacing: 10) {
-                                                    Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
-                                                    Text(link.name).font(.system(size: 13)).foregroundColor(.white)
-                                                    Spacer()
-                                                    Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
-                                                }
-                                                .padding(10)
-                                                .background(Color.white.opacity(0.1))
-                                                .cornerRadius(8)
-                                            }.buttonStyle(PlainButtonStyle())
-                                        }
-                                    }
-                                }.padding(.vertical, 8)
-                            }
-
-                            // 多线路切换 + 剧集网格
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack {
-                                    Text("剧集列表")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                    if isLoadingDetail {
-                                        ProgressView().scaleEffect(0.8)
-                                    } else {
-                                        Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.white.opacity(0.6))
-                                    }
-                                }
-
-                                if allSources.count > 1 {
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 8) {
-                                            ForEach(Array(allSources.enumerated()), id: \.offset) { idx, source in
-                                                Button(action: { selectedSourceIndex = idx }) {
-                                                    Text(source.name)
-                                                        .font(.system(size: 12, weight: idx == selectedSourceIndex ? .semibold : .medium))
-                                                        .foregroundColor(idx == selectedSourceIndex ? .white : .white.opacity(0.8))
-                                                        .padding(.horizontal, 12)
-                                                        .padding(.vertical, 6)
-                                                        .background(
-                                                            RoundedRectangle(cornerRadius: 8)
-                                                                .fill(idx == selectedSourceIndex ? Color(hex: "E11D48") : Color.white.opacity(0.12))
-                                                        )
-                                                }.buttonStyle(PlainButtonStyle())
-                                            }
-                                        }
-                                    }
-                                }
-
-                                EpisodeGridView(episodes: episodes) { episode in
-                                    handleEpisodeSelect(episode)
-                                }
-                            }.padding(.top, 8)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 24)
-                        .padding(.bottom, 120)
-                        // 内容区背景：毛玻璃 + 极淡黑色叠加，直接透出底层封面图
-                        .background(
-                            ZStack {
-                                .ultraThinMaterial
-                                Color.black.opacity(0.08)
-                            }
-                            .ignoresSafeArea(edges: .bottom)
-                        )
-                    }
-                }
-                .ignoresSafeArea()
-
-                // MARK: - 底部悬浮操作栏（胶囊样式，类似首页底栏）
-                VStack(spacing: 0) {
-                    Spacer()
-                    HStack(spacing: 0) {
-                        BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
-                        BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
-                        BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
-                        BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-                    .background(
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                            .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
-                            .overlay(
-                                Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
-                            )
-                    )
-                    .clipShape(Capsule())
-                    .padding(.bottom, 20)
-                }
-
-                // 下载提示
-                if showDownloadTip {
-                VStack {
-                    Spacer()
-                    Text(episodes.isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Capsule().fill(Color.black.opacity(0.75)))
-                        .foregroundColor(.white)
-                        .padding(.bottom, 100)
-                }
-                .transition(.opacity)
-                .animation(.easeInOut, value: showDownloadTip)
+                backgroundLayer(geometry: geometry)
+                contentLayer(geometry: geometry)
+                bottomBarLayer
+                downloadTipLayer
             }
         }
         // 播放器
@@ -683,7 +405,322 @@ struct VideoDetailView: View {
         }
         .edgeSwipeBack { dismiss() }
     }
-}
+
+    // MARK: - 背景层
+    private func backgroundLayer(geometry: GeometryProxy) -> some View {
+        Group {
+            if let poster = tmdbPosterURL,
+               let url = URL(string: poster) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    default:
+                        fallbackBackground
+                    }
+                }
+            } else {
+                fallbackBackground
+            }
+        }
+        .frame(width: geometry.size.width, height: geometry.size.height)
+        .ignoresSafeArea()
+    }
+
+    // MARK: - 内容滚动层
+    private func contentLayer(geometry: GeometryProxy) -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                heroArea(geometry: geometry)
+                contentArea(geometry: geometry)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Hero 区域
+    private func heroArea(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+                .frame(height: geometry.safeAreaInsets.top + 20)
+
+            HeroTitleView(
+                name: displayVideo.vodName,
+                logoURL: tmdbLogoURL
+            )
+            .frame(maxHeight: 70)
+
+            Text(displayVideo.vodName)
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+
+            HStack(spacing: 8) {
+                Text("剧情")
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .foregroundColor(.white.opacity(0.9))
+
+                if let year = displayVideo.vodYear, !year.isEmpty {
+                    Text(year)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+            }
+
+            Spacer()
+        }
+        .frame(height: geometry.size.height * 0.42)
+    }
+
+    // MARK: - 内容区
+    private func contentArea(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 20) {
+            playButton
+            castSection
+            synopsisSection
+            panSection
+            episodeSection
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
+        .padding(.bottom, 120)
+        .background(
+            ZStack {
+                .ultraThinMaterial
+                Color.black.opacity(0.08)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    // MARK: - 立即播放按钮
+    private var playButton: some View {
+        Button(action: handlePlay) {
+            HStack(spacing: 8) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("立即播放")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .foregroundColor(.black)
+            .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+            .padding(.vertical, 14)
+            .background(Color(hex: "93C5FD"))
+            .cornerRadius(28)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 演职人员分类展示
+    private var castSection: some View {
+        Group {
+            if !actors.isEmpty || !directors.isEmpty || !writers.isEmpty || isLoadingCredits {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        ForEach(["全部", "演员", "导演", "编剧"], id: \.self) { tab in
+                            let available: Bool = {
+                                switch tab {
+                                case "全部": return !actors.isEmpty || !directors.isEmpty || !writers.isEmpty
+                                case "演员": return !actors.isEmpty
+                                case "导演": return !directors.isEmpty
+                                case "编剧": return !writers.isEmpty
+                                default: return false
+                                }
+                            }()
+                            if available {
+                                Button(action: { selectedCastTab = tab }) {
+                                    Text(tab)
+                                        .font(.system(size: 14, weight: selectedCastTab == tab ? .semibold : .medium))
+                                        .foregroundColor(selectedCastTab == tab ? .white : .white.opacity(0.6))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(selectedCastTab == tab ? Color.white.opacity(0.2) : Color.clear)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    let currentPeople: [DoubanCelebrity] = {
+                        switch selectedCastTab {
+                        case "全部": return actors + directors + writers
+                        case "导演": return directors
+                        case "编剧": return writers
+                        default: return actors
+                        }
+                    }()
+
+                    if !currentPeople.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(currentPeople, id: \.id) { person in
+                                    CastPersonCard(person: person)
+                                }
+                            }
+                        }
+                    } else {
+                        Text("暂无\(selectedCastTab)信息")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 剧情简介
+    private var synopsisSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("剧情简介")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: toggleFavorite) {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .font(.system(size: 24))
+                        .foregroundColor(isFavorite ? Color(hex: "E11D48") : .white.opacity(0.9))
+                }
+                .buttonStyle(.plain)
+            }
+            Text(displayVideo.vodContent ?? "暂无简介")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.75))
+                .lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - 网盘资源
+    @ViewBuilder
+    private var panSection: some View {
+        if isCloudVideo {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
+                    if isLoadingPan {
+                        Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.gray)
+                        Spacer(); ProgressView().scaleEffect(0.8)
+                    } else if panLinks.isEmpty {
+                        Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.gray)
+                    } else {
+                        Text("网盘资源 (\(panLinks.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
+                    }
+                    Spacer()
+                }
+                if !isLoadingPan, !panLinks.isEmpty {
+                    ForEach(Array(panLinks.enumerated()), id: \.offset) { _, link in
+                        Button(action: { playPanLink(link) }) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
+                                Text(link.name).font(.system(size: 13)).foregroundColor(.white)
+                                Spacer()
+                                Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
+                            }
+                            .padding(10)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                        }.buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }.padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - 多线路切换 + 剧集网格
+    private var episodeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("剧集列表")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                if isLoadingDetail {
+                    ProgressView().scaleEffect(0.8)
+                } else {
+                    Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+
+            if allSources.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(allSources.enumerated()), id: \.offset) { idx, source in
+                            Button(action: { selectedSourceIndex = idx }) {
+                                Text(source.name)
+                                    .font(.system(size: 12, weight: idx == selectedSourceIndex ? .semibold : .medium))
+                                    .foregroundColor(idx == selectedSourceIndex ? .white : .white.opacity(0.8))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(idx == selectedSourceIndex ? Color(hex: "E11D48") : Color.white.opacity(0.12))
+                                    )
+                            }.buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+            }
+
+            EpisodeGridView(episodes: episodes) { episode in
+                handleEpisodeSelect(episode)
+            }
+        }.padding(.top, 8)
+    }
+
+    // MARK: - 底部悬浮操作栏
+    private var bottomBarLayer: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            HStack(spacing: 0) {
+                BottomBarButton(icon: "play.fill", title: "播放") { handlePlay() }
+                BottomBarButton(icon: "list.bullet", title: "选集") { showEpisodeSheet = true }
+                BottomBarButton(icon: "square.and.arrow.down", title: "下载") { handleDownload() }
+                BottomBarButton(icon: "square.and.arrow.up", title: "分享") { handleShare() }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
+                    .overlay(
+                        Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
+                    )
+            )
+            .clipShape(Capsule())
+            .padding(.bottom, 20)
+        }
+    }
+
+    // MARK: - 下载提示
+    @ViewBuilder
+    private var downloadTipLayer: some View {
+        if showDownloadTip {
+            VStack {
+                Spacer()
+                Text(episodes.isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
+                    .font(.system(size: 14))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.black.opacity(0.75)))
+                    .foregroundColor(.white)
+                    .padding(.bottom, 100)
+            }
+            .transition(.opacity)
+            .animation(.easeInOut, value: showDownloadTip)
+        }
+    }
 }
 
 // MARK: - 大标题视图（TMDB logo 优先，马善政毛笔楷体兜底）
