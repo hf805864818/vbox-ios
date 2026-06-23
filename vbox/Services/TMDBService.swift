@@ -25,7 +25,8 @@ final class TMDBService {
     /// 把任意远程 URL 转为 vbox.ltd 代理 URL
     /// 注意：传入的 originalURL 应当是已经编码好的完整 URL，这里只对作为 query 参数的整体做一次编码
     func proxiedURL(_ originalURL: String) -> String {
-        // 使用 .alphanumerics + 保留 URL 专用字符 + %，避免对已经编码的 %XX 再次编码
+        // 先把整体 URL 作为 vbox.ltd 的 `url` query 参数编码。
+        // 使用自定义 allowed 字符集，保留 %，避免对已经编码好的 %XX 再次编码。
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: ":/?&=@+$,;-.~_#[]!%")
         let encoded = originalURL.addingPercentEncoding(withAllowedCharacters: allowed) ?? originalURL
@@ -40,10 +41,14 @@ final class TMDBService {
         return proxiedURL(originalURL)
     }
 
-    /// 生成 TMDB API 代理 URL
+    /// 生成 TMDB API 代理 URL，避免手动拼接导致双重编码
     private func apiURL(path: String) -> URL? {
-        let original = "https://api.themoviedb.org/3\(path)"
-        return URL(string: proxiedURL(original))
+        // 构造无 query 的 base URL
+        guard var components = URLComponents(string: "https://api.themoviedb.org/3\(path)") else {
+            return nil
+        }
+        // 用原始字符串保留已有的 percent-encoding，避免添加不必要的编码
+        return URL(string: proxiedURL(components.string ?? components.url?.absoluteString ?? ""))
     }
 
     /// 生成 TMDB 图片原始 URL
