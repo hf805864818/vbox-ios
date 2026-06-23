@@ -598,7 +598,17 @@ struct VideoCard: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
-                    // 来源标签
+                    HStack(spacing: 8) {
+                        if let year = video.vodYear, !year.isEmpty {
+                            Text(year)
+                                .font(.system(size: 11))
+                                .foregroundColor(Color.secondary)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    // 来源标签放在信息区底部
                     if let remarks = video.vodRemarks, !remarks.isEmpty {
                         Text(remarks)
                             .font(.system(size: 11, weight: .medium))
@@ -609,14 +619,6 @@ struct VideoCard: View {
                                 Capsule()
                                     .fill(Color(hex: "E11D48").opacity(0.12))
                             )
-                    }
-
-                    HStack(spacing: 8) {
-                        if let year = video.vodYear, !year.isEmpty {
-                            Text(year)
-                                .font(.system(size: 11))
-                                .foregroundColor(Color.secondary)
-                        }
                     }
                 }
             }
