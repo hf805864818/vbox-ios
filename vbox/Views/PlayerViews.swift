@@ -435,67 +435,52 @@ struct VideoDetailView: View {
     private func contentLayer(geometry: GeometryProxy) -> some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                heroArea(geometry: geometry)
-                contentArea(geometry: geometry)
+                // 顶部透明区域，露出背景封面图
+                Color.clear
+                    .frame(height: geometry.size.height * 0.30)
+
+                // 内容区（完全透明，透出底层封面图）
+                VStack(spacing: 20) {
+                    // logo / 片名 / 类型（紧挨内容区顶部）
+                    VStack(spacing: 12) {
+                        HeroTitleView(
+                            name: displayVideo.vodName,
+                            logoURL: tmdbLogoURL
+                        )
+                        .frame(maxHeight: 70)
+
+                        Text(displayVideo.vodName)
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
+
+                        HStack(spacing: 8) {
+                            Text("剧情")
+                                .font(.system(size: 11))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .foregroundColor(.white.opacity(0.9))
+
+                            if let year = displayVideo.vodYear, !year.isEmpty {
+                                Text(year)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.85))
+                            }
+                        }
+                    }
+
+                    playButton
+                    castSection
+                    synopsisSection
+                    panSection
+                    episodeSection
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+                .padding(.bottom, 120)
             }
         }
         .ignoresSafeArea()
-    }
-
-    // MARK: - Hero 区域
-    private func heroArea(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 12) {
-            Spacer()
-                .frame(height: geometry.safeAreaInsets.top + 20)
-
-            HeroTitleView(
-                name: displayVideo.vodName,
-                logoURL: tmdbLogoURL
-            )
-            .frame(maxHeight: 70)
-
-            Text(displayVideo.vodName)
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.9))
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Text("剧情")
-                    .font(.system(size: 11))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .foregroundColor(.white.opacity(0.9))
-
-                if let year = displayVideo.vodYear, !year.isEmpty {
-                    Text(year)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.85))
-                }
-            }
-
-            Spacer()
-        }
-        .frame(height: geometry.size.height * 0.42)
-    }
-
-    // MARK: - 内容区
-    private func contentArea(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 20) {
-            playButton
-            castSection
-            synopsisSection
-            panSection
-            episodeSection
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 24)
-        .padding(.bottom, 120)
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(Color.black.opacity(0.08))
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
 
     // MARK: - 立即播放按钮
@@ -689,15 +674,6 @@ struct VideoDetailView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .background(Capsule().fill(settings.usesLiquidSkin ? Color(hex: "1A1A2E").opacity(0.85) : Color.black.opacity(0.6)))
-                    .overlay(
-                        Capsule().stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.15), lineWidth: 1)
-                    )
-            )
-            .clipShape(Capsule())
             .padding(.bottom, 20)
         }
     }
