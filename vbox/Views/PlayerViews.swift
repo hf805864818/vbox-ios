@@ -412,22 +412,18 @@ struct VideoDetailView: View {
                                 .font(.system(size: 14))
                                 .foregroundColor(.white.opacity(0.9))
                                 .lineLimit(1)
-                                .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 1)
 
                             HStack(spacing: 8) {
                                 Text("剧情")
                                     .font(.system(size: 11))
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
-                                    .background(Color.black.opacity(0.25))
                                     .foregroundColor(.white.opacity(0.9))
-                                    .cornerRadius(4)
 
                                 if let year = displayVideo.vodYear, !year.isEmpty {
                                     Text(year)
                                         .font(.system(size: 11))
                                         .foregroundColor(.white.opacity(0.85))
-                                        .shadow(color: .black.opacity(0.6), radius: 3, x: 0, y: 1)
                                 }
                             }
 
