@@ -227,16 +227,17 @@ final class MPVPiPManager: NSObject {
     ///   - presentationTime: 帧的呈现时间
     func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
                       presentationTime: CMTime) {
-        // PiP 未激活且未在等待启动时，跳过帧推送以节省性能
-        guard isPiPReady, let displayLayer else { return }
-
-        // 首帧时自动初始化 PiP 控制器（如果尚未初始化）
+        // 关键修复：首帧到达时如果 PiP 控制器尚未初始化，先用实际帧尺寸初始化，
+        // 否则 guard 会在 isPiPReady=false 时直接返回，导致 PiP 永远收不到帧。
         if pipController == nil {
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
+            print("[MPVPiP] 首帧到达，自动初始化 PiP：\(width)x\(height)")
             initializePiP(videoSize: CGSize(width: width, height: height))
-            guard pipController != nil, self.displayLayer != nil else { return }
         }
+
+        // PiP 未激活且未在等待启动时，跳过帧推送以节省性能
+        guard isPiPReady, let displayLayer else { return }
 
         // 首帧时创建 formatDescription
         if formatDescription == nil {

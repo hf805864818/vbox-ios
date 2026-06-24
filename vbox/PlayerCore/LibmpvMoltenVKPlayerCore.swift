@@ -59,6 +59,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var frameCaptureCounter: Int = 0
     /// 帧捕获间隔（每 N 帧捕获一次）
     private let frameCaptureInterval: Int = 3
+    /// 是否已打印首帧捕获日志（避免刷屏）
+    private var hasLoggedFirstBlitFrame = false
     /// Metal 纹理缓存，用于 CVPixelBuffer <-> MTLTexture
     private var pipTextureCache: CVMetalTextureCache?
     /// Metal 命令队列
@@ -129,6 +131,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         pipPixelBuffer = nil
         pipMetalTexture = nil
         pipTextureSize = .zero
+        hasLoggedFirstBlitFrame = false
         log("[PiP] 帧捕获已停止")
     }
 
@@ -217,6 +220,11 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
         MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+
+        if !hasLoggedFirstBlitFrame {
+            hasLoggedFirstBlitFrame = true
+            log("[PiP] 首帧 Metal blit 已推送：\(width)x\(height)")
+        }
     }
 
     /// 创建或获取 PiP 目标 CVPixelBuffer，优先使用 MPVPiPManager 的 pool
