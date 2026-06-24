@@ -28,11 +28,10 @@ private func bridge<T: AnyObject>(ptr: UnsafeRawPointer) -> T {
 ///
 /// 渲染管线：
 /// 1. MDK 通过 setRenderAPI 渲染到一个离屏 MTLTexture（renderTexture）。
-/// 2. setRenderCallback 触发时，在 MDK 线程调用 renderVideo() 更新 renderTexture。
-///    如果 PiP 已启用，再把 renderTexture blit 到 CVPixelBuffer-backed 纹理，
-///    完成后推给 MDKPipManager。
-/// 3. MTKView 的 draw(in:) 只负责把 renderTexture blit 到 currentDrawable，
-///    不做额外渲染，保证前后台都能继续出帧。
+/// 2. setRenderCallback 触发时，只通知 MTKView 需要刷新（setNeedsDisplay）。
+/// 3. MTKView 的 draw(in:) 中先调用 renderVideo() 把当前帧写到 renderTexture，
+///    再把它 blit 到 currentDrawable；若启用 PiP，同时 blit 到 PiP 纹理。
+///    无可用帧时直接显示 clearColor（黑色），避免把未初始化的脏纹理呈现给用户。
 final class MDKRenderView: MTKView {
 
     #if canImport(swift_mdk)
@@ -83,7 +82,7 @@ final class MDKRenderView: MTKView {
         framebufferOnly = false          // 需要读取/拷贝
         autoResizeDrawable = true
         enableSetNeedsDisplay = true
-        isPaused = false
+        isPaused = true                  // 由 MDK render callback 驱动刷新，避免 DisplayLink 把未初始化的纹理反复 blit 到屏幕
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         delegate = self
     }
@@ -96,13 +95,19 @@ final class MDKRenderView: MTKView {
         commandQueue = device?.makeCommandQueue()
         guard commandQueue != nil else { return }
 
-        // 先创建离屏纹理，再设置渲染 API（ra.texture 需要纹理已存在）
-        updateSurfaceSize()
-        setupRenderAPIIfNeeded()
+        // 关键顺序：先确保有 renderTexture，再 setRenderAPI，最后 setVideoSurfaceSize。
+        // 若此时 view 还未布局（bounds == 0），则推迟到 layoutSubviews 中完成。
+        if bounds.width > 0, bounds.height > 0 {
+            let size = drawableSizeForBounds()
+            recreateRenderTexture(size: size)
+            setupRenderAPIIfNeeded()
+            player.setVideoSurfaceSize(CGFloat(size.width), CGFloat(size.height))
+        }
 
+        // callback 只负责“通知有帧可画”，真正的 renderVideo 放到 draw(in:) 中与 blit 同一帧完成
         player.setRenderCallback { [weak self] in
             DispatchQueue.main.async { [weak self] in
-                self?.renderFrame()
+                self?.setNeedsDisplay()
             }
         }
     }
@@ -119,17 +124,36 @@ final class MDKRenderView: MTKView {
         updateSurfaceSize()
     }
 
+    private func drawableSizeForBounds() -> CGSize {
+        guard bounds.width > 0, bounds.height > 0 else { return currentSize }
+        let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        return CGSize(width: max(1, Int(bounds.width * scale)),
+                      height: max(1, Int(bounds.height * scale)))
+    }
+
     private func updateSurfaceSize() {
         guard let player = player, bounds.width > 0, bounds.height > 0 else { return }
-        let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        let width = max(1, Int(bounds.width * scale))
-        let height = max(1, Int(bounds.height * scale))
-        let newSize = CGSize(width: width, height: height)
-        guard newSize != currentSize else { return }
+        let newSize = drawableSizeForBounds()
+        guard newSize != currentSize, newSize.width > 0, newSize.height > 0 else { return }
         currentSize = newSize
 
-        player.setVideoSurfaceSize(CGFloat(width), CGFloat(height))
         recreateRenderTexture(size: newSize)
+
+        // 确保 MDK 已经拿到 device/queue/texture；纹理重建后也要把新 texture 指针交给 MDK
+        #if canImport(swift_mdk)
+        setupRenderAPIIfNeeded()
+        if let tex = renderTexture, let device = device, let queue = commandQueue {
+            var ra = mdkMetalRenderAPI()
+            ra.type = MDK_RenderAPI_Metal
+            ra.device = bridge(device)!
+            ra.cmdQueue = bridge(queue)!
+            ra.texture = bridge(tex)!
+            player.setRenderAPI(&ra, vid: nil)
+        }
+        #endif
+
+        // 在 render API 就绪后再设置 surface size，确保 callback 被触发
+        player.setVideoSurfaceSize(CGFloat(newSize.width), CGFloat(newSize.height))
     }
 
     // MARK: - 渲染目标设置
@@ -169,18 +193,6 @@ final class MDKRenderView: MTKView {
         desc.storageMode = .managed
         #endif
         renderTexture = device.makeTexture(descriptor: desc)
-
-        // 纹理重建后需要更新 MDK 的 ra.texture 指针
-        #if canImport(swift_mdk)
-        if hasSetupRenderAPI, let player = player, let tex = renderTexture, let queue = commandQueue {
-            var ra = mdkMetalRenderAPI()
-            ra.type = MDK_RenderAPI_Metal
-            ra.device = bridge(device)!
-            ra.cmdQueue = bridge(queue)!
-            ra.texture = bridge(tex)!
-            player.setRenderAPI(&ra, vid: nil)
-        }
-        #endif
     }
 
     // MARK: - PiP 纹理
@@ -246,58 +258,6 @@ final class MDKRenderView: MTKView {
         return true
     }
 
-    // MARK: - 帧渲染与捕获
-
-    #if canImport(swift_mdk)
-    private func renderFrame() {
-        guard let player = player, let queue = commandQueue else { return }
-
-        renderLock.lock()
-        defer { renderLock.unlock() }
-
-        guard renderTexture != nil else { return }
-
-        _ = player.renderVideo(vid: nil)
-
-        // 触发 UI 刷新
-        DispatchQueue.main.async { [weak self] in
-            self?.setNeedsDisplay()
-        }
-
-        // PiP 捕获
-        guard pipEnabled, let renderTex = renderTexture else { return }
-        let width = renderTex.width
-        let height = renderTex.height
-        guard width > 0, height > 0,
-              ensurePiPTextures(width: width, height: height),
-              let pipTex = pipTexture,
-              let pb = pipPixelBuffer else { return }
-
-        guard let cmdBuffer = queue.makeCommandBuffer(),
-              let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
-
-        blit.copy(
-            from: renderTex,
-            sourceSlice: 0,
-            sourceLevel: 0,
-            sourceOrigin: MTLOriginMake(0, 0, 0),
-            sourceSize: MTLSizeMake(width, height, 1),
-            to: pipTex,
-            destinationSlice: 0,
-            destinationLevel: 0,
-            destinationOrigin: MTLOriginMake(0, 0, 0)
-        )
-        blit.endEncoding()
-
-        cmdBuffer.addCompletedHandler { [weak self] _ in
-            guard let self else { return }
-            let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 1000)
-            MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
-        }
-        cmdBuffer.commit()
-    }
-    #endif
-
     deinit {
         pipTexture = nil
         renderTexture = nil
@@ -314,29 +274,64 @@ extension MDKRenderView: MTKViewDelegate {
 
     func draw(in view: MTKView) {
         guard let drawable = currentDrawable,
-              let queue = commandQueue else { return }
+              let queue = commandQueue,
+              let renderTex = renderTexture,
+              let player = player else { return }
 
         renderLock.lock()
         defer { renderLock.unlock() }
 
-        guard let renderTex = renderTexture else { return }
+        // 先让 MDK 把当前视频帧渲染到离屏纹理；返回值 < 0 表示尚无可用帧
+        let pts = player.renderVideo(vid: nil)
+        guard pts >= 0 else { return }
 
         guard let cmdBuffer = queue.makeCommandBuffer(),
               let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
 
+        let frameSize = MTLSizeMake(renderTex.width, renderTex.height, 1)
+
+        // 1) 拷贝到屏幕 drawable
         blit.copy(
             from: renderTex,
             sourceSlice: 0,
             sourceLevel: 0,
             sourceOrigin: MTLOriginMake(0, 0, 0),
-            sourceSize: MTLSizeMake(renderTex.width, renderTex.height, 1),
+            sourceSize: frameSize,
             to: drawable.texture,
             destinationSlice: 0,
             destinationLevel: 0,
             destinationOrigin: MTLOriginMake(0, 0, 0)
         )
+
+        // 2) 若开启 PiP，同时拷贝到 PiP 纹理（同一 command buffer，顺序执行）
+        var pipPB: CVPixelBuffer?
+        if pipEnabled,
+           ensurePiPTextures(width: renderTex.width, height: renderTex.height),
+           let pipTex = pipTexture {
+            pipPB = pipPixelBuffer
+            blit.copy(
+                from: renderTex,
+                sourceSlice: 0,
+                sourceLevel: 0,
+                sourceOrigin: MTLOriginMake(0, 0, 0),
+                sourceSize: frameSize,
+                to: pipTex,
+                destinationSlice: 0,
+                destinationLevel: 0,
+                destinationOrigin: MTLOriginMake(0, 0, 0)
+            )
+        }
+
         blit.endEncoding()
         cmdBuffer.present(drawable)
+
+        if let pb = pipPB {
+            cmdBuffer.addCompletedHandler { _ in
+                let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 1000)
+                MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
+            }
+        }
+
         cmdBuffer.commit()
     }
 }
