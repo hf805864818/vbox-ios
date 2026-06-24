@@ -2,6 +2,7 @@ import Foundation
 import QuartzCore
 import UIKit
 import Metal
+import CoreVideo
 import AVFoundation
 
 #if canImport(Libmpv)
@@ -58,6 +59,16 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var frameCaptureCounter: Int = 0
     /// 帧捕获间隔（每 N 帧捕获一次）
     private let frameCaptureInterval: Int = 3
+    /// Metal 纹理缓存，用于 CVPixelBuffer <-> MTLTexture
+    private var pipTextureCache: CVMetalTextureCache?
+    /// Metal 命令队列
+    private var pipCommandQueue: MTLCommandQueue?
+    /// PiP 目标像素缓冲（从 pool 获取或兜底创建）
+    private var pipPixelBuffer: CVPixelBuffer?
+    /// PiP 目标 Metal 纹理
+    private var pipMetalTexture: MTLTexture?
+    /// PiP 目标纹理尺寸缓存
+    private var pipTextureSize: CGSize = .zero
 
     enum PlaybackProfile: String {
         case hlsFast = "MoltenVK HLS极速"
@@ -95,18 +106,31 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     // MARK: - PiP 帧捕获控制
 
-    /// 启动 PiP 帧捕获（通过截图方式，不干扰 mpv 渲染）
+    /// 启动 PiP 帧捕获（Metal 纹理 blit 模式）
     func startPiPCapture() {
         guard !isPipCapturing else { return }
         isPipCapturing = true
         frameCaptureCounter = 0
-        log("[PiP] 帧捕获已启动（截图模式）")
+
+        // 初始化 Metal 资源
+        if pipCommandQueue == nil || pipTextureCache == nil {
+            let device = renderView.metalLayer.device ?? MTLCreateSystemDefaultDevice()
+            if let device {
+                pipCommandQueue = device.makeCommandQueue()
+                var cache: CVMetalTextureCache?
+                let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+                if status == kCVReturnSuccess {
+                    pipTextureCache = cache
+                }
+            }
+        }
 
         if captureDisplayLink == nil {
             captureDisplayLink = CADisplayLink(target: self, selector: #selector(captureFrameTick))
             captureDisplayLink?.preferredFramesPerSecond = 10  // 10fps 足够 PiP
             captureDisplayLink?.add(to: .main, forMode: .common)
         }
+        log("[PiP] 帧捕获已启动（Metal blit 模式）")
     }
 
     /// 停止 PiP 帧捕获
@@ -115,10 +139,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         captureDisplayLink?.invalidate()
         captureDisplayLink = nil
         frameCaptureCounter = 0
+        pipPixelBuffer = nil
+        pipMetalTexture = nil
+        pipTextureSize = .zero
         log("[PiP] 帧捕获已停止")
     }
 
-    /// CADisplayLink 回调：定期截图捕获帧
+    /// CADisplayLink 回调：定期捕获帧
     @objc private func captureFrameTick(_ displayLink: CADisplayLink) {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
@@ -127,68 +154,106 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard frameCaptureCounter >= frameCaptureInterval else { return }
         frameCaptureCounter = 0
 
-        captureFrameViaSnapshot()
+        captureFrameViaMetalBlit()
     }
 
-    /// 通过截图方式捕获当前帧（不干扰 mpv 的 Metal 渲染管线）
-    private func captureFrameViaSnapshot() {
-        let view = renderView
-        let currentTime = state.currentTime
-        let captureWidth = view.bounds.width
-        let captureHeight = view.bounds.height
+    /// 通过 Metal 纹理 blit 捕获当前帧，避免 CPU 截图和 CGImage 转换。
+    /// 源：MPVKitMetalLayer 最近一次返回的 drawable texture
+    /// 目标：CVPixelBuffer  backed Metal texture（复用 pool 或兜底创建）
+    private func captureFrameViaMetalBlit() {
+        let metalLayer = renderView.metalLayer
+        guard let sourceDrawable = metalLayer.lastDrawable else { return }
+        let sourceTexture = sourceDrawable.texture
 
-        guard captureWidth > 0, captureHeight > 0 else { return }
+        let width = sourceTexture.width
+        let height = sourceTexture.height
+        guard width > 0, height > 0 else { return }
 
-        // 使用 UIGraphicsImageRenderer 截图（在主线程，安全）
-        let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
-        let image = renderer.image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+        // 若尺寸变化，清理旧缓存
+        if pipTextureSize.width != CGFloat(width) || pipTextureSize.height != CGFloat(height) {
+            pipPixelBuffer = nil
+            pipMetalTexture = nil
         }
 
-        // 将 UIImage 转换为 CVPixelBuffer
-        guard let cgImage = image.cgImage else { return }
-
-        let width = cgImage.width
-        let height = cgImage.height
-
-        Task { @MainActor in
-            guard let pixelBuffer = MPVPiPManager.shared.createPixelBufferFromPool() else { return }
-
-            CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
-
-            guard let destBaseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
-            let destBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-
-            // 使用 CGContext 从 CGImage 获取像素数据
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            var bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
-            bitmapInfo.union(.byteOrder32Little)
-
-            guard let context = CGContext(
-                data: destBaseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: destBytesPerRow,
-                space: colorSpace,
-                bitmapInfo: bitmapInfo.rawValue
-            ) else { return }
-
-            // CGContext 坐标原点在左下角，需要翻转
-            context.translateBy(x: 0, y: CGFloat(height))
-            context.scaleBy(x: 1.0, y: -1.0)
-
-            let rect = CGRect(x: 0, y: 0, width: width, height: height)
-            context.draw(cgImage, in: rect)
-
-            let presentationTime = CMTime(
-                value: Int64(currentTime * 1000),
-                timescale: 1000
-            )
-
-            MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+        // 获取或创建 PiP 目标 CVPixelBuffer
+        let pixelBuffer: CVPixelBuffer
+        if let cached = pipPixelBuffer,
+           CVPixelBufferGetWidth(cached) == width,
+           CVPixelBufferGetHeight(cached) == height {
+            pixelBuffer = cached
+        } else {
+            guard let newBuffer = createPiPPixelBuffer(width: width, height: height) else { return }
+            pipPixelBuffer = newBuffer
+            pipTextureSize = CGSize(width: width, height: height)
+            pixelBuffer = newBuffer
         }
+
+        // 获取或创建目标 Metal 纹理
+        if pipMetalTexture == nil {
+            guard let texture = createMetalTexture(from: pixelBuffer, width: width, height: height) else { return }
+            pipMetalTexture = texture
+        }
+
+        guard let destinationTexture = pipMetalTexture,
+              let commandQueue = pipCommandQueue,
+              let commandBuffer = commandQueue.makeCommandBuffer(),
+              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
+
+        let sourceSize = MTLSize(width: width, height: height, depth: 1)
+        blitEncoder.copy(from: sourceTexture,
+                         sourceSlice: 0,
+                         sourceLevel: 0,
+                         sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                         sourceSize: sourceSize,
+                         to: destinationTexture,
+                         destinationSlice: 0,
+                         destinationLevel: 0,
+                         destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+
+        let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
+        MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+    }
+
+    /// 创建或获取 PiP 目标 CVPixelBuffer，优先使用 MPVPiPManager 的 pool
+    private func createPiPPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        if let poolBuffer = MPVPiPManager.shared.createPixelBufferFromPool() {
+            if CVPixelBufferGetWidth(poolBuffer) == width,
+               CVPixelBufferGetHeight(poolBuffer) == height {
+                return poolBuffer
+            }
+        }
+
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
+        ]
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
+        return status == kCVReturnSuccess ? pixelBuffer : nil
+    }
+
+    /// 从 CVPixelBuffer 创建可写入的 Metal 纹理
+    private func createMetalTexture(from pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> MTLTexture? {
+        guard let textureCache else { return nil }
+        var cvTexture: CVMetalTexture?
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            textureCache,
+            pixelBuffer,
+            nil,
+            .bgra8Unorm,
+            width,
+            height,
+            0,
+            &cvTexture
+        )
+        guard status == kCVReturnSuccess, let cvTexture else { return nil }
+        return CVMetalTextureGetTexture(cvTexture)
     }
 
     // MARK: - 公开方法
