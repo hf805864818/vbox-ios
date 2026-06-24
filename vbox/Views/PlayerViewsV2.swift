@@ -775,19 +775,17 @@ class PlayerState: ObservableObject {
         }
     }
 
-    /// 百度/夸克本地代理走 MDK，硬解 + Metal 帧桥接实现桌面 PiP。
-    /// 夸克 download_url 对首帧 Range/解码器较敏感，MDK 加载时会额外强制 FFmpeg 软解 + 重连参数。
+    /// 测试阶段：百度/夸克本地代理全部走 MPV-MoltenVK，统一测试 MPV 小窗口效果。
+    /// MDK 仅在其他明确需要时通过 enginePreference 手动选择。
     private func shouldPreferMDK(for url: URL?) -> Bool {
-        guard isMDKBuildAvailable else { return false }
-        guard let url else { return false }
-        let text = url.absoluteString.lowercased()
-        return text.contains("baidu-stream") || text.contains("quark-stream")
+        return false
     }
 
     private func shouldPreferMPV(for url: URL?) -> Bool {
+        guard isMPVBuildAvailable else { return false }
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        if text.contains("baidu-stream") || text.contains("quark-stream") { return false } // 网盘由 MDK 处理
+        if text.contains("baidu-stream") || text.contains("quark-stream") { return true } // 网盘走 MPV
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
         if compatibilityHint?.contains("百度原画") == true { return true }
@@ -1947,20 +1945,29 @@ class PlayerState: ObservableObject {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
 
-        if isBaiduLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
+        if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
-                compatibilityHint = "百度原画本地代理"
+                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream 本地代理原画流")
-            log("[Baidu] 自动模式下百度原画本地代理优先使用 MDK，Metal 硬解 + 帧桥接 PiP")
-        } else if isBaiduLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
+            let reason = isBaiduLocalProxy ? "baidu-stream 本地代理原画流" : "quark-stream 直链"
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: reason)
+            log(isBaiduLocalProxy ? "[Baidu] 自动模式下百度本地代理优先使用 MPV-MoltenVK" : "[Quark] 自动模式下夸克直链优先使用 MPV-MoltenVK")
+        } else if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isMDKBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
-                compatibilityHint = "百度原画本地代理"
+                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流（MDK 不可用）")
-            log("[Baidu] MDK 不可用，降级使用 MPV-MoltenVK，跳过系统内核 0x0 画面等待")
+            let reason = isBaiduLocalProxy ? "baidu-stream 本地代理原画流（MPV 不可用）" : "quark-stream 直链（MPV 不可用）"
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: reason)
+            log(isBaiduLocalProxy ? "[Baidu] MPV 不可用，降级使用 MDK" : "[Quark] MPV 不可用，降级使用 MDK")
+        } else if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isVLCBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu/quark-stream MPV/MDK 均不可用降级 VLC")
+            log("[Baidu/Quark] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
                 playbackEngineMode = .system
@@ -1969,21 +1976,7 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
-        } else if isQuarkLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
-            await MainActor.run {
-                playbackEngineMode = .compatibility
-                compatibilityHint = "夸克网盘直链"
-            }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "quark-stream直链优先MDK")
-            log("[Quark] 自动模式下夸克直链优先使用 MDK，强制 FFmpeg 软解")
-        } else if isQuarkLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
-            await MainActor.run {
-                playbackEngineMode = .compatibility
-                compatibilityHint = "夸克网盘直链"
-            }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链MPV兜底")
-            log("[Quark] MDK 不可用，降级使用 MPV-MoltenVK")
-        } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
+        } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
@@ -3936,6 +3929,8 @@ struct PlayerControlsView: View {
                     #endif
                 } else if playerState.compatibilityEngineName.contains("MPV") {
                     #if canImport(Libmpv)
+                    // 关键修复：先启动 MPV 帧捕获，让首帧能推送后再初始化/启动 PiP，避免死锁
+                    LibmpvMoltenVKPlayerCore.shared.startPiPCapture()
                     MPVPiPManager.shared.initializePiP()
                     MPVPiPManager.shared.startPiP()
                     #endif
