@@ -112,19 +112,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         isPipCapturing = true
         frameCaptureCounter = 0
 
-        // 初始化 Metal 资源
-        if pipCommandQueue == nil || pipTextureCache == nil {
-            let device = renderView.metalLayer.device ?? MTLCreateSystemDefaultDevice()
-            if let device {
-                pipCommandQueue = device.makeCommandQueue()
-                var cache: CVMetalTextureCache?
-                let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
-                if status == kCVReturnSuccess {
-                    pipTextureCache = cache
-                }
-            }
-        }
-
         if captureDisplayLink == nil {
             captureDisplayLink = CADisplayLink(target: self, selector: #selector(captureFrameTick))
             captureDisplayLink?.preferredFramesPerSecond = 10  // 10fps 足够 PiP
@@ -145,7 +132,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         log("[PiP] 帧捕获已停止")
     }
 
-    /// CADisplayLink 回调：定期捕获帧
+    /// CADisplayLink 回调：定期捕获帧（切到 @MainActor 执行，因为涉及 UI/Metal/PiPManager）
     @objc private func captureFrameTick(_ displayLink: CADisplayLink) {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
@@ -154,13 +141,29 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard frameCaptureCounter >= frameCaptureInterval else { return }
         frameCaptureCounter = 0
 
-        captureFrameViaMetalBlit()
+        Task { @MainActor [weak self] in
+            self?.captureFrameViaMetalBlit()
+        }
     }
 
     /// 通过 Metal 纹理 blit 捕获当前帧，避免 CPU 截图和 CGImage 转换。
     /// 源：MPVKitMetalLayer 最近一次返回的 drawable texture
     /// 目标：CVPixelBuffer  backed Metal texture（复用 pool 或兜底创建）
+    @MainActor
     private func captureFrameViaMetalBlit() {
+        // 延迟初始化 Metal 资源（在 @MainActor 中安全访问 renderView.metalLayer）
+        if pipCommandQueue == nil || pipTextureCache == nil {
+            let device = renderView.metalLayer.device ?? MTLCreateSystemDefaultDevice()
+            if let device {
+                pipCommandQueue = device.makeCommandQueue()
+                var cache: CVMetalTextureCache?
+                let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+                if status == kCVReturnSuccess {
+                    pipTextureCache = cache
+                }
+            }
+        }
+
         let metalLayer = renderView.metalLayer
         guard let sourceDrawable = metalLayer.lastDrawable else { return }
         let sourceTexture = sourceDrawable.texture
@@ -217,6 +220,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     /// 创建或获取 PiP 目标 CVPixelBuffer，优先使用 MPVPiPManager 的 pool
+    @MainActor
     private func createPiPPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
         if let poolBuffer = MPVPiPManager.shared.createPixelBufferFromPool() {
             if CVPixelBufferGetWidth(poolBuffer) == width,
@@ -238,12 +242,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     /// 从 CVPixelBuffer 创建可写入的 Metal 纹理
+    @MainActor
     private func createMetalTexture(from pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> MTLTexture? {
-        guard let textureCache else { return nil }
+        guard let pipTextureCache else { return nil }
         var cvTexture: CVMetalTexture?
         let status = CVMetalTextureCacheCreateTextureFromImage(
             kCFAllocatorDefault,
-            textureCache,
+            pipTextureCache,
             pixelBuffer,
             nil,
             .bgra8Unorm,
