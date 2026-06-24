@@ -28,10 +28,10 @@ private func bridge<T: AnyObject>(ptr: UnsafeRawPointer) -> T {
 ///
 /// 渲染管线：
 /// 1. MDK 通过 setRenderAPI 渲染到一个离屏 MTLTexture（renderTexture）。
-/// 2. setRenderCallback 触发时，只通知 MTKView 需要刷新（setNeedsDisplay）。
-/// 3. MTKView 的 draw(in:) 中先调用 renderVideo() 把当前帧写到 renderTexture，
-///    再把它 blit 到 currentDrawable；若启用 PiP，同时 blit 到 PiP 纹理。
-///    无可用帧时直接显示 clearColor（黑色），避免把未初始化的脏纹理呈现给用户。
+/// 2. setRenderCallback 在 MDK 解码线程触发：调用 renderVideo() 更新 renderTexture，
+///    若启用 PiP 则把 renderTexture blit 到 PiP 纹理，最后 dispatch main 调用 setNeedsDisplay()。
+/// 3. MTKView 的 draw(in:) 只在主线程把 renderTexture blit 到 currentDrawable。
+///    无可用帧时不会触发 draw，保持 clearColor（黑色）。
 final class MDKRenderView: MTKView {
 
     #if canImport(swift_mdk)
@@ -104,11 +104,11 @@ final class MDKRenderView: MTKView {
             player.setVideoSurfaceSize(CGFloat(size.width), CGFloat(size.height))
         }
 
-        // callback 只负责“通知有帧可画”，真正的 renderVideo 放到 draw(in:) 中与 blit 同一帧完成
+        // callback 在 MDK 解码线程触发：先 renderVideo 更新 renderTexture，
+        // 再捕获 PiP 帧，最后通知主线程刷新。这样即使 MTKView 进入后台不 draw，
+        // PiP 仍能源源不断拿到新帧。
         player.setRenderCallback { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                self?.setNeedsDisplay()
-            }
+            self?.renderFrame()
         }
     }
     #endif
@@ -258,6 +258,66 @@ final class MDKRenderView: MTKView {
         return true
     }
 
+    // MARK: - 帧渲染与 PiP 捕获
+
+    #if canImport(swift_mdk)
+    /// 由 MDK render callback 调用：解码线程中完成 renderVideo + PiP 捕获，再通知 UI 刷新。
+    private func renderFrame() {
+        guard let player = player, let queue = commandQueue else { return }
+
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
+        guard renderTexture != nil else { return }
+
+        let pts = player.renderVideo(vid: nil)
+        guard pts >= 0 else { return }
+
+        // PiP 捕获：后台播放时 MTKView 不 draw，必须在这里持续推帧
+        if pipEnabled {
+            capturePiPFrameLocked(queue: queue)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.setNeedsDisplay()
+        }
+    }
+    #endif
+
+    private func capturePiPFrameLocked(queue: MTLCommandQueue) {
+        guard pipEnabled, let renderTex = renderTexture else { return }
+        let width = renderTex.width
+        let height = renderTex.height
+        guard width > 0, height > 0,
+              ensurePiPTextures(width: width, height: height),
+              let pipTex = pipTexture,
+              let pb = pipPixelBuffer else { return }
+
+        guard let cmdBuffer = queue.makeCommandBuffer(),
+              let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
+
+        blit.copy(
+            from: renderTex,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOriginMake(0, 0, 0),
+            sourceSize: MTLSizeMake(width, height, 1),
+            to: pipTex,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOriginMake(0, 0, 0)
+        )
+        blit.endEncoding()
+
+        cmdBuffer.addCompletedHandler { _ in
+            let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 1000)
+            DispatchQueue.main.async {
+                MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
+            }
+        }
+        cmdBuffer.commit()
+    }
+
     deinit {
         pipTexture = nil
         renderTexture = nil
@@ -275,63 +335,28 @@ extension MDKRenderView: MTKViewDelegate {
     func draw(in view: MTKView) {
         guard let drawable = currentDrawable,
               let queue = commandQueue,
-              let renderTex = renderTexture,
-              let player = player else { return }
+              let renderTex = renderTexture else { return }
 
         renderLock.lock()
         defer { renderLock.unlock() }
 
-        // 先让 MDK 把当前视频帧渲染到离屏纹理；返回值 < 0 表示尚无可用帧
-        let pts = player.renderVideo(vid: nil)
-        guard pts >= 0 else { return }
-
+        // renderVideo 已在 render callback 中调用，这里只做屏幕呈现
         guard let cmdBuffer = queue.makeCommandBuffer(),
               let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
 
-        let frameSize = MTLSizeMake(renderTex.width, renderTex.height, 1)
-
-        // 1) 拷贝到屏幕 drawable
         blit.copy(
             from: renderTex,
             sourceSlice: 0,
             sourceLevel: 0,
             sourceOrigin: MTLOriginMake(0, 0, 0),
-            sourceSize: frameSize,
+            sourceSize: MTLSizeMake(renderTex.width, renderTex.height, 1),
             to: drawable.texture,
             destinationSlice: 0,
             destinationLevel: 0,
             destinationOrigin: MTLOriginMake(0, 0, 0)
         )
-
-        // 2) 若开启 PiP，同时拷贝到 PiP 纹理（同一 command buffer，顺序执行）
-        var pipPB: CVPixelBuffer?
-        if pipEnabled,
-           ensurePiPTextures(width: renderTex.width, height: renderTex.height),
-           let pipTex = pipTexture {
-            pipPB = pipPixelBuffer
-            blit.copy(
-                from: renderTex,
-                sourceSlice: 0,
-                sourceLevel: 0,
-                sourceOrigin: MTLOriginMake(0, 0, 0),
-                sourceSize: frameSize,
-                to: pipTex,
-                destinationSlice: 0,
-                destinationLevel: 0,
-                destinationOrigin: MTLOriginMake(0, 0, 0)
-            )
-        }
-
         blit.endEncoding()
         cmdBuffer.present(drawable)
-
-        if let pb = pipPB {
-            cmdBuffer.addCompletedHandler { _ in
-                let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 1000)
-                MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
-            }
-        }
-
         cmdBuffer.commit()
     }
 }

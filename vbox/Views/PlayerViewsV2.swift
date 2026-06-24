@@ -775,19 +775,21 @@ class PlayerState: ObservableObject {
         }
     }
 
-    /// 百度/夸克本地代理走 MDK，硬解 + Metal 帧桥接实现桌面 PiP
+    /// 百度本地代理走 MDK，硬解 + Metal 帧桥接实现桌面 PiP。
+    /// 夸克不再默认走 MDK：实测夸克 download_url 在 MDK 上容易卡在首帧/无法起播，
+    /// 改由 MPV-MoltenVK（或系统内核）处理。
     private func shouldPreferMDK(for url: URL?) -> Bool {
         guard isMDKBuildAvailable else { return false }
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
-        return text.contains("baidu-stream") || text.contains("quark-stream")
+        return text.contains("baidu-stream")
     }
 
     private func shouldPreferMPV(for url: URL?) -> Bool {
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        if text.contains("baidu-stream") { return false } // 网盘由 MDK 处理
-        if text.contains("quark-stream") { return false }
+        if text.contains("baidu-stream") { return false } // 百度由 MDK 处理
+        if text.contains("quark-stream") { return isMPVBuildAvailable } // 夸克走 MPV
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
         if compatibilityHint?.contains("百度原画") == true { return true }
@@ -1969,20 +1971,20 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
-        } else if isQuarkLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
-            await MainActor.run {
-                playbackEngineMode = .compatibility
-                compatibilityHint = "夸克网盘直链"
-            }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "quark-stream直链优先MDK")
-            log("[Quark] 自动模式下夸克直链优先使用 MDK，Metal 硬解 + 帧桥接 PiP")
         } else if isQuarkLocalProxy && enginePreference == .auto && isMPVBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链优先MPV（MDK不可用）")
-            log("[Quark] MDK 不可用，降级使用 MPV-MoltenVK")
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream直链优先MPV")
+            log("[Quark] 自动模式下夸克直链优先使用 MPV-MoltenVK")
+        } else if isQuarkLocalProxy && enginePreference == .auto && isMDKBuildAvailable {
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "夸克网盘直链"
+            }
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "quark-stream直链MDK兜底")
+            log("[Quark] MPV 不可用，降级使用 MDK")
         } else if isQuarkLocalProxy && enginePreference == .auto && isVLCBuildAvailable {
             await MainActor.run {
                 playbackEngineMode = .compatibility
