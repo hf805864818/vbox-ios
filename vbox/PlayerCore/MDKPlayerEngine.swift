@@ -78,8 +78,9 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
-        // 开启硬解：VT 使用 0-copy 输出 GPU 纹理，避免 copy 模式下的色彩/格式异常
-        player.videoDecoders = ["VT:copy=0", "FFmpeg"]
+        // iOS 推荐解码器顺序：VT（默认即 0-copy）、FFmpeg 软解兜底。
+        // 不再强制 copy=0，让 VT 自己根据视频格式选择最优输出，避免网盘资源因格式协商失败出现洋红/偏色。
+        player.videoDecoders = ["VT", "FFmpeg"]
 
         // 绑定状态回调
         player.onStateChanged { [weak self] newState in
@@ -110,8 +111,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         onEvent?(.log("MDK 内核加载线路：\(route.title)"))
         startProgressTimer()
 
-        // MDK 需要 prepare() 初始化解码管线，否则 renderCallback 不触发，画面无帧
-        player.prepare(from: 0, complete: nil)
+        // 不调用 prepare()：setMedia + setState(.Playing) 已足够触发解码与 render callback。
+        // 之前 prepare(from: 0, complete: nil) 会阻塞/卡状态，导致网盘资源长时间“正在启动 MDK...”。
         #else
         let message = "当前构建未包含 MDK 内核"
         state.errorMessage = message
@@ -123,9 +124,9 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         #if canImport(swift_mdk)
         player.state = .Playing
         state.isPlaying = true
-        state.isBuffering = false
-        onEvent?(.buffering(false))
-        onEvent?(.ready)
+        // 不在这里发送 .ready/.buffering(false)：
+        // 应等 onStateChanged 的 .Playing 真正触发后再通知 UI 首帧已就绪，
+        // 否则“正在启动 MDK...”会在还没出画面前就消失，露出未初始化的纹理。
         #endif
     }
 
