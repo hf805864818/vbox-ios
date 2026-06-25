@@ -1252,7 +1252,7 @@ struct CloudAuthCenterView: View {
                 CloudDriveWebAuthView(driveType: .pan123)
             }
             .sheet(isPresented: $show139NativeQR) {
-                CloudDriveWebAuthView(driveType: .pan139)
+                NativeCloudQRLoginView(driveType: .pan139)
             }
             .sheet(item: $webAuthDriveType) { type in
                 CloudDriveWebAuthView(driveType: type)
@@ -1479,6 +1479,13 @@ struct CloudAuthCenterView: View {
                     }
                 } else if type == .uc {
                     Button(action: { showUCNativeQR = true }) {
+                        authButtonLabel("原生扫码", icon: "qrcode")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页登录兜底", icon: "globe")
+                    }
+                } else if type == .pan139 {
+                    Button(action: { show139NativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
                     }
                     Button(action: { webAuthDriveType = type }) {
@@ -3258,6 +3265,7 @@ struct NativeCloudQRLoginView: View {
     @State private var baiduToken: CloudDriveAuthManager.BaiduQrLoginToken? = nil
     @State private var baiduBDUSSURL: String? = nil
     @State private var aliToken: CloudDriveAuthManager.AliPassportQrToken? = nil
+    @StateObject private var pan139Helper = CloudDriveAuthManager.Pan139QrLoginHelper()
 
     var body: some View {
         NavigationView {
@@ -3290,6 +3298,11 @@ struct NativeCloudQRLoginView: View {
             .background(Color(uiColor: .systemBackground))
             .navigationTitle("扫码授权")
             .navigationBarTitleDisplayMode(.inline)
+            .onDisappear {
+                if driveType == .pan139 {
+                    pan139Helper.cleanup()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("关闭") { dismiss() }
@@ -3369,6 +3382,8 @@ struct NativeCloudQRLoginView: View {
             return "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。"
         case .ali:
             return "请使用阿里云盘 App 扫码并确认。扫码成功后自动获取 refresh_token，无需手动粘贴。"
+        case .pan139:
+            return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         default:
             return "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。"
         }
@@ -3410,6 +3425,14 @@ struct NativeCloudQRLoginView: View {
                 isGenerating = false
                 isPolling = true
                 await pollBaidu(token)
+            case .pan139:
+                pan139Helper.cleanup()
+                pan139Helper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = "正在加载139云盘登录页面..."
+                detailText = ""
+                await pollPan139()
             case .ali:
                 let token = try await CloudDriveAuthManager.shared.aliPassportCreateQrToken()
                 aliToken = token
@@ -3563,6 +3586,36 @@ struct NativeCloudQRLoginView: View {
                 return
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    @MainActor
+    private func pollPan139() async {
+        while isPolling && pollCount < 120 {
+            pollCount += 1
+            if pan139Helper.isLoggedIn {
+                isPolling = false
+                statusText = "139云盘扫码登录成功"
+                detailText = "Cookie 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                return
+            }
+            if !pan139Helper.errorText.isEmpty {
+                isPolling = false
+                statusText = "登录失败"
+                detailText = pan139Helper.errorText
+                return
+            }
+            if let img = pan139Helper.qrImage {
+                qrImage = img
+            }
+            statusText = pan139Helper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "二维码已过期"
+            detailText = "请重新生成二维码。"
         }
     }
 

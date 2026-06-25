@@ -2438,7 +2438,8 @@ class PlayerState: ObservableObject {
         if video.vodId.hasPrefix("http://") || video.vodId.hasPrefix("https://") {
             // 检查是否包含网盘域名
             let panDomains = ["aliyundrive.com", "alipan.com", "pan.quark.cn", "pan.baidu.com", 
-                              "115.com", "115cdn.com", "drive.uc.cn", "pan.uc.cn"]
+                              "115.com", "115cdn.com", "drive.uc.cn", "pan.uc.cn",
+                              "yun.139.com", "caiyun.139.com", "123pan.com", "123cloud.cn"]
             if panDomains.contains(where: { video.vodId.contains($0) }) {
                 log("[PlayerV2] 检测到网盘URL，走网盘播放链路")
                 await handleCloudVideo(video: video)
