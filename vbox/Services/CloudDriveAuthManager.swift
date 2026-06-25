@@ -442,17 +442,24 @@ final class CloudDriveAuthManager: ObservableObject {
         let json = try parseJSON(data)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         print("[VBox UC Poll] raw: \(rawBody)")
-        var status = json["status"] as? Int ?? json["code"] as? Int ?? -1
-        if status == -1 {
-            let nestedStatus = extractNestedInt(json, path: ["data", "members", "status"])
-            if let ns = nestedStatus { status = ns }
+        let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
+            ?? extractNestedString(json, path: ["data", "service_ticket"])
+            ?? extractString(json, keys: ["service_ticket", "ticket"])
+        if let ticket, !ticket.isEmpty {
+            return .success(serviceTicket: ticket)
         }
-        if status == 2000000 || status == 0 {
-            if let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
-                ?? extractString(json, keys: ["service_ticket", "ticket"]) {
-                return .success(serviceTicket: ticket)
+        var status = json["status"] as? Int
+            ?? json["code"] as? Int
+            ?? json["status"] as? NSNumber as? Int
+            ?? json["code"] as? NSNumber as? Int
+            ?? extractNestedInt(json, path: ["data", "members", "status"])
+            ?? extractNestedInt(json, path: ["data", "status"])
+            ?? -1
+        if status == -1 {
+            if let s = json["status"] as? String ?? json["code"] as? String {
+                status = Int(s) ?? -1
+                if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
             }
-            return .failed(message: "UC 未返回 service_ticket")
         }
         if status == -2 {
             return .failed(message: json["message"] as? String ?? "UC 轮询状态码 -2")
@@ -460,8 +467,7 @@ final class CloudDriveAuthManager: ObservableObject {
         if [50004002, 50004003, 50004004, 50004005].contains(status) { return .expired }
         if status == 50004000 { return .scanned }
         if status == 50004001 { return .pending }
-        let msg = json["message"] as? String ?? ""
-        if status != -1 { print("[VBox UC Poll] unknown status: \(status) msg: \(msg)") }
+        if status != -1 { print("[VBox UC Poll] unknown status: \(status)") }
         return .pending
     }
 
