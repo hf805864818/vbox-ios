@@ -894,14 +894,13 @@ final class CloudDriveAuthManager: ObservableObject {
 
                     let cookies = await self.getAllCookies()
                     let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
-                    let lower = cookieStr.lowercased()
 
-                    let hasAuthCookie = lower.contains("ssotoken")
-                        || lower.contains("caiyun")
-                        || (lower.contains("token") && lower.contains("139"))
-                        || (lower.contains("session") && cookieStr.count > 200)
+                    let hasSSOToken = cookies.contains { cookie in
+                        let name = cookie.name.lowercased()
+                        return (name == "ssotoken" || name == "sso_token") && cookie.value.count > 10
+                    }
 
-                    if hasAuthCookie {
+                    if hasSSOToken {
                         await MainActor.run {
                             self.isLoggedIn = true
                             self.statusText = "登录成功"
