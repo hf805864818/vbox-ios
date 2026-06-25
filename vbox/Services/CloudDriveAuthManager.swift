@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 import WebKit
 
 enum CloudDriveAuthType: String, Codable {
@@ -685,6 +686,149 @@ final class CloudDriveAuthManager: ObservableObject {
             return [:]
         }
         return cache
+    }
+
+    // MARK: - 139云盘原生扫码
+
+    @MainActor
+    final class Pan139QrLoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var qrImage: UIImage?
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        private let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+        private var extractRetryCount = 0
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+        }
+
+        func startLogin() {
+            guard let url = URL(string: "https://yun.139.com/w/") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                extractQRCodeImage()
+            }
+        }
+
+        private func extractQRCodeImage() {
+            guard extractRetryCount < 10 else {
+                statusText = "未能加载二维码，请返回重试"
+                errorText = "页面加载超时"
+                return
+            }
+            extractRetryCount += 1
+
+            let js = #"""
+            (function() {
+                var imgs = document.querySelectorAll('img');
+                for (var i = 0; i < imgs.length; i++) {
+                    var img = imgs[i];
+                    var rect = img.getBoundingClientRect();
+                    if (rect.width >= 100 && rect.height >= 100) {
+                        return img.src;
+                    }
+                }
+                var canvases = document.querySelectorAll('canvas');
+                for (var j = 0; j < canvases.length; j++) {
+                    if (canvases[j].width >= 100) {
+                        return canvases[j].toDataURL('image/png');
+                    }
+                }
+                return null;
+            })()
+            """#
+
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self = self else { return }
+                if let urlStr = result as? String, !urlStr.isEmpty {
+                    Task { @MainActor in
+                        self.statusText = "请使用中国移动云盘APP扫码登录"
+                        await self.downloadQRImage(from: urlStr)
+                        self.startPolling()
+                    }
+                } else {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        self.extractQRCodeImage()
+                    }
+                }
+            }
+        }
+
+        private func downloadQRImage(from urlStr: String) async {
+            guard let url = URL(string: urlStr) else { return }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = UIImage(data: data) {
+                    self.qrImage = image
+                }
+            } catch {}
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                for _ in 1...90 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                    let lower = cookieStr.lowercased()
+
+                    let hasAuthCookie = lower.contains("ssotoken")
+                        || lower.contains("caiyun")
+                        || (lower.contains("token") && lower.contains("139"))
+                        || (lower.contains("session") && cookieStr.count > 200)
+
+                    if hasAuthCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功"
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan139, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时，请重试"
+                    self.statusText = "二维码已过期"
+                }
+            }
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            qrImage = nil
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+            extractRetryCount = 0
+        }
     }
 
     // MARK: - 授权有效性测试
