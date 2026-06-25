@@ -692,15 +692,12 @@ final class CloudDriveAuthManager: ObservableObject {
 
     @MainActor
     final class Pan139QrLoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
-        @Published var qrImage: UIImage?
         @Published var statusText = "正在加载..."
         @Published var isLoggedIn = false
         @Published var errorText = ""
 
-        private let webView: WKWebView
+        let webView: WKWebView
         private var pollTask: Task<Void, Never>?
-        private var extractRetryCount = 0
-        private let maxExtractRetries = 15
 
         override init() {
             let config = WKWebViewConfiguration()
@@ -719,11 +716,8 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            statusText = "页面加载完成，等待渲染..."
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                extractQRCodeImage()
-            }
+            statusText = "请使用中国移动云盘APP扫码登录"
+            startPolling()
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -738,157 +732,11 @@ final class CloudDriveAuthManager: ObservableObject {
             self.statusText = "加载失败"
         }
 
-        private func extractQRCodeImage() {
-            guard extractRetryCount < maxExtractRetries else {
-                statusText = "未能加载二维码，请返回重试"
-                errorText = "页面渲染超时，请检查网络连接"
-                return
-            }
-            extractRetryCount += 1
-
-            let js = #"""
-            (function() {
-                var hasQR = false;
-
-                function isQRRelated(elem) {
-                    var attrs = ((elem.className||'') + ' ' + (elem.id||'') + ' ' + (elem.alt||'') + ' ' + (elem.title||'')).toLowerCase();
-                    var parent = elem.parentElement;
-                    if (parent) attrs += ' ' + ((parent.className||'') + ' ' + (parent.id||'')).toLowerCase();
-                    return attrs.indexOf('qr') !== -1 || attrs.indexOf('qrcode') !== -1 ||
-                           attrs.indexOf('scan') !== -1 || attrs.indexOf('扫码') !== -1 ||
-                           attrs.indexOf('code') !== -1;
-                }
-
-                function tryClickQRLoginTab() {
-                    var allElems = document.querySelectorAll('div, span, button, a, li, p, label');
-                    for (var i = 0; i < allElems.length; i++) {
-                        var el = allElems[i];
-                        var txt = (el.textContent || '').trim();
-                        var cls = (el.className||'') + ' ' + (el.id||'').toLowerCase();
-                        if ((txt.indexOf('扫码') !== -1 || txt.indexOf('二维码') !== -1 ||
-                             cls.indexOf('qr') !== -1 || cls.indexOf('scan') !== -1) &&
-                            el.offsetWidth > 0 && el.offsetHeight > 0) {
-                            el.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-
-                var imgs = document.querySelectorAll('img');
-                for (var i = 0; i < imgs.length; i++) {
-                    var img = imgs[i];
-                    var src = img.src || img.getAttribute('data-src') || '';
-                    if (!src || src.indexOf('data:image/svg') === 0) continue;
-                    var nw = img.naturalWidth || img.width || 0;
-                    var nh = img.naturalHeight || img.height || 0;
-                    if ((nw >= 100 && nh >= 100) || isQRRelated(img)) {
-                        hasQR = true;
-                        if (src.indexOf('data:') === 0) return 'data:' + src;
-                        return 'img:' + src;
-                    }
-                }
-
-                var canvases = document.querySelectorAll('canvas');
-                for (var j = 0; j < canvases.length; j++) {
-                    var c = canvases[j];
-                    var cw = c.width || 0, ch = c.height || 0;
-                    if ((cw >= 100 && ch >= 100) || isQRRelated(c)) {
-                        hasQR = true;
-                        try { return 'canvas:' + c.toDataURL('image/png'); } catch(e) {}
-                    }
-                }
-
-                var svgs = document.querySelectorAll('svg');
-                for (var k = 0; k < svgs.length; k++) {
-                    var svg = svgs[k];
-                    var rect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
-                    var sw = rect ? rect.width : (svg.getAttribute('width') || 0);
-                    var sh = rect ? rect.height : (svg.getAttribute('height') || 0);
-                    if ((sw >= 100 && sh >= 100) || isQRRelated(svg)) {
-                        hasQR = true;
-                        try {
-                            var s = new XMLSerializer().serializeToString(svg);
-                            return 'svg:' + btoa(unescape(encodeURIComponent(s)));
-                        } catch(e) {}
-                    }
-                }
-
-                if (!hasQR && tryClickQRLoginTab()) {
-                    return 'clickedTab';
-                }
-
-                return JSON.stringify({img:imgs.length, canvas:canvases.length, svg:svgs.length, body:document.body?document.body.innerHTML.substring(0,300):'nobody'});
-            })()
-            """#
-
-            webView.evaluateJavaScript(js) { [weak self] result, error in
-                guard let self = self else { return }
-                let resultStr = result as? String ?? ""
-
-                if let jsError = error {
-                    print("[Pan139QR] JS eval error: \(jsError.localizedDescription)")
-                }
-
-                let imagePrefixes = ["img:", "data:", "canvas:", "svg:"]
-                if let prefix = imagePrefixes.first(where: { resultStr.hasPrefix($0) }) {
-                    let urlStr = String(resultStr.dropFirst(prefix.count))
-                    Task { @MainActor in
-                        self.statusText = "请使用中国移动云盘APP扫码登录"
-                        await self.loadQRImage(from: urlStr, prefix: prefix)
-                        self.startPolling()
-                    }
-                } else if resultStr == "clickedTab" {
-                    Task { @MainActor in
-                        self.statusText = "已切换到扫码登录，等待二维码..."
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        self.extractQRCodeImage()
-                    }
-                } else {
-                    print("[Pan139QR] retry=\(self.extractRetryCount) result=\(resultStr.prefix(300))")
-                    Task { @MainActor in
-                        self.statusText = "等待二维码加载... (\(self.extractRetryCount)/\(self.maxExtractRetries))"
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        self.extractQRCodeImage()
-                    }
-                }
-            }
-        }
-
-        private func loadQRImage(from urlStr: String, prefix: String) async {
-            if prefix == "canvas:" || prefix == "data:" {
-                if let commaIdx = urlStr.firstIndex(of: ",") {
-                    let b64 = String(urlStr[urlStr.index(after: commaIdx)...])
-                    if let data = Data(base64Encoded: b64), let img = UIImage(data: data) {
-                        self.qrImage = img
-                        return
-                    }
-                }
-                if let data = Data(base64Encoded: urlStr), let img = UIImage(data: data) {
-                    self.qrImage = img
-                    return
-                }
-            } else if prefix == "svg:" {
-                if let data = Data(base64Encoded: urlStr),
-                   let svgString = String(data: data, encoding: .utf8),
-                   let svgData = svgString.data(using: .utf8),
-                   let img = UIImage(data: svgData) {
-                    self.qrImage = img
-                    return
-                }
-            }
-            guard let url = URL(string: urlStr) else { return }
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                if let img = UIImage(data: data) { self.qrImage = img }
-            } catch {}
-        }
-
         private func startPolling() {
             pollTask?.cancel()
             pollTask = Task { [weak self] in
                 guard let self = self else { return }
-                for _ in 1...90 {
+                for _ in 1...120 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     if Task.isCancelled { return }
 
@@ -928,11 +776,9 @@ final class CloudDriveAuthManager: ObservableObject {
             pollTask?.cancel()
             pollTask = nil
             webView.stopLoading()
-            qrImage = nil
             statusText = "正在加载..."
             isLoggedIn = false
             errorText = ""
-            extractRetryCount = 0
         }
     }
 

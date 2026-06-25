@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import CoreImage
+import WebKit
 
 extension CloudDriveManager.DriveType: Identifiable {
     var id: String { rawValue }
@@ -3251,6 +3252,13 @@ struct QuarkNativeQRLoginTestView: View {
     }
 }
 
+struct Pan139WebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct NativeCloudQRLoginView: View {
     @Environment(\.dismiss) private var dismiss
     let driveType: CloudDriveManager.DriveType
@@ -3314,7 +3322,12 @@ struct NativeCloudQRLoginView: View {
 
     private var qrCard: some View {
         VStack(spacing: 12) {
-            if let qrImage {
+            if driveType == .pan139 {
+                Pan139WebView(webView: pan139Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if let qrImage {
                 Image(uiImage: qrImage)
                     .interpolation(.none)
                     .resizable()
@@ -3430,7 +3443,7 @@ struct NativeCloudQRLoginView: View {
                 pan139Helper.startLogin()
                 isGenerating = false
                 isPolling = true
-                statusText = "正在加载139云盘登录页面..."
+                statusText = pan139Helper.statusText
                 detailText = ""
                 await pollPan139()
             case .ali:
@@ -3605,9 +3618,6 @@ struct NativeCloudQRLoginView: View {
                 statusText = "登录失败"
                 detailText = pan139Helper.errorText
                 return
-            }
-            if let img = pan139Helper.qrImage {
-                qrImage = img
             }
             statusText = pan139Helper.statusText
             try? await Task.sleep(nanoseconds: 2_000_000_000)
