@@ -716,8 +716,41 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            statusText = "请使用中国移动云盘APP扫码登录"
-            startPolling()
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                await switchToQRCodeTab()
+                startPolling()
+            }
+        }
+
+        private func switchToQRCodeTab() async {
+            let js = #"""
+            (function() {
+                var elems = document.querySelectorAll('div, span, button, a, li, p, label');
+                for (var i = 0; i < elems.length; i++) {
+                    var el = elems[i];
+                    var txt = (el.textContent || '').trim();
+                    var cls = ((el.className||'') + ' ' + (el.id||'')).toLowerCase();
+                    if ((txt.indexOf('扫码') !== -1 || txt.indexOf('二维码') !== -1 ||
+                         cls.indexOf('qr') !== -1 || cls.indexOf('scan') !== -1) &&
+                        el.offsetWidth > 0 && el.offsetHeight > 0) {
+                        el.click();
+                        return 'clicked';
+                    }
+                }
+                return 'notfound';
+            })()
+            """#
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if let r = result as? String, r == "clicked" {
+                    statusText = "已切换到扫码登录，请扫描二维码"
+                } else {
+                    statusText = "请使用中国移动云盘APP扫码登录"
+                }
+            } catch {
+                statusText = "请使用中国移动云盘APP扫码登录"
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
