@@ -3475,6 +3475,9 @@ struct NativeCloudQRLoginView: View {
                 switch result {
                 case .pending:
                     statusText = "等待 UC 扫码确认"
+                    detailText = "请使用 UC 手机端扫码。"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
                     detailText = "请在手机端确认登录。"
                 case .success(let ticket):
                     statusText = "已确认，正在换取 Cookie"

@@ -395,6 +395,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
     enum UCQrPollResult {
         case pending
+        case scanned
         case success(serviceTicket: String)
         case expired
         case failed(message: String)
@@ -439,7 +440,13 @@ final class CloudDriveAuthManager: ObservableObject {
 
         let (data, _) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
-        let status = json["status"] as? Int ?? json["code"] as? Int ?? -1
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[VBox UC Poll] raw: \(rawBody)")
+        var status = json["status"] as? Int ?? json["code"] as? Int ?? -1
+        if status == -1 {
+            let nestedStatus = extractNestedInt(json, path: ["data", "members", "status"])
+            if let ns = nestedStatus { status = ns }
+        }
         if status == 2000000 || status == 0 {
             if let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
                 ?? extractString(json, keys: ["service_ticket", "ticket"]) {
@@ -447,9 +454,15 @@ final class CloudDriveAuthManager: ObservableObject {
             }
             return .failed(message: "UC 未返回 service_ticket")
         }
+        if status == -2 {
+            return .failed(message: json["message"] as? String ?? "UC 轮询状态码 -2")
+        }
+        if [50004002, 50004003, 50004004, 50004005].contains(status) { return .expired }
+        if status == 50004000 { return .scanned }
         if status == 50004001 { return .pending }
-        if [50004002, 50004003, 50004004].contains(status) { return .expired }
-        return .failed(message: json["message"] as? String ?? "UC 轮询状态码 \(status)")
+        let msg = json["message"] as? String ?? ""
+        if status != -1 { print("[VBox UC Poll] unknown status: \(status) msg: \(msg)") }
+        return .pending
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
@@ -1158,6 +1171,17 @@ final class CloudDriveAuthManager: ObservableObject {
         }
         if let value = current as? String, !value.isEmpty { return value }
         if let value = current as? NSNumber { return value.stringValue }
+        return nil
+    }
+
+    private func extractNestedInt(_ json: [String: Any], path: [String]) -> Int? {
+        var current: Any = json
+        for key in path {
+            guard let dict = current as? [String: Any], let next = dict[key] else { return nil }
+            current = next
+        }
+        if let value = current as? Int { return value }
+        if let value = current as? NSNumber { return value.intValue }
         return nil
     }
 
