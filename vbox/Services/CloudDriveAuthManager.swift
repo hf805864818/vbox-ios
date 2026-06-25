@@ -3,6 +3,19 @@ import Combine
 import UIKit
 import WebKit
 
+private final class UCTrustSessionDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession,
+                    didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let serverTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+
 enum CloudDriveAuthType: String, Codable {
     case manual
     case qr
@@ -77,6 +90,7 @@ final class CloudDriveAuthManager: ObservableObject {
     private let storageKey = "cloud_drive_credentials_v1"
     private let baiduVerifyCooldownKey = "baidu_verify_cooldowns_v1"
     private let session: URLSession
+    private let ucSession: URLSession
     private let aliOAuthClientId = "76917ccccd4441c39457a04f6084fb2f"
     private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
 
@@ -84,6 +98,9 @@ final class CloudDriveAuthManager: ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
+        let ucConfig = URLSessionConfiguration.default
+        ucConfig.timeoutIntervalForRequest = 30
+        ucSession = URLSession(configuration: ucConfig, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
         load()
         syncLegacyTokensIfNeeded()
     }
@@ -398,7 +415,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
         guard let token = extractString(json, keys: ["token", "qrcode_token"]) ?? extractNestedString(json, path: ["data", "members", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
@@ -420,7 +437,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
         let status = json["status"] as? Int ?? json["code"] as? Int ?? -1
         if status == 2000000 || status == 0 {
@@ -451,7 +468,7 @@ final class CloudDriveAuthManager: ObservableObject {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.httpShouldSetCookies = true
-        let oneShot = URLSession(configuration: config)
+        let oneShot = URLSession(configuration: config, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
         defer { oneShot.finishTasksAndInvalidate() }
 
         let (data, response) = try await oneShot.data(for: request)
