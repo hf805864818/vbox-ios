@@ -775,9 +775,12 @@ class PlayerState: ObservableObject {
         }
     }
 
-    /// 测试阶段：百度/夸克本地代理全部走 MPV-MoltenVK，统一测试 MPV 小窗口效果。
-    /// MDK 仅在其他明确需要时通过 enginePreference 手动选择。
     private func shouldPreferMDK(for url: URL?) -> Bool {
+        guard isMDKBuildAvailable else { return false }
+        guard let url else { return false }
+        let text = url.absoluteString.lowercased()
+        if text.contains("baidu-stream") || text.contains("quark-stream") { return true }
+        if text.contains(".mkv") || text.contains("mkv") { return true }
         return false
     }
 
@@ -785,7 +788,7 @@ class PlayerState: ObservableObject {
         guard isMPVBuildAvailable else { return false }
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        if text.contains("baidu-stream") || text.contains("quark-stream") { return true } // 网盘走 MPV
+        if text.contains("baidu-stream") || text.contains("quark-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
         if compatibilityHint?.contains("百度原画") == true { return true }
@@ -4129,7 +4132,10 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         private weak var playerState: PlayerState?
         private var isStopped = false
+        private var initTimeoutWorkItem: DispatchWorkItem?
         var currentURL: URL?
+
+        private static let initTimeoutSeconds: TimeInterval = 15
 
         init(playerState: PlayerState) {
             self.playerState = playerState
@@ -4137,8 +4143,8 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 guard playerState?.compatibilityURL != nil else { return }
                 playerState?.log("[MPV-MoltenVK] \(message)")
             }
-            core.onStateChange = { [weak playerState] state in
-                guard let playerState else { return }
+            core.onStateChange = { [weak self, weak playerState] state in
+                guard let self, let playerState else { return }
                 guard playerState.compatibilityURL != nil else { return }
                 playerState.currentTime = state.currentTime
                 if state.duration.isFinite, state.duration > 0 {
@@ -4150,7 +4156,11 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 playerState.isLoading = state.isBuffering
                 playerState.isPlaying = state.isPlaying
                 if let error = state.errorMessage {
+                    self.cancelInitTimeout()
                     playerState.loadError = error
+                }
+                if !state.isBuffering && state.currentTime > 0 {
+                    self.cancelInitTimeout()
                 }
             }
 
@@ -4213,11 +4223,31 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             }
             playerState?.isLoading = true
             playerState?.loadingMessage = "正在启动 MPV-MoltenVK..."
+            startInitTimeout()
+        }
+
+        private func startInitTimeout() {
+            cancelInitTimeout()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.playerState?.log("[MPV-MoltenVK] 初始化超时(\(Int(Self.initTimeoutSeconds))s)，停止等待")
+                self.playerState?.loadError = "MPV-MoltenVK 初始化超时，请尝试切换到 VLC 或系统内核"
+                self.playerState?.isLoading = false
+                self.core.stop()
+            }
+            initTimeoutWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.initTimeoutSeconds, execute: workItem)
+        }
+
+        private func cancelInitTimeout() {
+            initTimeoutWorkItem?.cancel()
+            initTimeoutWorkItem = nil
         }
 
         func stop() {
             guard !isStopped else { return }
             isStopped = true
+            cancelInitTimeout()
             core.stopPiPCapture()
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
