@@ -1435,6 +1435,15 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
+        // 立即清理 vbox 目录下其他旧转存文件，保留本次刚转存的文件
+        let folderName = quarkFolderName(cookie: authCookie)
+        if let cleanedCookie = try? await quarkCleanUpVboxFiles(
+            cookie: authCookie, folderName: folderName, excludeFileIds: fileIds
+        ) {
+            authCookie = cleanedCookie
+        }
+        print("[Quark] 旧文件立即清理完成")
+
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
         // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
@@ -1791,7 +1800,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 清理指定目录下的转存文件（对齐百度清理逻辑），不清理回收站
-    private func quarkCleanUpVboxFiles(cookie: String, folderName: String) async throws -> String {
+    private func quarkCleanUpVboxFiles(cookie: String, folderName: String, excludeFileIds: [String] = []) async throws -> String {
         var currentCookie = cookie
         // 1. 先查找目标文件夹的fid
         guard let targetFolder = try? await quarkFindVisibleFolder(cookie: cookie, folderName: folderName) else {
@@ -1822,11 +1831,12 @@ class CloudDriveManager: ObservableObject {
             return currentCookie
         }
 
-        // 收集要删除的文件ID
+        // 收集要删除的文件ID，排除本次转存的文件
         var fileIdsToDelete: [String] = []
+        let excludeSet = Set(excludeFileIds)
         for item in list {
             let fid = item["fid"] as? String ?? ""
-            if !fid.isEmpty {
+            if !fid.isEmpty, !excludeSet.contains(fid) {
                 fileIdsToDelete.append(fid)
             }
         }
@@ -1844,7 +1854,7 @@ class CloudDriveManager: ObservableObject {
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
             let _ = try? await session.data(for: deleteReq)
-            print("[Quark] ✅ 已清理\(folderName)目录下 \(fileIdsToDelete.count) 个转存文件")
+            print("[Quark] ✅ 已清理\(folderName)目录下 \(fileIdsToDelete.count) 个旧转存文件")
         }
 
         return currentCookie
