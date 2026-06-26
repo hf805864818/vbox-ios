@@ -354,6 +354,21 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         check(mpv_set_property(handle, "speed", MPV_FORMAT_DOUBLE, &value), context: "speed")
     }
 
+    func setVideoGravity(_ mode: String) {
+        guard !isShuttingDown else { return }
+        guard let handle = mpv else { return }
+        switch mode {
+        case "resize":
+            setFlag("keepaspect", false)
+        case "aspectFill":
+            setFlag("keepaspect", true)
+            setOption("panscan", "1.0")
+        default:
+            setFlag("keepaspect", true)
+            setOption("panscan", "0.0")
+        }
+    }
+
     func setVolume(_ volume: Double) {
         guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
