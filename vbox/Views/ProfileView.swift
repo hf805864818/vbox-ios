@@ -116,10 +116,14 @@ struct ProfileView: View {
                             .frame(width: 80, height: 80)
                             .clipShape(Circle())
                     } else if isLoggedIn && !username.isEmpty {
-                        Text(String(username.prefix(1)))
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(accentColor)
-                            .frame(width: 80, height: 80)
+                        ZStack {
+                            Circle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 80, height: 80)
+                            Text(String(username.prefix(1)))
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.gray)
+                        }
                     } else {
                         Image(systemName: "person.circle")
                             .font(.system(size: 60))

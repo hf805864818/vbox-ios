@@ -4118,6 +4118,9 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         if context.coordinator.currentURL != url {
             context.coordinator.attach(to: uiView, url: url, headers: headers)
         }
+        if context.coordinator.currentVideoGravity != playerState.videoGravity.rawValue {
+            context.coordinator.setVideoGravity(playerState.videoGravity.rawValue)
+        }
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
@@ -4130,6 +4133,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
         private weak var playerState: PlayerState?
         private var isStopped = false
         var currentURL: URL?
+        var currentVideoGravity: String?
 
         init(playerState: PlayerState) {
             self.playerState = playerState
@@ -4215,6 +4219,11 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             playerState?.loadingMessage = "正在启动 MPV-MoltenVK..."
         }
 
+        func setVideoGravity(_ mode: String) {
+            currentVideoGravity = mode
+            core.setVideoGravity(mode)
+        }
+
         func stop() {
             guard !isStopped else { return }
             isStopped = true
@@ -4269,6 +4278,9 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
         if context.coordinator.currentURL != url {
             context.coordinator.attach(to: uiView, url: url, headers: headers)
         }
+        if context.coordinator.currentVideoGravity != playerState.videoGravity.rawValue {
+            context.coordinator.setVideoGravity(playerState.videoGravity.rawValue)
+        }
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: VLCPlayerCoordinatorV2) {
@@ -4282,6 +4294,7 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
         private weak var playerState: PlayerState?
         private var didFinish = false
         var currentURL: URL?
+        var currentVideoGravity: String?
 
         init(playerState: PlayerState) {
             self.playerState = playerState
@@ -4336,6 +4349,23 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             mediaPlayer.rate = Float(playerState?.playbackSpeed ?? 1.0)
             didFinish = false
             startProgressTimer()
+        }
+
+        func setVideoGravity(_ mode: String) {
+            currentVideoGravity = mode
+            mediaPlayer.scaleFactor = 0
+            switch mode {
+            case "resize":
+                let screenSize = UIScreen.main.bounds.size
+                if screenSize.height > 0 {
+                    let ratio = screenSize.width / screenSize.height
+                    mediaPlayer.videoAspectRatio = String(format: "%.0f:%.0f", ratio * 100, 100)
+                }
+            case "aspectFill":
+                mediaPlayer.scaleFactor = 1.0
+            default:
+                mediaPlayer.videoAspectRatio = nil
+            }
         }
 
         func stop() {
