@@ -1831,17 +1831,21 @@ class CloudDriveManager: ObservableObject {
             return currentCookie
         }
 
-        // 收集要删除的文件ID，排除本次转存的文件
+        // 收集要删除的文件和文件夹ID，排除本次转存的文件
         var fileIdsToDelete: [String] = []
+        var dirCount = 0
+        var fileCount = 0
         let excludeSet = Set(excludeFileIds)
         for item in list {
             let fid = item["fid"] as? String ?? ""
+            let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
             if !fid.isEmpty, !excludeSet.contains(fid) {
                 fileIdsToDelete.append(fid)
+                if isDir { dirCount += 1 } else { fileCount += 1 }
             }
         }
 
-        // 3. 删除目标目录下的文件
+        // 3. 删除目标目录下的文件和文件夹
         if !fileIdsToDelete.isEmpty {
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
@@ -1854,7 +1858,7 @@ class CloudDriveManager: ObservableObject {
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
             let _ = try? await session.data(for: deleteReq)
-            print("[Quark] ✅ 已清理\(folderName)目录下 \(fileIdsToDelete.count) 个旧转存文件")
+            print("[Quark] ✅ 已清理\(folderName)目录下 \(fileCount) 个旧文件 + \(dirCount) 个旧文件夹")
         }
 
         return currentCookie
