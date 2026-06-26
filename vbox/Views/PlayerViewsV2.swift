@@ -4356,15 +4356,11 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             mediaPlayer.scaleFactor = 0
             switch mode {
             case "resize":
-                let screenSize = UIScreen.main.bounds.size
-                if screenSize.height > 0 {
-                    let ratio = screenSize.width / screenSize.height
-                    mediaPlayer.videoAspectRatio = String(format: "%.0f:%.0f", ratio * 100, 100)
-                }
+                mediaPlayer.scaleFactor = 1.0
             case "aspectFill":
                 mediaPlayer.scaleFactor = 1.0
             default:
-                mediaPlayer.videoAspectRatio = nil
+                mediaPlayer.scaleFactor = 0
             }
         }
 
