@@ -279,15 +279,19 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             renderView.frame = view.bounds
             renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.addSubview(renderView)
+            view.layoutIfNeeded()
+        }
+
+        if renderView.metalLayer.device == nil {
+            renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
+        }
+
+        if renderView.metalLayer.drawableSize.width <= 1 || renderView.metalLayer.drawableSize.height <= 1 {
+            renderView.metalLayer.drawableSize = CGSize(width: 2, height: 2)
         }
 
         if mpv == nil {
             setupMPV()
-        }
-
-        // 确保 Metal device 已初始化
-        if renderView.metalLayer.device == nil {
-            renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
         }
     }
 
