@@ -1851,9 +1851,12 @@ class CloudDriveManager: ObservableObject {
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
             quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
+            // 夸克 file/delete API 的 filelist 字段要求 JSON 字符串格式
+            let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIdsToDelete))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             let deleteBody: [String: Any] = [
                 "action_type": 2,
-                "filelist": fileIdsToDelete,
+                "filelist": filelistJSON,
                 "exclude_fids": []
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
