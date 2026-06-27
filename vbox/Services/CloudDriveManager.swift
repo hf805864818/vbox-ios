@@ -1845,7 +1845,7 @@ class CloudDriveManager: ObservableObject {
         var fileCount = 0
         let excludeSet = Set(excludeFileIds)
         for item in list {
-            let fid = item["fid"] as? String ?? ""
+            let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
             let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
             if !fid.isEmpty, !excludeSet.contains(fid) {
                 fileIdsToDelete.append(fid)
@@ -1867,7 +1867,13 @@ class CloudDriveManager: ObservableObject {
                 "exclude_fids": []
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
-            let deleteResult = try? await session.data(for: deleteReq)
+            var deleteResult: (Data, URLResponse)?
+            do {
+                deleteResult = try await session.data(for: deleteReq)
+            } catch {
+                print("[Quark] ⚠️ 清理\(folderName)目录删除请求失败: \(error.localizedDescription)")
+                deleteResult = nil
+            }
             if let deleteResp = deleteResult?.1 {
                 currentCookie = quarkMergeSetCookie(from: deleteResp, into: currentCookie)
             }
@@ -1961,6 +1967,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         guard let targetFid = shareOriginFid, !targetFid.isEmpty else {
+            print("[Quark] ⚠️ 未在根目录找到「\(shareOriginName)」文件夹，跳过清理")
             return currentCookie
         }
 
@@ -1982,6 +1989,7 @@ class CloudDriveManager: ObservableObject {
         guard let subJson = try JSONSerialization.jsonObject(with: subData) as? [String: Any],
               let subDataObj = subJson["data"] as? [String: Any],
               let subList = subDataObj["list"] as? [[String: Any]], !subList.isEmpty else {
+            print("[Quark] ⚠️ 「\(shareOriginName)」目录为空或列表解析失败，跳过清理")
             return currentCookie
         }
 
@@ -1990,7 +1998,7 @@ class CloudDriveManager: ObservableObject {
         var fileCount = 0
         let excludeSet = Set(excludeFileIds)
         for item in subList {
-            let fid = item["fid"] as? String ?? ""
+            let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
             if !fid.isEmpty, !excludeSet.contains(fid) {
                 fileIdsToDelete.append(fid)
                 fileCount += 1
@@ -1999,6 +2007,7 @@ class CloudDriveManager: ObservableObject {
 
         // 3. 删除旧文件
         if !fileIdsToDelete.isEmpty {
+            print("[Quark] 🔍 「来自：分享」目录: 列出 \(subList.count) 条, 排除本次 \(excludeFileIds.count) 个文件, 待删除 \(fileCount) 个")
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
@@ -2011,7 +2020,13 @@ class CloudDriveManager: ObservableObject {
                 "exclude_fids": []
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
-            let deleteResult = try? await session.data(for: deleteReq)
+            var deleteResult: (Data, URLResponse)?
+            do {
+                deleteResult = try await session.data(for: deleteReq)
+            } catch {
+                print("[Quark] ⚠️ 清理「\(shareOriginName)」目录删除请求失败: \(error.localizedDescription)")
+                deleteResult = nil
+            }
             if let deleteResp = deleteResult?.1 {
                 currentCookie = quarkMergeSetCookie(from: deleteResp, into: currentCookie)
             }
