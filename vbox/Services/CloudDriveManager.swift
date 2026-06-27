@@ -1817,7 +1817,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = [
             "pdir_fid": targetFid,
             "_page": 1,
-            "_size": 100,
+            "_size": 200,
             "_fetch_total": 1,
             "_sort": "file_type:asc,updated_at:desc"
         ]
@@ -1851,7 +1851,6 @@ class CloudDriveManager: ObservableObject {
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
             quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
-            // 夸克 file/delete API 的 filelist 字段要求 JSON 字符串格式
             let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIdsToDelete))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             let deleteBody: [String: Any] = [
@@ -1860,8 +1859,56 @@ class CloudDriveManager: ObservableObject {
                 "exclude_fids": []
             ]
             deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
-            let _ = try? await session.data(for: deleteReq)
+            let deleteResult = try? await session.data(for: deleteReq)
+            if let deleteResp = deleteResult?.1 {
+                currentCookie = quarkMergeSetCookie(from: deleteResp, into: currentCookie)
+            }
             print("[Quark] ✅ 已清理\(folderName)目录下 \(fileCount) 个旧文件 + \(dirCount) 个旧文件夹")
+
+            // 4. 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
+            if let deleteData = deleteResult?.0,
+               let deleteJson = try? JSONSerialization.jsonObject(with: deleteData) as? [String: Any],
+               let taskId = deleteJson["task_id"] as? String {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
+                    URLQueryItem(name: "_page", value: "1"),
+                    URLQueryItem(name: "_size", value: "100"),
+                    URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
+                ])
+                var recycleReq = URLRequest(url: recycleURL)
+                recycleReq.httpMethod = "GET"
+                recycleReq.timeoutInterval = 10
+                quarkSetCommonHeaders(&recycleReq, cookie: currentCookie)
+
+                let recycleResult = try? await session.data(for: recycleReq)
+                if let recycleResp = recycleResult?.1 {
+                    currentCookie = quarkMergeSetCookie(from: recycleResp, into: currentCookie)
+                }
+                if let recycleData = recycleResult?.0,
+                   let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
+                   let list = recycleJSON["data"] as? [[String: Any]] {
+                    let recordIds = list.compactMap { item -> String? in
+                        let recordId = item["record_id"] as? String ?? ""
+                        if recordId.contains(taskId) || fileIdsToDelete.contains(where: { recordId.contains($0) }) {
+                            return recordId
+                        }
+                        return nil
+                    }
+                    if !recordIds.isEmpty {
+                        let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
+                        var removeReq = URLRequest(url: removeURL)
+                        removeReq.httpMethod = "POST"
+                        quarkSetCommonHeaders(&removeReq, cookie: currentCookie)
+                        let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
+                        removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
+                        let removeResult = try? await session.data(for: removeReq)
+                        if let removeResp = removeResult?.1 {
+                            currentCookie = quarkMergeSetCookie(from: removeResp, into: currentCookie)
+                        }
+                        print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录")
+                    }
+                }
+            }
         }
 
         return currentCookie
