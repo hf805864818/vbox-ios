@@ -1435,14 +1435,22 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
-        // 立即清理 vbox 目录下其他旧转存文件，保留本次刚转存的文件
+        // 清理 vbox 目录下其他旧转存文件
         let folderName = quarkFolderName(cookie: authCookie)
         if let cleanedCookie = try? await quarkCleanUpVboxFiles(
             cookie: authCookie, folderName: folderName, excludeFileIds: fileIds
         ) {
             authCookie = cleanedCookie
         }
-        print("[Quark] 旧文件立即清理完成")
+        print("[Quark] vbox目录旧文件清理完成")
+
+        // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置）
+        if let cleanedCookie = try? await quarkCleanUpShareOriginFolder(
+            cookie: authCookie, excludeFileIds: fileIds
+        ) {
+            authCookie = cleanedCookie
+        }
+        print("[Quark] 「来自：分享」目录旧文件清理完成")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
@@ -1906,6 +1914,150 @@ class CloudDriveManager: ObservableObject {
                             currentCookie = quarkMergeSetCookie(from: removeResp, into: currentCookie)
                         }
                         print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录")
+                    }
+                }
+            }
+        }
+
+        return currentCookie
+    }
+
+    /// 清理夸克"来自：分享"文件夹下的旧转存文件（夸克 sharepage/save 实际落盘位置）
+    private func quarkCleanUpShareOriginFolder(cookie: String, excludeFileIds: [String] = []) async throws -> String {
+        var currentCookie = cookie
+        let shareOriginName = "来自：分享"
+
+        // 1. 在根目录查找"来自：分享"文件夹
+        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
+        var request = URLRequest(url: listURL)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: currentCookie)
+        let body: [String: Any] = [
+            "pdir_fid": "0",
+            "_page": 1,
+            "_size": 500,
+            "_fetch_total": 1,
+            "_sort": "file_type:asc,updated_at:desc"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["list"] as? [[String: Any]], !list.isEmpty else {
+            return currentCookie
+        }
+
+        // 查找名为"来自：分享"的文件夹
+        var shareOriginFid: String?
+        for item in list {
+            let name = (item["file_name"] as? String ?? item["name"] as? String ?? "")
+            let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
+            if isDir, name == shareOriginName {
+                shareOriginFid = item["fid"] as? String ?? item["file_id"] as? String
+                break
+            }
+        }
+
+        guard let targetFid = shareOriginFid, !targetFid.isEmpty else {
+            return currentCookie
+        }
+
+        // 2. 列出"来自：分享"目录下的文件
+        var subRequest = URLRequest(url: listURL)
+        subRequest.httpMethod = "POST"
+        quarkSetCommonHeaders(&subRequest, cookie: currentCookie)
+        let subBody: [String: Any] = [
+            "pdir_fid": targetFid,
+            "_page": 1,
+            "_size": 200,
+            "_fetch_total": 1,
+            "_sort": "file_type:asc,updated_at:desc"
+        ]
+        subRequest.httpBody = try JSONSerialization.data(withJSONObject: subBody)
+        let (subData, subResponse) = try await session.data(for: subRequest)
+        currentCookie = quarkMergeSetCookie(from: subResponse, into: currentCookie)
+
+        guard let subJson = try JSONSerialization.jsonObject(with: subData) as? [String: Any],
+              let subDataObj = subJson["data"] as? [String: Any],
+              let subList = subDataObj["list"] as? [[String: Any]], !subList.isEmpty else {
+            return currentCookie
+        }
+
+        // 收集要删除的文件，排除本次转存
+        var fileIdsToDelete: [String] = []
+        var fileCount = 0
+        let excludeSet = Set(excludeFileIds)
+        for item in subList {
+            let fid = item["fid"] as? String ?? ""
+            if !fid.isEmpty, !excludeSet.contains(fid) {
+                fileIdsToDelete.append(fid)
+                fileCount += 1
+            }
+        }
+
+        // 3. 删除旧文件
+        if !fileIdsToDelete.isEmpty {
+            let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
+            var deleteReq = URLRequest(url: deleteURL)
+            deleteReq.httpMethod = "POST"
+            quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
+            let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIdsToDelete))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            let deleteBody: [String: Any] = [
+                "action_type": 2,
+                "filelist": filelistJSON,
+                "exclude_fids": []
+            ]
+            deleteReq.httpBody = try JSONSerialization.data(withJSONObject: deleteBody)
+            let deleteResult = try? await session.data(for: deleteReq)
+            if let deleteResp = deleteResult?.1 {
+                currentCookie = quarkMergeSetCookie(from: deleteResp, into: currentCookie)
+            }
+            print("[Quark] ✅ 已清理「\(shareOriginName)」目录下 \(fileCount) 个旧转存文件")
+
+            // 4. 彻底清理回收站
+            if let deleteData = deleteResult?.0,
+               let deleteJson = try? JSONSerialization.jsonObject(with: deleteData) as? [String: Any],
+               let taskId = deleteJson["task_id"] as? String {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
+                    URLQueryItem(name: "_page", value: "1"),
+                    URLQueryItem(name: "_size", value: "100"),
+                    URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
+                ])
+                var recycleReq = URLRequest(url: recycleURL)
+                recycleReq.httpMethod = "GET"
+                recycleReq.timeoutInterval = 10
+                quarkSetCommonHeaders(&recycleReq, cookie: currentCookie)
+
+                let recycleResult = try? await session.data(for: recycleReq)
+                if let recycleResp = recycleResult?.1 {
+                    currentCookie = quarkMergeSetCookie(from: recycleResp, into: currentCookie)
+                }
+                if let recycleData = recycleResult?.0,
+                   let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
+                   let recycleList = recycleJSON["data"] as? [[String: Any]] {
+                    let recordIds = recycleList.compactMap { item -> String? in
+                        let recordId = item["record_id"] as? String ?? ""
+                        if recordId.contains(taskId) || fileIdsToDelete.contains(where: { recordId.contains($0) }) {
+                            return recordId
+                        }
+                        return nil
+                    }
+                    if !recordIds.isEmpty {
+                        let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
+                        var removeReq = URLRequest(url: removeURL)
+                        removeReq.httpMethod = "POST"
+                        quarkSetCommonHeaders(&removeReq, cookie: currentCookie)
+                        let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
+                        removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
+                        let removeResult = try? await session.data(for: removeReq)
+                        if let removeResp = removeResult?.1 {
+                            currentCookie = quarkMergeSetCookie(from: removeResp, into: currentCookie)
+                        }
+                        print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录（来自：分享）")
                     }
                 }
             }
