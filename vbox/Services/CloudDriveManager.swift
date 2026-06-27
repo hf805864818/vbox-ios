@@ -1927,16 +1927,23 @@ class CloudDriveManager: ObservableObject {
     /// 清理夸克"来自：分享"文件夹下的旧转存文件（夸克 sharepage/save 实际落盘位置）
     private func quarkCleanUpShareOriginFolder(cookie: String, excludeFileIds: [String] = []) async -> String {
         var currentCookie = cookie
-        let shareOriginName = "来自：分享"
 
-        // 1. 用 quarkFindVisibleFolder 的健壮搜索找「来自：分享」
-        guard let (targetFid, updatedCookie) = try? await quarkFindVisibleFolder(
-            cookie: currentCookie, folderName: shareOriginName
-        ) else {
-            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「\(shareOriginName)」文件夹，跳过清理")
+        // 1. 用 quarkFindVisibleFolder 搜索「来自：分享」（兼容全角/半角冒号）
+        var targetFid: String?
+        for nameVariant in ["来自：分享", "来自:分享"] {
+            if let (fid, mergedCookie) = try? await quarkFindVisibleFolder(
+                cookie: currentCookie, folderName: nameVariant
+            ) {
+                targetFid = fid
+                currentCookie = mergedCookie
+                print("[Quark] 🔍 找到「\(nameVariant)」文件夹 fid=\(fid)")
+                break
+            }
+        }
+        guard let targetFid else {
+            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「来自：分享」文件夹（尝试了全角/半角冒号），跳过清理")
             return currentCookie
         }
-        currentCookie = updatedCookie
 
         // 2. 复用 quarkFindVisibleFolder 的字段提取与目录判断，列出目录内容
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
@@ -1981,7 +1988,7 @@ class CloudDriveManager: ObservableObject {
                 }
                 return (list, mergedCookie)
             } catch {
-                print("[Quark] ⚠️ 列出「\(shareOriginName)」目录 page=\(page) 失败: \(error.localizedDescription)")
+                print("[Quark] ⚠️ 列出「"来自：分享"」目录 page=\(page) 失败: \(error.localizedDescription)")
                 return nil
             }
         }
@@ -1989,7 +1996,7 @@ class CloudDriveManager: ObservableObject {
         // 收集要删除的文件，排除本次转存
         var fileIdsToDelete: [String] = []
         let excludeSet = Set(excludeFileIds)
-        print("[Quark] 🔍 开始扫描「\(shareOriginName)」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
+        print("[Quark] 🔍 开始扫描「"来自：分享"」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
 
         for page in 1...maxPages {
             guard let result = await fetchList(page: page) else { break }
@@ -2029,7 +2036,7 @@ class CloudDriveManager: ObservableObject {
             do {
                 deleteResult = try await session.data(for: deleteReq)
             } catch {
-                print("[Quark] ⚠️ 清理「\(shareOriginName)」目录删除请求失败: \(error.localizedDescription)")
+                print("[Quark] ⚠️ 清理「"来自：分享"」目录删除请求失败: \(error.localizedDescription)")
                 deleteResult = nil
             }
             if let deleteResp = deleteResult?.1 {
@@ -2049,7 +2056,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
             if deleteOK {
-                print("[Quark] ✅ 已清理「\(shareOriginName)」目录下 \(fileIdsToDelete.count) 个旧转存文件")
+                print("[Quark] ✅ 已清理「"来自：分享"」目录下 \(fileIdsToDelete.count) 个旧转存文件")
             }
 
             // 4. 彻底清理回收站
@@ -2097,7 +2104,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
         } else {
-            print("[Quark] ℹ️ 「\(shareOriginName)」目录无可清理的旧文件")
+            print("[Quark] ℹ️ 「"来自：分享"」目录无可清理的旧文件")
         }
 
         return currentCookie
