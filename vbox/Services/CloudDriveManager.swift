@@ -1950,14 +1950,6 @@ class CloudDriveManager: ObservableObject {
         let pageSize = 200
         let maxPages = 10
 
-        func extractName(from item: [String: Any]) -> String {
-            if let value = item["file_name"] as? String, !value.isEmpty { return value }
-            if let value = item["name"] as? String, !value.isEmpty { return value }
-            if let value = item["fileName"] as? String, !value.isEmpty { return value }
-            if let value = item["title"] as? String, !value.isEmpty { return value }
-            return ""
-        }
-
         func extractFid(from item: [String: Any]) -> String? {
             for key in ["fid", "file_id", "obj_id", "id"] {
                 if let value = item[key] as? String, !value.isEmpty { return value }
