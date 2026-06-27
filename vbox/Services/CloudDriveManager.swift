@@ -1936,96 +1936,86 @@ class CloudDriveManager: ObservableObject {
         var currentCookie = cookie
         let shareOriginName = "来自：分享"
 
-        // 1. 在根目录查找"来自：分享"文件夹
+        // 1. 用 quarkFindVisibleFolder 的健壮搜索找「来自：分享」
+        guard let (targetFid, updatedCookie) = try? await quarkFindVisibleFolder(
+            cookie: currentCookie, folderName: shareOriginName
+        ) else {
+            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「\(shareOriginName)」文件夹，跳过清理")
+            return currentCookie
+        }
+        currentCookie = updatedCookie
+
+        // 2. 复用 quarkFindVisibleFolder 的字段提取与目录判断，列出目录内容
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
-        var request = URLRequest(url: listURL)
-        request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: currentCookie)
-        let body: [String: Any] = [
-            "pdir_fid": "0",
-            "_page": 1,
-            "_size": 500,
-            "_fetch_total": 1,
-            "_sort": "file_type:asc,updated_at:desc"
-        ]
-        request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
-        let rootListResult: (Data, URLResponse)?
-        do {
-            rootListResult = try await session.data(for: request)
-        } catch {
-            print("[Quark] ⚠️ 列出根目录失败: \(error.localizedDescription)")
-            rootListResult = nil
-        }
-        guard let (data, response) = rootListResult else { return currentCookie }
-        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+        let pageSize = 200
+        let maxPages = 10
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
-              let list = dataObj["list"] as? [[String: Any]], !list.isEmpty else {
-            print("[Quark] ⚠️ 根目录列表解析失败或为空，跳过清理")
-            return currentCookie
+        func extractName(from item: [String: Any]) -> String {
+            if let value = item["file_name"] as? String, !value.isEmpty { return value }
+            if let value = item["name"] as? String, !value.isEmpty { return value }
+            if let value = item["fileName"] as? String, !value.isEmpty { return value }
+            if let value = item["title"] as? String, !value.isEmpty { return value }
+            return ""
         }
 
-        // 查找名为"来自：分享"的文件夹
-        var shareOriginFid: String?
-        for item in list {
-            let name = (item["file_name"] as? String ?? item["name"] as? String ?? "")
-            let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
-            if isDir, name == shareOriginName {
-                shareOriginFid = item["fid"] as? String ?? item["file_id"] as? String
-                break
+        func extractFid(from item: [String: Any]) -> String? {
+            for key in ["fid", "file_id", "obj_id", "id"] {
+                if let value = item[key] as? String, !value.isEmpty { return value }
+                if let value = item[key] as? Int { return String(value) }
             }
+            return nil
         }
 
-        guard let targetFid = shareOriginFid, !targetFid.isEmpty else {
-            print("[Quark] ⚠️ 未在根目录找到「\(shareOriginName)」文件夹，跳过清理")
-            return currentCookie
-        }
-
-        // 2. 列出"来自：分享"目录下的文件
-        var subRequest = URLRequest(url: listURL)
-        subRequest.httpMethod = "POST"
-        quarkSetCommonHeaders(&subRequest, cookie: currentCookie)
-        let subBody: [String: Any] = [
-            "pdir_fid": targetFid,
-            "_page": 1,
-            "_size": 200,
-            "_fetch_total": 1,
-            "_sort": "file_type:asc,updated_at:desc"
-        ]
-        subRequest.httpBody = (try? JSONSerialization.data(withJSONObject: subBody))
-        let subListResult: (Data, URLResponse)?
-        do {
-            subListResult = try await session.data(for: subRequest)
-        } catch {
-            print("[Quark] ⚠️ 列出「\(shareOriginName)」目录失败: \(error.localizedDescription)")
-            subListResult = nil
-        }
-        guard let (subData, subResponse) = subListResult else { return currentCookie }
-        currentCookie = quarkMergeSetCookie(from: subResponse, into: currentCookie)
-
-        guard let subJson = try? JSONSerialization.jsonObject(with: subData) as? [String: Any],
-              let subDataObj = subJson["data"] as? [String: Any],
-              let subList = subDataObj["list"] as? [[String: Any]], !subList.isEmpty else {
-            print("[Quark] ⚠️ 「\(shareOriginName)」目录为空或列表解析失败，跳过清理")
-            return currentCookie
+        func fetchList(page: Int) async -> (list: [[String: Any]], cookie: String)? {
+            var request = URLRequest(url: listURL)
+            request.httpMethod = "POST"
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
+            let body: [String: Any] = [
+                "pdir_fid": targetFid,
+                "_sort": "file_type:asc,file_name:asc",
+                "_page": page,
+                "_size": pageSize,
+                "_fetch_total": 1
+            ]
+            request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
+            do {
+                let (data, response) = try await session.data(for: request)
+                let mergedCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let dataObj = json["data"] as? [String: Any],
+                      let list = dataObj["list"] as? [[String: Any]] else {
+                    return nil
+                }
+                return (list, mergedCookie)
+            } catch {
+                print("[Quark] ⚠️ 列出「\(shareOriginName)」目录 page=\(page) 失败: \(error.localizedDescription)")
+                return nil
+            }
         }
 
         // 收集要删除的文件，排除本次转存
         var fileIdsToDelete: [String] = []
-        var fileCount = 0
         let excludeSet = Set(excludeFileIds)
-        for item in subList {
-            let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
-            if !fid.isEmpty, !excludeSet.contains(fid) {
-                fileIdsToDelete.append(fid)
-                fileCount += 1
+        print("[Quark] 🔍 开始扫描「\(shareOriginName)」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
+
+        for page in 1...maxPages {
+            guard let result = await fetchList(page: page) else { break }
+            currentCookie = result.cookie
+            let list = result.list
+            if list.isEmpty { break }
+
+            for item in list {
+                guard let fid = extractFid(from: item), !fid.isEmpty else { continue }
+                if !excludeSet.contains(fid) {
+                    fileIdsToDelete.append(fid)
+                }
             }
+            if list.count < pageSize { break }
         }
 
         // 3. 删除旧文件
         if !fileIdsToDelete.isEmpty {
-            print("[Quark] 🔍 「来自：分享」目录: 列出 \(subList.count) 条, 排除本次 \(excludeFileIds.count) 个文件, 待删除 \(fileCount) 个")
+            print("[Quark] 🔍 「来自：分享」目录: 待删除 \(fileIdsToDelete.count) 个旧文件")
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
@@ -2066,7 +2056,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
             if deleteOK {
-                print("[Quark] ✅ 已清理「\(shareOriginName)」目录下 \(fileCount) 个旧转存文件")
+                print("[Quark] ✅ 已清理「\(shareOriginName)」目录下 \(fileIdsToDelete.count) 个旧转存文件")
             }
 
             // 4. 彻底清理回收站
@@ -2113,6 +2103,8 @@ class CloudDriveManager: ObservableObject {
                     }
                 }
             }
+        } else {
+            print("[Quark] ℹ️ 「\(shareOriginName)」目录无可清理的旧文件")
         }
 
         return currentCookie
