@@ -1435,14 +1435,7 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
-        // 清理 vbox 目录下其他旧转存文件
-        let folderName = quarkFolderName(cookie: authCookie)
-        authCookie = await quarkCleanUpVboxFiles(
-            cookie: authCookie, folderName: folderName, excludeFileIds: fileIds
-        )
-        print("[Quark] vbox目录旧文件清理完成")
-
-        // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置）
+        // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置，vbox目录无需清理）
         authCookie = await quarkCleanUpShareOriginFolder(
             cookie: authCookie, excludeFileIds: fileIds
         )
