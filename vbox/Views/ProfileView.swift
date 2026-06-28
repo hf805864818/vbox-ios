@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var avatarImage: Image? = nil
     @State private var showLoginSheet: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var showPhotoPicker: Bool = false
     @State private var historyRecords: [HistoryRecord] = []
     @State private var showWatchHistory: Bool = false
     @State private var showFavorites: Bool = false
@@ -107,7 +108,9 @@ struct ProfileView: View {
     private var loginSection: some View {
         VStack(spacing: 12) {
             // 头像
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+            Button(action: {
+                showPhotoPicker = true
+            }) {
                 ZStack {
                     if let avatarImage = avatarImage {
                         avatarImage
@@ -130,11 +133,8 @@ struct ProfileView: View {
                             .foregroundColor(.gray.opacity(0.4))
                     }
                 }
-                .frame(width: 80, height: 80)
-                .background(Color.clear)
-                .clipShape(Circle())
-                .contentShape(Circle())
             }
+            .buttonStyle(.plain)
 
             // 用户名
             Text(isLoggedIn ? username : "未登录")
@@ -155,6 +155,7 @@ struct ProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 20)
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
     }
 
     // MARK: - 观看记录模块
