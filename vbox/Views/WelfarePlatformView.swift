@@ -1,18 +1,20 @@
 import SwiftUI
 
-/// 平台二级页面 — 分类 Tab + 子分类网格 + 内容网格 + 播放器
+/// 平台二级页面 — 横向 Tab 栏 + 分区网格 + 内容网格 + 播放器
 struct WelfarePlatformView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var viewModel = WelfareViewModel()
 
     let platform: WelfarePlatform
 
-    @State private var selectedGroupIndex = 0
-    @State private var selectedSubcategory: WelfareSubCategory?
+    @State private var selectedPageIndex = 0
+    @State private var selectedSection: WelfareSection?
     @State private var selectedVideo: VodItem?
 
-    private var currentGroup: WelfareCategoryGroup {
-        platform.categoryGroups[selectedGroupIndex]
+    private var currentPage: WelfarePage {
+        platform.pages.isEmpty
+            ? WelfarePage(id: "_empty", name: "首页", icon: "house.fill", sections: [])
+            : platform.pages[selectedPageIndex]
     }
 
     private let contentColumns = [
@@ -21,7 +23,7 @@ struct WelfarePlatformView: View {
         GridItem(.flexible(), spacing: 12),
     ]
 
-    private let categoryColumns = [
+    private let sectionColumns = [
         GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10),
@@ -29,26 +31,14 @@ struct WelfarePlatformView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 一级 Tab：视频 / 动漫 / 漫画 / 小说
-            Picker("", selection: $selectedGroupIndex) {
-                ForEach(platform.categoryGroups.indices, id: \.self) { i in
-                    Label(platform.categoryGroups[i].name, systemImage: platform.categoryGroups[i].icon)
-                        .tag(i)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .onChange(of: selectedGroupIndex) { _ in
-                selectedSubcategory = nil
-                viewModel.items = []
-            }
+            // 横向可滚动页面 Tab 栏
+            pageTabBar
 
-            // 子分类网格 + 内容区域
-            if let sub = selectedSubcategory {
-                contentSection(subcategory: sub)
+            // 分区网格 或 内容区域
+            if let section = selectedSection {
+                contentSection(section: section)
             } else {
-                subcategoryGrid
+                sectionGrid
             }
         }
         .background(backgroundColor)
@@ -59,50 +49,101 @@ struct WelfarePlatformView: View {
         }
     }
 
-    // MARK: - 子分类选择网格
+    // MARK: - 横向页面 Tab 栏
 
-    private var subcategoryGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: categoryColumns, spacing: 10) {
-                ForEach(currentGroup.subcategories) { sub in
+    private var pageTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(platform.pages.indices, id: \.self) { i in
                     Button {
-                        selectedSubcategory = sub
-                        viewModel.loadContent(platform: platform, subcategory: sub)
+                        selectedPageIndex = i
+                        selectedSection = nil
+                        viewModel.items = []
                     } label: {
-                        VStack(spacing: 6) {
-                            Image(systemName: categoryIcon(for: sub.id))
-                                .font(.system(size: 20))
-                            Text(sub.name)
+                        HStack(spacing: 5) {
+                            Image(systemName: platform.pages[i].icon)
+                                .font(.system(size: 12))
+                            Text(platform.pages[i].name)
                                 .font(.system(size: 13, weight: .medium))
                         }
-                        .foregroundColor(accentColor)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 72)
-                        .background(accentColor.opacity(0.1))
-                        .cornerRadius(12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(selectedPageIndex == i ? accentColor : Color.clear)
+                        .foregroundColor(selectedPageIndex == i ? .white : textColor)
+                        .cornerRadius(20)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20)
+                                .stroke(accentColor.opacity(0.4), lineWidth: selectedPageIndex == i ? 0 : 1)
+                        )
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .padding(.bottom, 100)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
         }
+        .background(backgroundColor)
+    }
+
+    // MARK: - 分区选择网格
+
+    private var sectionGrid: some View {
+        let sections = currentPage.sections
+
+        if sections.isEmpty {
+            // 无分区时直接显示该页面对应的内容
+            return AnyView(
+                contentSection(section: WelfareSection(id: currentPage.id, name: currentPage.name, keyword: ""))
+                    .onAppear {
+                        selectedSection = WelfareSection(id: currentPage.id, name: currentPage.name, keyword: "")
+                        viewModel.loadContent(platform: platform, section: selectedSection!)
+                    }
+            )
+        }
+
+        return AnyView(
+            ScrollView {
+                LazyVGrid(columns: sectionColumns, spacing: 10) {
+                    ForEach(sections) { section in
+                        Button {
+                            selectedSection = section
+                            viewModel.loadContent(platform: platform, section: section)
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: sectionIcon(for: section.id))
+                                    .font(.system(size: 20))
+                                Text(section.name)
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundColor(accentColor)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 72)
+                            .background(accentColor.opacity(0.1))
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .padding(.bottom, 100)
+            }
+        )
     }
 
     // MARK: - 内容展示区域
 
-    private func contentSection(subcategory: WelfareSubCategory) -> some View {
+    private func contentSection(section: WelfareSection) -> some View {
         VStack(spacing: 0) {
-            // 子分类标题栏 + 返回按钮
+            // 标题栏 + 返回按钮
             HStack {
                 Button {
-                    selectedSubcategory = nil
+                    selectedSection = nil
                     viewModel.items = []
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                        Text(currentGroup.name)
+                        Text(currentPage.name)
                     }
                     .font(.system(size: 14))
                     .foregroundColor(accentColor)
@@ -110,7 +151,7 @@ struct WelfarePlatformView: View {
 
                 Spacer()
 
-                Text(subcategory.name)
+                Text(section.name)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(textColor)
 
@@ -145,7 +186,7 @@ struct WelfarePlatformView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                         Button("重试") {
-                            viewModel.loadContent(platform: platform, subcategory: subcategory)
+                            viewModel.loadContent(platform: platform, section: section)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -160,7 +201,7 @@ struct WelfarePlatformView: View {
                                 }
                                 .onAppear {
                                     if item.vodId == viewModel.items.last?.vodId {
-                                        viewModel.loadMore(platform: platform, subcategory: subcategory)
+                                        viewModel.loadMore(platform: platform, section: section)
                                     }
                                 }
                         }
@@ -180,8 +221,12 @@ struct WelfarePlatformView: View {
 
     // MARK: - 辅助方法
 
-    private func categoryIcon(for id: String) -> String {
+    private func sectionIcon(for id: String) -> String {
         let icons: [String: String] = [
+            "recommend": "star.fill",
+            "latest": "clock.fill",
+            "hot": "flame.fill",
+            "all": "square.grid.2x2.fill",
             "jingxuan": "star.fill",
             "zuixin": "clock.fill",
             "xuejiao": "person.fill",

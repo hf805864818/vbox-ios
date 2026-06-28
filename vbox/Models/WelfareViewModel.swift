@@ -13,8 +13,8 @@ class WelfareViewModel: ObservableObject {
     private let pageSize = 30
     private var currentTask: Task<Void, Never>?
 
-    /// 加载指定平台 + 子分类的内容
-    func loadContent(platform: WelfarePlatform, subcategory: WelfareSubCategory) {
+    /// 加载指定平台 + 分区的内容
+    func loadContent(platform: WelfarePlatform, section: WelfareSection) {
         currentTask?.cancel()
         items = []
         currentPage = 1
@@ -22,24 +22,24 @@ class WelfareViewModel: ObservableObject {
         errorMessage = nil
 
         currentTask = Task {
-            await fetchPage(platform: platform, subcategory: subcategory)
+            await fetchPage(platform: platform, section: section)
         }
     }
 
     /// 加载更多（分页）
-    func loadMore(platform: WelfarePlatform, subcategory: WelfareSubCategory) {
+    func loadMore(platform: WelfarePlatform, section: WelfareSection) {
         guard !isLoading, hasMoreData, currentTask?.isCancelled == false else { return }
         currentTask = Task {
-            await fetchPage(platform: platform, subcategory: subcategory, append: true)
+            await fetchPage(platform: platform, section: section, append: true)
         }
     }
 
-    private func fetchPage(platform: WelfarePlatform, subcategory: WelfareSubCategory, append: Bool = false) async {
+    private func fetchPage(platform: WelfarePlatform, section: WelfareSection, append: Bool = false) async {
         guard !Task.isCancelled else { return }
         isLoading = true
 
-        // 构建搜索关键词：平台前缀 + 子分类关键词
-        let keyword = "\(platform.searchPrefix) \(subcategory.keyword)".trimmingCharacters(in: .whitespaces)
+        // 构建搜索关键词：平台前缀 + 分区关键词
+        let keyword = "\(platform.searchPrefix) \(section.keyword)".trimmingCharacters(in: .whitespaces)
 
         // 收集搜索结果
         var results: [VodItem] = []
