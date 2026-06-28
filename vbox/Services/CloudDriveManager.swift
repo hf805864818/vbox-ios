@@ -1186,27 +1186,72 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Ali] 选中资源：\(file.name), fileId=\(file.fileId)")
 
-        let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: file.fileId, shareToken: shareToken, token: accessToken)
-        let taskList = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList ?? []
-        let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
-        let selectedURL = qualityOrder.compactMap { quality in
-            taskList.first { ($0.templateId ?? "").uppercased().contains(quality) }?.url
-        }.first ?? taskList.first(where: { ($0.url ?? "").isEmpty == false })?.url
+        var transcodeURL: String?
+        do {
+            let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: file.fileId, shareToken: shareToken, token: accessToken)
+            let taskList = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList ?? []
+            let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
+            transcodeURL = qualityOrder.compactMap { quality in
+                taskList.first { ($0.templateId ?? "").uppercased().contains(quality) }?.url
+            }.first ?? taskList.first(where: { ($0.url ?? "").isEmpty == false })?.url
+            print("[Ali] 转码线路: \(transcodeURL != nil ? "已获取" : "未获取")")
+        } catch {
+            print("[Ali] ⚠️ 转码线路获取失败，将尝试原画直链: \(error.localizedDescription)")
+        }
 
-        guard let playURL = selectedURL, !playURL.isEmpty else {
-            throw DriveError.noPlayURL("阿里: 未获取到转码播放地址")
+        var downloadURL: String?
+        do {
+            downloadURL = try await aliGetDownloadURL(fileId: file.fileId, shareId: shareInfo.shareId, shareToken: shareToken, token: accessToken)
+            print("[Ali] 原画直链: \(downloadURL != nil ? "已获取" : "未获取")")
+        } catch {
+            print("[Ali] ⚠️ 原画直链获取失败: \(error.localizedDescription)")
+        }
+
+        let playbackHeaders = aliPlaybackHeaders(accessToken: accessToken, shareToken: shareToken)
+
+        let playURL: String
+        let source: String
+        if let url = transcodeURL {
+            playURL = url
+            source = "transcode"
+        } else if let url = downloadURL {
+            playURL = url
+            source = "download_url"
+        } else {
+            throw DriveError.noPlayURL("阿里: 转码地址和原画直链均获取失败")
+        }
+
+        let fallbackURL: String?
+        let fallbackSource: String?
+        if source == "transcode", let url = downloadURL {
+            fallbackURL = url
+            fallbackSource = "download_url"
+        } else if source == "download_url", let url = transcodeURL {
+            fallbackURL = url
+            fallbackSource = "transcode"
+        } else {
+            fallbackURL = nil
+            fallbackSource = nil
+        }
+
+        print("[Ali] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
+        if let fallbackURL, let fallbackSource {
+            print("[Ali] ✅ 兜底线路 source=\(fallbackSource), host=\(URL(string: fallbackURL)?.host ?? "unknown")")
         }
 
         return PlayResult(
             url: playURL,
-            headers: aliPlaybackHeaders(accessToken: accessToken, shareToken: shareToken),
+            headers: playbackHeaders,
             driveType: .ali,
-            source: "share-token-preview"
+            source: source,
+            fallbackURL: fallbackURL,
+            fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
+            fallbackSource: fallbackSource
         )
     }
 
     private func aliRefreshAccessToken(refreshToken: String) async throws -> AliTokenResponse {
-        var request = URLRequest(url: URL(string: "https://auth.aliyundrive.com/v2/account/token")!)
+        var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/account/token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
@@ -1220,7 +1265,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func aliGetShareToken(shareId: String, sharePwd: String?, token: String) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/v2/share_link/get_share_token")!)
+        var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/share_link/get_share_token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -1247,12 +1292,12 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func aliGetShareFileList(shareId: String, parentFileId: String, shareToken: String, token: String) async throws -> [AliShareFile] {
-        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/adrive/v3/file/list")!)
+        var request = URLRequest(url: URL(string: "https://api.alipan.com/adrive/v3/file/list")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         let body: [String: Any] = [
             "share_id": shareId,
             "parent_file_id": parentFileId,
@@ -1321,13 +1366,13 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func aliGetVideoPreviewPlayInfo(fileId: String, shareToken: String, token: String) async throws -> AliVideoPreviewResponse {
-        let url = URL(string: "https://api.aliyundrive.com/adrive/v2/file/get_video_preview_play_info")!
+        let url = URL(string: "https://api.alipan.com/adrive/v2/file/get_video_preview_play_info")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         let body: [String: Any] = [
             "file_id": fileId,
             "category": "live_transcoding"
@@ -1376,6 +1421,50 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
+    private func aliGetDownloadURL(fileId: String, shareId: String, shareToken: String, token: String) async throws -> String {
+        let url = URL(string: "https://api.alipan.com/adrive/v2/file/get_download_url")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+        let body: [String: Any] = [
+            "file_id": fileId,
+            "share_id": shareId,
+            "expire_sec": 14400
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        print("[Ali] download_url 响应: \(respStr.prefix(500))")
+
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let code = json["code"] as? String, code != "OK" {
+                let message = json["message"] as? String ?? "获取下载地址失败"
+                print("[Ali] ⚠️ download_url API错误: \(message)")
+                throw DriveError.noPlayURL("阿里 download_url: \(message)")
+            }
+            if let url = json["url"] as? String, !url.isEmpty {
+                print("[Ali] ✅ download_url 获取成功")
+                return url
+            }
+        }
+
+        do {
+            let result = try JSONDecoder().decode(AliDownloadURLResponse.self, from: data)
+            if let downloadURL = result.url, !downloadURL.isEmpty {
+                print("[Ali] ✅ download_url 获取成功")
+                return downloadURL
+            }
+        } catch {
+            print("[Ali] ⚠️ download_url JSON 解析失败: \(error)")
+        }
+
+        throw DriveError.noPlayURL("阿里: 未获取到 download_url")
+    }
+
     private func extractAliShareInfo(from url: String) -> (shareId: String, sharePwd: String?) {
         var shareId = ""
         var sharePwd: String? = nil
@@ -1397,8 +1486,8 @@ class CloudDriveManager: ObservableObject {
         [
             "Authorization": "Bearer \(accessToken)",
             "x-share-token": shareToken,
-            "Referer": "https://www.aliyundrive.com/",
-            "Origin": "https://www.aliyundrive.com",
+            "Referer": "https://www.alipan.com/",
+            "Origin": "https://www.alipan.com",
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 AliApp(AYSD/6.0.0) Mobile/15E148",
             "Accept": "*/*",
             "Accept-Encoding": "identity"
@@ -5835,6 +5924,12 @@ private struct AliTranscodeTask: Codable {
         case templateId = "template_id"
         case status
     }
+}
+
+private struct AliDownloadURLResponse: Codable {
+    let url: String?
+    let expiration: String?
+    let method: String?
 }
 
 // MARK: - MD5 扩展

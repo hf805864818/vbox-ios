@@ -108,7 +108,7 @@ final class CloudDriveAuthManager: ObservableObject {
     // MARK: - 阿里 OAuth
 
     func exchangeAliOAuthCode(_ code: String) async throws {
-        var request = URLRequest(url: URL(string: "https://openapi.aliyundrive.com/oauth/access_token")!)
+        var request = URLRequest(url: URL(string: "https://openapi.alipan.com/oauth/access_token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
@@ -177,7 +177,7 @@ final class CloudDriveAuthManager: ObservableObject {
             return credential
         }
 
-        var request = URLRequest(url: URL(string: "https://auth.aliyundrive.com/v2/account/token")!)
+        var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/account/token")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -189,9 +189,11 @@ final class CloudDriveAuthManager: ObservableObject {
             throw AuthError.invalidResponse("阿里刷新 token 返回无法解析")
         }
         if let code = json["code"] as? String {
+            print("[Ali Token] refresh 返回错误: code=\(code), message=\(json["message"] as? String ?? "nil"), 完整: \(json)")
             markInvalid(.ali, reason: json["message"] as? String ?? code)
             throw AuthError.remoteError(json["message"] as? String ?? code)
         }
+        print("[Ali Token] refresh 成功, expired_in=\(json["expires_in"] ?? "nil")")
         credential.accessToken = json["access_token"] as? String ?? credential.accessToken
         credential.refreshToken = json["refresh_token"] as? String ?? credential.refreshToken
         credential.driveId = json["default_drive_id"] as? String ?? json["drive_id"] as? String ?? credential.driveId
@@ -223,7 +225,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func aliPassportCreateQrToken() async throws -> AliPassportQrToken {
-        var components = URLComponents(string: "https://passport.aliyundrive.com/newlogin/qrcode/generate.do")!
+        var components = URLComponents(string: "https://passport.alipan.com/newlogin/qrcode/generate.do")!
         components.queryItems = [
             URLQueryItem(name: "appName", value: "aliyun_drive"),
             URLQueryItem(name: "fromSite", value: "52"),
@@ -235,12 +237,13 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "_bx-v", value: "2.0.31")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://www.aliyundrive.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.alipan.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
         let json = try parseJSON(data)
+        print("[Ali Passport] QR generate response keys: \(json.keys)")
         guard let content = json["content"] as? [String: Any],
               let dataObj = content["data"] as? [String: Any],
               let tValue = dataObj["t"],
@@ -261,7 +264,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func aliPassportPollQrStatus(token: AliPassportQrToken) async throws -> AliPassportQrPollResult {
-        var components = URLComponents(string: "https://passport.aliyundrive.com/newlogin/qrcode/query.do")!
+        var components = URLComponents(string: "https://passport.alipan.com/newlogin/qrcode/query.do")!
         components.queryItems = [
             URLQueryItem(name: "appName", value: "aliyun_drive"),
             URLQueryItem(name: "fromSite", value: "52"),
@@ -272,10 +275,8 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "ck", value: token.ck)
         ]
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://www.aliyundrive.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.alipan.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await session.data(for: request)
@@ -292,9 +293,10 @@ final class CloudDriveAuthManager: ObservableObject {
             return .scanned
         case "CONFIRMED":
             guard let bizExt = dataObj["bizExt"] as? String else {
+                print("[Ali Passport] CONFIRMED 但未返回 bizExt，dataObj keys: \(dataObj.keys)")
                 return .failed(message: "扫码确认成功但未返回 bizExt")
             }
-            // 兼容标准 base64 和 URL-safe base64（无 padding）
+            print("[Ali Passport] bizExt raw (first 100): \(String(bizExt.prefix(100)))")
             let normalized = bizExt.replacingOccurrences(of: "-", with: "+")
                                    .replacingOccurrences(of: "_", with: "/")
             var bizData: Data?
@@ -305,13 +307,26 @@ final class CloudDriveAuthManager: ObservableObject {
             } else if let data = Data(base64Encoded: normalized + "==") {
                 bizData = data
             }
-            guard let finalData = bizData,
-                  let bizJson = try? JSONSerialization.jsonObject(with: finalData) as? [String: Any],
-                  let pdsResult = bizJson["pds_login_result"] as? [String: Any],
-                  let refreshToken = pdsResult["refreshToken"] as? String, !refreshToken.isEmpty else {
-                return .failed(message: "扫码确认成功但 bizExt 解析失败")
+            guard let finalData = bizData else {
+                print("[Ali Passport] bizExt base64 解码失败，normalized: \(String(normalized.prefix(100)))")
+                return .failed(message: "扫码确认成功但 bizExt 解码失败")
             }
-            return .success(refreshToken: refreshToken, userInfo: pdsResult)
+            print("[Ali Passport] bizExt decoded: \(String(data: finalData, encoding: .utf8) ?? "non-utf8")")
+            guard let bizJson = try? JSONSerialization.jsonObject(with: finalData) as? [String: Any] else {
+                print("[Ali Passport] bizExt JSON 解析失败")
+                return .failed(message: "扫码确认成功但 bizExt JSON 解析失败")
+            }
+            print("[Ali Passport] bizJson keys: \(bizJson.keys)")
+            let pdsResult = bizJson["pds_login_result"] as? [String: Any]
+            let refreshToken = pdsResult?["refreshToken"] as? String
+            if let token = refreshToken, !token.isEmpty {
+                return .success(refreshToken: token, userInfo: pdsResult ?? [:])
+            }
+            if let topLevelToken = bizJson["refresh_token"] as? String, !topLevelToken.isEmpty {
+                return .success(refreshToken: topLevelToken, userInfo: bizJson)
+            }
+            print("[Ali Passport] bizExt 中未找到 refreshToken，完整 JSON: \(bizJson)")
+            return .failed(message: "扫码确认成功但 bizExt 解析失败")
         case "EXPIRED":
             return .expired
         case "CANCELED":
@@ -368,7 +383,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func aliCreateSession(accessToken: String?) async throws {
         guard let accessToken = accessToken, !accessToken.isEmpty else { return }
-        var request = URLRequest(url: URL(string: "https://api.aliyundrive.com/users/v1/users/device/create_session")!)
+        var request = URLRequest(url: URL(string: "https://api.alipan.com/users/v1/users/device/create_session")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
