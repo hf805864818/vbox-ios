@@ -10,6 +10,7 @@ struct ContentView: View {
         case home = "首页"
         case search = "搜索"
         case live = "直播"
+        case welfare = "福利"
         case profile = "我的"
 
         // 未选中空心图标
@@ -18,6 +19,7 @@ struct ContentView: View {
             case .home: return "house"
             case .search: return "magnifyingglass"
             case .live: return "antenna.radiowaves.left.and.right"
+            case .welfare: return "gift"
             case .profile: return "person"
             }
         }
@@ -28,9 +30,19 @@ struct ContentView: View {
             case .home: return "house.fill"
             case .search: return "magnifyingglass.circle.fill"
             case .live: return "dot.radiowaves.left.and.right"
+            case .welfare: return "gift.fill"
             case .profile: return "person.fill"
             }
         }
+    }
+
+    /// 动态可见 Tab 列表：福利未解锁时不显示福利 Tab
+    private var visibleTabs: [Tab] {
+        var tabs: [Tab] = [.home, .search, .live, .profile]
+        if settings.welfareUnlocked {
+            tabs.insert(.welfare, at: 3)
+        }
+        return tabs
     }
 
     var body: some View {
@@ -53,6 +65,7 @@ struct ContentView: View {
                     case .home: HomeView()
                     case .search: SearchView()
                     case .live: LiveTVView()
+                    case .welfare: WelfareHomeView()
                     case .profile: ProfileView()
                     }
                 }
@@ -63,7 +76,7 @@ struct ContentView: View {
                 // 悬浮式底部导航栏
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        ForEach(Tab.allCases, id: \.self) { tab in
+                        ForEach(visibleTabs, id: \.self) { tab in
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     selectedTab = tab
@@ -86,7 +99,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
-                    .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+                    .frame(maxWidth: min(UIScreen.main.bounds.width - 60, 360))
                     .background(
                         Capsule()
                             .fill(.ultraThinMaterial)
