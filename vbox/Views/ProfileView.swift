@@ -130,6 +130,10 @@ struct ProfileView: View {
                             .foregroundColor(.gray.opacity(0.4))
                     }
                 }
+                .frame(width: 80, height: 80)
+                .background(Color.clear)
+                .clipShape(Circle())
+                .contentShape(Circle())
             }
 
             // 用户名
