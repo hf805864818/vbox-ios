@@ -49,7 +49,15 @@ class WelfareViewModel: ObservableObject {
             keyword: keyword,
             onBatch: { batch in
                 guard !Task.isCancelled else { return }
-                let newItems = batch.filter { seenIds.insert($0.vodId).inserted }
+                // 标记福利来源，便于播放记录过滤
+                let taggedItems = batch.map { item -> VodItem in
+                    var tagged = item
+                    if !(tagged.vodRemarks ?? "").hasPrefix("[福利]") {
+                        tagged.vodRemarks = "[福利]" + (tagged.vodRemarks ?? "")
+                    }
+                    return tagged
+                }
+                let newItems = taggedItems.filter { seenIds.insert($0.vodId).inserted }
                 results.append(contentsOf: newItems)
             }
         )

@@ -83,6 +83,9 @@ struct ProfileView: View {
             .onChange(of: selectedPhotoItem) { _ in
                 handlePhotoSelection()
             }
+            .onChange(of: settings.welfareEnabled) { _ in
+                reloadHistory()
+            }
 
             // 右上角设置入口
             Button(action: {
@@ -229,13 +232,9 @@ struct ProfileView: View {
         HStack(spacing: 12) {
             // 福利专区
             Button(action: {
-                if settings.welfareUnlocked {
-                    // 已解锁，直接提示
-                } else {
-                    welfarePasswordInput = ""
-                    welfarePasswordError = false
-                    showWelfareSheet = true
-                }
+                welfarePasswordInput = ""
+                welfarePasswordError = false
+                showWelfareSheet = true
             }) {
                 VStack(spacing: 8) {
                     Image(systemName: "gift.fill")
@@ -303,7 +302,7 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - 福利解锁弹窗
+    // MARK: - 福利解锁弹窗（含功能开关）
 
     private var welfareUnlockSheet: some View {
         VStack(spacing: 24) {
@@ -314,51 +313,97 @@ struct ProfileView: View {
                     .foregroundColor(accentColor)
                 Text("福利专区")
                     .font(.system(size: 22, weight: .bold))
-                Text("输入密码解锁福利内容")
+                Text(settings.welfareUnlocked ? "管理福利功能" : "输入密码解锁福利内容")
                     .font(.system(size: 14))
                     .foregroundColor(.secondary)
             }
             .padding(.top, 30)
 
-            // 密码输入
-            SecureField("请输入解锁密码", text: $welfarePasswordInput)
-                .font(.system(size: 18))
-                .multilineTextAlignment(.center)
-                .padding()
-                .background(Color(uiColor: .secondarySystemBackground))
-                .cornerRadius(12)
-                .padding(.horizontal, 30)
-                .keyboardType(.numberPad)
-
-            // 错误提示
-            if welfarePasswordError {
-                Text("密码错误，请重试")
-                    .font(.system(size: 13))
-                    .foregroundColor(.red)
-                    .transition(.opacity)
-            }
-
-            // 确认按钮
-            Button {
-                if welfarePasswordInput == settings.welfarePassword {
-                    settings.welfareUnlocked = true
-                    showWelfareSheet = false
-                } else {
-                    welfarePasswordError = true
-                    // 震动反馈
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                }
-            } label: {
-                Text("确认解锁")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(accentColor)
+            if !settings.welfareUnlocked {
+                // === 阶段一：密码输入 ===
+                SecureField("请输入解锁密码", text: $welfarePasswordInput)
+                    .font(.system(size: 18))
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemBackground))
                     .cornerRadius(12)
+                    .padding(.horizontal, 30)
+                    .keyboardType(.numberPad)
+
+                if welfarePasswordError {
+                    Text("密码错误，请重试")
+                        .font(.system(size: 13))
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                }
+
+                Button {
+                    if welfarePasswordInput == settings.welfarePassword {
+                        settings.welfareUnlocked = true
+                    } else {
+                        welfarePasswordError = true
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                    }
+                } label: {
+                    Text("确认解锁")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 30)
+            } else {
+                // === 阶段二：功能开关 ===
+                VStack(spacing: 16) {
+                    // 福利Tab开关
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("启用福利专区")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("关闭后福利Tab和播放记录将隐藏")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.welfareEnabled)
+                            .labelsHidden()
+                            .tint(accentColor)
+                    }
+                    .padding(.horizontal, 30)
+
+                    Divider()
+                        .padding(.horizontal, 30)
+
+                    // 修改密码（后续可用）
+                    HStack {
+                        Text("密码")
+                            .font(.system(size: 16, weight: .medium))
+                        Spacer()
+                        Text("******")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 30)
+                }
+                .padding(.vertical, 8)
+
+                // 完成按钮
+                Button {
+                    showWelfareSheet = false
+                } label: {
+                    Text("完成")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 30)
             }
-            .padding(.horizontal, 30)
 
             Spacer()
         }
@@ -409,7 +454,10 @@ struct ProfileView: View {
     }
 
     private func reloadHistory() {
-        let allHistory = DatabaseManager.shared.queryHistory()
+        var allHistory = DatabaseManager.shared.queryHistory()
+        if !settings.welfareEnabled {
+            allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+        }
         historyRecords = Array(allHistory.prefix(20))
     }
 
@@ -766,7 +814,18 @@ struct WatchHistoryView: View {
             }
         }
         .onAppear {
-            historyRecords = DatabaseManager.shared.queryHistory()
+            var allHistory = DatabaseManager.shared.queryHistory()
+            if !settings.welfareEnabled {
+                allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+            }
+            historyRecords = allHistory
+        }
+        .onChange(of: settings.welfareEnabled) { _ in
+            var allHistory = DatabaseManager.shared.queryHistory()
+            if !settings.welfareEnabled {
+                allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+            }
+            historyRecords = allHistory
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoDetailView(video: video)
