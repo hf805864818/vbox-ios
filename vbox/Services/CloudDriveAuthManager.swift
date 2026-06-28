@@ -433,9 +433,12 @@ final class CloudDriveAuthManager: ObservableObject {
 
         let (data, _) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[VBox UC CreateToken] raw: \(rawBody)")
         guard let token = extractString(json, keys: ["token", "qrcode_token"]) ?? extractNestedString(json, path: ["data", "members", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
+        print("[VBox UC CreateToken] token: \(token.prefix(20))... clientId: \(clientId)")
         return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
     }
 
@@ -448,9 +451,9 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "token", value: token.token)
         ]
         var request = URLRequest(url: components.url!)
-        // UC 与夸克共用 CAS，轮询需使用 pan.quark.cn 域名才能正确同步扫码状态
-        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        // 尝试使用 UC 自身域名作为 Origin，若 UC CAS 已独立于夸克则需要此配置
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, _) = try await ucSession.data(for: request)
@@ -487,7 +490,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
-        // UC 与夸克共用 CAS，account/info 需使用 pan.quark.cn 域名才能正确换取 Cookie
+        // 尝试使用 UC 自身域名，若 UC CAS 已独立于夸克则需要此配置
         var components = URLComponents(string: "https://pan.quark.cn/account/info")!
         components.queryItems = [
             URLQueryItem(name: "st", value: serviceTicket),
@@ -495,8 +498,8 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "platform", value: "pc")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
 
         let config = URLSessionConfiguration.ephemeral
@@ -506,10 +509,14 @@ final class CloudDriveAuthManager: ObservableObject {
         defer { oneShot.finishTasksAndInvalidate() }
 
         let (data, response) = try await oneShot.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox UC Exchange] HTTP \(httpStatusCode): \(rawBody.prefix(300))")
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw AuthError.remoteError("UC account/info HTTP 失败")
+            throw AuthError.remoteError("UC account/info HTTP 失败 (status: \(httpStatusCode))")
         }
-        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
+        let quarkURL = URL(string: "https://pan.quark.cn")!
+        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: quarkURL)
         guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
