@@ -3506,6 +3506,12 @@ struct NativeCloudQRLoginView: View {
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
+        // 超时（3分钟）或中途被取消
+        if pollCount >= 90 {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "二维码已超过 3 分钟有效期，请重新生成。"
+        }
     }
 
     @MainActor
