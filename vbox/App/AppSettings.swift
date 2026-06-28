@@ -55,6 +55,7 @@ class AppSettings: ObservableObject {
     private static let tmdbProxyTokenKey = "app_tmdb_proxy_token"
     private static let welfareUnlockedKey = "app_welfare_unlocked"
     private static let welfarePasswordKey = "app_welfare_password"
+    private static let welfareEnabledKey = "app_welfare_enabled"
 
     @Published var isSpiderReady = false
     @Published var subscribedSites: [SiteConfig] = []
@@ -102,6 +103,11 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(welfarePassword, forKey: Self.welfarePasswordKey)
         }
     }
+    @Published var welfareEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(welfareEnabled, forKey: Self.welfareEnabledKey)
+        }
+    }
 
     init() {
         let rawSkin = UserDefaults.standard.string(forKey: Self.skinModeKey)
@@ -113,6 +119,7 @@ class AppSettings: ObservableObject {
         tmdbProxyToken = UserDefaults.standard.string(forKey: Self.tmdbProxyTokenKey) ?? ""
         welfareUnlocked = UserDefaults.standard.object(forKey: Self.welfareUnlockedKey) as? Bool ?? false
         welfarePassword = UserDefaults.standard.string(forKey: Self.welfarePasswordKey) ?? "888888"
+        welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
     }
 
     var preferredColorScheme: ColorScheme? {

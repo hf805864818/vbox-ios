@@ -39,7 +39,7 @@ struct ContentView: View {
     /// 动态可见 Tab 列表：福利未解锁时不显示福利 Tab
     private var visibleTabs: [Tab] {
         var tabs: [Tab] = [.home, .search, .live, .profile]
-        if settings.welfareUnlocked {
+        if settings.welfareUnlocked && settings.welfareEnabled {
             tabs.insert(.welfare, at: 3)
         }
         return tabs
