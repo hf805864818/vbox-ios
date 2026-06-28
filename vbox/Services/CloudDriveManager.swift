@@ -1945,7 +1945,7 @@ class CloudDriveManager: ObservableObject {
             return currentCookie
         }
 
-        // 2. 复用 quarkFindVisibleFolder 的字段提取与目录判断，列出目录内容
+        // 2. 列出目录内容（含子目录递归）
         let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         let pageSize = 200
         let maxPages = 10
@@ -1958,56 +1958,77 @@ class CloudDriveManager: ObservableObject {
             return nil
         }
 
-        func fetchList(page: Int) async -> (list: [[String: Any]], cookie: String)? {
-            var request = URLRequest(url: listURL)
-            request.httpMethod = "POST"
-            quarkSetCommonHeaders(&request, cookie: currentCookie)
-            let body: [String: Any] = [
-                "pdir_fid": targetFid,
-                "_sort": "file_type:asc,file_name:asc",
-                "_page": page,
-                "_size": pageSize,
-                "_fetch_total": 1
-            ]
-            request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
-            do {
-                let (data, response) = try await session.data(for: request)
-                let mergedCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+        func isItemDir(_ item: [String: Any]) -> Bool {
+            return (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
+        }
+
+        /// 递归收集指定目录下所有文件和子目录的 fid（排除 excludeSet 中的 fid）
+        func collectFidsRecursive(dirFid: String, cookie: inout String, excludeSet: Set<String>) async -> (fids: [String], fileCount: Int, dirCount: Int) {
+            var allFids: [String] = []
+            var fileCount = 0
+            var dirCount = 0
+
+            for page in 1...maxPages {
+                var request = URLRequest(url: listURL)
+                request.httpMethod = "POST"
+                quarkSetCommonHeaders(&request, cookie: cookie)
+                let body: [String: Any] = [
+                    "pdir_fid": dirFid,
+                    "_sort": "file_type:asc,file_name:asc",
+                    "_page": page,
+                    "_size": pageSize,
+                    "_fetch_total": 1
+                ]
+                request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
+
+                let (data, response): (Data, URLResponse)
+                do {
+                    (data, response) = try await session.data(for: request)
+                } catch {
+                    break
+                }
+                cookie = quarkMergeSetCookie(from: response, into: cookie)
+
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let dataObj = json["data"] as? [String: Any],
-                      let list = dataObj["list"] as? [[String: Any]] else {
-                    return nil
+                      let list = dataObj["list"] as? [[String: Any]] else { break }
+                if list.isEmpty { break }
+
+                for item in list {
+                    guard let fid = extractFid(from: item), !fid.isEmpty, !excludeSet.contains(fid) else { continue }
+                    allFids.append(fid)
+                    if isItemDir(item) {
+                        dirCount += 1
+                        // 递归收集子目录中的内容
+                        let sub = await collectFidsRecursive(dirFid: fid, cookie: &cookie, excludeSet: excludeSet)
+                        allFids.append(contentsOf: sub.fids)
+                        fileCount += sub.fileCount
+                        dirCount += sub.dirCount
+                    } else {
+                        fileCount += 1
+                    }
                 }
-                return (list, mergedCookie)
-            } catch {
-                print("[Quark] ⚠️ 列出「"来自：分享"」目录 page=\(page) 失败: \(error.localizedDescription)")
-                return nil
+                if list.count < pageSize { break }
             }
+
+            return (allFids, fileCount, dirCount)
         }
 
-        // 收集要删除的文件，排除本次转存
+        // 收集要删除的文件和文件夹，排除本次转存
         var fileIdsToDelete: [String] = []
+        var deletedFileCount = 0
+        var deletedDirCount = 0
         let excludeSet = Set(excludeFileIds)
-        print("[Quark] 🔍 开始扫描「"来自：分享"」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
+        print("[Quark] 🔍 开始扫描「\"来自：分享\"」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
 
-        for page in 1...maxPages {
-            guard let result = await fetchList(page: page) else { break }
-            currentCookie = result.cookie
-            let list = result.list
-            if list.isEmpty { break }
+        let result = await collectFidsRecursive(dirFid: targetFid, cookie: &currentCookie, excludeSet: excludeSet)
+        fileIdsToDelete = result.fids
+        deletedFileCount = result.fileCount
+        deletedDirCount = result.dirCount
 
-            for item in list {
-                guard let fid = extractFid(from: item), !fid.isEmpty else { continue }
-                if !excludeSet.contains(fid) {
-                    fileIdsToDelete.append(fid)
-                }
-            }
-            if list.count < pageSize { break }
-        }
-
-        // 3. 删除旧文件
+        // 3. 删除旧文件和文件夹
         if !fileIdsToDelete.isEmpty {
-            print("[Quark] 🔍 「来自：分享」目录: 待删除 \(fileIdsToDelete.count) 个旧文件")
+            print("[Quark] 🔍 「来自：分享」目录: 待删除 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
@@ -2028,7 +2049,7 @@ class CloudDriveManager: ObservableObject {
             do {
                 deleteResult = try await session.data(for: deleteReq)
             } catch {
-                print("[Quark] ⚠️ 清理「"来自：分享"」目录删除请求失败: \(error.localizedDescription)")
+                print("[Quark] ⚠️ 清理「\"来自：分享\"」目录删除请求失败: \(error.localizedDescription)")
                 deleteResult = nil
             }
             if let deleteResp = deleteResult?.1 {
@@ -2048,7 +2069,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
             if deleteOK {
-                print("[Quark] ✅ 已清理「"来自：分享"」目录下 \(fileIdsToDelete.count) 个旧转存文件")
+                print("[Quark] ✅ 已清理「\"来自：分享\"」目录下 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
             }
 
             // 4. 彻底清理回收站
@@ -2096,7 +2117,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
         } else {
-            print("[Quark] ℹ️ 「"来自：分享"」目录无可清理的旧文件")
+            print("[Quark] ℹ️ 「\"来自：分享\"」目录无可清理的旧文件")
         }
 
         return currentCookie
