@@ -17,6 +17,9 @@ struct ProfileView: View {
     @State private var showDownloads: Bool = false
     @State private var showSettingsSheet: Bool = false
     @State private var selectedVideoItem: VodItem? = nil
+    @State private var showWelfareSheet: Bool = false
+    @State private var welfarePasswordInput: String = ""
+    @State private var welfarePasswordError: Bool = false
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -97,6 +100,9 @@ struct ProfileView: View {
             NavigationView {
                 SettingsView()
             }
+        }
+        .sheet(isPresented: $showWelfareSheet) {
+            welfareUnlockSheet
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
@@ -217,10 +223,33 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - 三大功能入口
+    // MARK: - 功能入口
 
     private var featureEntriesSection: some View {
         HStack(spacing: 12) {
+            // 福利专区
+            Button(action: {
+                if settings.welfareUnlocked {
+                    // 已解锁，直接提示
+                } else {
+                    welfarePasswordInput = ""
+                    welfarePasswordError = false
+                    showWelfareSheet = true
+                }
+            }) {
+                VStack(spacing: 8) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(accentColor)
+                    Text("福利专区")
+                        .font(.system(size: 12))
+                        .foregroundColor(textColor)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+            }
+            .buttonStyle(.plain)
+
             // 我的收藏
             Button(action: {
                 showFavorites = true
@@ -272,6 +301,68 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    // MARK: - 福利解锁弹窗
+
+    private var welfareUnlockSheet: some View {
+        VStack(spacing: 24) {
+            // 标题
+            VStack(spacing: 8) {
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(accentColor)
+                Text("福利专区")
+                    .font(.system(size: 22, weight: .bold))
+                Text("输入密码解锁福利内容")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 30)
+
+            // 密码输入
+            SecureField("请输入解锁密码", text: $welfarePasswordInput)
+                .font(.system(size: 18))
+                .multilineTextAlignment(.center)
+                .padding()
+                .background(Color(uiColor: .secondarySystemBackground))
+                .cornerRadius(12)
+                .padding(.horizontal, 30)
+                .keyboardType(.numberPad)
+
+            // 错误提示
+            if welfarePasswordError {
+                Text("密码错误，请重试")
+                    .font(.system(size: 13))
+                    .foregroundColor(.red)
+                    .transition(.opacity)
+            }
+
+            // 确认按钮
+            Button {
+                if welfarePasswordInput == settings.welfarePassword {
+                    settings.welfareUnlocked = true
+                    showWelfareSheet = false
+                } else {
+                    welfarePasswordError = true
+                    // 震动反馈
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                }
+            } label: {
+                Text("确认解锁")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(accentColor)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal, 30)
+
+            Spacer()
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Helper Methods
