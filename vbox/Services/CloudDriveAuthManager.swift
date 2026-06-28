@@ -430,11 +430,22 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        let (data, _) = try await ucSession.data(for: request)
+        let (data, response) = try await ucSession.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AuthError.remoteError("UC 获取扫码 token HTTP 失败")
+        }
         let json = try parseJSON(data)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         print("[VBox UC CreateToken] raw: \(rawBody)")
+        // 校验接口状态码，避免拿到过期/无效 token
+        let apiStatus = (json["status"] as? Int) ?? -1
+        if apiStatus != 2000000 && apiStatus != -1 {
+            let msg = json["message"] as? String ?? "未知错误"
+            print("[VBox UC CreateToken] API status: \(apiStatus) message: \(msg)")
+            // 状态码不是 2000000 时继续尝试提取 token（UC 接口可能不返回 2000000）
+        }
         guard let token = extractString(json, keys: ["token", "qrcode_token"]) ?? extractNestedString(json, path: ["data", "members", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
@@ -455,6 +466,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let (data, _) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
@@ -501,6 +513,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
@@ -518,6 +531,17 @@ final class CloudDriveAuthManager: ObservableObject {
         let quarkURL = URL(string: "https://pan.quark.cn")!
         let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: quarkURL)
         guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
+
+        // 校验必须字段（参考夸克实现，UC 需要 __pus / __kps / __uid）
+        let mustHave = ["__kps", "__pus", "__uid"]
+        let cookieLower = cookie.lowercased()
+        for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
+            print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
+        }
+        // 至少要有 __pus 或 __kps 或 uc 标识才视为有效
+        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("uc") else {
+            throw AuthError.invalidResponse("UC Cookie 缺少必须字段 (__pus/__kps/uc)，登录可能无效")
+        }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
@@ -1162,14 +1186,16 @@ final class CloudDriveAuthManager: ObservableObject {
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
         // 4_eMHBJ 会重定向到 b.quark.cn（夸克下载页），不能用于 UC
+        // 参考夸克扫码实现，加入 ssb=weblogin 参数，uc_param_str 留空避免指纹过期
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
-            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ssb", value: "weblogin"),
+            URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|C:titlebar_fix")
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)&uc_biz_str=S:custom|C:titlebar_fix"
+        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)&ssb=weblogin"
     }
 
     private func timestampMS() -> String {
