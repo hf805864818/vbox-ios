@@ -147,7 +147,7 @@ struct ShortDramaDetailView: View {
                                 vodActor: detailItem?.vodActor ?? drama.vodActor,
                                 vodContent: detailItem?.vodContent ?? drama.vodContent,
                                 vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                                vodPlayUrl: ep.url
+                                vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl
                             )
                         }) {
                             Text(ep.number)
@@ -186,7 +186,7 @@ struct ShortDramaDetailView: View {
                     vodActor: detailItem?.vodActor ?? drama.vodActor,
                     vodContent: detailItem?.vodContent ?? drama.vodContent,
                     vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                    vodPlayUrl: ep.url
+                    vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl
                 )
             }) {
                 HStack {
