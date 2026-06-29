@@ -28,7 +28,7 @@ class ShortDramaService: ObservableObject {
     @Published var hasMore = true
     @Published var selectedSourceId: String?  // nil = 全部源
     
-    private let dramaKeywords = ["短剧", "短剧大全", "爽文短剧", "擦边短剧", "微短剧"]
+    private let dramaKeywords = ["短剧", "剧场", "网剧", "微短剧", "爽文短剧", "擦边短剧", "短剧大全"]
     
     private init() {}
     
@@ -155,6 +155,15 @@ class ShortDramaService: ObservableObject {
         currentPage = page
     }
     
+    private func resolveImageUrl(_ raw: String, baseApi: String) -> String {
+        guard !raw.isEmpty else { return "" }
+        if let url = URL(string: raw), url.scheme != nil { return raw }
+        if raw.hasPrefix("//") { return "https:\(raw)" }
+        guard let baseURL = URL(string: baseApi),
+              let resolved = URL(string: raw, relativeTo: baseURL) else { return raw }
+        return resolved.absoluteString
+    }
+
     private func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
         let api = source.api
         let listUrl = api.hasSuffix("/")
@@ -175,7 +184,7 @@ class ShortDramaService: ObservableObject {
                 return VodItem(
                     vodId: vid,
                     vodName: name,
-                    vodPic: dict["vod_pic"] as? String ?? "",
+                    vodPic: resolveImageUrl(dict["vod_pic"] as? String ?? "", baseApi: api),
                     vodRemarks: "\(source.name) · \(remarks)".trimmingCharacters(in: CharacterSet(charactersIn: "· ")),
                     vodYear: dict["vod_year"] as? String,
                     vodArea: dict["vod_area"] as? String,
@@ -223,7 +232,7 @@ class ShortDramaService: ObservableObject {
                     return VodItem(
                         vodId: vid,
                         vodName: name,
-                        vodPic: dict["vod_pic"] as? String ?? "",
+                        vodPic: resolveImageUrl(dict["vod_pic"] as? String ?? "", baseApi: source.api),
                         vodRemarks: "\(source.name) · \(dict["vod_remarks"] as? String ?? "")".trimmingCharacters(in: CharacterSet(charactersIn: "· ")),
                         vodYear: dict["vod_year"] as? String,
                         vodContent: dict["vod_content"] as? String,
@@ -259,7 +268,7 @@ class ShortDramaService: ObservableObject {
             return VodItem(
                 vodId: vid,
                 vodName: first["vod_name"] as? String ?? "",
-                vodPic: first["vod_pic"] as? String ?? "",
+                vodPic: resolveImageUrl(first["vod_pic"] as? String ?? "", baseApi: api),
                 vodRemarks: first["vod_remarks"] as? String,
                 vodYear: first["vod_year"] as? String,
                 vodContent: first["vod_content"] as? String,

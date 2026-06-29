@@ -299,17 +299,22 @@ struct DramaCardView: View {
         VStack(alignment: .leading, spacing: 4) {
             // 封面图
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: URL(string: drama.vodPic)) { phase in
+                AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: drama.vodPic)) { phase in
                     switch phase {
                     case .success(let image):
                         image
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure(_):
+                            .aspectRatio(2.0/3.0, contentMode: .fill)
+                    case .failure:
                         ZStack {
                             Color.gray.opacity(0.2)
-                            Image(systemName: "play.slash")
-                                .foregroundColor(.gray)
+                            VStack(spacing: 4) {
+                                Image(systemName: "play.slash")
+                                    .foregroundColor(.gray)
+                                Text("加载失败")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.gray)
+                            }
                         }
                     case .empty:
                         ZStack {
@@ -320,10 +325,9 @@ struct DramaCardView: View {
                         Color.gray.opacity(0.2)
                     }
                 }
-                .frame(height: 180)
-                .clipped()
-                .cornerRadius(8)
-                
+                .aspectRatio(2.0/3.0, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
                 if let remarks = drama.vodRemarks, !remarks.isEmpty {
                     Text(remarks.replacingOccurrences(of: "^.*?· ", with: "", options: .regularExpression))
                         .font(.system(size: 10, weight: .semibold))
