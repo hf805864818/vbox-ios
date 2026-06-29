@@ -130,6 +130,14 @@ struct ShortDramaView: View {
                     Task { await dramaService.fetchDramas() }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .spiderSitesDidUpdate)) { _ in
+                Task {
+                    await dramaService.scanShortDramaSources(from: SpiderManager.shared.allSites)
+                    if dramaService.dramas.isEmpty {
+                        await dramaService.fetchDramas()
+                    }
+                }
+            }
         }
     }
     
