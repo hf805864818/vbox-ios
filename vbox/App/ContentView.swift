@@ -9,6 +9,7 @@ struct ContentView: View {
     enum Tab: String, CaseIterable {
         case home = "首页"
         case search = "搜索"
+        case shortDrama = "短剧"
         case live = "直播"
         case welfare = "福利"
         case profile = "我的"
@@ -18,6 +19,7 @@ struct ContentView: View {
             switch self {
             case .home: return "house"
             case .search: return "magnifyingglass"
+            case .shortDrama: return "play.rectangle"
             case .live: return "antenna.radiowaves.left.and.right"
             case .welfare: return "gift"
             case .profile: return "person"
@@ -29,6 +31,7 @@ struct ContentView: View {
             switch self {
             case .home: return "house.fill"
             case .search: return "magnifyingglass.circle.fill"
+            case .shortDrama: return "play.rectangle.fill"
             case .live: return "dot.radiowaves.left.and.right"
             case .welfare: return "gift.fill"
             case .profile: return "person.fill"
@@ -38,9 +41,9 @@ struct ContentView: View {
 
     /// 动态可见 Tab 列表：福利未解锁时不显示福利 Tab
     private var visibleTabs: [Tab] {
-        var tabs: [Tab] = [.home, .search, .live, .profile]
+        var tabs: [Tab] = [.home, .search, .shortDrama, .live, .profile]
         if settings.welfareUnlocked && settings.welfareEnabled {
-            tabs.insert(.welfare, at: 3)
+            tabs.insert(.welfare, at: 4)
         }
         return tabs
     }
@@ -64,6 +67,7 @@ struct ContentView: View {
                     switch selectedTab {
                     case .home: HomeView()
                     case .search: SearchView()
+                    case .shortDrama: ShortDramaView()
                     case .live: LiveTVView()
                     case .welfare: WelfareHomeView()
                     case .profile: ProfileView()
