@@ -8,7 +8,6 @@ struct ShortDramaDetailView: View {
     @State private var episodes: [(number: String, url: String)] = []
     @State private var isLoading = true
     @State private var selectedEpisodeIndex = 0
-    @State private var showPlayer = false
     @State private var playerDrama: VodItem?
 
     var body: some View {
@@ -30,10 +29,8 @@ struct ShortDramaDetailView: View {
                     ProgressView()
                 }
             }
-            .fullScreenCover(isPresented: $showPlayer) {
-                if let playDrama = playerDrama {
-                    VideoDetailView(video: playDrama)
-                }
+            .fullScreenCover(item: $playerDrama) { playDrama in
+                VideoPlayerViewV2(video: playDrama)
             }
             .onAppear {
                 loadDetail()
@@ -134,15 +131,19 @@ struct ShortDramaDetailView: View {
                         Button(action: {
                             selectedEpisodeIndex = index
                             let ep = episodes[index]
-                            let playItem = VodItem(
+                            playerDrama = VodItem(
                                 vodId: drama.vodId,
-                                vodName: drama.vodName,
+                                vodName: "\(drama.vodName) \(ep.number)",
                                 vodPic: detailItem?.vodPic ?? drama.vodPic,
+                                vodRemarks: ep.number,
+                                vodYear: detailItem?.vodYear ?? drama.vodYear,
+                                vodArea: detailItem?.vodArea ?? drama.vodArea,
+                                vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
+                                vodActor: detailItem?.vodActor ?? drama.vodActor,
+                                vodContent: detailItem?.vodContent ?? drama.vodContent,
                                 vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
                                 vodPlayUrl: ep.url
                             )
-                            playerDrama = playItem
-                            showPlayer = true
                         }) {
                             Text(ep.number)
                                 .font(.system(size: 13, weight: .medium))
@@ -169,15 +170,19 @@ struct ShortDramaDetailView: View {
         if !episodes.isEmpty {
             Button(action: {
                 let ep = episodes[selectedEpisodeIndex]
-                let playItem = VodItem(
+                playerDrama = VodItem(
                     vodId: drama.vodId,
-                    vodName: drama.vodName,
+                    vodName: "\(drama.vodName) \(ep.number)",
                     vodPic: detailItem?.vodPic ?? drama.vodPic,
+                    vodRemarks: ep.number,
+                    vodYear: detailItem?.vodYear ?? drama.vodYear,
+                    vodArea: detailItem?.vodArea ?? drama.vodArea,
+                    vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
+                    vodActor: detailItem?.vodActor ?? drama.vodActor,
+                    vodContent: detailItem?.vodContent ?? drama.vodContent,
                     vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
                     vodPlayUrl: ep.url
                 )
-                playerDrama = playItem
-                showPlayer = true
             }) {
                 HStack {
                     Image(systemName: "play.fill")
@@ -221,8 +226,15 @@ struct ShortDramaDetailView: View {
     private func parseEpisodes(from playUrl: String?) {
         guard let url = playUrl, !url.isEmpty else { return }
 
-        if url.contains("#") {
-            let parts = url.components(separatedBy: "#")
+        let episodePart: String
+        if url.contains("$$$") {
+            episodePart = url.components(separatedBy: "$$$").first ?? url
+        } else {
+            episodePart = url
+        }
+
+        if episodePart.contains("#") {
+            let parts = episodePart.components(separatedBy: "#")
             episodes = parts.compactMap { part -> (String, String)? in
                 let split = part.components(separatedBy: "$")
                 guard split.count >= 2 else { return nil }
@@ -231,16 +243,16 @@ struct ShortDramaDetailView: View {
                 guard !videoUrl.isEmpty else { return nil }
                 return (number, videoUrl)
             }
-        } else if url.contains("$") {
-            let split = url.components(separatedBy: "$")
+        } else if episodePart.contains("$") {
+            let split = episodePart.components(separatedBy: "$")
             if split.count >= 2 {
                 let videoUrl = split[1].trimmingCharacters(in: .whitespaces)
                 if !videoUrl.isEmpty {
                     episodes = [(split[0].trimmingCharacters(in: .whitespaces), videoUrl)]
                 }
             }
-        } else if url.hasPrefix("http") {
-            episodes = [("播放", url)]
+        } else if episodePart.hasPrefix("http") {
+            episodes = [("播放", episodePart)]
         }
     }
 
