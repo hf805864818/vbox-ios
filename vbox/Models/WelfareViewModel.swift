@@ -39,7 +39,8 @@ class WelfareViewModel: ObservableObject {
         isLoading = true
 
         // 构建搜索关键词：平台前缀 + 分区关键词
-        let keyword = "\(platform.searchPrefix) \(section.keyword)".trimmingCharacters(in: .whitespaces)
+        let sectionKeyword = section.keyword.isEmpty ? section.name : section.keyword
+        let keyword = "\(platform.searchPrefix) \(sectionKeyword)".trimmingCharacters(in: .whitespaces)
 
         // 收集搜索结果
         var results: [VodItem] = []
