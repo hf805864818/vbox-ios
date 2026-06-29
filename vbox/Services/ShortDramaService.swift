@@ -159,6 +159,65 @@ class ShortDramaService: ObservableObject {
         
         hasMore = !dramas.isEmpty && dramas.count >= targets.count * 20
         currentPage = page
+        
+        // 拉取缺失的封面图
+        fetchMissingCovers()
+    }
+    
+    // MARK: - 封面图补全
+    
+    private func fetchMissingCovers() {
+        let itemsToFix = dramas.enumerated().filter { $0.element.vodPic.isEmpty }
+        guard !itemsToFix.isEmpty else { return }
+        
+        let vodIds = itemsToFix.map { $0.element.vodId }
+        
+        Task {
+            for source in shortDramaSources {
+                let batchSize = 30
+                for batchStart in stride(from: 0, to: vodIds.count, by: batchSize) {
+                    let batch = Array(vodIds[batchStart..<min(batchStart + batchSize, vodIds.count)])
+                    let ids = batch.joined(separator: ",")
+                    
+                    let detailUrlStr = source.api.hasSuffix("/")
+                        ? "\(source.api)at/json?ac=detail&ids=\(ids)"
+                        : "\(source.api)/at/json?ac=detail&ids=\(ids)"
+                    
+                    guard let url = URL(string: detailUrlStr) else { continue }
+                    
+                    do {
+                        let (data, _) = try await URLSession.shared.data(from: url)
+                        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let list = json["list"] as? [[String: Any]] else { continue }
+                        
+                        await MainActor.run {
+                            for detailDict in list {
+                                let vid = detailDict["vod_id"] as? String ?? "\(detailDict["vod_id"] as? Int ?? 0)"
+                                let pic = self.resolveImageUrl(detailDict["vod_pic"] as? String ?? "", baseApi: source.api)
+                                guard !pic.isEmpty,
+                                      let idx = self.dramas.firstIndex(where: { $0.vodId == vid && $0.vodPic.isEmpty }) else { continue }
+                                
+                                self.dramas[idx] = VodItem(
+                                    vodId: self.dramas[idx].vodId,
+                                    vodName: self.dramas[idx].vodName,
+                                    vodPic: pic,
+                                    vodRemarks: self.dramas[idx].vodRemarks,
+                                    vodYear: detailDict["vod_year"] as? String ?? self.dramas[idx].vodYear,
+                                    vodArea: detailDict["vod_area"] as? String ?? self.dramas[idx].vodArea,
+                                    vodDirector: detailDict["vod_director"] as? String ?? self.dramas[idx].vodDirector,
+                                    vodActor: detailDict["vod_actor"] as? String ?? self.dramas[idx].vodActor,
+                                    vodContent: detailDict["vod_content"] as? String ?? self.dramas[idx].vodContent,
+                                    vodPlayFrom: self.dramas[idx].vodPlayFrom,
+                                    vodPlayUrl: self.dramas[idx].vodPlayUrl
+                                )
+                            }
+                        }
+                    } catch {
+                        continue
+                    }
+                }
+            }
+        }
     }
     
     private func resolveImageUrl(_ raw: String, baseApi: String) -> String {
