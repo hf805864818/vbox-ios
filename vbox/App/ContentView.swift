@@ -99,7 +99,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
-                    .frame(maxWidth: min(UIScreen.main.bounds.width - 60, 360))
+                    .frame(maxWidth: min(UIScreen.main.bounds.width - 140, 290))
                     .background(
                         Capsule()
                             .fill(.ultraThinMaterial)

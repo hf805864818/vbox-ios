@@ -117,7 +117,7 @@ struct GlassBottomTabBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
-        .frame(maxWidth: min(UIScreen.main.bounds.width - 120, 300))
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 160, 250))
         .background(
             Capsule()
                 .fill(.ultraThinMaterial)
