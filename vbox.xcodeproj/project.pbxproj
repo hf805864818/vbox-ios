@@ -171,9 +171,6 @@
 		A10126 /* ShortDramaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10126 /* ShortDramaService.swift */; };
 		A10127 /* ShortDramaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10127 /* ShortDramaView.swift */; };
 		A10128 /* ShortDramaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10128 /* ShortDramaDetailView.swift */; };
-		A10126 /* ShortDramaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10126 /* ShortDramaService.swift */; };
-		A10127 /* ShortDramaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10127 /* ShortDramaView.swift */; };
-		A10128 /* ShortDramaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10128 /* ShortDramaDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -354,9 +351,6 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
-		B10126 /* ShortDramaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaService.swift; sourceTree = "<group>"; };
-		B10127 /* ShortDramaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaView.swift; sourceTree = "<group>"; };
-		B10128 /* ShortDramaDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaDetailView.swift; sourceTree = "<group>"; };
 		B10126 /* ShortDramaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaService.swift; sourceTree = "<group>"; };
 		B10127 /* ShortDramaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaView.swift; sourceTree = "<group>"; };
 		B10128 /* ShortDramaDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaDetailView.swift; sourceTree = "<group>"; };
@@ -810,9 +804,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-				A10126 /* ShortDramaService.swift in Sources */,
-				A10127 /* ShortDramaView.swift in Sources */,
-				A10128 /* ShortDramaDetailView.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
 				A10127 /* ShortDramaView.swift in Sources */,
 				A10128 /* ShortDramaDetailView.swift in Sources */,
