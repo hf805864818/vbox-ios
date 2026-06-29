@@ -233,6 +233,10 @@ class SpiderManager: ObservableObject {
         // 自动扫描短剧源
         await ShortDramaService.shared.scanShortDramaSources(from: allSites)
         print("[SpiderManager] 短剧源扫描完成: \(ShortDramaService.shared.shortDramaSources.count) 个")
+        // 预加载短剧列表
+        if !ShortDramaService.shared.shortDramaSources.isEmpty {
+            await ShortDramaService.shared.fetchDramas()
+        }
     }
 
     /// 加载内置 QuickJS 蜘蛛引擎
