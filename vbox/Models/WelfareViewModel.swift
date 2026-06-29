@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 
-/// 福利专区 ViewModel — 管理内容加载与分页状态
 @MainActor
 class WelfareViewModel: ObservableObject {
     @Published var items: [VodItem] = []
@@ -13,7 +12,6 @@ class WelfareViewModel: ObservableObject {
     private let pageSize = 30
     private var currentTask: Task<Void, Never>?
 
-    /// 加载指定平台 + 分区的内容
     func loadContent(platform: WelfarePlatform, section: WelfareSection) {
         currentTask?.cancel()
         items = []
@@ -26,7 +24,6 @@ class WelfareViewModel: ObservableObject {
         }
     }
 
-    /// 加载更多（分页）
     func loadMore(platform: WelfarePlatform, section: WelfareSection) {
         guard !isLoading, hasMoreData, currentTask?.isCancelled == false else { return }
         currentTask = Task {
@@ -38,30 +35,50 @@ class WelfareViewModel: ObservableObject {
         guard !Task.isCancelled else { return }
         isLoading = true
 
-        // 构建搜索关键词：平台前缀 + 分区关键词
         let sectionKeyword = section.keyword.isEmpty ? section.name : section.keyword
         let keyword = "\(platform.searchPrefix) \(sectionKeyword)".trimmingCharacters(in: .whitespaces)
 
-        // 收集搜索结果
         var results: [VodItem] = []
         var seenIds = Set(append ? items.map(\.vodId) : [])
 
-        await SpiderManager.shared.searchStream(
-            keyword: keyword,
-            onBatch: { batch in
-                guard !Task.isCancelled else { return }
-                // 标记福利来源，便于播放记录过滤
-                let taggedItems = batch.map { item -> VodItem in
-                    var tagged = item
-                    if !(tagged.vodRemarks ?? "").hasPrefix("[福利]") {
-                        tagged.vodRemarks = "[福利]" + (tagged.vodRemarks ?? "")
-                    }
-                    return tagged
+        let tagItems: ([VodItem]) -> [VodItem] = { batch in
+            batch.map { item in
+                var tagged = item
+                if !(tagged.vodRemarks ?? "").hasPrefix("[福利]") {
+                    tagged.vodRemarks = "[福利]" + (tagged.vodRemarks ?? "")
                 }
-                let newItems = taggedItems.filter { seenIds.insert($0.vodId).inserted }
+                return tagged
+            }
+        }
+
+        await withTaskGroup(of: [VodItem].self) { group in
+            group.addTask {
+                let yboxItems = await YBoxAPIService.shared.fetchPlatformContent(
+                    platformId: platform.id,
+                    pageType: section.id
+                )
+                return yboxItems
+            }
+
+            group.addTask {
+                var spiderResults: [VodItem] = []
+                await SpiderManager.shared.searchStream(
+                    keyword: keyword,
+                    onBatch: { batch in
+                        guard !Task.isCancelled else { return }
+                        let tagged = tagItems(batch)
+                        spiderResults.append(contentsOf: tagged)
+                    }
+                )
+                return spiderResults
+            }
+
+            for await batch in group {
+                guard !Task.isCancelled else { return }
+                let newItems = batch.filter { seenIds.insert($0.vodId).inserted }
                 results.append(contentsOf: newItems)
             }
-        )
+        }
 
         guard !Task.isCancelled else { return }
 
