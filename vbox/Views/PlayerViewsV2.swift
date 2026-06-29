@@ -2460,9 +2460,15 @@ class PlayerState: ObservableObject {
         // 先直接用已有地址尝试播放（如果有）
         if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
             // 解析普通资源多集数据，填充通用集数列表
-            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
+            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl, targetEpisodeName: video.vodName)
             
-            let firstUrl = extractBestPlayableUrl(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
+            let firstUrl: String
+            if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
+                firstUrl = episodeItems[currentEpisodeIndex].url
+                log("[PlayerV2] 步骤1: 使用当前集[\(currentEpisodeIndex)]: \(firstUrl.prefix(80))...")
+            } else {
+                firstUrl = extractBestPlayableUrl(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl)
+            }
             let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if !firstUrlClean.isEmpty {
                 log("[PlayerV2] 步骤1: 先尝试已有地址: \(firstUrlClean.prefix(80))...")
@@ -2478,8 +2484,13 @@ class PlayerState: ObservableObject {
                let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
                 log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
                 // 后台详情返回后也更新集数列表
-                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
-                let newBest = extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
+                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName)
+                let newBest: String
+                if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
+                    newBest = episodeItems[currentEpisodeIndex].url
+                } else {
+                    newBest = extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
+                }
                 if !newBest.isEmpty {
                     await MainActor.run {
                         if self.player == nil || self.loadError != nil {
@@ -2797,7 +2808,7 @@ class PlayerState: ObservableObject {
     }
     
     /// 解析普通资源多集数据，填充通用集数列表 episodeItems
-    private func parseNormalEpisodes(playFrom: String, playUrl: String) {
+    private func parseNormalEpisodes(playFrom: String, playUrl: String, targetEpisodeName: String? = nil) {
         // 如果已经有百度/夸克集数，不覆盖
         guard episodeItems.isEmpty else { return }
         
@@ -2850,6 +2861,16 @@ class PlayerState: ObservableObject {
         if items.count > 1 {
             log("[PlayerV2] 解析到 \(items.count) 集普通资源: \(items.map { $0.name }.joined(separator: ", "))")
             episodeItems = items
+            // 根据 vodName 自动定位到当前集
+            if let target = targetEpisodeName {
+                for (idx, item) in items.enumerated() {
+                    if target.contains(item.name) {
+                        currentEpisodeIndex = idx
+                        log("[PlayerV2] 自动定位到集数: \(item.name) (index=\(idx))")
+                        break
+                    }
+                }
+            }
         }
     }
     

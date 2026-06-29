@@ -315,25 +315,25 @@ struct DramaCardView: View {
                             .aspectRatio(2.0/3.0, contentMode: .fill)
                     case .failure:
                         ZStack {
-                            Color.gray.opacity(0.2)
+                            Color.gray.opacity(0.15)
                             VStack(spacing: 4) {
-                                Image(systemName: "play.slash")
+                                Image(systemName: "photo")
+                                    .font(.system(size: 24))
                                     .foregroundColor(.gray)
-                                Text("加载失败")
+                                Text("暂无封面")
                                     .font(.system(size: 10))
                                     .foregroundColor(.gray)
                             }
                         }
                     case .empty:
                         ZStack {
-                            Color.gray.opacity(0.1)
+                            Color.gray.opacity(0.08)
                             ProgressView()
                         }
                     @unknown default:
-                        Color.gray.opacity(0.2)
+                        Color.gray.opacity(0.15)
                     }
                 }
-                .aspectRatio(2.0/3.0, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let remarks = drama.vodRemarks, !remarks.isEmpty {
@@ -347,6 +347,8 @@ struct DramaCardView: View {
                         .padding(4)
                 }
             }
+            .aspectRatio(2.0/3.0, contentMode: .fill)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             
             Text(drama.vodName)
                 .font(.system(size: 13, weight: .medium))
