@@ -95,10 +95,10 @@ private extension WelfarePage {
         ])
     }
 
-    static func find(_ prefix: String) -> WelfarePage {
-        WelfarePage(id: "\(prefix)_find", name: "发现", icon: "sparkle.magnifyingglass", sections: [
-            WelfareSection(id: "all", name: "全部", keyword: ""),
-        ])
+    static func find(_ prefix: String, sections: [WelfareSection] = [
+        WelfareSection(id: "all", name: "全部", keyword: ""),
+    ]) -> WelfarePage {
+        WelfarePage(id: "\(prefix)_find", name: "发现", icon: "sparkle.magnifyingglass", sections: sections)
     }
 
     static func topic(_ prefix: String) -> WelfarePage {
