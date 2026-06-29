@@ -103,7 +103,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 5)
-                    .frame(maxWidth: min(UIScreen.main.bounds.width - 140, 290))
+                    .frame(maxWidth: min(UIScreen.main.bounds.width - 140, CGFloat(visibleTabs.count * 56 + 28)))
                     .background(
                         Capsule()
                             .fill(.ultraThinMaterial)
