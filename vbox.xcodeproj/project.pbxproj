@@ -168,6 +168,9 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		A10126 /* ShortDramaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10126 /* ShortDramaService.swift */; };
+		A10127 /* ShortDramaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10127 /* ShortDramaView.swift */; };
+		A10128 /* ShortDramaDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10128 /* ShortDramaDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -348,6 +351,9 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		B10126 /* ShortDramaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaService.swift; sourceTree = "<group>"; };
+		B10127 /* ShortDramaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaView.swift; sourceTree = "<group>"; };
+		B10128 /* ShortDramaDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -798,6 +804,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+				A10126 /* ShortDramaService.swift in Sources */,
+				A10127 /* ShortDramaView.swift in Sources */,
+				A10128 /* ShortDramaDetailView.swift in Sources */,
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
