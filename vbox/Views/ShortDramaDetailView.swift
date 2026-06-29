@@ -48,7 +48,7 @@ struct ShortDramaDetailView: View {
     }
 
     private var coverImage: some View {
-        AsyncImage(url: URL(string: detailItem?.vodPic ?? drama.vodPic)) { phase in
+        AsyncImage(url: DoubanImageProxyServer.shared.resolvedURL(for: detailItem?.vodPic ?? drama.vodPic)) { phase in
             switch phase {
             case .success(let image):
                 image
@@ -57,8 +57,13 @@ struct ShortDramaDetailView: View {
             case .failure:
                 ZStack {
                     Color.gray.opacity(0.2)
-                    Image(systemName: "play.slash")
-                        .foregroundColor(.gray)
+                    VStack(spacing: 4) {
+                        Image(systemName: "play.slash")
+                            .foregroundColor(.gray)
+                        Text("加载失败")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                    }
                 }
             case .empty:
                 ZStack {
