@@ -550,6 +550,7 @@
 				B11002 /* DatabaseManager.swift */,
 				B11003 /* ZhanyuanSearchService.swift */,
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
+				B10126 /* ShortDramaService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -578,6 +579,8 @@
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
 				AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */,
+				B10127 /* ShortDramaView.swift */,
+				B10128 /* ShortDramaDetailView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
