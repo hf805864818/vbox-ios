@@ -138,8 +138,8 @@ struct ShortDramaDetailView: View {
                                 vodId: drama.vodId,
                                 vodName: drama.vodName,
                                 vodPic: detailItem?.vodPic ?? drama.vodPic,
-                                vodPlayUrl: ep.url,
-                                vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom
+                                vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
+                                vodPlayUrl: ep.url
                             )
                             playerDrama = playItem
                             showPlayer = true
@@ -173,8 +173,8 @@ struct ShortDramaDetailView: View {
                     vodId: drama.vodId,
                     vodName: drama.vodName,
                     vodPic: detailItem?.vodPic ?? drama.vodPic,
-                    vodPlayUrl: ep.url,
-                    vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom
+                    vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
+                    vodPlayUrl: ep.url
                 )
                 playerDrama = playItem
                 showPlayer = true
