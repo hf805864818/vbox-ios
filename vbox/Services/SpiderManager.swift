@@ -223,6 +223,10 @@ class SpiderManager: ObservableObject {
         await loadSitesFromSubscription()
 
         print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(allSites.count)")
+
+        // 自动扫描短剧源
+        await ShortDramaService.shared.scanShortDramaSources(from: allSites)
+        print("[SpiderManager] 短剧源扫描完成: \(ShortDramaService.shared.shortDramaSources.count) 个")
     }
 
     /// 加载内置 QuickJS 蜘蛛引擎
