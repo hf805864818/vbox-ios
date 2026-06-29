@@ -801,12 +801,13 @@
 				0519F2A24E0B464A834BDE28 /* WelfareViewModel.swift in Sources */,
 				C2034606B1124B3E957C55F8 /* WelfareModels.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 				A10126 /* ShortDramaService.swift in Sources */,
 				A10127 /* ShortDramaView.swift in Sources */,
 				A10128 /* ShortDramaDetailView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
