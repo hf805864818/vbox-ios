@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
 
+extension Notification.Name {
+    static let spiderSitesDidUpdate = Notification.Name("spiderSitesDidUpdate")
+}
+
 /// 站点模式枚举 — 用于区分站点的实际工作模式
 enum SiteMode {
     case jsSpider       // JS蜘蛛模式：加载JS脚本到引擎
@@ -153,12 +157,14 @@ class SpiderManager: ObservableObject {
         guard !customFallbackSites.contains(where: { $0.api == api }) else { return }
         customFallbackSites.append((name, api))
         saveCustomFallbackSites()
+        NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
     func removeCustomFallbackSite(at index: Int) {
         guard index >= 0, index < customFallbackSites.count else { return }
         customFallbackSites.remove(at: index)
         saveCustomFallbackSites()
+        NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
     /// 所有兜底源 = 内置 + 自定义
@@ -312,6 +318,7 @@ globalThis.__JS_SPIDER__ = _spider;
         await loadSitesFromSubscription()
         savedURLs = subManager.configURLs
         isLoading = false
+        NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
     /// 加载当前激活的订阅源
@@ -331,6 +338,7 @@ globalThis.__JS_SPIDER__ = _spider;
         await loadSitesFromSubscription()
         savedURLs = subManager.configURLs
         isLoading = false
+        NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
     /// 切换激活的订阅源
