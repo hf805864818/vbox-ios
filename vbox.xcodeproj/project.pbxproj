@@ -543,6 +543,7 @@
 				B10143 /* LiveTVService.swift */,
 				B11002 /* DatabaseManager.swift */,
 				B11003 /* ZhanyuanSearchService.swift */,
+				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
