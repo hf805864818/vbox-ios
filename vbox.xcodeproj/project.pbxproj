@@ -163,6 +163,10 @@
 		FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		7A7823D2B97C4619836BF72B /* WelfarePlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */; };
+		0519F2A24E0B464A834BDE28 /* WelfareViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2342222E4A4F78B5358A5A /* WelfareViewModel.swift */; };
+		C2034606B1124B3E957C55F8 /* WelfareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89DCA61AB0624F5991291A38 /* WelfareModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -338,6 +342,10 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareHomeView.swift; sourceTree = "<group>"; };
+		AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformView.swift; sourceTree = "<group>"; };
+		9B2342222E4A4F78B5358A5A /* WelfareViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareViewModel.swift; sourceTree = "<group>"; };
+		89DCA61AB0624F5991291A38 /* WelfareModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -501,6 +509,8 @@
 			children = (
 				B10004 /* SpiderModels.swift */,
 				B11001 /* DBModels.swift */,
+				9B2342222E4A4F78B5358A5A /* WelfareViewModel.swift */,
+				89DCA61AB0624F5991291A38 /* WelfareModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -557,6 +567,8 @@
 				B10139 /* SiteDiagnosticsView.swift */,
 				B10142 /* LiveTVView.swift */,
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
+				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
+				AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -775,6 +787,10 @@
 				A10046 /* ZhanyuanSearchService.swift in Sources */,
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
+				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
+				7A7823D2B97C4619836BF72B /* WelfarePlatformView.swift in Sources */,
+				0519F2A24E0B464A834BDE28 /* WelfareViewModel.swift in Sources */,
+				C2034606B1124B3E957C55F8 /* WelfareModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
