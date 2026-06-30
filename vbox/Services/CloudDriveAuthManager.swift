@@ -897,6 +897,119 @@ final class CloudDriveAuthManager: ObservableObject {
         }
     }
 
+    // MARK: - 天翼云盘网页登录
+
+    @MainActor
+    final class Pan189LoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+        }
+
+        func startLogin() {
+            statusText = "正在加载天翼云盘页面..."
+            guard let url = URL(string: "https://cloud.189.cn/web/login.html") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            self.errorText = "页面加载失败"
+            self.statusText = "请检查网络后重试"
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.errorText = "链接失败: \(error.localizedDescription)"
+            self.statusText = "加载失败"
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                self.statusText = "请在页面中登录天翼云盘账号（手机号+密码或扫码）"
+                for _ in 1...180 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+
+                    // 检测是否已登录：检查是否有 SSOToken 或 userSession 相关 Cookie
+                    let hasLoginCookie = cookies.contains { cookie in
+                        let name = cookie.name.lowercased()
+                        // 天翼云盘登录成功的标志性 Cookie
+                        return (name.contains("ssotoken") || name.contains("sso_token") ||
+                                name.contains("usersession") || name.contains("ec_session") ||
+                                name == "CASTGC" || name == "isLogin") && cookie.value.count > 10
+                    }
+
+                    if hasLoginCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan189, cookie: cookieStr)
+                        }
+                        return
+                    }
+
+                    // 也尝试检测页面 URL 是否已跳转到主页（登录成功后的跳转）
+                    if let currentURL = self.webView.url?.absoluteString,
+                       (currentURL.contains("cloud.189.cn/web/main") ||
+                        currentURL.contains("cloud.189.cn/main")) {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan189, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时（6分钟），请重试"
+                    self.statusText = "登录超时"
+                }
+            }
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+        }
+    }
+
     // MARK: - 授权有效性测试
 
     @discardableResult
@@ -918,6 +1031,8 @@ final class CloudDriveAuthManager: ObservableObject {
                 try await validateCookie(url: "https://www.123pan.com/b/api/share/get?limit=1&next=1&shareKey=test&SharePwd=&ParentFileId=0&Page=1", cookie: credential.cookie ?? "", referer: "https://www.123pan.com/")
             case .pan139:
                 try await validateCookie(url: "https://yun.139.com/", cookie: credential.cookie ?? "", referer: "https://yun.139.com/")
+            case .pan189:
+                try await validateCookie(url: "https://cloud.189.cn/", cookie: credential.cookie ?? "", referer: "https://cloud.189.cn/")
             }
             markValid(driveType, message: "授权检测正常")
             return true

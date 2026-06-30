@@ -29,6 +29,7 @@ class CloudDriveManager: ObservableObject {
         case uc = "uc"
         case pan123 = "123pan"
         case pan139 = "139pan"
+        case pan189 = "189pan"
 
         var displayName: String {
             switch self {
@@ -39,6 +40,7 @@ class CloudDriveManager: ObservableObject {
             case .uc: return "UC网盘"
             case .pan123: return "123云盘"
             case .pan139: return "139云盘"
+            case .pan189: return "天翼云盘"
             }
         }
 
@@ -51,6 +53,7 @@ class CloudDriveManager: ObservableObject {
             case .uc: return "Cookie"
             case .pan123: return "Cookie / Token"
             case .pan139: return "Cookie / Session"
+            case .pan189: return "Cookie / 用户名密码"
             }
         }
     }
@@ -1160,6 +1163,7 @@ class CloudDriveManager: ObservableObject {
         if url.contains("uc.cn") || url.contains("ucloud.cn") { return .uc }
         if url.contains("123pan.com") || url.contains("123cloud.cn") { return .pan123 }
         if url.contains("yun.139.com") || url.contains("139.com") { return .pan139 }
+        if url.contains("cloud.189.cn") || url.contains("189.cn") { return .pan189 }
         return nil
     }
 
@@ -5393,6 +5397,212 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
+    // MARK: - 天翼云盘
+
+    func resolve189PanPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+        print("[189Pan] 开始解析: \(shareURL)")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://cloud.189.cn/",
+            "Origin": "https://cloud.189.cn",
+            "Cookie": cookie
+        ]
+
+        // 天翼云盘分享格式: https://cloud.189.cn/web/share?code=xxx 或 ?code=xxx#passcode
+        guard let url = URL(string: shareURL),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw DriveError.invalidShareURL
+        }
+
+        // 提取 shareCode
+        var shareCode = ""
+        if let codeItem = components.queryItems?.first(where: { $0.name == "code" }) {
+            shareCode = codeItem.value ?? ""
+        }
+        // 也尝试从路径中提取
+        if shareCode.isEmpty, let path = URLComponents(string: shareURL)?.path {
+            let parts = path.components(separatedBy: "/")
+            if let last = parts.last, !last.isEmpty {
+                shareCode = last
+            }
+        }
+        guard !shareCode.isEmpty else {
+            throw DriveError.invalidShareURL
+        }
+
+        // 提取 passCode（如果分享链接有密码）
+        var accessCode = ""
+        if let fragment = url.fragment, !fragment.isEmpty {
+            // 天翼云盘密码在 URL fragment 中
+            accessCode = fragment
+        } else if let pwdItem = components.queryItems?.first(where: { $0.name == "pwd" || $0.name == "accessCode" }) {
+            accessCode = pwdItem.value ?? ""
+        }
+
+        print("[189Pan] shareCode=\(shareCode), accessCode=\(accessCode.isEmpty ? "无" : accessCode)")
+
+        // 步骤1: 获取分享信息
+        let shareInfoURL = URL(string: "https://cloud.189.cn/api/open/share/getShareInfoByCodeV2.action")!
+        var shareReq = URLRequest(url: shareInfoURL)
+        shareReq.httpMethod = "POST"
+        shareReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { shareReq.setValue(v, forHTTPHeaderField: k) }
+
+        var shareBody = "shareCode=\(shareCode)"
+        if !accessCode.isEmpty {
+            shareBody += "&accessCode=\(accessCode)"
+        }
+
+        shareReq.httpBody = shareBody.data(using: .utf8)
+        let (shareData, shareResp) = try await session.data(for: shareReq)
+        guard let httpResp = shareResp as? HTTPURLResponse else {
+            throw DriveError.invalidResponse
+        }
+
+        // 如果返回302重定向到登录页，说明 Cookie 已过期
+        if httpResp.statusCode == 302 {
+            if let location = httpResp.allHeaderFields["Location"] as? String,
+               location.contains("login") {
+                throw DriveError.noPlayURL("天翼云盘: Cookie 已过期，请重新登录")
+            }
+        }
+
+        guard let shareJson = try JSONSerialization.jsonObject(with: shareData) as? [String: Any] else {
+            throw DriveError.noPlayURL("天翼云盘: 无法解析分享信息响应")
+        }
+
+        print("[189Pan] 分享信息响应: \(shareJson.keys)")
+
+        // 检查响应格式
+        if let resCode = shareJson["res_code"] as? Int, resCode != 0 {
+            let msg = shareJson["res_message"] as? String ?? "未知错误"
+            // 某些版本返回外层 code/message
+            if let errCode = shareJson["code"] as? String, errCode != "0" {
+                throw DriveError.noPlayURL("天翼云盘: \(shareJson["msg"] as? String ?? errCode)")
+            }
+            throw DriveError.noPlayURL("天翼云盘: \(msg)")
+        }
+
+        // 响应可能有两种格式
+        var fileId = ""
+        var shareId: Int64 = 0
+        var fileName = ""
+
+        // 格式1: 直接有 fileId/fileName
+        if let fid = shareJson["fileId"] as? String, !fid.isEmpty {
+            fileId = fid
+        } else if let fid = shareJson["fileId"] as? Int64 {
+            fileId = String(fid)
+        }
+        if let sid = shareJson["shareId"] as? Int64 {
+            shareId = sid
+        } else if let sid = shareJson["shareId"] as? String {
+            shareId = Int64(sid) ?? 0
+        }
+        if let fn = shareJson["fileName"] as? String {
+            fileName = fn
+        }
+
+        // 格式2: 嵌套在 data 中
+        if fileId.isEmpty, let dataObj = shareJson["data"] as? [String: Any] {
+            if let fid = dataObj["fileId"] as? String {
+                fileId = fid
+            } else if let fid = dataObj["fileId"] as? Int64 {
+                fileId = String(fid)
+            }
+            if let sid = dataObj["shareId"] as? Int64 {
+                shareId = sid
+            } else if let sid = dataObj["shareId"] as? String {
+                shareId = Int64(sid) ?? 0
+            }
+            if let fn = dataObj["fileName"] as? String {
+                fileName = fn
+            }
+            if shareId == 0, let sidStr = dataObj["shareId"] as? String {
+                shareId = Int64(sidStr) ?? 0
+            }
+        }
+
+        guard !fileId.isEmpty else {
+            print("[189Pan] 无法提取 fileId，完整响应: \(shareJson)")
+            throw DriveError.noPlayURL("天翼云盘: 无法提取文件信息")
+        }
+
+        print("[189Pan] fileId=\(fileId), shareId=\(shareId), fileName=\(fileName)")
+
+        // 步骤2: 获取下载链接
+        let downloadURL = URL(string: "https://cloud.189.cn/api/open/share/getFileDownloadUrl.action")!
+        var dlReq = URLRequest(url: downloadURL)
+        dlReq.httpMethod = "POST"
+        dlReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { dlReq.setValue(v, forHTTPHeaderField: k) }
+
+        var dlBody = "fileId=\(fileId)"
+        if shareId != 0 {
+            dlBody += "&shareId=\(shareId)"
+        }
+        dlReq.httpBody = dlBody.data(using: .utf8)
+
+        let (dlData, _) = try await session.data(for: dlReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any] else {
+            throw DriveError.noPlayURL("天翼云盘: 无法解析下载链接响应")
+        }
+
+        print("[189Pan] 下载链接响应 keys: \(dlJson.keys)")
+
+        // 检查响应
+        if let resCode = dlJson["res_code"] as? Int, resCode != 0 {
+            let msg = dlJson["res_message"] as? String ?? "未知错误"
+            throw DriveError.noPlayURL("天翼云盘: 获取下载链接失败 - \(msg)")
+        }
+
+        var downloadUrlStr = ""
+
+        // 格式1: 直接在 data 中
+        if let dataObj = dlJson["data"] as? [String: Any] {
+            if let url = dataObj["fileDownloadUrl"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            } else if let url = dataObj["downloadUrl"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            } else if let url = dataObj["url"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            }
+        }
+
+        // 格式2: 直接在顶层
+        if downloadUrlStr.isEmpty {
+            if let url = dlJson["fileDownloadUrl"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            } else if let url = dlJson["downloadUrl"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            } else if let url = dlJson["url"] as? String, !url.isEmpty {
+                downloadUrlStr = url
+            }
+        }
+
+        guard !downloadUrlStr.isEmpty else {
+            print("[189Pan] 无法提取下载链接，完整响应: \(dlJson)")
+            throw DriveError.noPlayURL("天翼云盘: 无法获取下载链接")
+        }
+
+        print("[189Pan] 获取到下载链接: \(downloadUrlStr.prefix(80))...")
+
+        // 构建播放请求头（包含 Cookie 和 Referer）
+        var playHeaders: [String: String] = [
+            "User-Agent": headers["User-Agent"] ?? "",
+            "Referer": "https://cloud.189.cn/",
+            "Origin": "https://cloud.189.cn"
+        ]
+
+        return PlayResult(
+            url: downloadUrlStr,
+            headers: playHeaders,
+            driveType: .pan189,
+            source: "189pan_direct"
+        )
+    }
+
     // MARK: - UC 网盘
 
     func resolveUCPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
@@ -5777,6 +5987,8 @@ class CloudDriveManager: ObservableObject {
                     result = try await resolve123PanPlayURL(shareURL: shareURL, token: token.value)
                 case .pan139:
                     result = try await resolve139PanPlayURL(shareURL: shareURL, cookie: token.value)
+                case .pan189:
+                    result = try await resolve189PanPlayURL(shareURL: shareURL, cookie: token.value)
                 }
                 print("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result
@@ -5850,6 +6062,7 @@ enum DriveTypeAlias: String {
     case uc = "UC"
     case pan123 = "123云盘"
     case pan139 = "139云盘"
+    case pan189 = "天翼云盘"
 }
 
 enum DriveError: LocalizedError {
