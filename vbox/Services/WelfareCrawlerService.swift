@@ -109,9 +109,14 @@ final class WelfareCrawlerService {
             return await fallback(id: platformId, kind: pageKind, onBatch: onBatch)
         }
 
-        // PWA加密 / encPost 平台直接走代理（非开放API必然失败）
         switch cfg.parserType {
-        case .pwaApi, .encPost:
+        case .pwaApi:
+            // PWA加密(pwaApi)平台：直连几乎必失败，走代理→SpiderManager回退
+            return await proxyOrFallback(cfg: cfg, kind: pageKind, onBatch: onBatch)
+        case .encPost:
+            // encPost平台：先尝试直连加密POST，失败再走代理回退
+            let direct = await fetchCMS(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
+            if !direct.isEmpty { return direct }
             return await proxyOrFallback(cfg: cfg, kind: pageKind, onBatch: onBatch)
         case .apiJson:
             if cfg.apiMode == .open {
