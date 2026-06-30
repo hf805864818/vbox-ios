@@ -12,23 +12,26 @@ class WelfareViewModel: ObservableObject {
     private let pageSize = 30
     private var currentTask: Task<Void, Never>?
 
-    func loadContent(platform: WelfarePlatform, section: WelfareSection) {
+    func loadContent(platform: WelfarePlatform, section: WelfareSection,
+                     pageKind: WelfarePageKind? = nil) {
         currentTask?.cancel()
         items = []; currentPage = 1; hasMoreData = true; errorMessage = nil
-        currentTask = Task { await fetch(platform: platform, section: section) }
+        currentTask = Task { await fetch(platform: platform, section: section, pageKind: pageKind) }
     }
 
-    func loadMore(platform: WelfarePlatform, section: WelfareSection) {
+    func loadMore(platform: WelfarePlatform, section: WelfareSection,
+                  pageKind: WelfarePageKind? = nil) {
         guard !isLoading, hasMoreData, currentTask?.isCancelled == false else { return }
-        currentTask = Task { await fetch(platform: platform, section: section, append: true) }
+        currentTask = Task { await fetch(platform: platform, section: section, pageKind: pageKind, append: true) }
     }
 
-    private func fetch(platform: WelfarePlatform, section: WelfareSection, append: Bool = false) async {
+    private func fetch(platform: WelfarePlatform, section: WelfareSection,
+                       pageKind: WelfarePageKind? = nil, append: Bool = false) async {
         guard !Task.isCancelled else { return }
         isLoading = true
 
-        // 从 section 名称推断 pageKind
-        let pageKind = pageKindForSection(section.id)
+        // 优先使用传入的 pageKind，否则从 section.id 推断（向后兼容）
+        let pageKind = pageKind ?? pageKindForSection(section.id)
         let keyword = section.keyword.isEmpty ? section.name : section.keyword
 
         let items = await WelfareCrawlerService.shared.fetch(
@@ -63,7 +66,7 @@ class WelfareViewModel: ObservableObject {
         if sectionId.hasPrefix("c") { return .home }
         let mappings: [String: WelfarePageKind] = [
             "recommend": .home, "latest": .home, "hot": .home,
-            "all": .video, "video": .video, "film": .film,
+            "search": .search, "video": .video, "film": .film,
             "anime": .anime, "comic": .comic, "novel": .novel,
             "actor": .actor, "classify": .classify, "find": .find,
             "topic": .topic, "tiktok": .tiktok, "darkWeb": .darkWeb,
@@ -71,6 +74,8 @@ class WelfareViewModel: ObservableObject {
             "rank": .rank, "channel": .channel, "tag": .tag,
             "user": .user, "image": .image, "stills": .stills,
         ]
+        // 直接尝试用 sectionId 作为 rawValue 匹配
+        if let matched = WelfarePageKind(rawValue: sectionId) { return matched }
         return mappings[sectionId] ?? .home
     }
 }

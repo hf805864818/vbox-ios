@@ -92,21 +92,37 @@ struct WelfareCategorySection: View {
 
     @ViewBuilder
     private func platformDestination(_ platform: YBoxPlatform2) -> some View {
-        switch platform.type {
-        case .video:
-            if platform.baseURL.contains("zfvwi8") {
-                YBoxBananaListView(platform: platform)
-            } else if platform.baseURL.contains("1080") {
-                YBoxWebSourceListView(platform: platform)
-            } else {
-                YBoxBananaListView(platform: platform)
-            }
-        case .live:
+        // 优先：有爬虫配置的平台，统一走 YBoxCrawlerContentView → WelfarePlatformView
+        if let pid = platform.crawlerPlatformId, !pid.isEmpty {
+            YBoxCrawlerContentView(platform: platform)
+        }
+        // "更多直播"/"更多漫画" 折叠入口
+        else if platform.name == "更多直播" {
             YBoxLiveSourceListView()
-        case .comic:
+        }
+        else if platform.name == "更多漫画" {
             YBoxComicListView()
-        case .audio:
-            YBoxWebSourceListView(platform: platform)
+        }
+        // YBox 自有平台：香蕉秀系列
+        else if platform.baseURL.contains("zfvwi8") {
+            YBoxBananaListView(platform: platform)
+        }
+        // YBox 自有平台：1080视频
+        else if platform.baseURL.contains("1080") {
+            YBoxCrawlerContentView(platform: platform)
+        }
+        // 其他自有平台
+        else {
+            switch platform.type {
+            case .video:
+                YBoxBananaListView(platform: platform)
+            case .live:
+                YBoxLiveSourceListView()
+            case .comic:
+                YBoxComicListView()
+            case .audio:
+                YBoxWebSourceListView(platform: platform)
+            }
         }
     }
 }

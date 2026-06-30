@@ -8,12 +8,21 @@ struct YBoxCategory2: Identifiable {
 }
 
 struct YBoxPlatform2: Identifiable {
-    var id: String { name }
+    var id: String { crawlerPlatformId ?? name }
     let name: String
     let icon: String
     let type: PlatformType2
     let baseURL: String
     let desc: String
+    /// 对应 WelfareCrawlerConfig 中的 platformId，nil 表示使用 YBox 自有 API
+    let crawlerPlatformId: String?
+
+    init(name: String, icon: String, type: PlatformType2,
+         baseURL: String, desc: String, crawlerPlatformId: String? = nil) {
+        self.name = name; self.icon = icon; self.type = type
+        self.baseURL = baseURL; self.desc = desc
+        self.crawlerPlatformId = crawlerPlatformId
+    }
 
     enum PlatformType2: String {
         case video, live, comic, audio
@@ -70,40 +79,195 @@ class YBoxService2: ObservableObject {
     init() { buildCategories() }
 
     private func buildCategories() {
-        categories = [
-            YBoxCategory2(name: "视频", platforms: [
-                YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
-                             baseURL: "https://zfvwi8.ipajx0.cc", desc: "短视频/长视频"),
-                YBoxPlatform2(name: "幻想次元", icon: "sparkles", type: .video,
-                             baseURL: "https://zfvwi8.ipajx0.cc", desc: "二次元角色扮演"),
-                YBoxPlatform2(name: "午夜寻欢", icon: "moon.stars.fill", type: .video,
-                             baseURL: "https://zfvwi8.ipajx0.cc", desc: "夜间精彩"),
-                YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
-                             baseURL: "https://zfvwi8.ipajx0.cc", desc: "专题视频"),
-                YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
-                             baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
-                YBoxPlatform2(name: "BYFM有声", icon: "headphones", type: .audio,
-                             baseURL: "https://api.byfm2.app", desc: "有声小说50类"),
-            ]),
-            YBoxCategory2(name: "直播", platforms: [
-                YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf", desc: "CCTV/卫视/广播"),
-                YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf", desc: "娱乐直播"),
-                YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf", desc: "才艺互动"),
-                YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf", desc: "社区直播"),
-                YBoxPlatform2(name: "更多直播", icon: "ellipsis.circle.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf", desc: "共136个源"),
-            ]),
-            YBoxCategory2(name: "漫画", platforms: [
-                YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic,
-                             baseURL: "https://www.18akmanhua.com", desc: "日漫/韩漫/同人"),
-                YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic,
-                             baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
-            ]),
+        // ═══ YBox 原始平台（保留自有API，不通过爬虫） ═══
+        let yboxVideo: [YBoxPlatform2] = [
+            YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
+                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "短视频/长视频"),
+            YBoxPlatform2(name: "幻想次元", icon: "sparkles", type: .video,
+                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "二次元角色扮演"),
+            YBoxPlatform2(name: "午夜寻欢", icon: "moon.stars.fill", type: .video,
+                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "夜间精彩"),
+            YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
+                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "专题视频"),
+            YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
+                         baseURL: "https://1080.hlkjsm.com", desc: "综合视频站",
+                         crawlerPlatformId: "km"),
+            YBoxPlatform2(name: "BYFM有声", icon: "headphones", type: .audio,
+                         baseURL: "https://api.byfm2.app", desc: "有声小说50类"),
         ]
+
+        let yboxLive: [YBoxPlatform2] = [
+            YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live,
+                         baseURL: "http://api.hclyz.com:81/mf", desc: "CCTV/卫视/广播"),
+            YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live,
+                         baseURL: "http://api.hclyz.com:81/mf", desc: "娱乐直播"),
+            YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live,
+                         baseURL: "http://api.hclyz.com:81/mf", desc: "才艺互动"),
+            YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live,
+                         baseURL: "http://api.hclyz.com:81/mf", desc: "社区直播"),
+        ]
+
+        let yboxComic: [YBoxPlatform2] = [
+            YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic,
+                         baseURL: "https://www.18akmanhua.com", desc: "日漫/韩漫/同人"),
+            YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic,
+                         baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
+        ]
+
+        // ═══ 从 WelfareCrawlerConfig 导入 62 个平台，按类型分类 ═══
+        let allCrawlerConfigs = WelfareCrawlerConfig.all
+
+        // 已存在于 ybox 原始列表中的 platformId
+        let yboxReservedIds: Set<String> = ["banana", "huanxiang", "km"]
+
+        // 漫画类 platformId 集合
+        let comicIds: Set<String> = [
+            "comic18", "akmh", "jmtt", "nc", "mw", "wwmh", "mmmh",
+        ]
+        // 直播类 platformId 集合
+        let liveIds: Set<String> = [
+            "live_hclyz",
+        ]
+
+        var crawlerVideo: [YBoxPlatform2] = []
+        var crawlerLive: [YBoxPlatform2] = []
+        var crawlerComic: [YBoxPlatform2] = []
+
+        for cfg in allCrawlerConfigs {
+            // 跳过已在 YBox 原始列表中的平台
+            guard !yboxReservedIds.contains(cfg.platformId) else { continue }
+
+            let icon = iconForPlatform(cfg.platformId)
+            let desc = descForPlatform(cfg.platformId)
+
+            let platform = YBoxPlatform2(
+                name: cfg.platformName,
+                icon: icon,
+                type: platformTypeFor(cfg.platformId, comicIds: comicIds, liveIds: liveIds),
+                baseURL: cfg.baseURL,
+                desc: desc,
+                crawlerPlatformId: cfg.platformId
+            )
+
+            if comicIds.contains(cfg.platformId) {
+                crawlerComic.append(platform)
+            } else if liveIds.contains(cfg.platformId) {
+                crawlerLive.append(platform)
+            } else {
+                crawlerVideo.append(platform)
+            }
+        }
+
+        // ═══ 组装最终分类 ═══
+
+        // 视频：YBox原始 + 全部爬虫视频平台
+        let allVideo = yboxVideo + crawlerVideo
+
+        // 直播：YBox原始 + 爬虫直播（最多10个，超过则折叠为"更多直播"）
+        let allLiveRaw = yboxLive + crawlerLive
+        let maxLive = 10
+        let livePlatforms: [YBoxPlatform2]
+        if allLiveRaw.count > maxLive {
+            livePlatforms = Array(allLiveRaw.prefix(maxLive - 1)) + [
+                YBoxPlatform2(name: "更多直播", icon: "ellipsis.circle.fill", type: .live,
+                             baseURL: "http://api.hclyz.com:81/mf",
+                             desc: "共\(allLiveRaw.count)个源")
+            ]
+        } else {
+            livePlatforms = allLiveRaw
+        }
+
+        // 漫画：YBox原始 + 爬虫漫画（最多10个，超过则折叠为"更多漫画"）
+        let allComicRaw = yboxComic + crawlerComic
+        let maxComic = 10
+        let comicPlatforms: [YBoxPlatform2]
+        if allComicRaw.count > maxComic {
+            comicPlatforms = Array(allComicRaw.prefix(maxComic - 1)) + [
+                YBoxPlatform2(name: "更多漫画", icon: "ellipsis.circle.fill", type: .comic,
+                             baseURL: "https://www.comicbox.xyz",
+                             desc: "共\(allComicRaw.count)个源")
+            ]
+        } else {
+            comicPlatforms = allComicRaw
+        }
+
+        categories = [
+            YBoxCategory2(name: "视频", platforms: allVideo),
+            YBoxCategory2(name: "直播", platforms: livePlatforms),
+            YBoxCategory2(name: "漫画", platforms: comicPlatforms),
+        ]
+    }
+
+    // MARK: - 平台类型判断
+    private func platformTypeFor(_ id: String, comicIds: Set<String>, liveIds: Set<String>) -> YBoxPlatform2.PlatformType2 {
+        if comicIds.contains(id) { return .comic }
+        if liveIds.contains(id) { return .live }
+        return .video
+    }
+
+    // MARK: - 平台图标
+    private func iconForPlatform(_ id: String) -> String {
+        let icons: [String: String] = [
+            "91av": "play.circle.fill", "hgsp": "play.rectangle.fill", "hsxs": "sparkles.tv.fill",
+            "hxsp": "film.fill", "ll51": "play.square.stack.fill", "lld": "play.tv.fill",
+            "mtyx": "tv.music.note.fill", "one": "1.circle.fill", "pfdsp": "photo.tv",
+            "txvlog": "camera.fill", "wmq": "play.display", "xbk": "rectangle.stack.fill",
+            "zlt": "square.grid.3x3.fill", "lls": "square.on.square", "hhlz": "globe",
+            "mimei": "heart.circle.fill", "avin": "person.fill.viewfinder", "javdb": "film.stack.fill",
+            "djr": "star.bubble.fill", "lxs": "person.2.fill", "missav": "play.slash.fill",
+            "mmav": "moon.circle.fill", "oksp": "eye.fill", "pron91": "rectangle.3.group.fill",
+            "tv91": "tv.fill", "mdtv": "tv.and.mediabox", "pdl": "list.bullet.rectangle.fill",
+            "qp": "tag.fill", "zpc91": "square.grid.2x2.fill",
+            "dsp91": "sparkle.magnifyingglass", "sp91": "magnifyingglass.circle.fill",
+            "ttav": "play.circle", "xjsp": "theatermasks.fill",
+            "fl2": "flame.fill", "byfm": "headphones.circle.fill", "yxfm": "music.note.list",
+            "hu4": "photo.on.rectangle.fill", "awjd": "newspaper.fill", "cgw": "doc.text.fill",
+            "cg51": "person.3.fill", "ttt": "bubble.left.and.bubble.right.fill",
+            "sgp": "camera.aperture",
+            "dm51": "arrow.down.to.line", "awjm": "icloud.and.arrow.down.fill",
+            "qysq": "eye.slash.fill", "kpsp": "tv.badge.wifi",
+            "dh50": "50.square.fill", "hjsq": "antenna.radiowaves.left.and.right",
+            "yfg": "gift.fill", "km": "hare.fill", "gdcm": "lightbulb.fill",
+            "wwsq": "globe.asia.australia.fill", "rryy": "r.square.fill", "xvideos": "x.square.fill",
+            "gsjh": "building.columns.fill", "hhl": "h.square.fill",
+            "hjll": "j.square.fill", "hsck": "shippingbox.fill",
+            "jmbox": "tray.full.fill", "mmmh": "books.vertical.fill",
+            "live_hclyz": "antenna.radiowaves.left.and.right",
+            "comic18": "book.fill", "akmh": "book.pages.fill", "jmtt": "books.vertical.fill",
+            "nc": "book.closed.fill", "mw": "text.book.closed.fill", "wwmh": "character.book.closed.fill",
+        ]
+        return icons[id] ?? "app.fill"
+    }
+
+    // MARK: - 平台描述
+    private func descForPlatform(_ id: String) -> String {
+        let descs: [String: String] = [
+            "91av": "视频聚合", "hgsp": "视频聚合", "hsxs": "多类型综合",
+            "hxsp": "视频聚合", "ll51": "短视频/暗网", "lld": "视频聚合",
+            "mtyx": "话题/短视频", "one": "电影/发现", "pfdsp": "视频聚合",
+            "txvlog": "短视频", "wmq": "标签/用户", "xbk": "短视频",
+            "zlt": "演员/视频", "lls": "电影/动漫/漫画/小说", "hhlz": "电影/漫画/小说",
+            "mimei": "动漫/漫画/小说", "avin": "演员信息", "javdb": "演员/分类",
+            "djr": "演员/标签", "lxs": "演员信息", "missav": "演员/分类",
+            "mmav": "话题/视频", "oksp": "电影/演员",
+            "pron91": "分类/排行", "tv91": "频道/标签", "mdtv": "频道/标签",
+            "pdl": "频道/排行", "qp": "频道/标签", "zpc91": "分类",
+            "dsp91": "发现/用户", "sp91": "电影/演员", "ttav": "发现/暗网",
+            "xjsp": "分类/演员", "fl2": "演员/发现", "byfm": "演员/音频",
+            "yxfm": "演员/音频",
+            "hu4": "图片/小说/剧照", "awjd": "文章/视频", "cgw": "文章/视频",
+            "cg51": "社区/话题", "ttt": "短视频/用户", "sgp": "演员/文章",
+            "dm51": "动漫/暗网", "awjm": "暗网", "qysq": "暗网",
+            "kpsp": "暗网", "dh50": "分类/用户", "hjsq": "短视频/用户",
+            "yfg": "用户", "km": "综合视频站", "gdcm": "视频聚合",
+            "wwsq": "视频聚合", "rryy": "知名平台", "xvideos": "知名平台",
+            "gsjh": "黄色仓库", "hhl": "视频聚合", "hjll": "视频聚合",
+            "hsck": "黄色仓库", "jmbox": "综合站",
+            "live_hclyz": "136个直播源", "comic18": "日漫/韩漫/同人",
+            "akmh": "爱看漫画", "jmtt": "漫画天堂", "nc": "漫画阅读",
+            "mw": "漫画/小说", "wwmh": "漫画阅读", "mmmh": "漫画阅读",
+        ]
+        return descs[id] ?? "资源平台"
     }
 
     // MARK: - 香蕉秀

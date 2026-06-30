@@ -218,6 +218,37 @@ struct YBoxLiveSourceListView: View {
     }
 }
 
+// MARK: - 通用爬虫平台内容视图（对接 WelfareCrawlerService + WelfarePlatformView）
+struct YBoxCrawlerContentView: View {
+    let platform: YBoxPlatform2
+    @State private var welfarePlatform: WelfarePlatform?
+
+    var body: some View {
+        Group {
+            if let wp = welfarePlatform {
+                WelfarePlatformView(platform: wp)
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("加载平台配置...")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            guard let pid = platform.crawlerPlatformId,
+                  let cfg = WelfareCrawlerConfig.config(for: pid) else { return }
+            welfarePlatform = WelfarePlatform.adaptive(
+                id: cfg.platformId,
+                name: cfg.platformName,
+                searchPrefix: cfg.searchPrefix
+            )
+        }
+    }
+}
+
 // MARK: - 直播间列表
 struct YBoxLiveChannelListView: View {
     let item: YBoxLiveItem2
