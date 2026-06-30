@@ -32,9 +32,9 @@ class WelfareViewModel: ObservableObject {
 
         // 优先使用传入的 pageKind，否则从 section.id 推断（向后兼容）
         let pageKind = pageKind ?? pageKindForSection(section.id)
-        let keyword = section.keyword.isEmpty ? section.name : section.keyword
+        let keyword = section.keyword
 
-        let items = await WelfareCrawlerService.shared.fetch(
+        let fetchedItems = await WelfareCrawlerService.shared.fetch(
             platformId: platform.id,
             pageKind: pageKind,
             page: currentPage,
@@ -54,8 +54,12 @@ class WelfareViewModel: ObservableObject {
         )
 
         guard !Task.isCancelled else { return }
-        if !append { self.items = items }
-        hasMoreData = items.count >= pageSize / 2
+        // 对最终结果同样应用关键词过滤
+        let finalItems = keyword.isEmpty ? fetchedItems : fetchedItems.filter {
+            $0.vodName.localizedCaseInsensitiveContains(keyword)
+        }
+        if !append { self.items = finalItems }
+        hasMoreData = fetchedItems.count >= pageSize / 2
         currentPage += 1
         isLoading = false
         errorMessage = self.items.isEmpty ? "暂无内容，请检查订阅源是否已配置" : nil
