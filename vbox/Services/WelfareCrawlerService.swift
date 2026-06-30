@@ -20,11 +20,34 @@ struct CMSVodItem: Codable {
                        vodRemarks: tagged, vodYear: vodYear, vodArea: vodArea,
                        vodDirector: vodDirector, vodActor: vodActor,
                        vodContent: vodContent, vodPlayFrom: vodPlayFrom)
-        // 解析播放链接
-        let playURL = extractFirstPlayURL(from: vodPlayUrl ?? "")
+        let playURL = Self.extractFirstPlayURL(from: vodPlayUrl ?? "")
         if !playURL.isEmpty { v.vodPlayUrl = playURL }
         else { v.vodPlayUrl = vodPlayUrl }
         return v
+    }
+
+    /// 从 vod_play_url 格式 "第01集$https://...#第02集$https://..." 提取第一个播放链接
+    static func extractFirstPlayURL(from playUrlStr: String) -> String {
+        let parts = playUrlStr.components(separatedBy: "#")
+        for part in parts {
+            let pair = part.components(separatedBy: "$")
+            if pair.count >= 2, let url = pair.last, url.hasPrefix("http") { return url }
+        }
+        if let match = firstMatchStatic(in: playUrlStr, pattern: #"https?://[^\s"'<>#\$]+"#) { return match }
+        return ""
+    }
+
+    private static func firstMatchStatic(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        if match.numberOfRanges > 1, let r = Range(match.range(at: 1), in: text) {
+            return String(text[r]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+        if let r = Range(match.range, in: text) {
+            return String(text[r]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+        return nil
     }
 }
 
@@ -372,7 +395,7 @@ final class WelfareCrawlerService {
         let prefix = cfg?.searchPrefix ?? id
         if kind == .comic { return "\(prefix) 漫画" }
         if kind == .actor { return "\(prefix) 女优" }
-        if kind == .live || kind == .channel { return "\(prefix) 直播" }
+        if kind == .channel { return "\(prefix) 直播" }
         return prefix
     }
 
