@@ -62,7 +62,7 @@ class WelfareViewModel: ObservableObject {
         hasMoreData = fetchedItems.count >= pageSize / 2
         currentPage += 1
         isLoading = false
-        errorMessage = self.items.isEmpty ? "暂无内容，请检查订阅源是否已配置" : nil
+        errorMessage = self.items.isEmpty ? "暂无内容。请尝试其他平台，或在「我的-订阅源」中配置搜索源" : nil
     }
 
     private func pageKindForSection(_ sectionId: String) -> WelfarePageKind {
