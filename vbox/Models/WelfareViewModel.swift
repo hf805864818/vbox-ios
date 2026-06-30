@@ -14,88 +14,63 @@ class WelfareViewModel: ObservableObject {
 
     func loadContent(platform: WelfarePlatform, section: WelfareSection) {
         currentTask?.cancel()
-        items = []
-        currentPage = 1
-        hasMoreData = true
-        errorMessage = nil
-
-        currentTask = Task {
-            await fetchPage(platform: platform, section: section)
-        }
+        items = []; currentPage = 1; hasMoreData = true; errorMessage = nil
+        currentTask = Task { await fetch(platform: platform, section: section) }
     }
 
     func loadMore(platform: WelfarePlatform, section: WelfareSection) {
         guard !isLoading, hasMoreData, currentTask?.isCancelled == false else { return }
-        currentTask = Task {
-            await fetchPage(platform: platform, section: section, append: true)
-        }
+        currentTask = Task { await fetch(platform: platform, section: section, append: true) }
     }
 
-    private func fetchPage(platform: WelfarePlatform, section: WelfareSection, append: Bool = false) async {
+    private func fetch(platform: WelfarePlatform, section: WelfareSection, append: Bool = false) async {
         guard !Task.isCancelled else { return }
         isLoading = true
 
-        let sectionKeyword = section.keyword.isEmpty ? section.name : section.keyword
-        let keyword = "\(platform.searchPrefix) \(sectionKeyword)".trimmingCharacters(in: .whitespaces)
+        // 从 section 名称推断 pageKind
+        let pageKind = pageKindForSection(section.id)
+        let keyword = section.keyword.isEmpty ? section.name : section.keyword
 
-        var results: [VodItem] = []
-        var seenIds = Set(append ? items.map(\.vodId) : [])
-
-        let tagItems: ([VodItem]) -> [VodItem] = { batch in
-            batch.map { item in
-                var tagged = item
-                if !(tagged.vodRemarks ?? "").hasPrefix("[福利]") {
-                    tagged.vodRemarks = "[福利]" + (tagged.vodRemarks ?? "")
-                }
-                return tagged
-            }
-        }
-
-        await withTaskGroup(of: [VodItem].self) { group in
-            group.addTask {
-                let yboxItems = await YBoxAPIService.shared.fetchPlatformContent(
-                    platformId: platform.id,
-                    pageType: section.id
-                )
-                return yboxItems
-            }
-
-            group.addTask {
-                var spiderResults: [VodItem] = []
-                await SpiderManager.shared.searchStream(
-                    keyword: keyword,
-                    onBatch: { batch in
-                        guard !Task.isCancelled else { return }
-                        let tagged = tagItems(batch)
-                        spiderResults.append(contentsOf: tagged)
-                    }
-                )
-                return spiderResults
-            }
-
-            for await batch in group {
+        let items = await WelfareCrawlerService.shared.fetch(
+            platformId: platform.id,
+            pageKind: pageKind,
+            page: currentPage,
+            onBatch: { batch in
                 guard !Task.isCancelled else { return }
-                let newItems = batch.filter { seenIds.insert($0.vodId).inserted }
-                results.append(contentsOf: newItems)
+                // 过滤含关键词的（搜索型）或无过滤（列表型）
+                let filtered = keyword.isEmpty ? batch : batch.filter {
+                    $0.vodName.localizedCaseInsensitiveContains(keyword)
+                }
+                if !filtered.isEmpty {
+                    Task { @MainActor in
+                        if append { self.items.append(contentsOf: filtered) }
+                        else { self.items = filtered }
+                    }
+                }
             }
-        }
+        )
 
         guard !Task.isCancelled else { return }
-
-        if append {
-            items.append(contentsOf: results)
-        } else {
-            items = results
-        }
-
-        hasMoreData = results.count >= pageSize / 2
+        if !append { self.items = items }
+        hasMoreData = items.count >= pageSize / 2
         currentPage += 1
         isLoading = false
+        errorMessage = self.items.isEmpty ? "暂无内容，请检查订阅源是否已配置" : nil
+    }
 
-        if items.isEmpty {
-            errorMessage = "暂无内容，请检查订阅源是否已配置"
-        } else {
-            errorMessage = nil
-        }
+    private func pageKindForSection(_ sectionId: String) -> WelfarePageKind {
+        // section id 格式如 "c1"/"c2" 表示 home 分区，否则直接推断
+        if sectionId.hasPrefix("c") { return .home }
+        let mappings: [String: WelfarePageKind] = [
+            "recommend": .home, "latest": .home, "hot": .home,
+            "all": .video, "video": .video, "film": .film,
+            "anime": .anime, "comic": .comic, "novel": .novel,
+            "actor": .actor, "classify": .classify, "find": .find,
+            "topic": .topic, "tiktok": .tiktok, "darkWeb": .darkWeb,
+            "audio": .audio, "article": .article, "community": .community,
+            "rank": .rank, "channel": .channel, "tag": .tag,
+            "user": .user, "image": .image, "stills": .stills,
+        ]
+        return mappings[sectionId] ?? .home
     }
 }
