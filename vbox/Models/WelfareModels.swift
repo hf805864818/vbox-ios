@@ -52,7 +52,9 @@ struct WelfareSection: Identifiable, Hashable {
 private func sectionsFor(kind: WelfarePageKind, prefix: String, config: WelfareCrawlerConfig) -> [WelfareSection] {
     if let names = config.pageSections[kind.rawValue], !names.isEmpty {
         return names.enumerated().map { i, name in
-            WelfareSection(id: "\(kind.rawValue)_\(i)", name: name, keyword: i == 0 ? prefix : name)
+            // 第一个分区 = 默认/全部：不筛选，显示所有内容
+            // 后续分区 = 具体分类：用分类名作为搜索关键词
+            WelfareSection(id: "\(kind.rawValue)_\(i)", name: name, keyword: i == 0 ? "" : name)
         }
     }
     return defaultSections(for: kind, prefix: prefix)
@@ -62,13 +64,13 @@ private func sectionsFor(kind: WelfarePageKind, prefix: String, config: WelfareC
 private func defaultSections(for kind: WelfarePageKind, prefix: String) -> [WelfareSection] {
     switch kind {
     case .home:
-        return [.init(id: "recommend", name: "推荐", keyword: prefix),
-                .init(id: "latest", name: "最新", keyword: "\(prefix) 最新"),
-                .init(id: "hot", name: "热门", keyword: "\(prefix) 热门")]
+        return [.init(id: "recommend", name: "推荐", keyword: ""),
+                .init(id: "latest", name: "最新", keyword: "最新"),
+                .init(id: "hot", name: "热门", keyword: "热门")]
     case .search:
         return [.init(id: "search", name: "搜索", keyword: "")]
     default:
-        // 非首页/搜索页面：用页面类型名称作为唯一分区，让 UI 自动跳过选择直接展示内容
+        // 非首页/搜索页面：用页面类型名称作为唯一分区，关键字留空显示全部
         return [.init(id: kind.rawValue, name: kind.displayName, keyword: "")]
     }
 }
