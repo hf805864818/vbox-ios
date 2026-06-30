@@ -407,10 +407,13 @@ final class WelfareCrawlerService {
     }
 
     // MARK: - SpiderManager 回退
+    /// 三级回退链的最后一环：SpiderManager 搜索 + 兜底 CMS API 直连
     private func fallback(id: String, kind: WelfarePageKind,
                            onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        let kw = keywordForPlatform(id: id, kind: kind)
         var all: [VodItem] = []
+
+        // 第1步：尝试 SpiderManager 关键词搜索
+        let kw = keywordForPlatform(id: id, kind: kind)
         print("[WelfareCrawler] SpiderManager搜索: \"\(kw)\"")
         await SpiderManager.shared.searchStream(keyword: kw, onBatch: { batch in
             let tagged = batch.map { item -> VodItem in
@@ -420,17 +423,106 @@ final class WelfareCrawlerService {
             }
             all.append(contentsOf: tagged); onBatch?(tagged)
         })
+
+        // 第2步：如果 SpiderManager 无结果，用内置 CMS API 直连获取最新列表
+        if all.isEmpty {
+            print("[WelfareCrawler] SpiderManager 无结果，尝试内置CMS API直连...")
+            let cmsItems = await fetchFromBuiltinCMSAPIs(kind: kind)
+            if !cmsItems.isEmpty {
+                let tagged = cmsItems.map { item -> VodItem in
+                    var t = item
+                    if !(t.vodRemarks ?? "").hasPrefix("[福利]") { t.vodRemarks = "[福利]" + (t.vodRemarks ?? "") }
+                    return t
+                }
+                all = tagged; onBatch?(tagged)
+                print("[WelfareCrawler] 内置CMS API: \(tagged.count)条")
+            }
+        }
         return all
     }
 
-    /// 根据平台ID生成搜索关键词
+    /// 直连内置 CMS API 站点获取最新内容列表（不依赖 ybox.vip 或 SpiderManager）
+    private func fetchFromBuiltinCMSAPIs(kind: WelfarePageKind) async -> [VodItem] {
+        let apis: [(name: String, url: String)] = [
+            ("闪电资源",  "https://sdzyapi.com"),
+            ("光速资源",  "https://api.guangsuapi.com"),
+            ("量子资源",  "https://cj.lziapi.com"),
+            ("暴风资源",  "https://bfzyapi.com"),
+            ("盘Ta资源",  "https://www.91panta.cn"),
+            ("多多资源",  "https://tv.yydsys.top"),
+            ("至臻影视",  "http://www.miqk.cc"),
+            ("极速资源",  "https://jszyapi.com"),
+            ("555影视",   "https://app7.555618.xyz"),
+            ("TY影视",    "https://tyyszyapi.com"),
+            ("360资源",   "https://360zyzz.com"),
+        ]
+
+        let path = builtinCMSPath(for: kind)
+        var allItems: [VodItem] = []
+
+        await withTaskGroup(of: [VodItem].self) { group in
+            for api in apis {
+                group.addTask {
+                    let urlStr = "\(api.url)\(path)"
+                    guard let url = URL(string: urlStr) else { return [] }
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 8
+                    req.setValue(self.userAgent, forHTTPHeaderField: "User-Agent")
+                    guard let data = await self.request(req) else { return [] }
+                    let items = self.parseVodJSON(data)
+                    print("[WelfareCrawler] CMS直连[\(api.name)]: \(items.count)条")
+                    return items
+                }
+            }
+            for await items in group {
+                allItems.append(contentsOf: items)
+            }
+        }
+        return allItems
+    }
+
+    /// 内置 CMS API 的路径（仅查询参数部分）
+    private func builtinCMSPath(for kind: WelfarePageKind) -> String {
+        let base = "/api.php/provide/vod/?ac=list"
+        switch kind {
+        case .home:      return "\(base)"
+        case .video:     return "\(base)&t=1"
+        case .film:      return "\(base)&t=2"
+        case .anime:     return "\(base)&t=17"
+        case .comic:     return "\(base)&t=17"
+        case .novel:     return "\(base)&t=38"
+        default:         return "\(base)"
+        }
+    }
+
+    /// 根据 pageKind 生成 SpiderManager 回退搜索关键词
     private func keywordForPlatform(id: String, kind: WelfarePageKind) -> String {
-        let cfg = WelfareCrawlerConfig.config(for: id)
-        let prefix = cfg?.searchPrefix ?? id
-        if kind == .comic { return "\(prefix) 漫画" }
-        if kind == .actor { return "\(prefix) 女优" }
-        if kind == .channel { return "\(prefix) 直播" }
-        return prefix
+        // 不使用平台名搜索（CMS API 中没有"91av"这类标题）
+        // 改用内容类型相关的通用关键词
+        switch kind {
+        case .home:      return "最新"
+        case .video:     return "电影"
+        case .film:      return "电影"
+        case .anime:     return "动漫"
+        case .comic:     return "漫画"
+        case .novel:     return "小说"
+        case .actor:     return "演员"
+        case .tiktok:    return "短视频"
+        case .audio:     return "有声小说"
+        case .channel:   return "直播"
+        case .darkWeb:   return "暗网"
+        case .article:   return "文章"
+        case .community: return "社区"
+        case .rank:      return "排行"
+        case .tag:       return "热门"
+        case .image:     return "图片"
+        case .stills:    return "剧照"
+        case .find:      return "最新"
+        case .topic:     return "话题"
+        case .classify:  return "分类"
+        case .search:    return "搜索"
+        case .user:      return "用户"
+        }
     }
 
     /// 三级回退：直接API失败 → YBoxAPI代理 → SpiderManager搜索
