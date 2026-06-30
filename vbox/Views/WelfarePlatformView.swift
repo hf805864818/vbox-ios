@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// 平台二级页面 — 横向 Tab 栏 + 分区网格 + 内容网格 + 播放器
+/// 自适应支持视频/直播/漫画三种内容类型
 struct WelfarePlatformView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var viewModel = WelfareViewModel()
@@ -10,6 +11,11 @@ struct WelfarePlatformView: View {
     @State private var selectedPageIndex = 0
     @State private var selectedSection: WelfareSection?
     @State private var selectedVideo: VodItem?
+
+    /// 是否为直播类型平台
+    private var isLiveContent: Bool { platform.contentType == .live }
+    /// 是否为漫画类型平台
+    private var isComicContent: Bool { platform.contentType == .comic }
 
     private var currentPage: WelfarePage {
         platform.pages.isEmpty
@@ -145,7 +151,7 @@ struct WelfarePlatformView: View {
         )
     }
 
-    // MARK: - 内容展示区域
+    // MARK: - 内容展示区域（视频/直播/漫画自适应）
 
     private func contentSection(section: WelfareSection) -> some View {
         VStack(spacing: 0) {
@@ -180,7 +186,7 @@ struct WelfarePlatformView: View {
 
             Divider().padding(.horizontal, 16)
 
-            // 内容网格
+            // 内容区域
             ScrollView {
                 if viewModel.isLoading && viewModel.items.isEmpty {
                     VStack(spacing: 16) {
@@ -207,13 +213,15 @@ struct WelfarePlatformView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)
+                } else if isLiveContent {
+                    // 直播：显示频道列表
+                    liveChannelListView(items: viewModel.items)
                 } else {
+                    // 视频/漫画：网格 + 无限滚动
                     LazyVGrid(columns: contentColumns, spacing: 14) {
                         ForEach(viewModel.items) { item in
                             VodCardView(item: item)
-                                .onTapGesture {
-                                    selectedVideo = item
-                                }
+                                .onTapGesture { selectedVideo = item }
                                 .onAppear {
                                     if item.vodId == viewModel.items.last?.vodId {
                                         viewModel.loadMore(platform: platform, section: section, pageKind: currentPage.kind)
@@ -232,6 +240,69 @@ struct WelfarePlatformView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 直播频道列表视图
+    @ViewBuilder
+    private func liveChannelListView(items: [VodItem]) -> some View {
+        LazyVStack(spacing: 4) {
+            ForEach(items) { item in
+                Button {
+                    selectedVideo = item
+                } label: {
+                    HStack(spacing: 10) {
+                        // 频道图标
+                        if let url = URL(string: item.vodPic), !item.vodPic.isEmpty {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let img):
+                                    img.resizable().aspectRatio(contentMode: .fill)
+                                        .frame(width: 44, height: 44).cornerRadius(8)
+                                default:
+                                    RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2))
+                                        .frame(width: 44, height: 44)
+                                        .overlay(Image(systemName: "tv.fill").foregroundColor(accentColor))
+                                }
+                            }
+                        } else {
+                            RoundedRectangle(cornerRadius: 8).fill(accentColor.opacity(0.15))
+                                .frame(width: 44, height: 44)
+                                .overlay(Image(systemName: "tv.fill").foregroundColor(accentColor))
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.vodName)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(textColor)
+                                .lineLimit(1)
+                            if let url = item.vodPlayUrl, !url.isEmpty {
+                                Text(url)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            if let remarks = item.vodRemarks, !remarks.isEmpty {
+                                Text(remarks.replacingOccurrences(of: "[福利]", with: ""))
+                                    .font(.system(size: 10))
+                                    .foregroundColor(accentColor)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(accentColor)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .padding(.bottom, 100)
     }
 
     // MARK: - 辅助方法

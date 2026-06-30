@@ -114,27 +114,17 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
         ]
 
-        // ═══ 从 WelfareCrawlerConfig 导入 62 个平台，按类型分类 ═══
+        // ═══ 从 WelfareCrawlerConfig 导入所有平台，按 contentType 分类 ═══
         let allCrawlerConfigs = WelfareCrawlerConfig.all
 
-        // 已存在于 ybox 原始列表中的 platformId
-        let yboxReservedIds: Set<String> = ["banana", "huanxiang", "km"]
-
-        // 漫画类 platformId 集合
-        let comicIds: Set<String> = [
-            "comic18", "akmh", "jmtt", "nc", "mw", "wwmh", "mmmh",
-        ]
-        // 直播类 platformId 集合
-        let liveIds: Set<String> = [
-            "live_hclyz",
-        ]
+        // 已存在于 YBox 原始列表中的 platformId
+        let yboxReservedIds: Set<String> = ["banana", "huanxiang", "km", "live_hclyz", "comic18"]
 
         var crawlerVideo: [YBoxPlatform2] = []
         var crawlerLive: [YBoxPlatform2] = []
         var crawlerComic: [YBoxPlatform2] = []
 
         for cfg in allCrawlerConfigs {
-            // 跳过已在 YBox 原始列表中的平台
             guard !yboxReservedIds.contains(cfg.platformId) else { continue }
 
             let icon = iconForPlatform(cfg.platformId)
@@ -143,66 +133,37 @@ class YBoxService2: ObservableObject {
             let platform = YBoxPlatform2(
                 name: cfg.platformName,
                 icon: icon,
-                type: platformTypeFor(cfg.platformId, comicIds: comicIds, liveIds: liveIds),
+                type: platformTypeForContentType(cfg.contentType),
                 baseURL: cfg.baseURL,
                 desc: desc,
                 crawlerPlatformId: cfg.platformId
             )
 
-            if comicIds.contains(cfg.platformId) {
-                crawlerComic.append(platform)
-            } else if liveIds.contains(cfg.platformId) {
-                crawlerLive.append(platform)
-            } else {
-                crawlerVideo.append(platform)
+            switch cfg.contentType {
+            case .comic: crawlerComic.append(platform)
+            case .live:  crawlerLive.append(platform)
+            case .video, .mixed, .audio: crawlerVideo.append(platform)
             }
         }
 
-        // ═══ 组装最终分类 ═══
-
-        // 视频：YBox原始 + 全部爬虫视频平台
+        // ═══ 组装最终分类（移除数量限制，全部展示） ═══
         let allVideo = yboxVideo + crawlerVideo
-
-        // 直播：YBox原始 + 爬虫直播（最多10个，超过则折叠为"更多直播"）
-        let allLiveRaw = yboxLive + crawlerLive
-        let maxLive = 10
-        let livePlatforms: [YBoxPlatform2]
-        if allLiveRaw.count > maxLive {
-            livePlatforms = Array(allLiveRaw.prefix(maxLive - 1)) + [
-                YBoxPlatform2(name: "更多直播", icon: "ellipsis.circle.fill", type: .live,
-                             baseURL: "http://api.hclyz.com:81/mf",
-                             desc: "共\(allLiveRaw.count)个源")
-            ]
-        } else {
-            livePlatforms = allLiveRaw
-        }
-
-        // 漫画：YBox原始 + 爬虫漫画（最多10个，超过则折叠为"更多漫画"）
-        let allComicRaw = yboxComic + crawlerComic
-        let maxComic = 10
-        let comicPlatforms: [YBoxPlatform2]
-        if allComicRaw.count > maxComic {
-            comicPlatforms = Array(allComicRaw.prefix(maxComic - 1)) + [
-                YBoxPlatform2(name: "更多漫画", icon: "ellipsis.circle.fill", type: .comic,
-                             baseURL: "https://www.comicbox.xyz",
-                             desc: "共\(allComicRaw.count)个源")
-            ]
-        } else {
-            comicPlatforms = allComicRaw
-        }
+        let allLive = yboxLive + crawlerLive
+        let allComic = yboxComic + crawlerComic
 
         categories = [
             YBoxCategory2(name: "视频", platforms: allVideo),
-            YBoxCategory2(name: "直播", platforms: livePlatforms),
-            YBoxCategory2(name: "漫画", platforms: comicPlatforms),
+            YBoxCategory2(name: "直播", platforms: allLive),
+            YBoxCategory2(name: "漫画", platforms: allComic),
         ]
     }
 
-    // MARK: - 平台类型判断
-    private func platformTypeFor(_ id: String, comicIds: Set<String>, liveIds: Set<String>) -> YBoxPlatform2.PlatformType2 {
-        if comicIds.contains(id) { return .comic }
-        if liveIds.contains(id) { return .live }
-        return .video
+    private func platformTypeForContentType(_ ct: WelfareContentType) -> YBoxPlatform2.PlatformType2 {
+        switch ct {
+        case .video, .mixed, .audio: return .video
+        case .live: return .live
+        case .comic: return .comic
+        }
     }
 
     // MARK: - 平台图标
@@ -227,13 +188,12 @@ class YBoxService2: ObservableObject {
             "dm51": "arrow.down.to.line", "awjm": "icloud.and.arrow.down.fill",
             "qysq": "eye.slash.fill", "kpsp": "tv.badge.wifi",
             "dh50": "50.square.fill", "hjsq": "antenna.radiowaves.left.and.right",
-            "yfg": "gift.fill", "km": "hare.fill", "gdcm": "lightbulb.fill",
+            "yfg": "gift.fill", "gdcm": "lightbulb.fill",
             "wwsq": "globe.asia.australia.fill", "rryy": "r.square.fill", "xvideos": "x.square.fill",
             "gsjh": "building.columns.fill", "hhl": "h.square.fill",
             "hjll": "j.square.fill", "hsck": "shippingbox.fill",
             "jmbox": "tray.full.fill", "mmmh": "books.vertical.fill",
-            "live_hclyz": "antenna.radiowaves.left.and.right",
-            "comic18": "book.fill", "akmh": "book.pages.fill", "jmtt": "books.vertical.fill",
+            "akmh": "book.pages.fill", "jmtt": "books.vertical.fill",
             "nc": "book.closed.fill", "mw": "text.book.closed.fill", "wwmh": "character.book.closed.fill",
         ]
         return icons[id] ?? "app.fill"
@@ -259,11 +219,10 @@ class YBoxService2: ObservableObject {
             "cg51": "社区/话题", "ttt": "短视频/用户", "sgp": "演员/文章",
             "dm51": "动漫/暗网", "awjm": "暗网", "qysq": "暗网",
             "kpsp": "暗网", "dh50": "分类/用户", "hjsq": "短视频/用户",
-            "yfg": "用户", "km": "综合视频站", "gdcm": "视频聚合",
+            "yfg": "用户", "gdcm": "视频聚合",
             "wwsq": "视频聚合", "rryy": "知名平台", "xvideos": "知名平台",
             "gsjh": "黄色仓库", "hhl": "视频聚合", "hjll": "视频聚合",
             "hsck": "黄色仓库", "jmbox": "综合站",
-            "live_hclyz": "136个直播源", "comic18": "日漫/韩漫/同人",
             "akmh": "爱看漫画", "jmtt": "漫画天堂", "nc": "漫画阅读",
             "mw": "漫画/小说", "wwmh": "漫画阅读", "mmmh": "漫画阅读",
         ]
@@ -362,8 +321,8 @@ class YBoxService2: ObservableObject {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
             if let zhubo = json["zhubo"] as? [[String: Any]] {
                 return zhubo.map { YBoxLiveChannel2(title: $0["title"] as? String ?? "",
-                                                     address: $0["address"] as? String ?? "",
-                                                     img: $0["img"] as? String ?? "") }
+                                                      address: $0["address"] as? String ?? "",
+                                                      img: $0["img"] as? String ?? "") }
             }
             var chs: [YBoxLiveChannel2] = []
             for (k, v) in json {
@@ -382,7 +341,6 @@ class YBoxService2: ObservableObject {
             let (data, _) = try await session.data(from: url)
             guard let html = String(data: data, encoding: .utf8) else { return [] }
             var items: [YBoxComicItem2] = []
-            // 尝试从HTML提取漫画封面和链接
             let pattern = ##"<a[^>]*href="([^"]*)"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"##
             if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) {
                 let nsRange = NSRange(html.startIndex..., in: html)

@@ -6,22 +6,36 @@ struct CMSVodItem: Codable {
     let vodRemarks: String?; let vodYear: String?; let vodArea: String?
     let vodDirector: String?; let vodActor: String?; let vodContent: String?
     let vodPlayFrom: String?; let vodPlayUrl: String?; let typeName: String?
+    let typeId: String?
     private enum CodingKeys: String, CodingKey {
         case vodId="vod_id", vodName="vod_name", vodPic="vod_pic"
         case vodRemarks="vod_remarks", vodYear="vod_year", vodArea="vod_area"
         case vodDirector="vod_director", vodActor="vod_actor", vodContent="vod_content"
         case vodPlayFrom="vod_play_from", vodPlayUrl="vod_play_url", typeName="type_name"
+        case typeId="type_id"
     }
     func toVodItem() -> VodItem {
         let r = (vodRemarks ?? typeName ?? ""); let tagged = r.hasPrefix("[福利]") ? r : "[福利]"+r
-        return VodItem(vodId: vodId, vodName: vodName ?? "", vodPic: vodPic ?? "",
+        var v = VodItem(vodId: vodId, vodName: vodName ?? "", vodPic: vodPic ?? "",
                        vodRemarks: tagged, vodYear: vodYear, vodArea: vodArea,
                        vodDirector: vodDirector, vodActor: vodActor,
-                       vodContent: vodContent, vodPlayFrom: vodPlayFrom, vodPlayUrl: vodPlayUrl)
+                       vodContent: vodContent, vodPlayFrom: vodPlayFrom)
+        // 解析播放链接
+        let playURL = extractFirstPlayURL(from: vodPlayUrl ?? "")
+        if !playURL.isEmpty { v.vodPlayUrl = playURL }
+        else { v.vodPlayUrl = vodPlayUrl }
+        return v
     }
 }
 
 struct CMSVodResponse: Codable { let code: Int?; let list: [CMSVodItem]? }
+struct CMSTypeResponse: Codable { let code: Int?; let `class`: [CMSTypeItem]? }
+struct CMSTypeItem: Codable {
+    let typeId: String?; let typeName: String?
+    private enum CodingKeys: String, CodingKey {
+        case typeId="type_id", typeName="type_name"
+    }
+}
 
 // MARK: - 福利爬虫引擎
 @MainActor
@@ -42,23 +56,49 @@ final class WelfareCrawlerService {
         guard let cfg = WelfareCrawlerConfig.config(for: platformId) else {
             return await fallback(id: platformId, kind: pageKind, onBatch: onBatch)
         }
+
+        // PWA加密 / encPost 平台直接走代理（非开放API必然失败）
         switch cfg.parserType {
-        case .apiJson:   return await fetchCMS(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
-        case .pwaApi:    return await fetchPWA(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
-        case .encPost:   return await fetchEncPost(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
-        case .htmlRegex: return await fetchHTML(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
-        case .spiderFallback: return await fallback(id: platformId, kind: pageKind, onBatch: onBatch)
-        case .disabled: return []
+        case .pwaApi, .encPost:
+            return await proxyOrFallback(cfg: cfg, kind: pageKind, onBatch: onBatch)
+        case .apiJson:
+            if cfg.apiMode == .open {
+                return await fetchCMSOpen(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
+            }
+            return await fetchCMS(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
+        case .htmlRegex:
+            return await fetchHTML(cfg: cfg, kind: pageKind, pg: page, onBatch: onBatch)
+        case .spiderFallback:
+            return await fallback(id: platformId, kind: pageKind, onBatch: onBatch)
+        case .disabled:
+            return []
         }
     }
 
-    // MARK: - CMS JSON API (apiJson) - 支持 open / encrypted 两种模式
-    private func fetchCMS(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                          onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        if cfg.apiMode == .open {
-            return await fetchCMSOpen(cfg: cfg, kind: kind, pg: pg, onBatch: onBatch)
+    // MARK: - 获取平台分类列表（CMS API）
+    func fetchCategories(platformId: String) async -> [WelfareSection] {
+        guard let cfg = WelfareCrawlerConfig.config(for: platformId),
+              cfg.apiMode == .open else { return [] }
+        let urlStr = "\(cfg.baseURL)/api.php/provide/vod/?ac=class"
+        guard let url = URL(string: urlStr) else { return [] }
+        var req = URLRequest(url: url); req.timeoutInterval = timeout
+        req.httpMethod = "GET"
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        guard let data = await request(req) else { return [] }
+        if let resp = try? JSONDecoder().decode(CMSTypeResponse.self, from: data),
+           let types = resp.`class` {
+            return types.compactMap { item in
+                guard let name = item.typeName, !name.isEmpty else { return nil }
+                return WelfareSection(id: item.typeId ?? name, name: name, keyword: name)
+            }
         }
-        // encrypted 模式：POST + 加密data字段（原逻辑）
+        return []
+    }
+
+    // MARK: - CMS JSON API (apiJson) - 加密模式
+    private func fetchCMS(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
+                           onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let apiPath = cmsApiPath(for: kind)
         let urlStr = "\(cfg.baseURL)\(apiPath)"
         guard let url = URL(string: urlStr) else {
@@ -83,16 +123,14 @@ final class WelfareCrawlerService {
         onBatch?(items); return items
     }
 
-    // MARK: - 开放 CMS API（GET 无需加密，如 jszyapi.com）
-    /// 两步策略：①列表API获取ID → ②批量detail API获取封面+播放链接
+    // MARK: - 开放 CMS API（GET 无需加密）
     private func fetchCMSOpen(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                               onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        // 搜索需要关键词，无法纯无参数获取，回退到 SpiderManager
+                                onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         if kind == .search {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
         }
 
-        // 步骤1: 获取列表（只有ID和名称，没有封面和播放链接）
+        // 步骤1: 获取列表
         let path = cmsOpenPath(for: kind, pg: pg)
         let listURLStr = "\(cfg.baseURL)\(path)"
         guard let listURL = URL(string: listURLStr) else {
@@ -110,7 +148,6 @@ final class WelfareCrawlerService {
         guard !listItems.isEmpty else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
         }
-        // 只取前20个防止请求过长
         let ids = listItems.prefix(20).map { $0.vodId }.joined(separator: ",")
 
         // 步骤2: 批量获取详情（含封面+播放链接）
@@ -127,101 +164,17 @@ final class WelfareCrawlerService {
             onBatch?(listItems); return listItems
         }
         let detailItems = parseVodJSON(detailData)
-        let enriched = detailItems.isEmpty ? listItems : detailItems.map { detailItem -> VodItem in
-            // 解析播放链接：格式 "第01集$URL#第02集$URL#..."
-            let playURL = extractFirstPlayURL(from: detailItem.vodPlayUrl ?? "")
-            var item = detailItem
-            if !playURL.isEmpty { item.vodPlayUrl = playURL }
-            // 确保 remarks 带前缀
-            if let r = item.vodRemarks, !r.isEmpty, !r.hasPrefix("[福利]") {
-                item.vodRemarks = "[福利]" + r
-            }
-            return item
-        }
+        let enriched = detailItems.isEmpty ? listItems : detailItems
 
-        print("[WelfareCrawler] CMS开放API: 列表\(listItems.count)条 → 详情\(enriched.count)条")
+        print("[WelfareCrawler] CMS开放API(\(cfg.platformId)): 列表\(listItems.count)条 → 详情\(enriched.count)条")
         onBatch?(enriched); return enriched
-    }
-
-    /// 从 vod_play_url 格式 "第01集$https://...#第02集$https://..." 提取第一个播放链接
-    private func extractFirstPlayURL(from playUrlStr: String) -> String {
-        // 格式: 剧集名$URL#剧集名$URL#...
-        let parts = playUrlStr.components(separatedBy: "#")
-        for part in parts {
-            let pair = part.components(separatedBy: "$")
-            if pair.count >= 2, let url = pair.last, url.hasPrefix("http") {
-                return url
-            }
-        }
-        // 尝试直接提取 m3u8/mp4 URL
-        if let match = firstMatch(in: playUrlStr, pattern: #"https?://[^\s"'<>#\$]+"#) {
-            return match
-        }
-        return ""
-    }
-
-    // MARK: - PWA 加密 API
-    private func fetchPWA(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                          onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        let apiPath = pwaApiPath(for: kind)
-        let urlStr = "\(cfg.baseURL)/pwa.php\(apiPath)"
-        guard let url = URL(string: urlStr) else {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-
-        var req = URLRequest(url: url); req.timeoutInterval = timeout
-        req.httpMethod = "POST"
-        let ts = Int(Date().timeIntervalSince1970)
-        let body = "client=pwa&timestamp=\(ts)&data=\(randomHex(64))"
-        req.httpBody = body.data(using: .utf8)
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
-
-        guard let data = await request(req) else {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-        let items = parseVodJSON(data)
-        if items.isEmpty {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-        onBatch?(items); return items
-    }
-
-    // MARK: - 加密 POST JSON API
-    private func fetchEncPost(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                              onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        let apiPath = encPostPath(for: kind)
-        let urlStr = "\(cfg.baseURL)\(apiPath)"
-        guard let url = URL(string: urlStr) else {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-
-        var req = URLRequest(url: url); req.timeoutInterval = timeout
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
-
-        let body: [String: Any] = ["post-data": randomBase64(48)]
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        guard let data = await request(req) else {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-        let items = parseVodJSON(data)
-        if items.isEmpty {
-            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
-        }
-        onBatch?(items); return items
     }
 
     // MARK: - HTML 正则抓取（按模板类型分发）
     private func fetchHTML(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                           onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+                            onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let template = cfg.htmlTemplate ?? .generic
 
-        // stui 模板：解析首页视频列表 + 详情页提取 m3u8
         if template == .stui {
             switch kind {
             case .home, .video:
@@ -233,36 +186,34 @@ final class WelfareCrawlerService {
             }
         }
 
-        // 我为人人影院模板
         if template == .wurenren {
-            return await fetchWurenren(cfg: cfg, kind: kind, onBatch: onBatch)
+            return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
         }
 
-        // manwats 漫画模板
         if template == .manwats {
             return await fetchManwats(cfg: cfg, kind: kind, pg: pg, onBatch: onBatch)
         }
 
-        // 通用：正则提取 m3u8/mp4
+        // 通用 HTML 提取（先尝试，失败则回退）
         let path = htmlPath(for: kind, pg: pg)
         let urlStr = "\(cfg.baseURL)\(path)"
         guard let url = URL(string: urlStr) else {
-            return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
         }
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
         guard let data = await request(req), let html = String(data: data, encoding: .utf8) else {
-            return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
         }
         let items = parseHTMLItems(html, platformId: cfg.platformId)
-        if items.isEmpty { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        if items.isEmpty { return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch) }
         onBatch?(items); return items
     }
 
     // MARK: - Stui CMS 模板（hsck123.com / 黄色仓库）
     private func fetchStuiHomepage(cfg: WelfareCrawlerConfig,
-                                    onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+                                     onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         guard let url = URL(string: cfg.baseURL) else {
             return await fallback(id: cfg.platformId, kind: .home, onBatch: onBatch)
         }
@@ -271,11 +222,7 @@ final class WelfareCrawlerService {
         guard let data = await request(req), let html = String(data: data, encoding: .utf8) else {
             return await fallback(id: cfg.platformId, kind: .home, onBatch: onBatch)
         }
-
-        // 解析 stui-vodlist__box 视频卡片
         let items = parseStuiVodlist(html, platformId: cfg.platformId)
-
-        // 批量获取详情页的 m3u8 播放链接
         var enriched: [VodItem] = []
         for item in items.prefix(30) {
             var v = item
@@ -286,73 +233,49 @@ final class WelfareCrawlerService {
             }
             enriched.append(v)
         }
-
         print("[WelfareCrawler] Stui首页: \(items.count)卡片, \(enriched.filter{$0.vodPlayUrl != nil && !$0.vodPlayUrl!.isEmpty}.count)含播放链接")
         if enriched.isEmpty { return await fallback(id: cfg.platformId, kind: .home, onBatch: onBatch) }
         onBatch?(enriched); return enriched
     }
 
-    /// 解析 stui-vodlist__box 结构
     private func parseStuiVodlist(_ html: String, platformId: String) -> [VodItem] {
         var items: [VodItem] = []
-        // 匹配每个 stui-vodlist__box 块
         let boxPattern = #"<div class="stui-vodlist__box"[^>]*>(.*?)</div>\s*</div>\s*</li>"#
-        guard let boxRegex = try? NSRegularExpression(pattern: boxPattern, options: [.dotMatchesLineSeparators]) else {
-            return items
-        }
+        guard let boxRegex = try? NSRegularExpression(pattern: boxPattern, options: [.dotMatchesLineSeparators]) else { return items }
         let range = NSRange(html.startIndex..., in: html)
         let boxes = boxRegex.matches(in: html, range: range)
-
         for box in boxes.prefix(50) {
             guard let boxRange = Range(box.range(at: 1), in: html) else { continue }
             let boxHTML = String(html[boxRange])
-
-            // 提取 title
-            let titlePattern = #"title="([^"]+)""#
-            let hrefPattern = #"href="([^"]+)""#
-            let picPattern = #"data-original="([^"]+)""#
-
-            let title = firstMatch(in: boxHTML, pattern: titlePattern) ?? ""
-            let href = firstMatch(in: boxHTML, pattern: hrefPattern) ?? ""
-            let pic = firstMatch(in: boxHTML, pattern: picPattern) ?? ""
-
+            let title = firstMatch(in: boxHTML, pattern: #"title="([^"]+)""#) ?? ""
+            let href = firstMatch(in: boxHTML, pattern: #"href="([^"]+)""#) ?? ""
+            let pic = firstMatch(in: boxHTML, pattern: #"data-original="([^"]+)""#) ?? firstMatch(in: boxHTML, pattern: #"src="([^"]+\.(jpg|png|webp))""#) ?? ""
             guard !title.isEmpty else { continue }
-
-            // 构造详情页完整URL
             let detailURL: String
-            if href.hasPrefix("http") {
-                detailURL = href
-            } else if href.hasPrefix("/") {
-                // 提取域名根
-                let baseHost = URL(string: "https://hsck123.com")?.host ?? "hsck123.com"
+            if href.hasPrefix("http") { detailURL = href }
+            else if href.hasPrefix("/") {
+                let baseHost = URL(string: cfgURLOrDefault(platformId))?.host ?? ""
                 detailURL = "https://\(baseHost)\(href)"
             } else {
-                detailURL = "https://hsck123.com/\(href)"
+                detailURL = "\(cfgURLOrDefault(platformId))\(href)"
             }
-
-            items.append(VodItem(
-                vodId: UUID().uuidString,
-                vodName: title,
-                vodPic: pic,
-                vodRemarks: "[福利]",
-                vodPlayUrl: detailURL
-            ))
+            items.append(VodItem(vodId: UUID().uuidString, vodName: title,
+                                  vodPic: pic, vodRemarks: "[福利]", vodPlayUrl: detailURL))
         }
         print("[WelfareCrawler] parseStuiVodlist: 从\(boxes.count)个box中解析出\(items.count)条")
         return items
     }
 
-    /// 从详情页提取 m3u8 播放链接
+    private func cfgURLOrDefault(_ platformId: String) -> String {
+        WelfareCrawlerConfig.config(for: platformId)?.baseURL ?? "https://hsck123.com"
+    }
+
     private func fetchStuiDetailStream(detailURL: String) async -> String? {
         guard let url = URL(string: detailURL) else { return nil }
         var req = URLRequest(url: url); req.timeoutInterval = 10
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.setValue("https://hsck123.com/", forHTTPHeaderField: "Referer")
-
-        guard let data = await request(req), let html = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        // 提取 m3u8 链接
+        guard let data = await request(req), let html = String(data: data, encoding: .utf8) else { return nil }
         let streamPatterns = [
             #"https?://[^\s"'<>]+\.m3u8[^\s"'<>]*"#,
             #"https?://[^\s"'<>]+\.mp4[^\s"'<>]*"#,
@@ -366,34 +289,20 @@ final class WelfareCrawlerService {
         return nil
     }
 
-    /// Stui 站内搜索
     private func fetchStuiSearch(cfg: WelfareCrawlerConfig,
-                                  onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        // stui 站内搜索需要 JS 执行，直接走 SpiderManager 回退
+                                   onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         return await fallback(id: cfg.platformId, kind: .search, onBatch: onBatch)
-    }
-
-    // MARK: - 我为人人影院模板 (1080.hlkjsm.com)
-    private func fetchWurenren(cfg: WelfareCrawlerConfig, kind: WelfarePageKind,
-                                onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        // 该站通过 JavaScript 动态加载内容，纯 HTTP 无法获取
-        // 走 SpiderManager 关键词搜索
-        return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
     }
 
     // MARK: - Manwats 漫画模板 (manwats.cc)
     private func fetchManwats(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
-                               onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+                                onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let urlStr: String
         switch kind {
-        case .home, .comic:
-            urlStr = "\(cfg.baseURL)/"
-        case .novel:
-            urlStr = "\(cfg.baseURL)/novel/"
-        case .search:
-            urlStr = "\(cfg.baseURL)/search/"
-        default:
-            urlStr = "\(cfg.baseURL)/"
+        case .home, .comic: urlStr = "\(cfg.baseURL)/"
+        case .novel: urlStr = "\(cfg.baseURL)/novel/"
+        case .search: urlStr = "\(cfg.baseURL)/search/"
+        default: urlStr = "\(cfg.baseURL)/"
         }
         guard let url = URL(string: urlStr) else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
@@ -403,7 +312,6 @@ final class WelfareCrawlerService {
         guard let data = await request(req), let html = String(data: data, encoding: .utf8) else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
         }
-        // 尝试解析漫画列表 items
         let items = parseManwatsItems(html, platformId: cfg.platformId)
         if items.isEmpty { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
         onBatch?(items); return items
@@ -412,7 +320,6 @@ final class WelfareCrawlerService {
     private func parseManwatsItems(_ html: String, platformId: String) -> [VodItem] {
         var items: [VodItem] = []
         var seen: Set<String> = []
-        // manwats.cc 模式: <a href="/book/ID" target="_blank" title="NAME">
         let cardPattern = #"<a[^>]*href="(/book/\d+)"[^>]*title="([^"]+)""#
         guard let regex = try? NSRegularExpression(pattern: cardPattern, options: []) else { return [] }
         let range = NSRange(html.startIndex..., in: html)
@@ -425,10 +332,8 @@ final class WelfareCrawlerService {
             guard !title.isEmpty, !seen.contains(title) else { continue }
             seen.insert(title)
             items.append(VodItem(vodId: UUID().uuidString, vodName: title,
-                                 vodPic: "", vodRemarks: "[福利]", vodPlayUrl: href))
+                                  vodPic: "", vodRemarks: "[福利]", vodPlayUrl: href))
         }
-        
-        // 回退：通用 title+链接 列表
         if items.isEmpty {
             let altPattern = #"<a[^>]*href="([^"]+)"[^>]*title="([^"]+)"[^>]*>"#
             guard let r2 = try? NSRegularExpression(pattern: altPattern, options: []) else { return [] }
@@ -437,7 +342,7 @@ final class WelfareCrawlerService {
                       let hR = Range(match.range(at: 1), in: html),
                       let tR = Range(match.range(at: 2), in: html) else { continue }
                 items.append(VodItem(vodId: UUID().uuidString, vodName: String(html[tR]),
-                                     vodPic: "", vodRemarks: "[福利]", vodPlayUrl: String(html[hR])))
+                                      vodPic: "", vodRemarks: "[福利]", vodPlayUrl: String(html[hR])))
             }
         }
         print("[WelfareCrawler] Manwats解析: \(items.count)条")
@@ -446,8 +351,8 @@ final class WelfareCrawlerService {
 
     // MARK: - SpiderManager 回退
     private func fallback(id: String, kind: WelfarePageKind,
-                          onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        let kw = kind == .search ? "" : "\(id) \(kind.displayName)"
+                           onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+        let kw = keywordForPlatform(id: id, kind: kind)
         var all: [VodItem] = []
         print("[WelfareCrawler] SpiderManager搜索: \"\(kw)\"")
         await SpiderManager.shared.searchStream(keyword: kw, onBatch: { batch in
@@ -461,10 +366,19 @@ final class WelfareCrawlerService {
         return all
     }
 
-    /// 加密平台三级回退：直接API(已失败) → YBoxAPI代理 → SpiderManager搜索
+    /// 根据平台ID生成搜索关键词
+    private func keywordForPlatform(id: String, kind: WelfarePageKind) -> String {
+        let cfg = WelfareCrawlerConfig.config(for: id)
+        let prefix = cfg?.searchPrefix ?? id
+        if kind == .comic { return "\(prefix) 漫画" }
+        if kind == .actor { return "\(prefix) 女优" }
+        if kind == .live || kind == .channel { return "\(prefix) 直播" }
+        return prefix
+    }
+
+    /// 三级回退：直接API失败 → YBoxAPI代理 → SpiderManager搜索
     private func proxyOrFallback(cfg: WelfareCrawlerConfig, kind: WelfarePageKind,
-                                  onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        // 第1层：ybox.vip 代理
+                                   onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         print("[WelfareCrawler] 尝试 YBoxAPI 代理: \(cfg.platformId) kind=\(kind.rawValue)")
         let proxyItems = await YBoxAPIService.shared.fetchPlatformItems(
             platformId: cfg.platformId, kind: kind
@@ -478,8 +392,6 @@ final class WelfareCrawlerService {
             print("[WelfareCrawler] YBoxAPI 代理成功: \(cfg.platformId) → \(tagged.count)条")
             onBatch?(tagged); return tagged
         }
-
-        // 第2层：SpiderManager 站群搜索
         print("[WelfareCrawler] YBoxAPI 代理无结果，回退 SpiderManager: \(cfg.platformId)")
         return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
     }
@@ -508,17 +420,31 @@ final class WelfareCrawlerService {
         return list.compactMap { dict in
             let id = (dict["vod_id"] ?? dict["id"] ?? dict["detail_id"] ?? UUID().uuidString) as! String
             let name = (dict["vod_name"] ?? dict["name"] ?? dict["title"] ?? "") as! String
-            let pic = (dict["vod_pic"] ?? dict["pic"] ?? dict["image"] ?? "") as! String
+            let pic = (dict["vod_pic"] ?? dict["pic"] ?? dict["image"] ?? dict["img"] ?? "") as! String
             var r = (dict["vod_remarks"] ?? dict["remarks"] ?? dict["type_name"] ?? "") as! String
             if !r.hasPrefix("[福利]") { r = "[福利]" + r }
-            return VodItem(vodId: id, vodName: name, vodPic: pic, vodRemarks: r,
+            var v = VodItem(vodId: id, vodName: name, vodPic: pic, vodRemarks: r,
                            vodYear: dict["vod_year"] as? String, vodArea: dict["vod_area"] as? String,
                            vodDirector: dict["vod_director"] as? String,
                            vodActor: dict["vod_actor"] as? String ?? dict["actor"] as? String,
                            vodContent: dict["vod_content"] as? String ?? dict["content"] as? String,
-                           vodPlayFrom: dict["vod_play_from"] as? String,
-                           vodPlayUrl: dict["vod_play_url"] as? String)
+                           vodPlayFrom: dict["vod_play_from"] as? String)
+            let playURL = extractFirstPlayURL(from: dict["vod_play_url"] as? String ?? "")
+            if !playURL.isEmpty { v.vodPlayUrl = playURL }
+            else { v.vodPlayUrl = dict["vod_play_url"] as? String }
+            return v
         }
+    }
+
+    /// 从 vod_play_url 格式 "第01集$https://...#第02集$https://..." 提取第一个播放链接
+    private func extractFirstPlayURL(from playUrlStr: String) -> String {
+        let parts = playUrlStr.components(separatedBy: "#")
+        for part in parts {
+            let pair = part.components(separatedBy: "$")
+            if pair.count >= 2, let url = pair.last, url.hasPrefix("http") { return url }
+        }
+        if let match = firstMatch(in: playUrlStr, pattern: #"https?://[^\s"'<>#\$]+"#) { return match }
+        return ""
     }
 
     // MARK: - HTML 解析（通用正则提取）
@@ -536,11 +462,11 @@ final class WelfareCrawlerService {
                     let url = String(html[r]).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
                     let name = URL(string: url)?.lastPathComponent ?? url
                     items.append(VodItem(vodId: UUID().uuidString, vodName: name,
-                                         vodPic: "", vodRemarks: "[福利]", vodPlayUrl: url))
+                                          vodPic: "", vodRemarks: "[福利]", vodPlayUrl: url))
                 }
             }
         }
-        // 也尝试提取带title的链接
+        // 提取带title的链接
         let linkPattern = #"<a[^>]*title="([^"]+)"[^>]*href="([^"]+)"[^>]*>"#
         if let linkRegex = try? NSRegularExpression(pattern: linkPattern, options: []) {
             let range = NSRange(html.startIndex..., in: html)
@@ -549,11 +475,28 @@ final class WelfareCrawlerService {
                    let hR = Range(match.range(at: 2), in: html) {
                     let title = String(html[tR]), href = String(html[hR])
                     items.append(VodItem(vodId: UUID().uuidString, vodName: title,
-                                         vodPic: "", vodRemarks: "[福利]", vodPlayUrl: href))
+                                          vodPic: "", vodRemarks: "[福利]", vodPlayUrl: href))
                 }
             }
         }
-        print("[WelfareCrawler] 通用HTML解析: \(items.count)条"); return items
+        // 提取图片
+        let imgPattern = #"<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>"#
+        if let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) {
+            let range = NSRange(html.startIndex..., in: html)
+            for match in imgRegex.matches(in: html, range: range).prefix(30) {
+                if match.numberOfRanges >= 3,
+                   let sR = Range(match.range(at: 1), in: html),
+                   let aR = Range(match.range(at: 2), in: html) {
+                    let src = String(html[sR]), alt = String(html[aR])
+                    if !alt.isEmpty && !items.contains(where: { $0.vodName == alt }) {
+                        items.append(VodItem(vodId: UUID().uuidString, vodName: alt,
+                                              vodPic: src, vodRemarks: "[福利]"))
+                    }
+                }
+            }
+        }
+        print("[WelfareCrawler] 通用HTML解析: \(items.count)条")
+        return items
     }
 
     // MARK: - 正则辅助
@@ -593,48 +536,19 @@ final class WelfareCrawlerService {
         }
     }
 
-    /// 开放CMS GET API 路径映射（如 jszyapi.com 的 AppleCMS 标准接口）
+    /// 开放CMS GET API 路径映射
     private func cmsOpenPath(for kind: WelfarePageKind, pg: Int) -> String {
         let base = "/api.php/provide/vod/?ac=list"
         switch kind {
-        case .home:
-            return "\(base)&pg=\(pg)"          // 最新全部
-        case .video:
-            return "\(base)&t=1&pg=\(pg)"      // 电视剧
-        case .film:
-            return "\(base)&t=2&pg=\(pg)"      // 电影
-        case .anime:
-            return "\(base)&t=17&pg=\(pg)"     // 动漫
-        case .comic:
-            return "\(base)&t=17&pg=\(pg)"     // 漫画同动漫分类
-        case .novel:
-            return "\(base)&t=38&pg=\(pg)"     // 短剧/小说类
-        case .classify:
-            return "\(base)&pg=\(pg)"          // 分类（含class字段）
-        case .search:
-            return "\(base)"                   // search需要动态wd参数
-        default:
-            return "\(base)&pg=\(pg)"
-        }
-    }
-
-    private func pwaApiPath(for kind: WelfarePageKind) -> String {
-        switch kind {
-        case .home, .video, .film, .find: return "/api/MvList/recommend"
-        case .classify, .channel, .tag, .community, .user: return "/api/tab/listv1"
-        case .tiktok: return "/api/MvList/recommend"
-        case .darkWeb: return "/api/tab/listv1"
-        case .search: return "/api/MvList/recommend"
-        default: return "/api/MvList/recommend"
-        }
-    }
-
-    private func encPostPath(for kind: WelfarePageKind) -> String {
-        switch kind {
-        case .home, .video, .film: return "/video/channel"
-        case .actor: return "/api/video/lists"
-        case .search: return "/video/listcache"
-        default: return "/video/listcache"
+        case .home:      return "\(base)&pg=\(pg)"
+        case .video:     return "\(base)&t=1&pg=\(pg)"
+        case .film:      return "\(base)&t=2&pg=\(pg)"
+        case .anime:     return "\(base)&t=17&pg=\(pg)"
+        case .comic:     return "\(base)&t=17&pg=\(pg)"
+        case .novel:     return "\(base)&t=38&pg=\(pg)"
+        case .classify:  return "\(base)&pg=\(pg)"
+        case .search:    return "\(base)"
+        default:         return "\(base)&pg=\(pg)"
         }
     }
 

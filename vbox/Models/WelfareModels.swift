@@ -6,21 +6,31 @@ struct WelfarePlatform: Identifiable, Hashable {
     let id: String
     let name: String
     let searchPrefix: String
+    let contentType: WelfareContentType
     /// 自适应页面列表（由 WelfareCrawlerConfig 动态生成）
     let pages: [WelfarePage]
 
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     static func == (lhs: WelfarePlatform, rhs: WelfarePlatform) -> Bool { lhs.id == rhs.id }
 
-    /// 从爬虫配置自适应生成平台
+    /// 从爬虫配置自适应生成平台（使用配置中的 pageSections）
     static func adaptive(id: String, name: String, searchPrefix: String) -> WelfarePlatform {
-        let kinds = WelfareCrawlerService.shared.pages(for: id)
+        guard let cfg = WelfareCrawlerConfig.config(for: id) else {
+            let kinds = WelfareCrawlerService.shared.pages(for: id)
+            let pages = kinds.map { WelfarePage(id: "\(id)_\($0.rawValue)", name: $0.displayName,
+                                                icon: $0.icon, kind: $0,
+                                                sections: defaultSections(for: $0, prefix: name)) }
+            return WelfarePlatform(id: id, name: name, searchPrefix: searchPrefix,
+                                   contentType: .video, pages: pages)
+        }
+        let kinds = cfg.pages
         let pages = kinds.map { kind in
             WelfarePage(id: "\(id)_\(kind.rawValue)", name: kind.displayName,
                         icon: kind.icon, kind: kind,
-                        sections: defaultSections(for: kind, prefix: name))
+                        sections: sectionsFor(kind: kind, prefix: name, config: cfg))
         }
-        return WelfarePlatform(id: id, name: name, searchPrefix: searchPrefix, pages: pages)
+        return WelfarePlatform(id: id, name: name, searchPrefix: searchPrefix,
+                               contentType: cfg.contentType, pages: pages)
     }
 }
 
@@ -38,6 +48,17 @@ struct WelfareSection: Identifiable, Hashable {
     static func == (lhs: WelfareSection, rhs: WelfareSection) -> Bool { lhs.id == rhs.id }
 }
 
+/// 根据配置中的 pageSections 生成分区，否则使用默认分区
+private func sectionsFor(kind: WelfarePageKind, prefix: String, config: WelfareCrawlerConfig) -> [WelfareSection] {
+    if let names = config.pageSections[kind.rawValue], !names.isEmpty {
+        return names.enumerated().map { i, name in
+            WelfareSection(id: "\(kind.rawValue)_\(i)", name: name, keyword: i == 0 ? prefix : name)
+        }
+    }
+    return defaultSections(for: kind, prefix: prefix)
+}
+
+/// 默认分区（当配置未指定 pageSections 时使用）
 private func defaultSections(for kind: WelfarePageKind, prefix: String) -> [WelfareSection] {
     switch kind {
     case .home:
