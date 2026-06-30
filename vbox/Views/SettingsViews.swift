@@ -1194,6 +1194,7 @@ struct CloudAuthCenterView: View {
     @State private var showBaiduNativeQR = false
     @State private var showAliNativeQR = false
     @State private var show123NativeQR = false
+    @State private var show115NativeQR = false
     @State private var show139NativeQR = false
     @State private var show189NativeQR = false
     @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
@@ -1252,7 +1253,10 @@ struct CloudAuthCenterView: View {
                 NativeCloudQRLoginView(driveType: .ali)
             }
             .sheet(isPresented: $show123NativeQR) {
-                CloudDriveWebAuthView(driveType: .pan123)
+                NativeCloudQRLoginView(driveType: .pan123)
+            }
+            .sheet(isPresented: $show115NativeQR) {
+                NativeCloudQRLoginView(driveType: .one15)
             }
             .sheet(isPresented: $show139NativeQR) {
                 NativeCloudQRLoginView(driveType: .pan139)
@@ -1499,6 +1503,20 @@ struct CloudAuthCenterView: View {
                     }
                 } else if type == .pan189 {
                     Button(action: { show189NativeQR = true }) {
+                        authButtonLabel("网页登录授权", icon: "globe")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页兜底", icon: "globe")
+                    }
+                } else if type == .pan123 {
+                    Button(action: { show123NativeQR = true }) {
+                        authButtonLabel("网页登录授权", icon: "globe")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页兜底", icon: "globe")
+                    }
+                } else if type == .one15 {
+                    Button(action: { show115NativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
                     }
                     Button(action: { webAuthDriveType = type }) {
@@ -3280,6 +3298,20 @@ struct Pan189WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+struct Pan123WebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
+struct Pan115WebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct NativeCloudQRLoginView: View {
     @Environment(\.dismiss) private var dismiss
     let driveType: CloudDriveManager.DriveType
@@ -3296,6 +3328,8 @@ struct NativeCloudQRLoginView: View {
     @State private var aliToken: CloudDriveAuthManager.AliPassportQrToken? = nil
     @StateObject private var pan139Helper = CloudDriveAuthManager.Pan139QrLoginHelper()
     @StateObject private var pan189Helper = CloudDriveAuthManager.Pan189LoginHelper()
+    @StateObject private var pan123Helper = CloudDriveAuthManager.Pan123LoginHelper()
+    @StateObject private var pan115Helper = CloudDriveAuthManager.Pan115LoginHelper()
 
     var body: some View {
         NavigationView {
@@ -3335,6 +3369,12 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .pan189 {
                     pan189Helper.cleanup()
                 }
+                if driveType == .pan123 {
+                    pan123Helper.cleanup()
+                }
+                if driveType == .one15 {
+                    pan115Helper.cleanup()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -3354,6 +3394,16 @@ struct NativeCloudQRLoginView: View {
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if driveType == .pan189 {
                 Pan189WebView(webView: pan189Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .pan123 {
+                Pan123WebView(webView: pan123Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .one15 {
+                Pan115WebView(webView: pan115Helper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3429,6 +3479,10 @@ struct NativeCloudQRLoginView: View {
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
             return "请在页面中登录天翼云盘（手机号+密码或扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
+        case .pan123:
+            return "请在页面中登录123云盘（手机号/微信扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
+        case .one15:
+            return "请在页面中登录115网盘（扫码或账号密码）。登录成功后自动获取 Cookie，用于解析播放文件链接。"
         default:
             return "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。"
         }
@@ -3486,6 +3540,22 @@ struct NativeCloudQRLoginView: View {
                 statusText = pan189Helper.statusText
                 detailText = ""
                 await pollPan189()
+            case .pan123:
+                pan123Helper.cleanup()
+                pan123Helper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = pan123Helper.statusText
+                detailText = ""
+                await pollPan123()
+            case .one15:
+                pan115Helper.cleanup()
+                pan115Helper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = pan115Helper.statusText
+                detailText = ""
+                await pollPan115()
             case .ali:
                 let token = try await CloudDriveAuthManager.shared.aliPassportCreateQrToken()
                 aliToken = token
@@ -3597,7 +3667,8 @@ struct NativeCloudQRLoginView: View {
     @MainActor
     private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
         var networkRetryCount = 0
-        while isPolling && pollCount < 90 {
+        let maxPollCount = 90 // 3分钟（每2秒一次）
+        while isPolling && pollCount < maxPollCount {
             pollCount += 1
             do {
                 let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
@@ -3605,7 +3676,7 @@ struct NativeCloudQRLoginView: View {
                 switch result {
                 case .pending:
                     statusText = "等待阿里云盘扫码"
-                    detailText = "请使用阿里云盘 App 扫描二维码。"
+                    detailText = "请使用阿里云盘 App 扫描二维码（剩余 \(maxPollCount - pollCount) 次轮询）。"
                 case .scanned:
                     statusText = "已扫码，等待确认"
                     detailText = "请在手机端点击确认登录。"
@@ -3619,15 +3690,23 @@ struct NativeCloudQRLoginView: View {
                     return
                 case .expired:
                     isPolling = false
-                    statusText = "二维码已过期"
-                    detailText = "请重新生成二维码。"
+                    statusText = "二维码已过期，请重新生成"
+                    detailText = "阿里云盘二维码通常有效期为 3 分钟。如频繁过期，请尝试网页登录兜底。"
                     return
                 case .canceled:
                     isPolling = false
                     statusText = "用户取消授权"
-                    detailText = "请重新生成二维码。"
+                    detailText = "请重新生成二维码或使用网页登录兜底。"
                     return
                 case .failed(let message):
+                    // 某些失败状态可能只是临时网络问题，尝试重试
+                    if networkRetryCount < 3 && (message.contains("轮询返回格式异常") || message.contains("未知状态")) {
+                        networkRetryCount += 1
+                        statusText = "轮询异常，重试中 (\(networkRetryCount)/3)"
+                        detailText = message
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        continue
+                    }
                     isPolling = false
                     statusText = "轮询失败"
                     detailText = message
@@ -3648,6 +3727,12 @@ struct NativeCloudQRLoginView: View {
                 return
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        // 超时
+        if pollCount >= maxPollCount {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "二维码已超过 3 分钟有效期。请重新生成，或尝试网页登录兜底入口。"
         }
     }
 
@@ -3696,6 +3781,60 @@ struct NativeCloudQRLoginView: View {
                 return
             }
             statusText = pan189Helper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "请在6分钟内完成登录，或重新打开页面。"
+        }
+    }
+
+    @MainActor
+    private func pollPan123() async {
+        while isPolling && pollCount < 180 {
+            pollCount += 1
+            if pan123Helper.isLoggedIn {
+                isPolling = false
+                statusText = "123云盘登录成功"
+                detailText = "Cookie 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                return
+            }
+            if !pan123Helper.errorText.isEmpty {
+                isPolling = false
+                statusText = "登录失败"
+                detailText = pan123Helper.errorText
+                return
+            }
+            statusText = pan123Helper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "请在6分钟内完成登录，或重新打开页面。"
+        }
+    }
+
+    @MainActor
+    private func pollPan115() async {
+        while isPolling && pollCount < 180 {
+            pollCount += 1
+            if pan115Helper.isLoggedIn {
+                isPolling = false
+                statusText = "115网盘登录成功"
+                detailText = "Cookie 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                return
+            }
+            if !pan115Helper.errorText.isEmpty {
+                isPolling = false
+                statusText = "登录失败"
+                detailText = pan115Helper.errorText
+                return
+            }
+            statusText = pan115Helper.statusText
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         if isPolling {
