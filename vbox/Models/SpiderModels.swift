@@ -154,7 +154,7 @@ struct VodItem: Codable, Identifiable {
     let vodActor: String?
     let vodContent: String?
     let vodPlayFrom: String?
-    let vodPlayUrl: String?
+    var vodPlayUrl: String?
 
     init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
          vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,

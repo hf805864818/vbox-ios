@@ -617,7 +617,7 @@ final class WelfareCrawlerService {
     }
 
     // MARK: - 自适应页面获取
-    func pages(for platformId: String) -> [WelfarePageKind] {
+    nonisolated func pages(for platformId: String) -> [WelfarePageKind] {
         WelfareCrawlerConfig.config(for: platformId)?.pages ?? [.home, .video, .search]
     }
 }

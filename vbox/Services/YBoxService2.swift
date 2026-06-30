@@ -219,7 +219,7 @@ class YBoxService2: ObservableObject {
             guard let html = String(data: data, encoding: .utf8) else { return [] }
             var items: [YBoxComicItem2] = []
             // 尝试从HTML提取漫画封面和链接
-            let pattern = #"<a[^>]*href="([^"]*)"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"#"
+            let pattern = ##"<a[^>]*href="([^"]*)"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"##
             if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) {
                 let nsRange = NSRange(html.startIndex..., in: html)
                 let matches = regex.matches(in: html, range: nsRange)

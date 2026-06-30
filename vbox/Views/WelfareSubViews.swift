@@ -221,11 +221,17 @@ struct YBoxLiveSourceListView: View {
 // MARK: - 直播间列表
 struct YBoxLiveChannelListView: View {
     let item: YBoxLiveItem2
-    @State private var channels: [YBoxLiveChannel2] = item.channels
-    @State private var isLoading = item.channels.isEmpty
+    @State private var channels: [YBoxLiveChannel2]
+    @State private var isLoading: Bool
     @State private var selectedChannelURL: String?
     @State private var showPlayer = false
     @EnvironmentObject private var settings: AppSettings
+
+    init(item: YBoxLiveItem2) {
+        self.item = item
+        _channels = State(initialValue: item.channels)
+        _isLoading = State(initialValue: item.channels.isEmpty)
+    }
 
     var body: some View {
         Group {
