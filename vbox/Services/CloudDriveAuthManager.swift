@@ -420,8 +420,8 @@ final class CloudDriveAuthManager: ObservableObject {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
-            URLQueryItem(name: "fr", value: "pc"),
-            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "fr", value: "iphone"),
+            URLQueryItem(name: "sys", value: "ios"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
@@ -1300,17 +1300,15 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 4_eMHBJ 会重定向到 b.quark.cn（夸克下载页），不能用于 UC
-        // 参考夸克扫码实现，加入 ssb=weblogin 参数，uc_param_str 留空避免指纹过期
+        // 去掉了 ssb=weblogin（该参数为夸克扫码沿用，可能不适用于 UC 云盘 KPS 登录）
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "ssb", value: "weblogin"),
             URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|C:titlebar_fix")
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)&ssb=weblogin"
+        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)"
     }
 
     private func timestampMS() -> String {
