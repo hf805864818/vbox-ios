@@ -205,6 +205,8 @@ struct LiquidBackground: View {
 struct HomeView: View {
     @StateObject private var doubanService = DoubanService.shared
     @EnvironmentObject private var settings: AppSettings
+    @State private var showSearch = false
+    @State private var showRanking = false
     private static var cachedBannerSubjects: [DoubanSubject] = []
     private static var cachedHotMovies: [DoubanSubject] = []
     private static var cachedHotTV: [DoubanSubject] = []
@@ -248,6 +250,7 @@ struct HomeView: View {
                         Text("正在加载...").font(.system(size: 14)).foregroundColor(.secondary)
                     }
                 } else {
+                    HomeSearchBar(showSearch: $showSearch, showRanking: $showRanking)
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
                     }
@@ -292,6 +295,17 @@ struct HomeView: View {
                 return
             }
             Task { await loadData(force: false) }
+        }
+        .fullScreenCover(isPresented: $showSearch) {
+            SearchView()
+                .environmentObject(settings)
+        }
+        .sheet(isPresented: $showRanking) {
+            DoubanRankingView()
+                .environmentObject(settings)
+        }
+        .onChange(of: settings.searchRequestId) { _ in
+            if !settings.searchQuery.isEmpty { showSearch = true }
         }
     }
 
@@ -343,6 +357,61 @@ struct HomeView: View {
         hotGaiaMovies = Self.cachedHotGaiaMovies
         americanTV = Self.cachedAmericanTV
         isLoading = false
+    }
+}
+
+// 首页顶部搜索区域
+struct HomeSearchBar: View {
+    @Binding var showSearch: Bool
+    @Binding var showRanking: Bool
+    @EnvironmentObject private var settings: AppSettings
+    @State private var searchText = ""
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                showSearch = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15))
+                        .foregroundColor(.gray)
+                    Text("搜索影片、剧集")
+                        .font(.system(size: 15))
+                        .foregroundColor(.gray)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(uiColor: .systemGray6))
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showRanking = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 14))
+                    Text("排行榜")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(hex: "E11D48"))
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
 }
 

@@ -41,9 +41,9 @@ struct ContentView: View {
 
     /// 动态可见 Tab 列表：福利未解锁时不显示福利 Tab
     private var visibleTabs: [Tab] {
-        var tabs: [Tab] = [.home, .search, .shortDrama, .live, .profile]
+        var tabs: [Tab] = [.home, .shortDrama, .live, .profile]
         if settings.welfareUnlocked && settings.welfareEnabled {
-            tabs.insert(.welfare, at: 4)
+            tabs.insert(.welfare, at: 3)
         }
         return tabs
     }
@@ -122,7 +122,7 @@ struct ContentView: View {
         .preferredColorScheme(settings.preferredColorScheme)
         .tint(activeTabColor)
         .onChange(of: settings.searchRequestId) { _ in
-            if !settings.searchQuery.isEmpty { selectedTab = .search }
+            if !settings.searchQuery.isEmpty { selectedTab = .home }
         }
         .onAppear {
             Task {
