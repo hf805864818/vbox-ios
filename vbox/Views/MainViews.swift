@@ -931,13 +931,30 @@ struct SearchView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
-        .gesture(
-            DragGesture()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
                 .onEnded { value in
-                    if value.translation.width > 100 && value.startLocation.x < 50 {
+                    if value.translation.width > 80 && value.predictedEndTranslation.width > 120 {
                         dismiss()
                     }
                 }
+        )
+        .overlay(
+            HStack {
+                Color.clear
+                    .frame(width: 20)
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(true)
+                    .gesture(
+                        DragGesture(minimumDistance: 10)
+                            .onEnded { value in
+                                if value.translation.width > 60 {
+                                    dismiss()
+                                }
+                            }
+                    )
+                Spacer()
+            }
         )
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
