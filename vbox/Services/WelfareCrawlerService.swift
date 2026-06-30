@@ -61,7 +61,9 @@ final class WelfareCrawlerService {
         // encrypted 模式：POST + 加密data字段（原逻辑）
         let apiPath = cmsApiPath(for: kind)
         let urlStr = "\(cfg.baseURL)\(apiPath)"
-        guard let url = URL(string: urlStr) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let url = URL(string: urlStr) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
 
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.httpMethod = "POST"
@@ -71,9 +73,13 @@ final class WelfareCrawlerService {
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
 
-        guard let data = await request(req) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let data = await request(req) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         let items = parseVodJSON(data)
-        if items.isEmpty { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        if items.isEmpty {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         onBatch?(items); return items
     }
 
@@ -159,7 +165,9 @@ final class WelfareCrawlerService {
                           onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let apiPath = pwaApiPath(for: kind)
         let urlStr = "\(cfg.baseURL)/pwa.php\(apiPath)"
-        guard let url = URL(string: urlStr) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let url = URL(string: urlStr) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
 
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.httpMethod = "POST"
@@ -170,9 +178,13 @@ final class WelfareCrawlerService {
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
 
-        guard let data = await request(req) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let data = await request(req) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         let items = parseVodJSON(data)
-        if items.isEmpty { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        if items.isEmpty {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         onBatch?(items); return items
     }
 
@@ -181,7 +193,9 @@ final class WelfareCrawlerService {
                               onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let apiPath = encPostPath(for: kind)
         let urlStr = "\(cfg.baseURL)\(apiPath)"
-        guard let url = URL(string: urlStr) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let url = URL(string: urlStr) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
 
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.httpMethod = "POST"
@@ -192,9 +206,13 @@ final class WelfareCrawlerService {
         let body: [String: Any] = ["post-data": randomBase64(48)]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        guard let data = await request(req) else { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        guard let data = await request(req) else {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         let items = parseVodJSON(data)
-        if items.isEmpty { return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch) }
+        if items.isEmpty {
+            return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
+        }
         onBatch?(items); return items
     }
 
@@ -441,6 +459,29 @@ final class WelfareCrawlerService {
             all.append(contentsOf: tagged); onBatch?(tagged)
         })
         return all
+    }
+
+    /// 加密平台三级回退：直接API(已失败) → YBoxAPI代理 → SpiderManager搜索
+    private func proxyOrFallback(cfg: WelfareCrawlerConfig, kind: WelfarePageKind,
+                                  onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+        // 第1层：ybox.vip 代理
+        print("[WelfareCrawler] 尝试 YBoxAPI 代理: \(cfg.platformId) kind=\(kind.rawValue)")
+        let proxyItems = await YBoxAPIService.shared.fetchPlatformItems(
+            platformId: cfg.platformId, kind: kind
+        )
+        if !proxyItems.isEmpty {
+            let tagged = proxyItems.map { item -> VodItem in
+                var t = item
+                if !(t.vodRemarks ?? "").hasPrefix("[福利]") { t.vodRemarks = "[福利]" + (t.vodRemarks ?? "") }
+                return t
+            }
+            print("[WelfareCrawler] YBoxAPI 代理成功: \(cfg.platformId) → \(tagged.count)条")
+            onBatch?(tagged); return tagged
+        }
+
+        // 第2层：SpiderManager 站群搜索
+        print("[WelfareCrawler] YBoxAPI 代理无结果，回退 SpiderManager: \(cfg.platformId)")
+        return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
     }
 
     // MARK: - 网络请求

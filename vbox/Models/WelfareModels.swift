@@ -17,14 +17,17 @@ struct WelfarePlatform: Identifiable, Hashable {
         let kinds = WelfareCrawlerService.shared.pages(for: id)
         let pages = kinds.map { kind in
             WelfarePage(id: "\(id)_\(kind.rawValue)", name: kind.displayName,
-                        icon: kind.icon, sections: defaultSections(for: kind, prefix: name))
+                        icon: kind.icon, kind: kind,
+                        sections: defaultSections(for: kind, prefix: name))
         }
         return WelfarePlatform(id: id, name: name, searchPrefix: searchPrefix, pages: pages)
     }
 }
 
 struct WelfarePage: Identifiable, Hashable {
-    let id: String; let name: String; let icon: String; let sections: [WelfareSection]
+    let id: String; let name: String; let icon: String
+    let kind: WelfarePageKind
+    let sections: [WelfareSection]
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     static func == (lhs: WelfarePage, rhs: WelfarePage) -> Bool { lhs.id == rhs.id }
 }
@@ -42,9 +45,10 @@ private func defaultSections(for kind: WelfarePageKind, prefix: String) -> [Welf
                 .init(id: "latest", name: "最新", keyword: "\(prefix) 最新"),
                 .init(id: "hot", name: "热门", keyword: "\(prefix) 热门")]
     case .search:
-        return [.init(id: "all", name: "搜索", keyword: "")]
+        return [.init(id: "search", name: "搜索", keyword: "")]
     default:
-        return [.init(id: "all", name: "全部", keyword: "")]
+        // 非首页/搜索页面：用页面类型名称作为唯一分区，让 UI 自动跳过选择直接展示内容
+        return [.init(id: kind.rawValue, name: kind.displayName, keyword: "")]
     }
 }
 

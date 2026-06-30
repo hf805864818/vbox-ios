@@ -13,7 +13,8 @@ struct WelfarePlatformView: View {
 
     private var currentPage: WelfarePage {
         platform.pages.isEmpty
-            ? WelfarePage(id: "_empty", name: "首页", icon: "house.fill", sections: [])
+            ? WelfarePage(id: "_empty", name: "首页", icon: "house.fill",
+                          kind: .home, sections: [])
             : platform.pages[selectedPageIndex]
     }
 
@@ -90,24 +91,37 @@ struct WelfarePlatformView: View {
     private var sectionGrid: some View {
         let sections = currentPage.sections
 
-        if sections.isEmpty {
-            // 无分区时直接显示该页面对应的内容
+        // 单分区或零分区：直接进入内容，跳过分区选择步骤
+        if sections.count <= 1 {
+            let autoSection = sections.first
+                ?? WelfareSection(id: currentPage.id, name: currentPage.name, keyword: "")
             return AnyView(
-                contentSection(section: WelfareSection(id: currentPage.id, name: currentPage.name, keyword: ""))
+                contentSection(section: autoSection)
                     .onAppear {
-                        selectedSection = WelfareSection(id: currentPage.id, name: currentPage.name, keyword: "")
-                        viewModel.loadContent(platform: platform, section: selectedSection!)
+                        if selectedSection == nil {
+                            selectedSection = autoSection
+                            viewModel.loadContent(
+                                platform: platform,
+                                section: autoSection,
+                                pageKind: currentPage.kind
+                            )
+                        }
                     }
             )
         }
 
+        // 多分区（如首页的推荐/最新/热门）：显示分区选择网格
         return AnyView(
             ScrollView {
                 LazyVGrid(columns: sectionColumns, spacing: 10) {
                     ForEach(sections) { section in
                         Button {
                             selectedSection = section
-                            viewModel.loadContent(platform: platform, section: section)
+                            viewModel.loadContent(
+                                platform: platform,
+                                section: section,
+                                pageKind: currentPage.kind
+                            )
                         } label: {
                             VStack(spacing: 6) {
                                 Image(systemName: sectionIcon(for: section.id))
@@ -135,18 +149,20 @@ struct WelfarePlatformView: View {
 
     private func contentSection(section: WelfareSection) -> some View {
         VStack(spacing: 0) {
-            // 标题栏 + 返回按钮
+            // 标题栏 + 返回按钮（仅多分区页面显示）
             HStack {
-                Button {
-                    selectedSection = nil
-                    viewModel.items = []
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(currentPage.name)
+                if currentPage.sections.count > 1 {
+                    Button {
+                        selectedSection = nil
+                        viewModel.items = []
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text(currentPage.name)
+                        }
+                        .font(.system(size: 14))
+                        .foregroundColor(accentColor)
                     }
-                    .font(.system(size: 14))
-                    .foregroundColor(accentColor)
                 }
 
                 Spacer()
@@ -157,7 +173,6 @@ struct WelfarePlatformView: View {
 
                 Spacer()
 
-                // 占位保持居中
                 Color.clear.frame(width: 60)
             }
             .padding(.horizontal, 16)
@@ -186,7 +201,7 @@ struct WelfarePlatformView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                         Button("重试") {
-                            viewModel.loadContent(platform: platform, section: section)
+                            viewModel.loadContent(platform: platform, section: section, pageKind: currentPage.kind)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -201,7 +216,7 @@ struct WelfarePlatformView: View {
                                 }
                                 .onAppear {
                                     if item.vodId == viewModel.items.last?.vodId {
-                                        viewModel.loadMore(platform: platform, section: section)
+                                        viewModel.loadMore(platform: platform, section: section, pageKind: currentPage.kind)
                                     }
                                 }
                         }
