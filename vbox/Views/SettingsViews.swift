@@ -1195,6 +1195,7 @@ struct CloudAuthCenterView: View {
     @State private var showAliNativeQR = false
     @State private var show123NativeQR = false
     @State private var show139NativeQR = false
+    @State private var show189NativeQR = false
     @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
     @State private var driveTokenName = ""
@@ -1211,6 +1212,7 @@ struct CloudAuthCenterView: View {
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     providerAccountCard(type: .pan123, note: "123云盘支持网页扫码登录回收 Cookie，播放分享链接时自动使用。")
                     providerAccountCard(type: .pan139, note: "139云盘（移动云盘）支持网页扫码登录回收 Cookie。")
+                    providerAccountCard(type: .pan189, note: "天翼云盘支持网页登录回收 Cookie，用于解析播放分享链接。")
                     manualTokenFallbackCard
 
                     Text("播放前不会强制检测授权状态；解析失败且像授权失效时才反向标记。手动粘贴入口继续保留为高级兜底。")
@@ -1254,6 +1256,9 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $show139NativeQR) {
                 NativeCloudQRLoginView(driveType: .pan139)
+            }
+            .sheet(isPresented: $show189NativeQR) {
+                NativeCloudQRLoginView(driveType: .pan189)
             }
             .sheet(item: $webAuthDriveType) { type in
                 CloudDriveWebAuthView(driveType: type)
@@ -1492,6 +1497,13 @@ struct CloudAuthCenterView: View {
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel("网页登录兜底", icon: "globe")
                     }
+                } else if type == .pan189 {
+                    Button(action: { show189NativeQR = true }) {
+                        authButtonLabel("网页登录授权", icon: "globe")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页兜底", icon: "globe")
+                    }
                 } else {
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel(type == .one15 ? "网页登录授权" : "网页登录兜底", icon: "globe")
@@ -1632,6 +1644,7 @@ struct CloudAuthCenterView: View {
         case .uc: return "u.circle.fill"
         case .pan123: return "1.square.fill"
         case .pan139: return "9.square.fill"
+        case .pan189: return "icloud.fill"
         }
     }
 }
@@ -1908,6 +1921,7 @@ struct CloudPlaybackCacheView: View {
         case .uc: return "u.circle.fill"
         case .pan123: return "1.square.fill"
         case .pan139: return "9.square.fill"
+        case .pan189: return "icloud.fill"
         }
     }
 }
@@ -3259,6 +3273,13 @@ struct Pan139WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+struct Pan189WebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct NativeCloudQRLoginView: View {
     @Environment(\.dismiss) private var dismiss
     let driveType: CloudDriveManager.DriveType
@@ -3274,6 +3295,7 @@ struct NativeCloudQRLoginView: View {
     @State private var baiduBDUSSURL: String? = nil
     @State private var aliToken: CloudDriveAuthManager.AliPassportQrToken? = nil
     @StateObject private var pan139Helper = CloudDriveAuthManager.Pan139QrLoginHelper()
+    @StateObject private var pan189Helper = CloudDriveAuthManager.Pan189LoginHelper()
 
     var body: some View {
         NavigationView {
@@ -3310,6 +3332,9 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .pan139 {
                     pan139Helper.cleanup()
                 }
+                if driveType == .pan189 {
+                    pan189Helper.cleanup()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -3324,6 +3349,11 @@ struct NativeCloudQRLoginView: View {
         VStack(spacing: 12) {
             if driveType == .pan139 {
                 Pan139WebView(webView: pan139Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .pan189 {
+                Pan189WebView(webView: pan189Helper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3397,6 +3427,8 @@ struct NativeCloudQRLoginView: View {
             return "请使用阿里云盘 App 扫码并确认。扫码成功后自动获取 refresh_token，无需手动粘贴。"
         case .pan139:
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
+        case .pan189:
+            return "请在页面中登录天翼云盘（手机号+密码或扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         default:
             return "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。"
         }
@@ -3446,6 +3478,14 @@ struct NativeCloudQRLoginView: View {
                 statusText = pan139Helper.statusText
                 detailText = ""
                 await pollPan139()
+            case .pan189:
+                pan189Helper.cleanup()
+                pan189Helper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = pan189Helper.statusText
+                detailText = ""
+                await pollPan189()
             case .ali:
                 let token = try await CloudDriveAuthManager.shared.aliPassportCreateQrToken()
                 aliToken = token
@@ -3635,6 +3675,33 @@ struct NativeCloudQRLoginView: View {
             isPolling = false
             statusText = "二维码已过期"
             detailText = "请重新生成二维码。"
+        }
+    }
+
+    @MainActor
+    private func pollPan189() async {
+        while isPolling && pollCount < 180 {
+            pollCount += 1
+            if pan189Helper.isLoggedIn {
+                isPolling = false
+                statusText = "天翼云盘登录成功"
+                detailText = "Cookie 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                return
+            }
+            if !pan189Helper.errorText.isEmpty {
+                isPolling = false
+                statusText = "登录失败"
+                detailText = pan189Helper.errorText
+                return
+            }
+            statusText = pan189Helper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "请在6分钟内完成登录，或重新打开页面。"
         }
     }
 

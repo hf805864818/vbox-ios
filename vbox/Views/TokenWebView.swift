@@ -60,6 +60,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             return URL(string: "https://www.123pan.com/")!
         case .pan139:
             return URL(string: "https://yun.139.com/")!
+        case .pan189:
+            return URL(string: "https://cloud.189.cn/")!
         }
     }
 
@@ -79,6 +81,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         case .pan139:
             return "Mozilla/5.0 (Linux; Android 10; SM-G960U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        case .pan189:
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
         }
     }
 
@@ -91,6 +95,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .one15: return ["115.com", ".115.com"]
         case .pan123: return ["123pan.com", ".123pan.com", "123684.com"]
         case .pan139: return ["yun.139.com", ".139.com", "caiyun.139.com"]
+        case .pan189: return ["cloud.189.cn", ".189.cn", "api.189.cn"]
         }
     }
 
@@ -216,6 +221,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
                 return lower.contains("token") || lower.contains("auth") || lower.contains("session")
             case .pan139:
                 return lower.contains("session") || lower.contains("token") || lower.contains("cookie")
+            case .pan189:
+                return lower.contains("ssotoken") || lower.contains("session") || lower.contains("cookie")
             }
         }
     }
