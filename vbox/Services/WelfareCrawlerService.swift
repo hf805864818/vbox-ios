@@ -14,6 +14,35 @@ struct CMSVodItem: Codable {
         case vodPlayFrom="vod_play_from", vodPlayUrl="vod_play_url", typeName="type_name"
         case typeId="type_id"
     }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        vodId = Self.decodeFlexibleString(c, key: .vodId, fallback: UUID().uuidString)
+        vodName = try c.decodeIfPresent(String.self, forKey: .vodName)
+        vodPic = try c.decodeIfPresent(String.self, forKey: .vodPic)
+        vodRemarks = try c.decodeIfPresent(String.self, forKey: .vodRemarks)
+        vodYear = try c.decodeIfPresent(String.self, forKey: .vodYear)
+        vodArea = try c.decodeIfPresent(String.self, forKey: .vodArea)
+        vodDirector = try c.decodeIfPresent(String.self, forKey: .vodDirector)
+        vodActor = try c.decodeIfPresent(String.self, forKey: .vodActor)
+        vodContent = try c.decodeIfPresent(String.self, forKey: .vodContent)
+        vodPlayFrom = try c.decodeIfPresent(String.self, forKey: .vodPlayFrom)
+        vodPlayUrl = try c.decodeIfPresent(String.self, forKey: .vodPlayUrl)
+        typeName = try c.decodeIfPresent(String.self, forKey: .typeName)
+        typeId = Self.decodeFlexibleStringOpt(c, key: .typeId)
+    }
+    /// 解码可能为 String 或 Int/Double 的字段
+    private static func decodeFlexibleString(_ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys, fallback: String) -> String {
+        if let s = try? container.decode(String.self, forKey: key) { return s }
+        if let n = try? container.decode(Int.self, forKey: key) { return String(n) }
+        if let d = try? container.decode(Double.self, forKey: key) { return String(d) }
+        return fallback
+    }
+    private static func decodeFlexibleStringOpt(_ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> String? {
+        if let s = try? container.decode(String.self, forKey: key) { return s }
+        if let n = try? container.decode(Int.self, forKey: key) { return String(n) }
+        if let d = try? container.decode(Double.self, forKey: key) { return String(d) }
+        return nil
+    }
     func toVodItem() -> VodItem {
         let r = (vodRemarks ?? typeName ?? ""); let tagged = r.hasPrefix("[福利]") ? r : "[福利]"+r
         var v = VodItem(vodId: vodId, vodName: vodName ?? "", vodPic: vodPic ?? "",
@@ -441,22 +470,34 @@ final class WelfareCrawlerService {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         let list = (json["data"] as? [String: Any])?["list"] as? [[String: Any]] ?? json["list"] as? [[String: Any]] ?? []
         return list.compactMap { dict in
-            let id = (dict["vod_id"] ?? dict["id"] ?? dict["detail_id"] ?? UUID().uuidString) as! String
-            let name = (dict["vod_name"] ?? dict["name"] ?? dict["title"] ?? "") as! String
-            let pic = (dict["vod_pic"] ?? dict["pic"] ?? dict["image"] ?? dict["img"] ?? "") as! String
-            var r = (dict["vod_remarks"] ?? dict["remarks"] ?? dict["type_name"] ?? "") as! String
+            let id = dictString(dict, keys: ["vod_id", "id", "detail_id"]) ?? UUID().uuidString
+            let name = dictString(dict, keys: ["vod_name", "name", "title"]) ?? ""
+            let pic = dictString(dict, keys: ["vod_pic", "pic", "image", "img"]) ?? ""
+            var r = dictString(dict, keys: ["vod_remarks", "remarks", "type_name"]) ?? ""
             if !r.hasPrefix("[福利]") { r = "[福利]" + r }
             var v = VodItem(vodId: id, vodName: name, vodPic: pic, vodRemarks: r,
-                           vodYear: dict["vod_year"] as? String, vodArea: dict["vod_area"] as? String,
-                           vodDirector: dict["vod_director"] as? String,
-                           vodActor: dict["vod_actor"] as? String ?? dict["actor"] as? String,
-                           vodContent: dict["vod_content"] as? String ?? dict["content"] as? String,
-                           vodPlayFrom: dict["vod_play_from"] as? String)
-            let playURL = extractFirstPlayURL(from: dict["vod_play_url"] as? String ?? "")
+                           vodYear: dictString(dict, keys: ["vod_year"]),
+                           vodArea: dictString(dict, keys: ["vod_area"]),
+                           vodDirector: dictString(dict, keys: ["vod_director"]),
+                           vodActor: dictString(dict, keys: ["vod_actor", "actor"]),
+                           vodContent: dictString(dict, keys: ["vod_content", "content"]),
+                           vodPlayFrom: dictString(dict, keys: ["vod_play_from"]))
+            let playURL = extractFirstPlayURL(from: dictString(dict, keys: ["vod_play_url"]) ?? "")
             if !playURL.isEmpty { v.vodPlayUrl = playURL }
-            else { v.vodPlayUrl = dict["vod_play_url"] as? String }
+            else { v.vodPlayUrl = dictString(dict, keys: ["vod_play_url"]) }
             return v
         }
+    }
+
+    /// 安全地从字典中按优先级取字符串值（兼容 String / Int / Double 类型）
+    private func dictString(_ dict: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let val = dict[key] else { continue }
+            if let s = val as? String { return s }
+            if let n = val as? NSNumber { return n.stringValue }
+            return "\(val)"
+        }
+        return nil
     }
 
     /// 从 vod_play_url 格式 "第01集$https://...#第02集$https://..." 提取第一个播放链接
