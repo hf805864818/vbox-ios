@@ -47,17 +47,19 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .baidu:
             return URL(string: "https://pan.baidu.com/")!
         case .ali:
-            // 阿里云盘开放平台 OAuth client_id 已失效，原生扫码不可用。
-            // 使用 AList 官方工具页作为兜底入口，用户扫码后页面会展示 refresh_token。
-            return URL(string: "https://alistgo.com/tool/aliyundrive/request.html")!
+            // 阿里云盘：优先使用原生 Passport 扫码，此 WebView 作为兜底。
+            // 使用 AList 官方工具页，用户扫码后页面会展示 refresh_token，也可使用 alist.nn.ci 的 OAuth 回调。
+            return URL(string: "https://alist.nn.ci/tool/aliyundrive/request")!
         case .quark:
             return URL(string: "https://pan.quark.cn/")!
         case .uc:
             return URL(string: "https://drive.uc.cn/")!
         case .one15:
-            return URL(string: "https://115.com/")!
+            // 115网盘登录页面（强制使用扫码/账密登录入口）
+            return URL(string: "https://115.com/?ct=login")!
         case .pan123:
-            return URL(string: "https://www.123pan.com/")!
+            // 123云盘登录页面，优先使用移动端登录页
+            return URL(string: "https://www.123pan.com/login")!
         case .pan139:
             return URL(string: "https://yun.139.com/")!
         case .pan189:
@@ -74,9 +76,9 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .baidu:
             return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         case .ali:
-            return "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         case .one15:
-            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36"
+            return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 115Browser/27.0.3.4"
         case .pan123:
             return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         case .pan139:
@@ -89,11 +91,11 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
     private var cookieHosts: [String] {
         switch driveType {
         case .baidu: return ["pan.baidu.com", "passport.baidu.com", ".baidu.com"]
-        case .ali: return ["aliyundrive.com", "alipan.com", ".aliyundrive.com", ".alipan.com"]
+        case .ali: return ["aliyundrive.com", "alipan.com", ".aliyundrive.com", ".alipan.com", "passport.alipan.com", "auth.alipan.com", "api.alipan.com", "openapi.alipan.com"]
         case .quark: return ["pan.quark.cn", "drive-pc.quark.cn", ".quark.cn"]
         case .uc: return ["drive.uc.cn", "pc-api.uc.cn", ".uc.cn"]
         case .one15: return ["115.com", ".115.com"]
-        case .pan123: return ["123pan.com", ".123pan.com", "123684.com"]
+        case .pan123: return ["www.123pan.com", ".123pan.com", "123684.com", ".123684.com", "api.123pan.com", "openapi.123pan.com"]
         case .pan139: return ["yun.139.com", ".139.com", "caiyun.139.com"]
         case .pan189: return ["cloud.189.cn", ".189.cn", "api.189.cn"]
         }
@@ -214,13 +216,18 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
                 // 因此提高"可用 Cookie"判定门槛：优先要求 __puus；否则至少同时具备 __pus + __kps。
                 return lower.contains("__puus=") || (lower.contains("__pus=") && lower.contains("__kps="))
             case .uc:
-                return lower.contains("uc") || lower.contains("__pus=") || lower.contains("__kps=")
+                return lower.contains("__pus=") || lower.contains("__kps=") || lower.contains("__uid=") || (lower.contains("uc") && lower.count > 50)
             case .one15:
-                return lower.contains("uid=") || lower.contains("cid=") || lower.contains("seid=")
+                // 115网盘登录后常见的认证 Cookie 字段
+                return lower.contains("uid=") || lower.contains("cid=") || lower.contains("seid=") || 
+                       lower.contains("user_id") || lower.contains("115") || lower.contains("passport")
             case .pan123:
-                return lower.contains("token") || lower.contains("auth") || lower.contains("session")
+                // 123云盘登录后常见的认证 Cookie 字段
+                return lower.contains("authorization") || lower.contains("token") || lower.contains("auth") || 
+                       lower.contains("session") || lower.contains("login") || lower.contains("userid") || 
+                       lower.contains("uid=") || lower.contains("passport")
             case .pan139:
-                return lower.contains("session") || lower.contains("token") || lower.contains("cookie")
+                return lower.contains("ssotoken") || lower.contains("sso_token") || lower.contains("mcloud") || lower.contains("sessionid")
             case .pan189:
                 return lower.contains("ssotoken") || lower.contains("session") || lower.contains("cookie")
             }

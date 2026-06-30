@@ -91,7 +91,7 @@ final class CloudDriveAuthManager: ObservableObject {
     private let baiduVerifyCooldownKey = "baidu_verify_cooldowns_v1"
     private let session: URLSession
     private let ucSession: URLSession
-    private let aliOAuthClientId = "76917ccccd4441c39457a04f6084fb2f"
+    private let aliOAuthClientId = "25dzX3vbRqA4f1D1ma2M"
     private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
 
     private init() {
@@ -182,7 +182,8 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "grant_type": "refresh_token",
-            "refresh_token": refreshToken
+            "refresh_token": refreshToken,
+            "client_id": aliOAuthClientId
         ])
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -225,6 +226,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func aliPassportCreateQrToken() async throws -> AliPassportQrToken {
+        // 更新 _bx-v 参数和 appEntrance 以匹配阿里云盘最新 API 版本
         var components = URLComponents(string: "https://passport.alipan.com/newlogin/qrcode/generate.do")!
         components.queryItems = [
             URLQueryItem(name: "appName", value: "aliyun_drive"),
@@ -234,14 +236,17 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "lang", value: "zh_CN"),
             URLQueryItem(name: "returnUrl", value: ""),
             URLQueryItem(name: "bizParams", value: ""),
-            URLQueryItem(name: "_bx-v", value: "2.0.31")
+            URLQueryItem(name: "_bx-v", value: "2.2.5")
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://www.alipan.com", forHTTPHeaderField: "Origin")
         request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[Ali Passport] QR generate HTTP \(httpStatusCode)")
+        
         let json = try parseJSON(data)
         print("[Ali Passport] QR generate response keys: \(json.keys)")
         guard let content = json["content"] as? [String: Any],
@@ -249,6 +254,10 @@ final class CloudDriveAuthManager: ObservableObject {
               let tValue = dataObj["t"],
               let ck = dataObj["ck"] as? String,
               let codeContent = dataObj["codeContent"] as? String else {
+            // 尝试检查是否有错误信息
+            if let msg = json["message"] as? String {
+                throw AuthError.invalidResponse("阿里 Passport: \(msg)")
+            }
             throw AuthError.invalidResponse("阿里 Passport 未返回二维码参数")
         }
         // t 可能是 Int 或 String，统一转为 String
@@ -260,6 +269,7 @@ final class CloudDriveAuthManager: ObservableObject {
         } else {
             throw AuthError.invalidResponse("阿里 Passport t 字段类型异常")
         }
+        print("[Ali Passport] QR token created, t=\(t.prefix(10))..., codeContent length=\(codeContent.count)")
         return AliPassportQrToken(t: t, ck: ck, codeContent: codeContent)
     }
 
@@ -279,14 +289,23 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if httpStatus != 200 {
+            print("[Ali Passport] poll HTTP status: \(httpStatus)")
+        }
+        
         let json = try parseJSON(data)
         guard let content = json["content"] as? [String: Any],
               let dataObj = content["data"] as? [String: Any] else {
+            print("[Ali Passport] poll unexpected response: \(json.keys)")
             return .failed(message: "阿里 Passport 轮询返回格式异常")
         }
         let status = dataObj["qrCodeStatus"] as? String ?? ""
-        switch status.uppercased() {
+        let rawStatus = status.uppercased()
+        print("[Ali Passport] poll status: \(rawStatus), poll attempt")
+        
+        switch rawStatus {
         case "NEW":
             return .pending
         case "SCANED":
@@ -306,6 +325,14 @@ final class CloudDriveAuthManager: ObservableObject {
                 bizData = data
             } else if let data = Data(base64Encoded: normalized + "==") {
                 bizData = data
+            } else {
+                // 尝试 URL-safe base64 完整填充
+                let padded = normalized
+                    .replacingOccurrences(of: "-", with: "+")
+                    .replacingOccurrences(of: "_", with: "/")
+                let remainder = padded.count % 4
+                let fullPadded = remainder > 0 ? padded + String(repeating: "=", count: 4 - remainder) : padded
+                bizData = Data(base64Encoded: fullPadded)
             }
             guard let finalData = bizData else {
                 print("[Ali Passport] bizExt base64 解码失败，normalized: \(String(normalized.prefix(100)))")
@@ -328,10 +355,12 @@ final class CloudDriveAuthManager: ObservableObject {
             print("[Ali Passport] bizExt 中未找到 refreshToken，完整 JSON: \(bizJson)")
             return .failed(message: "扫码确认成功但 bizExt 解析失败")
         case "EXPIRED":
+            print("[Ali Passport] QR code expired, t=\(token.t.prefix(10))...")
             return .expired
         case "CANCELED":
             return .canceled
         default:
+            print("[Ali Passport] unknown status: \(rawStatus)")
             return .failed(message: "未知状态: \(status)")
         }
     }
@@ -502,6 +531,87 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
+        // UC 云盘使用自己的 CAS 体系，优先使用 drive.uc.cn 域名换取 Cookie
+        // 若 UC 自身接口失败，回退到 pan.quark.cn（兼容旧版 CAS 共享体系）
+        
+        // 策略1: 使用 UC 自身 account/info 接口
+        let ucEndpoints = [
+            "https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc",
+            "https://pc-api.uc.cn/1/clouddrive/member?pr=UCBrowser&fr=pc&sys=darwin&ve=3.19.0",
+        ]
+        
+        var lastCookie = ""
+        var lastError: Error? = nil
+        
+        for endpoint in ucEndpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+            request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+            request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
+            // 如果有 serviceTicket，通过 Cookie 或 header 传递
+            if endpoint.contains("st=") {
+                request.setValue("st=\(serviceTicket)", forHTTPHeaderField: "Cookie")
+            }
+
+            let config = URLSessionConfiguration.ephemeral
+            config.httpCookieAcceptPolicy = .always
+            config.httpShouldSetCookies = true
+            let oneShot = URLSession(configuration: config, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
+            defer { oneShot.finishTasksAndInvalidate() }
+
+            do {
+                let (data, response) = try await oneShot.data(for: request)
+                let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+                let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("[VBox UC Exchange] endpoint: \(endpoint.prefix(50))... HTTP \(httpStatusCode): \(rawBody.prefix(300))")
+                
+                let ucURL = URL(string: "https://drive.uc.cn")!
+                let cookie = collectCookies(from: response as? HTTPURLResponse ?? HTTPURLResponse(), storage: oneShot.configuration.httpCookieStorage, url: ucURL)
+                lastCookie = cookie
+                
+                if !cookie.isEmpty {
+                    let cookieLower = cookie.lowercased()
+                    // 检查是否包含 UC 必须的认证字段
+                    let hasRequired = cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("uc")
+                    if hasRequired {
+                        print("[VBox UC Exchange] success with endpoint: \(endpoint.prefix(50))...")
+                        
+                        // 如果 response 包含用户信息则提取
+                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
+                            ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
+                        
+                        let credential = CloudDriveCredential(
+                            driveType: CloudDriveManager.DriveType.uc.rawValue,
+                            authType: .qr,
+                            accessToken: nil,
+                            refreshToken: nil,
+                            cookie: cookie,
+                            driveId: nil,
+                            userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
+                            userName: userName,
+                            avatar: extractNestedString(json ?? [:], path: ["data", "avatar"]) ?? extractString(json ?? [:], keys: ["avatar"]),
+                            expiresAt: nil,
+                            updatedAt: Date(),
+                            lastCheckedAt: Date(),
+                            state: .valid,
+                            statusMessage: "UC 扫码登录成功",
+                            extra: [:]
+                        )
+                        saveCredential(credential)
+                        return
+                    }
+                }
+            } catch {
+                lastError = error
+                print("[VBox UC Exchange] endpoint failed: \(error)")
+            }
+        }
+        
+        // 策略2: 回退到 pan.quark.cn（兼容 UC CAS 与夸克共享的旧版系统）
+        print("[VBox UC Exchange] UC own endpoints failed, falling back to pan.quark.cn")
         // 尝试使用 UC 自身域名，若 UC CAS 已独立于夸克则需要此配置
         var components = URLComponents(string: "https://pan.quark.cn/account/info")!
         components.queryItems = [
@@ -524,23 +634,35 @@ final class CloudDriveAuthManager: ObservableObject {
         let (data, response) = try await oneShot.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        print("[VBox UC Exchange] HTTP \(httpStatusCode): \(rawBody.prefix(300))")
+        print("[VBox UC Exchange fallback] HTTP \(httpStatusCode): \(rawBody.prefix(300))")
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            if let lastError = lastError {
+                throw lastError
+            }
             throw AuthError.remoteError("UC account/info HTTP 失败 (status: \(httpStatusCode))")
         }
         let quarkURL = URL(string: "https://pan.quark.cn")!
         let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: quarkURL)
-        guard !cookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
+        
+        // 如果 quark 回退也返回空 cookie，尝试从 uc 自身端点获取
+        let finalCookie: String
+        if cookie.isEmpty && !lastCookie.isEmpty {
+            finalCookie = lastCookie
+        } else {
+            finalCookie = cookie
+        }
+        
+        guard !finalCookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
 
         // 校验必须字段（参考夸克实现，UC 需要 __pus / __kps / __uid）
         let mustHave = ["__kps", "__pus", "__uid"]
-        let cookieLower = cookie.lowercased()
+        let cookieLower = finalCookie.lowercased()
         for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
             print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
         }
         // 至少要有 __pus 或 __kps 或 uc 标识才视为有效
-        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("uc") else {
-            throw AuthError.invalidResponse("UC Cookie 缺少必须字段 (__pus/__kps/uc)，登录可能无效")
+        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("uc") else {
+            throw AuthError.invalidResponse("UC Cookie 缺少必须字段 (__pus/__kps/__uid/uc)，登录可能无效")
         }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -551,7 +673,7 @@ final class CloudDriveAuthManager: ObservableObject {
             authType: .qr,
             accessToken: nil,
             refreshToken: nil,
-            cookie: cookie,
+            cookie: finalCookie,
             driveId: nil,
             userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
             userName: userName,
@@ -793,31 +915,61 @@ final class CloudDriveAuthManager: ObservableObject {
 
         func startLogin() {
             statusText = "正在加载139云盘页面..."
+            // 139云盘移动端登录页面
             guard let url = URL(string: "https://yun.139.com/w/") else { return }
             webView.load(URLRequest(url: url))
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                // 等待页面完全加载后再尝试切换扫码标签
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 await switchToQRCodeTab()
                 startPolling()
             }
         }
 
         private func switchToQRCodeTab() async {
+            // 增强版 JS：多策略查找并点击扫码/二维码入口
             let js = #"""
             (function() {
-                var elems = document.querySelectorAll('div, span, button, a, li, p, label');
+                // 策略1: 精确查找包含"扫码"/"二维码"的文字元素
+                var elems = document.querySelectorAll('div, span, button, a, li, p, label, input[type="button"], input[type="submit"], .tab-item, .login-tab, [class*="tab"], [class*="Tab"], [class*="login"], [class*="Login"]');
                 for (var i = 0; i < elems.length; i++) {
                     var el = elems[i];
                     var txt = (el.textContent || '').trim();
-                    var cls = ((el.className||'') + ' ' + (el.id||'')).toLowerCase();
+                    var cls = ((el.className||'') + ' ' + (el.id||'') + ' ' + (el.getAttribute('data-type')||'')).toLowerCase();
                     if ((txt.indexOf('扫码') !== -1 || txt.indexOf('二维码') !== -1 ||
-                         cls.indexOf('qr') !== -1 || cls.indexOf('scan') !== -1) &&
+                         txt.indexOf('QR') !== -1 || txt.indexOf('qr') !== -1) &&
                         el.offsetWidth > 0 && el.offsetHeight > 0) {
                         el.click();
-                        return 'clicked';
+                        return 'clicked:' + txt.substring(0, 10);
+                    }
+                    if ((cls.indexOf('qr') !== -1 || cls.indexOf('scan') !== -1 ||
+                         cls.indexOf('扫码') !== -1 || cls.indexOf('qrcode') !== -1) &&
+                        el.offsetWidth > 0 && el.offsetHeight > 0) {
+                        el.click();
+                        return 'clicked_by_class';
+                    }
+                }
+                // 策略2: 尝试通过 URL hash 或路由切换到扫码模式
+                if (window.location.hash.indexOf('qrcode') === -1 &&
+                    window.location.hash.indexOf('scan') === -1) {
+                    try {
+                        var newHash = window.location.hash + '#qrcode';
+                        window.location.hash = 'qrcode';
+                        return 'hash_changed';
+                    } catch(e) {}
+                }
+                // 策略3: 查找所有可见的可点击元素，尝试匹配登录方式切换
+                var allClicks = document.querySelectorAll('[onclick], [data-action], [data-type]');
+                for (var j = 0; j < allClicks.length; j++) {
+                    var cel = allClicks[j];
+                    var attr = (cel.getAttribute('onclick')||'') + (cel.getAttribute('data-action')||'') + (cel.getAttribute('data-type')||'');
+                    if ((attr.indexOf('qr') !== -1 || attr.indexOf('scan') !== -1 || attr.indexOf('扫码') !== -1) &&
+                        cel.offsetWidth > 0 && cel.offsetHeight > 0) {
+                        cel.click();
+                        return 'clicked_by_attr';
                     }
                 }
                 return 'notfound';
@@ -825,13 +977,21 @@ final class CloudDriveAuthManager: ObservableObject {
             """#
             do {
                 let result = try await webView.evaluateJavaScript(js)
-                if let r = result as? String, r == "clicked" {
-                    statusText = "已切换到扫码登录，请扫描二维码"
+                if let r = result as? String {
+                    if r.hasPrefix("clicked") {
+                        statusText = "已切换到扫码登录，请使用中国移动云盘 APP 扫描二维码"
+                    } else if r == "hash_changed" {
+                        statusText = "尝试切换扫码模式，请使用中国移动云盘 APP 扫码"
+                    } else {
+                        statusText = "未找到扫码入口，请在页面中手动切换到扫码登录"
+                    }
                 } else {
-                    statusText = "请使用中国移动云盘APP扫码登录"
+                    statusText = "请使用中国移动云盘 APP 扫码登录"
                 }
+                print("[Pan139] switchToQRCodeTab result: \(result ?? "nil")")
             } catch {
-                statusText = "请使用中国移动云盘APP扫码登录"
+                statusText = "请使用中国移动云盘 APP 扫码登录"
+                print("[Pan139] switchToQRCodeTab error: \(error)")
             }
         }
 
@@ -840,11 +1000,13 @@ final class CloudDriveAuthManager: ObservableObject {
             if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
             self.errorText = "页面加载失败"
             self.statusText = "请检查网络后重试"
+            print("[Pan139] didFail navigation: \(error)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
+            print("[Pan139] didFailProvisionalNavigation: \(error)")
         }
 
         private func startPolling() {
@@ -857,16 +1019,47 @@ final class CloudDriveAuthManager: ObservableObject {
 
                     let cookies = await self.getAllCookies()
                     let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                    
+                    print("[Pan139] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
 
-                    let hasSSOToken = cookies.contains { cookie in
+                    // 检测多个可能的登录成功标志
+                    let hasLoginCookie = cookies.contains { cookie in
                         let name = cookie.name.lowercased()
-                        return (name == "ssotoken" || name == "sso_token") && cookie.value.count > 10
+                        let value = cookie.value
+                        // 139云盘可能的认证 Cookie 名称
+                        return (name == "ssotoken" || name == "sso_token" ||
+                                name == "aSSOToken" || name == "mcloud_sso" ||
+                                name.contains("sso") || name.contains("SSO") ||
+                                name.contains("token") && value.count > 20) &&
+                               cookie.value.count > 10
                     }
 
-                    if hasSSOToken {
+                    if hasLoginCookie {
+                        // 检查更具体的认证字段
+                        let hasSSO = cookies.contains { $0.name.lowercased().contains("sso") }
+                        let hasSession = cookies.contains { $0.name.lowercased().contains("session") }
+                        let hasToken = cookies.contains { $0.name.lowercased().contains("token") && $0.value.count > 20 }
+                        
+                        if hasSSO || hasSession || hasToken {
+                            await MainActor.run {
+                                self.isLoggedIn = true
+                                self.statusText = "登录成功"
+                                print("[Pan139] login success, cookieStr length: \(cookieStr.count)")
+                                CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan139, cookie: cookieStr)
+                            }
+                            return
+                        }
+                    }
+                    
+                    // 额外检测：URL 是否已重定向到登录后的页面
+                    if let currentURL = self.webView.url?.absoluteString,
+                       (currentURL.contains("yun.139.com/w/main") ||
+                        currentURL.contains("yun.139.com/w/home") ||
+                        currentURL.contains("yun.139.com/main")) {
                         await MainActor.run {
                             self.isLoggedIn = true
-                            self.statusText = "登录成功"
+                            self.statusText = "登录成功（检测到页面跳转）"
+                            print("[Pan139] login success via URL redirect: \(currentURL)")
                             CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan139, cookie: cookieStr)
                         }
                         return
@@ -981,6 +1174,252 @@ final class CloudDriveAuthManager: ObservableObject {
                             self.isLoggedIn = true
                             self.statusText = "登录成功，正在保存 Cookie..."
                             CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan189, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时（6分钟），请重试"
+                    self.statusText = "登录超时"
+                }
+            }
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+        }
+    }
+
+    // MARK: - 123云盘网页登录
+
+    @MainActor
+    final class Pan123LoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        func startLogin() {
+            statusText = "正在加载123云盘登录页面..."
+            guard let url = URL(string: "https://www.123pan.com/login") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            self.errorText = "页面加载失败"
+            self.statusText = "请检查网络后重试"
+            print("[Pan123] didFail navigation: \(error)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.errorText = "链接失败: \(error.localizedDescription)"
+            self.statusText = "加载失败"
+            print("[Pan123] didFailProvisionalNavigation: \(error)")
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                self.statusText = "请在页面中登录123云盘（手机号/微信扫码）"
+                for _ in 1...180 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                    
+                    print("[Pan123] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
+
+                    // 检测登录成功的标志
+                    let hasLoginCookie = cookies.contains { cookie in
+                        let name = cookie.name.lowercased()
+                        let value = cookie.value
+                        return (name.contains("authorization") ||
+                                name.contains("token") ||
+                                name == "userid" ||
+                                name == "uid" ||
+                                name.contains("passport") ||
+                                name.contains("login")) && value.count > 10
+                    }
+
+                    if hasLoginCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            print("[Pan123] login success, cookieStr length: \(cookieStr.count)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr)
+                        }
+                        return
+                    }
+
+                    // 额外检测：URL 是否跳转到用户首页
+                    if let currentURL = self.webView.url?.absoluteString,
+                       (currentURL.contains("123pan.com/home") ||
+                        currentURL.contains("123pan.com/dashboard") ||
+                        currentURL.contains("123pan.com/disk") ||
+                        currentURL.contains("123684.com/home")) {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功（检测到页面跳转），正在保存 Cookie..."
+                            print("[Pan123] login success via URL redirect: \(currentURL)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时（6分钟），请重试"
+                    self.statusText = "登录超时"
+                }
+            }
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+        }
+    }
+
+    // MARK: - 115网盘网页登录
+
+    @MainActor
+    final class Pan115LoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        func startLogin() {
+            statusText = "正在加载115网盘登录页面..."
+            guard let url = URL(string: "https://115.com/?ct=login") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            self.errorText = "页面加载失败"
+            self.statusText = "请检查网络后重试"
+            print("[Pan115] didFail navigation: \(error)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.errorText = "链接失败: \(error.localizedDescription)"
+            self.statusText = "加载失败"
+            print("[Pan115] didFailProvisionalNavigation: \(error)")
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                self.statusText = "请在页面中登录115网盘（扫码或账号密码）"
+                for _ in 1...180 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                    
+                    print("[Pan115] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
+
+                    // 115网盘登录成功的标志性 Cookie
+                    let hasLoginCookie = cookies.contains { cookie in
+                        let name = cookie.name.lowercased()
+                        let value = cookie.value
+                        return (name == "uid" || name == "cid" || name == "seid" ||
+                                name.contains("user_id") || name.contains("userid") ||
+                                name.contains("passport") || name.contains("uc_115")) && value.count > 5
+                    }
+
+                    if hasLoginCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            print("[Pan115] login success, cookieStr length: \(cookieStr.count)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .one15, cookie: cookieStr)
+                        }
+                        return
+                    }
+
+                    // 额外检测：URL 跳转到用户首页
+                    if let currentURL = self.webView.url?.absoluteString,
+                       (currentURL.contains("115.com/?ct=file") ||
+                        currentURL.contains("115.com/?ct=disk") ||
+                        currentURL.contains("115.com/?ac=space") ||
+                        currentURL.contains("115.com/?ct=index") ||
+                        currentURL.contains("/main") || currentURL.contains("/home")) {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功（检测到页面跳转），正在保存 Cookie..."
+                            print("[Pan115] login success via URL redirect: \(currentURL)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .one15, cookie: cookieStr)
                         }
                         return
                     }
