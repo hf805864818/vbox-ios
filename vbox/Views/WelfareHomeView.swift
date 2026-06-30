@@ -1,135 +1,142 @@
 import SwiftUI
 
-/// 福利首页 — 平台图标网格（类似 YBox 首页，展示全部 62 个平台入口）
+// MARK: - 福利首页（视频/直播/漫画 三大分类）
 struct WelfareHomeView: View {
     @EnvironmentObject private var settings: AppSettings
-    @State private var searchText = ""
+    @StateObject private var ybox = YBoxService2.shared
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 24) {
+                    // 标题
+                    VStack(spacing: 4) {
+                        Text("福利专区")
+                            .font(.system(size: 28, weight: .bold))
+                        Text("视频 · 直播 · 漫画")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 16)
 
-    private var filteredPlatforms: [WelfarePlatform] {
-        if searchText.isEmpty {
-            return WelfarePlatform.allPlatforms
+                    // 三大分类区块
+                    ForEach(ybox.categories) { category in
+                        WelfareCategorySection(category: category)
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+            .background(backgroundColor)
+            .navigationBarHidden(true)
         }
-        return WelfarePlatform.allPlatforms.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var backgroundColor: Color {
+        settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemGroupedBackground)
+    }
+}
+
+// MARK: - 分类区块
+struct WelfareCategorySection: View {
+    let category: YBoxCategory2
+    @EnvironmentObject private var settings: AppSettings
+
+    private var iconName: String {
+        switch category.name {
+        case "视频": return "play.rectangle.fill"
+        case "直播": return "antenna.radiowaves.left.and.right"
+        case "漫画": return "book.fill"
+        default: return "square.grid.3x3"
+        }
+    }
+
+    private var gradientColors: [Color] {
+        switch category.name {
+        case "视频": return [Color(hex: "E11D48"), Color(hex: "F43F5E")]
+        case "直播": return [Color(hex: "7C3AED"), Color(hex: "A855F7")]
+        case "漫画": return [Color(hex: "059669"), Color(hex: "34D399")]
+        default: return [Color(hex: "E11D48"), Color(hex: "7C3AED")]
         }
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // 搜索栏
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    TextField("搜索平台...", text: $searchText)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            // 分类标题
+            HStack {
+                LinearGradient(colors: gradientColors, startPoint: .leading, endPoint: .trailing)
+                    .mask(
+                        HStack(spacing: 6) {
+                            Image(systemName: iconName)
+                                .font(.system(size: 18, weight: .semibold))
+                            Text(category.name)
+                                .font(.system(size: 20, weight: .bold))
                         }
-                    }
-                }
-                .padding(10)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .cornerRadius(12)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                    )
+                    .frame(height: 28)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
 
-                // 平台图标网格
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(filteredPlatforms) { platform in
-                            PlatformCardView(platform: platform)
-                        }
+            // 平台网格（每行3个）
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                ForEach(category.platforms) { platform in
+                    NavigationLink(destination: platformDestination(platform)) {
+                        WelfarePlatformCard2(platform: platform, colors: gradientColors)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .padding(.bottom, 100) // 为底栏留空间
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
-            .background(backgroundColor)
-            .navigationTitle("福利专区")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding(.horizontal, 16)
         }
     }
 
-    // MARK: - 皮肤颜色
-
-    private var backgroundColor: Color {
-        settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground)
+    @ViewBuilder
+    private func platformDestination(_ platform: YBoxPlatform2) -> some View {
+        switch platform.type {
+        case .video:
+            if platform.baseURL.contains("zfvwi8") {
+                YBoxBananaListView(platform: platform)
+            } else if platform.baseURL.contains("1080") {
+                YBoxWebSourceListView(platform: platform)
+            } else {
+                YBoxBananaListView(platform: platform)
+            }
+        case .live:
+            YBoxLiveSourceListView()
+        case .comic:
+            YBoxComicListView()
+        case .audio:
+            YBoxWebSourceListView(platform: platform)
+        }
     }
 }
 
 // MARK: - 平台卡片
-
-private struct PlatformCardView: View {
-    @EnvironmentObject private var settings: AppSettings
-    let platform: WelfarePlatform
+struct WelfarePlatformCard2: View {
+    let platform: YBoxPlatform2
+    let colors: [Color]
 
     var body: some View {
-        NavigationLink {
-            WelfarePlatformView(platform: platform)
-        } label: {
-            VStack(spacing: 8) {
-                // 平台图标
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color(uiColor: .secondarySystemBackground))
-                        .aspectRatio(1, contentMode: .fit)
-
-                    Image(systemName: platformIcon)
-                        .font(.system(size: 28))
-                        .foregroundColor(accentColor)
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(LinearGradient(colors: colors.map { $0.opacity(0.15) },
+                                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(height: 72)
+                VStack(spacing: 4) {
+                    Image(systemName: platform.icon)
+                        .font(.system(size: 24))
+                        .foregroundColor(colors[0])
+                    Text(platform.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
                 }
-
-                // 平台名称
-                Text(platform.name)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(textColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
+            Text(platform.desc)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
         }
-    }
-
-    /// 平台图标映射（后续可替换为远程 URL 图标）
-    private var platformIcon: String {
-        let icons: [String: String] = [
-            "xvideos": "x.squareroot",
-            "missav": "m.square.fill",
-            "javdb": "j.square.fill",
-            "91av": "9.alt.circle.fill",
-            "91dsp": "d.square.fill",
-            "91sp": "s.square.fill",
-            "91tv": "tv.fill",
-            "91pron": "p.square.fill",
-            "91zpc": "z.square.fill",
-            "51cg": "5.alt.circle.fill",
-            "insav": "i.square.fill",
-            "one": "1.circle.fill",
-        ]
-        return icons[platform.id] ?? "app.fill"
-    }
-
-    private var accentColor: Color {
-        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
-        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
-        return Color(hex: "E11D48")
-    }
-
-    private var textColor: Color {
-        settings.usesVisualSkin ? .white : Color(uiColor: .label)
     }
 }

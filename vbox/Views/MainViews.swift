@@ -26,19 +26,26 @@ struct MainTabView: View {
                     }
                     .tag(1)
 
-                LiveTVView()
+                WelfareHomeView()
                     .tabItem {
-                        Image(systemName: selectedTab == 2 ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
-                        Text("直播")
+                        Image(systemName: selectedTab == 2 ? "heart.fill" : "heart")
+                        Text("福利")
                     }
                     .tag(2)
 
-                ProfileView()
+                LiveTVView()
                     .tabItem {
-                        Image(systemName: selectedTab == 3 ? "person.fill" : "person")
-                        Text("设置")
+                        Image(systemName: selectedTab == 3 ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
+                        Text("直播")
                     }
                     .tag(3)
+
+                ProfileView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 4 ? "person.fill" : "person")
+                        Text("设置")
+                    }
+                    .tag(4)
             }
             .accentColor(Color(hex: "E11D48"))
 
@@ -88,6 +95,7 @@ struct GlassBottomTabBar: View {
     private let tabs: [(icon: String, iconFilled: String, title: String)] = [
         ("house", "house.fill", "首页"),
         ("magnifyingglass.circle", "magnifyingglass.circle.fill", "搜索"),
+        ("heart", "heart.fill", "福利"),
         ("antenna.radiowaves.left.and.right", "dot.radiowaves.left.and.right", "直播"),
         ("person", "person.fill", "设置")
     ]

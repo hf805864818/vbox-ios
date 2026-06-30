@@ -72,6 +72,17 @@ struct WelfareCrawlerConfig: Codable, Identifiable {
 // MARK: - 全部 62 个平台爬虫配置（基于 ybox 抓包数据映射）
 extension WelfareCrawlerConfig {
     static let all: [WelfareCrawlerConfig] = [
+        // ═══ 香蕉秀/小视频（自建明文API） ═══
+        .make("banana",  "香蕉秀",  "香蕉",   "https://zfvwi8.ipajx0.cc",    .apiJson, [.home,.video,.tiktok,.search], apiMode: .open),
+        .make("huanxiang", "幻想次元", "幻想", "https://zfvwi8.ipajx0.cc",   .apiJson, [.home,.video], apiMode: .open),
+
+        // ═══ 直播源（hclyz 136个源） ═══
+        .make("live_hclyz", "综合直播", "直播", "http://api.hclyz.com:81/mf", .apiJson, [.home,.channel], apiMode: .open),
+
+        // ═══ 18禁漫画 ═══
+        .make("comic18",  "18禁漫画", "漫画",  "https://www.18akmanhua.com", .htmlRegex, [.home,.comic,.search], apiMode: .open, htmlTemplate: .generic),
+
+        // ═══ 原62个平台配置 ═══
         // ═══ 视频聚合类 (15个) ═══
         .make("91av",   "91av",   "91av",   "https://api1.i91avapi2.com",         .pwaApi,     [.home,.video,.actor,.search]),
         .make("hgsp",   "hgsp",   "hgsp",   "https://api.nzp1ve.com",             .encPost,    [.home,.video,.actor,.search]),
