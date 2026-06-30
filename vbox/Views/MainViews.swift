@@ -207,6 +207,7 @@ struct HomeView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var showSearch = false
     @State private var showRanking = false
+    @State private var showHistory = false
     private static var cachedBannerSubjects: [DoubanSubject] = []
     private static var cachedHotMovies: [DoubanSubject] = []
     private static var cachedHotTV: [DoubanSubject] = []
@@ -250,7 +251,7 @@ struct HomeView: View {
                         Text("正在加载...").font(.system(size: 14)).foregroundColor(.secondary)
                     }
                 } else {
-                    HomeSearchBar(showSearch: $showSearch, showRanking: $showRanking)
+                    HomeSearchBar(showSearch: $showSearch, showRanking: $showRanking, showHistory: $showHistory)
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
                     }
@@ -302,6 +303,10 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showRanking) {
             DoubanRankingView()
+                .environmentObject(settings)
+        }
+        .sheet(isPresented: $showHistory) {
+            WatchHistoryView()
                 .environmentObject(settings)
         }
         .onChange(of: settings.searchRequestId) { _ in
@@ -364,6 +369,7 @@ struct HomeView: View {
 struct HomeSearchBar: View {
     @Binding var showSearch: Bool
     @Binding var showRanking: Bool
+    @Binding var showHistory: Bool
     @EnvironmentObject private var settings: AppSettings
     @State private var searchText = ""
 
@@ -393,19 +399,28 @@ struct HomeSearchBar: View {
             Button {
                 showRanking = true
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 14))
-                    Text("排行榜")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(hex: "E11D48"))
-                )
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(hex: "E11D48"))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showHistory = true
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(hex: "E11D48"))
+                    )
             }
             .buttonStyle(.plain)
         }
@@ -753,6 +768,7 @@ struct SectionHeader: View {
 struct SearchView: View {
     @StateObject private var spiderManager = SpiderManager.shared
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var isSearching = false
     @State private var searchResults: [VodItem] = []
@@ -915,6 +931,14 @@ struct SearchView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: isSearching)
+        .gesture(
+            DragGesture()
+                .onEnded { value in
+                    if value.translation.width > 100 && value.startLocation.x < 50 {
+                        dismiss()
+                    }
+                }
+        )
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onChange(of: settings.searchRequestId) { _ in
