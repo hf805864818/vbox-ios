@@ -70,7 +70,6 @@ final class YBoxAPIService {
         case .novel:     return "novel"
         case .actor:     return "actor"
         case .search:    return "search"
-        case .search2:   return "search2"
         case .classify:  return "classify"
         case .find:      return "find"
         case .topic:     return "topic"
