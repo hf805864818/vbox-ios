@@ -537,7 +537,7 @@ class PlayerState: ObservableObject {
         case vlc = "VLC"
         case mpv = "MPV"
         case ijk = "IJK"
-        case ali = "AliPlayer"
+        case ali = "阿里"
 
         var id: String { rawValue }
 
@@ -757,7 +757,7 @@ class PlayerState: ObservableObject {
                     return "自动/MDK"
                 }
                 if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: nil) {
-                    return "自动/AliPlayer"
+                    return "自动/阿里"
                 }
                 if isIJKBuildAvailable, shouldPreferIJK(for: nil) {
                     return "自动/IJK"
@@ -776,7 +776,7 @@ class PlayerState: ObservableObject {
         case .ijk:
             return "IJK"
         case .ali:
-            return "AliPlayer"
+            return "阿里"
         }
     }
 
@@ -791,13 +791,13 @@ class PlayerState: ObservableObject {
         case .ijk:
             return isIJKBuildAvailable ? "IJKPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .ali:
-            return isAliPlayerBuildAvailable ? "AliPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
+            return isAliPlayerBuildAvailable ? "阿里" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .auto:
             if isMDKBuildAvailable, shouldPreferMDK(for: url) {
                 return "MDK"
             }
             if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: url) {
-                return "AliPlayer"
+                return "阿里"
             }
             if isIJKBuildAvailable, shouldPreferIJK(for: url) {
                 return "IJKPlayer"
@@ -5017,10 +5017,6 @@ struct EnginePickerPanelV2: View {
                                 Text("无画中画")
                                     .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.4))
-                            } else if engine == .ali {
-                                Text("原生画中画")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
                             } else if engine == .mpv {
                                 Text("画中画")
                                     .font(.system(size: 11))
