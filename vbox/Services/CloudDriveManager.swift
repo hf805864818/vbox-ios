@@ -1509,10 +1509,8 @@ class CloudDriveManager: ObservableObject {
         }
 
         var authCookie = cookie
-        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
-        authCookie = folder.cookie
-        print("[Quark] folderId=\(folder.folderId.isEmpty ? "空" : folder.folderId), hasPUUS=\(authCookie.contains("__puus="))")
 
+        // 对齐 iBox：不创建自定义目录，to_pdir_fid 传 "0"，让夸克按默认行为保存
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
@@ -1523,7 +1521,7 @@ class CloudDriveManager: ObservableObject {
             pwdId: pwdId,
             stoken: shareToken,
             file: sourceFile,
-            folderId: folder.folderId,
+            folderId: "0",
             cookie: authCookie
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
