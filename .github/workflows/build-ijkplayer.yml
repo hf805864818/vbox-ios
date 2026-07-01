@@ -36,12 +36,21 @@ jobs:
           git config --global user.name "github-actions[bot]"
           ./init-ios.sh
 
+      - name: Patch compile scripts for Xcode 16
+        working-directory: ./ijkplayer/ios
+        run: |
+          # 只编译 arm64 真机架构
+          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-ffmpeg.sh
+          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-openssl.sh
+          # Xcode 16 不再支持 bitcode，移除 -fembed-bitcode
+          sed -i '' 's/FF_XCODE_BITCODE="-fembed-bitcode"/FF_XCODE_BITCODE=""/' tools/do-compile-ffmpeg.sh
+          sed -i '' 's/FF_XCODE_BITCODE="-fembed-bitcode"/FF_XCODE_BITCODE=""/' tools/do-compile-openssl.sh
+          # 新 clang 对老 ffmpeg 的函数指针类型检查更严格，关闭该错误
+          sed -i '' 's/FFMPEG_EXTRA_CFLAGS=/FFMPEG_EXTRA_CFLAGS="-Wno-incompatible-function-pointer-types"/' tools/do-compile-ffmpeg.sh
+
       - name: Compile FFmpeg (arm64 only)
         working-directory: ./ijkplayer/ios
         run: |
-          # 只编译 arm64 真机架构，加快构建速度
-          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-ffmpeg.sh
-          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-openssl.sh
           ./compile-ffmpeg.sh clean
           ./compile-ffmpeg.sh all
 

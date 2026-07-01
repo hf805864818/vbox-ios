@@ -35,6 +35,18 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
+      - name: Patch build scripts for Xcode 16
+        working-directory: ./CicadaPlayer
+        run: |
+          # Xcode 16 不再支持 bitcode，移除所有 -fembed-bitcode
+          find . -type f \( -name "*.sh" -o -name "*.cmake" -o -name "CMakeLists.txt" \) -exec sed -i '' 's/-fembed-bitcode//g' {} \;
+          # 只编译 arm64 真机，Xcode 16 不支持 armv7
+          sed -i '' 's/IOS_ARCHS="arm64 x86_64"/IOS_ARCHS="arm64"/' build_tools/env.sh
+          sed -i '' 's/VALID_ARCHS="armv7 arm64"/VALID_ARCHS="arm64"/' build_player.sh
+          sed -i '' 's/set (IOS_ARCH armv7 arm64)/set (IOS_ARCH arm64)/' build_tools/iOS/iOS.cmake
+          # iOS 8.0 部署目标太老，改到 12.0 避免 SDK 兼容警告
+          sed -i '' 's/DEPLOYMENT_TARGET="8.0"/DEPLOYMENT_TARGET="12.0"/' build_tools/iOSConfig.sh
+
       - name: Build iOS SDK
         working-directory: ./CicadaPlayer
         run: |
