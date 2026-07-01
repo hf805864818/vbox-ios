@@ -140,7 +140,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             // 画中画切换播放/暂停
             observers.append(center.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] _ in
                 guard let player = self?.player else { return }
-                if player.playerStatus == 3 {
+                if player.playerStatus() == 3 {
                     player.pause()
                 } else {
                     player.start()
