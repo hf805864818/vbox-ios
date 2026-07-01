@@ -543,6 +543,7 @@ class PlayerState: ObservableObject {
         case mdk = "MDK"
         case vlc = "VLC"
         case mpv = "MPV"
+        case ijk = "IJK"
 
         var id: String { rawValue }
 
@@ -558,6 +559,8 @@ class PlayerState: ObservableObject {
                 return "优先使用 VLC，不支持系统画中画"
             case .mpv:
                 return "MPV 内核，支持系统画中画"
+            case .ijk:
+                return "IJKPlayer 内核，适合网盘直链"
             }
         }
     }
@@ -698,10 +701,18 @@ class PlayerState: ObservableObject {
         #endif
     }
 
+    private var isIJKBuildAvailable: Bool {
+        #if canImport(IJKMediaFrameworkWithSSL)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var shouldUseCompatibilityEngine: Bool {
         switch enginePreference {
         case .auto:
-            return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable)
+            return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable || isIJKBuildAvailable)
         case .system:
             return false
         case .mdk:
@@ -710,15 +721,17 @@ class PlayerState: ObservableObject {
             return isVLCBuildAvailable
         case .mpv:
             return isMPVBuildAvailable
+        case .ijk:
+            return isIJKBuildAvailable
         }
     }
 
     /// 当前使用的兼容内核是否支持系统级画中画
     var isCurrentCompatibilityEngineSupportsPiP: Bool {
         guard playbackEngineMode == .compatibility else { return true }
-        // MDK / MPV 支持帧桥接 PiP，VLC 不支持
+        // MDK / MPV / IJK 支持帧桥接 PiP，VLC 不支持
         let engineName = compatibilityEngineName
-        return engineName.contains("MDK") || engineName.contains("MPV") || engineName.contains("mpv")
+        return engineName.contains("MDK") || engineName.contains("MPV") || engineName.contains("mpv") || engineName.contains("IJK")
     }
 
     /// 当前引擎是否支持系统级画中画（用于 UI 按钮状态）
@@ -737,6 +750,9 @@ class PlayerState: ObservableObject {
                 if isMDKBuildAvailable, shouldPreferMDK(for: nil) {
                     return "自动/MDK"
                 }
+                if isIJKBuildAvailable, shouldPreferIJK(for: nil) {
+                    return "自动/IJK"
+                }
                 return isMPVBuildAvailable ? "自动/MPV" : "自动/VLC"
             }
             return "自动"
@@ -748,6 +764,8 @@ class PlayerState: ObservableObject {
             return "VLC"
         case .mpv:
             return "MPV"
+        case .ijk:
+            return "IJK"
         }
     }
 
@@ -759,9 +777,14 @@ class PlayerState: ObservableObject {
             return isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC"
         case .vlc:
             return isVLCBuildAvailable ? "VLC" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
+        case .ijk:
+            return isIJKBuildAvailable ? "IJKPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .auto:
             if isMDKBuildAvailable, shouldPreferMDK(for: url) {
                 return "MDK"
+            }
+            if isIJKBuildAvailable, shouldPreferIJK(for: url) {
+                return "IJKPlayer"
             }
             if isMPVBuildAvailable, shouldPreferMPV(for: url) {
                 return "MPV-MoltenVK"
@@ -789,11 +812,21 @@ class PlayerState: ObservableObject {
         guard isMPVBuildAvailable else { return false }
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        // 夸克直链明确优先 MPV
-        if text.contains("baidu-stream") || text.contains("quark-stream") { return true }
+        // 百度原画走 MPV，夸克已优先 IJK
+        if text.contains("baidu-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
         if compatibilityHint?.contains("百度原画") == true { return true }
+        return false
+    }
+
+    private func shouldPreferIJK(for url: URL?) -> Bool {
+        guard isIJKBuildAvailable else { return false }
+        guard let url else { return false }
+        let text = url.absoluteString.lowercased()
+        // 夸克直链优先 IJKPlayer
+        if text.contains("quark-stream") { return true }
+        if text.contains("baidu-stream") { return true }
         return false
     }
 
@@ -826,6 +859,8 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 已切换内核策略：VLC\(isVLCBuildAvailable ? "" : "（当前构建未包含 VLC）")")
         case .mpv:
             log("[PlayerV2] 已切换内核策略：MPV-MoltenVK\(isMPVBuildAvailable ? "" : "（当前构建未包含 Libmpv）")")
+        case .ijk:
+            log("[PlayerV2] 已切换内核策略：IJKPlayer\(isIJKBuildAvailable ? "" : "（当前构建未包含 IJKPlayer）")")
         }
 
         if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
@@ -863,7 +898,7 @@ class PlayerState: ObservableObject {
             currentTime = target
             isLoading = false
             log("[PlayerV2] \(compatibilityEngineName) 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
-            let notification: Notification.Name = compatibilityEngineName.contains("MPV") ? .vboxMPVSeek : .vboxVLCSeek
+            let notification: Notification.Name = (compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")) ? .vboxMPVSeek : .vboxVLCSeek
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["seconds": target])
             isSeeking = false
             return
@@ -936,10 +971,11 @@ class PlayerState: ObservableObject {
             return
         }
         guard compatibilityURL != nil else { return }
+        let isMPVorIJK = compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")
         if isPlaying {
-            NotificationCenter.default.post(name: compatibilityEngineName.contains("MPV") ? .vboxMPVPause : .vboxVLCPause, object: nil)
+            NotificationCenter.default.post(name: isMPVorIJK ? .vboxMPVPause : .vboxVLCPause, object: nil)
         } else {
-            NotificationCenter.default.post(name: compatibilityEngineName.contains("MPV") ? .vboxMPVPlay : .vboxVLCPlay, object: nil)
+            NotificationCenter.default.post(name: isMPVorIJK ? .vboxMPVPlay : .vboxVLCPlay, object: nil)
         }
         isPlaying.toggle()
     }
@@ -950,7 +986,8 @@ class PlayerState: ObservableObject {
             player.rate = isPlaying ? Float(speed) : 0
         }
         if compatibilityURL != nil {
-            let notification: Notification.Name = compatibilityEngineName.contains("MPV") ? .vboxMPVSpeed : .vboxVLCSpeed
+            let isMPVorIJK = compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")
+            let notification: Notification.Name = isMPVorIJK ? .vboxMPVSpeed : .vboxVLCSpeed
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["speed": speed])
             log("[PlayerV2] \(compatibilityEngineName) 倍速切换：\(String(format: "%.2f", speed))X")
         }
@@ -1950,29 +1987,41 @@ class PlayerState: ObservableObject {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
 
-        if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isMPVBuildAvailable {
+        // 夸克直链：优先 IJKPlayer，其次 MPV/MDK/VLC
+        if isQuarkLocalProxy && enginePreference == .auto {
             await MainActor.run {
                 playbackEngineMode = .compatibility
-                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
+                compatibilityHint = "夸克网盘直链"
             }
-            let reason = isBaiduLocalProxy ? "baidu-stream 本地代理原画流" : "quark-stream 直链"
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: reason)
-            log(isBaiduLocalProxy ? "[Baidu] 自动模式下百度本地代理优先使用 MPV-MoltenVK" : "[Quark] 自动模式下夸克直链优先使用 MPV-MoltenVK")
-        } else if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isMDKBuildAvailable {
+            if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "quark-stream 直链优先 IJKPlayer")
+                log("[Quark] 自动模式下夸克直链优先使用 IJKPlayer")
+            } else if isMPVBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream 直链（IJKPlayer 不可用）")
+                log("[Quark] IJKPlayer 不可用，降级使用 MPV-MoltenVK")
+            } else if isMDKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "quark-stream 直链（IJK/MPV 不可用）")
+                log("[Quark] IJK/MPV 不可用，降级使用 MDK")
+            } else if isVLCBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream 直链 IJK/MPV/MDK 均不可用")
+                log("[Quark] IJK/MPV/MDK 均不可用，降级使用 VLC")
+            }
+        } else if isBaiduLocalProxy && enginePreference == .auto {
+            // 百度原画：保持原有 MPV → MDK → VLC 降级链
             await MainActor.run {
                 playbackEngineMode = .compatibility
-                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
+                compatibilityHint = "百度原画本地代理"
             }
-            let reason = isBaiduLocalProxy ? "baidu-stream 本地代理原画流（MPV 不可用）" : "quark-stream 直链（MPV 不可用）"
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: reason)
-            log(isBaiduLocalProxy ? "[Baidu] MPV 不可用，降级使用 MDK" : "[Quark] MPV 不可用，降级使用 MDK")
-        } else if (isBaiduLocalProxy || isQuarkLocalProxy) && enginePreference == .auto && isVLCBuildAvailable {
-            await MainActor.run {
-                playbackEngineMode = .compatibility
-                compatibilityHint = isBaiduLocalProxy ? "百度原画本地代理" : "夸克网盘直链"
+            if isMPVBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流")
+                log("[Baidu] 自动模式下百度本地代理优先使用 MPV-MoltenVK")
+            } else if isMDKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream 本地代理原画流（MPV 不可用）")
+                log("[Baidu] MPV 不可用，降级使用 MDK")
+            } else if isVLCBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu-stream MPV/MDK 均不可用降级 VLC")
+                log("[Baidu] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu/quark-stream MPV/MDK 均不可用降级 VLC")
-            log("[Baidu/Quark] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
                 playbackEngineMode = .system
@@ -1981,14 +2030,14 @@ class PlayerState: ObservableObject {
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
-        } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
+        } else if enginePreference == .auto, shouldPreferIJK(for: urlObj) {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "quark-stream直链MDK/MPV均不可用降级VLC")
-            log("[Quark] MDK/MPV 均不可用，降级使用 VLC 兼容内核")
-        } else if enginePreference == .auto, shouldPreferMPVByResourceName(resourceName, url: urlObj), isMPVBuildAvailable {
+            logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "真实文件名/URL命中夸克直链")
+            log("[Quark] 自动模式下夸克直链使用 IJKPlayer")
+        } else if enginePreference == .auto, shouldPreferMPV(for: urlObj) {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = compatibilityReason(for: resourceName) ?? "复杂封装"
@@ -3156,6 +3205,13 @@ struct PlayerContainerView: View {
                         .ignoresSafeArea()
                     #else
                     CompatibilityUnavailableView(engineName: "MPV-MoltenVK", message: "当前构建未包含 Libmpv")
+                    #endif
+                } else if playerState.compatibilityEngineName.contains("IJK") {
+                    #if canImport(IJKMediaFrameworkWithSSL)
+                    IJKPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
+                        .ignoresSafeArea()
+                    #else
+                    CompatibilityUnavailableView(engineName: "IJKPlayer", message: "当前构建未包含 IJKPlayer")
                     #endif
                 } else {
                 #if canImport(MobileVLCKit)
