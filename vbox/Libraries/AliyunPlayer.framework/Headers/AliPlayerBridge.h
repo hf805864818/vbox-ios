@@ -10,9 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 #pragma mark - AVPUrlSource
 
 @interface AVPUrlSource : NSObject
-@property (nonatomic, copy) NSString *url;
+@property (nonatomic, copy) NSString *playerUrl;
 @property (nonatomic, copy, nullable) NSString *uid;
 @property (nonatomic, copy, nullable) NSString *userData;
++ (instancetype)urlWithString:(NSString *)urlString;
 @end
 
 #pragma mark - AVPConfig
@@ -150,8 +151,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (int64_t)duration;
 - (int64_t)currentPosition;
 - (int64_t)bufferedPosition;
-- (NSInteger)playerState;
-- (BOOL)isPlaying;
+- (NSInteger)playerStatus;
 - (int)width;
 - (int)height;
 
@@ -173,7 +173,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)selectTrack:(NSInteger)trackIndex;
 
 // Snapshot
-- (void)snapshot;
+- (void)snapShot;
 
 // Tracing
 - (void)setTraceID:(NSString *)traceId;
