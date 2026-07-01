@@ -1,9 +1,7 @@
 import SwiftUI
 import UIKit
-#if canImport(AliyunPlayer)
-import AliyunPlayer
 
-// MARK: - AliPlayer SwiftUI 桥接
+// MARK: - AliPlayer SwiftUI 桥接（运行时动态调用，不依赖编译期 canImport）
 
 struct AliPlayerRepresentable: UIViewRepresentable {
     let url: String
@@ -39,11 +37,18 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         containerView.backgroundColor = .black
         containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
-        let player = AliPlayer()
+        guard let player = createAliPlayer() else {
+            let label = UILabel()
+            label.text = "AliPlayer 不可用"
+            label.textColor = .white
+            label.textAlignment = .center
+            containerView.addSubview(label)
+            return containerView
+        }
+
         player.setPlayerView(containerView)
 
-        // 配置
-        let config = AVPConfig()
+        let config = createAVPConfig()
         config.referer = referer
         config.httpHeaders = headers
         config.networkTimeout = 15000
@@ -54,11 +59,9 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         config.positionTimerIntervalMs = 250
         player.setConfig(config)
 
-        // 启用画中画
         player.setPictureInPictureEnable(true)
 
-        // 设置 URL 源
-        let source = AVPUrlSource()
+        let source = createAVPUrlSource()
         source.playerUrl = url
         player.setUrlSource(source)
 
@@ -71,7 +74,6 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         context.coordinator.player = player
         context.coordinator.containerView = containerView
 
-        // 延迟 prepare，等 view 布局完成
         DispatchQueue.main.async {
             player.prepare()
         }
@@ -80,7 +82,6 @@ struct AliPlayerRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // 尺寸变化时重绘
         context.coordinator.player?.redraw()
     }
 
@@ -90,9 +91,9 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, AVPDelegate, AliPlayerPictureInPictureDelegate {
+    class Coordinator: NSObject {
         let parent: AliPlayerRepresentable
-        var player: AliPlayer?
+        var player: AliPlayerProxy?
         var containerView: UIView?
         weak var timer: Timer?
         var observers: [NSObjectProtocol] = []
@@ -106,38 +107,32 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         func setupNotifications() {
             let center = NotificationCenter.default
 
-            // 播放
             observers.append(center.addObserver(forName: .vboxMPVPlay, object: nil, queue: .main) { [weak self] _ in
                 self?.player?.start()
                 self?.startTimer()
             })
 
-            // 暂停
             observers.append(center.addObserver(forName: .vboxMPVPause, object: nil, queue: .main) { [weak self] _ in
                 self?.player?.pause()
                 self?.stopTimer()
             })
 
-            // 停止
             observers.append(center.addObserver(forName: .vboxMPVStop, object: nil, queue: .main) { [weak self] _ in
                 self?.player?.stop()
                 self?.stopTimer()
             })
 
-            // 跳转
             observers.append(center.addObserver(forName: .vboxMPVSeek, object: nil, queue: .main) { [weak self] note in
                 guard let position = note.userInfo?["position"] as? Double else { return }
                 self?.player?.seek(toTime: Int64(position * 1000), seekMode: 1)
             })
 
-            // 倍速
             observers.append(center.addObserver(forName: .vboxMPVSpeed, object: nil, queue: .main) { [weak self] note in
                 guard let speed = note.userInfo?["speed"] as? Float else { return }
                 self?.player?.setRate(speed)
                 self?.parent.playerState.playbackSpeed = Double(speed)
             })
 
-            // 画中画切换播放/暂停
             observers.append(center.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] _ in
                 guard let player = self?.player else { return }
                 if player.playerStatus() == 3 {
@@ -178,93 +173,130 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             player?.destroy()
             player = nil
         }
+    }
+}
 
-        // MARK: - AVPDelegate
+// MARK: - Runtime Proxy Objects (uses @objc dynamic dispatch, no compile-time import needed)
 
-        func onPlayerEvent(_ player: Any, eventCode: Int) {
-            switch eventCode {
-            case 0: // PrepareDone
-                self.player?.start()
-                startTimer()
-                DispatchQueue.main.async { self.parent.onReady?() }
-            case 1: // AutoPlayStart
-                startTimer()
-            case 2: // SeekingEnd
-                DispatchQueue.main.async { self.parent.onSeekDone?() }
-            case 3: // EOF / Completion
-                stopTimer()
-                DispatchQueue.main.async {
-                    self.parent.playerState.isPlaying = false
-                }
-            default:
-                break
-            }
-        }
+/// 运行时代理，通过 NSClassFromString 创建 AliPlayer 实例
+class AliPlayerProxy: NSObject {
+    private let obj: NSObject
 
-        func onPlayerEvent(_ player: Any, eventWith eventStr: String, description: String) {
-            // 备用事件回调
-        }
+    init?() {
+        guard let cls = NSClassFromString("AliPlayer") as? NSObject.Type else { return nil }
+        self.obj = cls.init()
+        super.init()
+    }
 
-        func onError(_ player: Any, errorModel: AVPErrorModel) {
-            stopTimer()
-            DispatchQueue.main.async {
-                self.parent.onError?(errorModel.message ?? "Unknown error")
-            }
-        }
-
-        func onPlayerStatusChanged(_ player: Any, oldStatus: Int, newStatus: Int) {
-            DispatchQueue.main.async {
-                self.parent.playerState.isPlaying = (newStatus == 3) // started
-                self.parent.onStatusChange?(AliPlayerStatus(rawValue: newStatus) ?? .idle)
-            }
-        }
-
-        func onVideoSizeChanged(_ player: Any, width: Int, height: Int) {
-            // 视频尺寸变化
-        }
-
-        func onSeekDone(_ player: Any) {
-            DispatchQueue.main.async { self.parent.onSeekDone?() }
-        }
-
-        // MARK: - AliPlayerPictureInPictureDelegate
-
-        func pictureInPictureControllerWillStartPicture(inPicture controller: Any) {
-            log("[AliPlayer] PiP will start")
-        }
-
-        func pictureInPictureControllerDidStartPicture(inPicture controller: Any) {
-            log("[AliPlayer] PiP did start")
-            DispatchQueue.main.async {
-                self.parent.playerState.isPiPActive = true
-                NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
-            }
-        }
-
-        func pictureInPictureControllerWillStopPicture(inPicture controller: Any) {
-            log("[AliPlayer] PiP will stop")
-        }
-
-        func pictureInPictureControllerDidStopPicture(inPicture controller: Any) {
-            log("[AliPlayer] PiP did stop")
-            DispatchQueue.main.async {
-                self.parent.playerState.isPiPActive = false
-                NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
-            }
-        }
-
-        func picture(inPictureController controller: Any, failedToStartPictureInPictureWithError error: any Error) {
-            log("[AliPlayer] PiP failed: \(error.localizedDescription)")
-        }
-
-        func picture(inPictureController controller: Any, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
-            completionHandler(true)
+    func setPlayerView(_ view: UIView) { obj.perform(NSSelectorFromString("setPlayerView:"), with: view) }
+    func setConfig(_ config: AVPConfigProxy) { obj.perform(NSSelectorFromString("setConfig:"), with: config.obj) }
+    func setPictureInPictureEnable(_ enable: Bool) { obj.perform(NSSelectorFromString("setPictureInPictureEnable:"), with: enable) }
+    func setUrlSource(_ source: AVPUrlSourceProxy) { obj.perform(NSSelectorFromString("setUrlSource:"), with: source.obj) }
+    func setAutoPlay(_ auto: Bool) { obj.perform(NSSelectorFromString("setAutoPlay:"), with: auto) }
+    func setLoop(_ loop: Bool) { obj.perform(NSSelectorFromString("setLoop:"), with: loop) }
+    func setRate(_ rate: Float) { obj.perform(NSSelectorFromString("setRate:"), with: rate) }
+    func setDelegate(_ delegate: Any?) { obj.perform(NSSelectorFromString("setDelegate:"), with: delegate) }
+    func prepare() { obj.perform(NSSelectorFromString("prepare")) }
+    func start() { obj.perform(NSSelectorFromString("start")) }
+    func pause() { obj.perform(NSSelectorFromString("pause")) }
+    func stop() { obj.perform(NSSelectorFromString("stop")) }
+    func destroy() { obj.perform(NSSelectorFromString("destroy")) }
+    func redraw() { obj.perform(NSSelectorFromString("redraw")) }
+    func seek(toTime: Int64, seekMode: Int) {
+        let sel = NSSelectorFromString("seekToTime:seekMode:")
+        typealias SeekFunc = @convention(c) (NSObject, Selector, Int64, Int) -> Void
+        if let imp = obj.method(for: sel) {
+            unsafeBitCast(imp, to: SeekFunc.self)(obj, sel, toTime, seekMode)
         }
     }
+    func currentPosition() -> Int64 {
+        guard let v = obj.value(forKey: "currentPosition") as? NSNumber else { return 0 }
+        return v.int64Value
+    }
+    func duration() -> Int64 {
+        guard let v = obj.value(forKey: "duration") as? NSNumber else { return 0 }
+        return v.int64Value
+    }
+    func bufferedPosition() -> Int64 {
+        guard let v = obj.value(forKey: "bufferedPosition") as? NSNumber else { return 0 }
+        return v.int64Value
+    }
+    func playerStatus() -> Int {
+        let sel = NSSelectorFromString("playerStatus")
+        typealias StatusFunc = @convention(c) (NSObject, Selector) -> Int
+        if let imp = obj.method(for: sel) {
+            return unsafeBitCast(imp, to: StatusFunc.self)(obj, sel)
+        }
+        return 0
+    }
+
+    // 让 Coordinator 能接收 AVPDelegate 回调
+    var backing: NSObject { obj }
+}
+
+class AVPConfigProxy {
+    let obj: NSObject
+    init() {
+        let cls = NSClassFromString("AVPConfig") as! NSObject.Type
+        obj = cls.init()
+    }
+    var referer: String? {
+        get { obj.value(forKey: "referer") as? String }
+        set { obj.setValue(newValue, forKey: "referer") }
+    }
+    var httpHeaders: [String: String]? {
+        get { obj.value(forKey: "httpHeaders") as? [String: String] }
+        set { obj.setValue(newValue, forKey: "httpHeaders") }
+    }
+    var networkTimeout: Int {
+        get { (obj.value(forKey: "networkTimeout") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "networkTimeout") }
+    }
+    var maxDelayTime: Int {
+        get { (obj.value(forKey: "maxDelayTime") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "maxDelayTime") }
+    }
+    var maxBufferDuration: Int {
+        get { (obj.value(forKey: "maxBufferDuration") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "maxBufferDuration") }
+    }
+    var highBufferDuration: Int {
+        get { (obj.value(forKey: "highBufferDuration") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "highBufferDuration") }
+    }
+    var startBufferDuration: Int {
+        get { (obj.value(forKey: "startBufferDuration") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "startBufferDuration") }
+    }
+    var positionTimerIntervalMs: Int {
+        get { (obj.value(forKey: "positionTimerIntervalMs") as? NSNumber)?.intValue ?? 0 }
+        set { obj.setValue(NSNumber(value: newValue), forKey: "positionTimerIntervalMs") }
+    }
+}
+
+class AVPUrlSourceProxy {
+    let obj: NSObject
+    init() {
+        let cls = NSClassFromString("AVPUrlSource") as! NSObject.Type
+        obj = cls.init()
+    }
+    var playerUrl: String? {
+        get { obj.value(forKey: "playerUrl") as? String }
+        set { obj.setValue(newValue, forKey: "playerUrl") }
+    }
+}
+
+// Helper to create proxy objects
+private func createAliPlayer() -> AliPlayerProxy? {
+    return AliPlayerProxy()
+}
+private func createAVPConfig() -> AVPConfigProxy {
+    return AVPConfigProxy()
+}
+private func createAVPUrlSource() -> AVPUrlSourceProxy {
+    return AVPUrlSourceProxy()
 }
 
 private func log(_ msg: String) {
     NSLog("[AliPlayerRepresentable] \(msg)")
 }
-
-#endif
