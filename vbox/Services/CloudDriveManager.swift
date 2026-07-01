@@ -1528,6 +1528,14 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
+        // 探测转存实际落盘位置（仅诊断，不改变状态）
+        _ = await quarkProbeSavedFileLocation(
+            fileName: sourceFile.fileName,
+            fileIds: fileIds,
+            vboxFolderId: folder.folderId,
+            cookie: authCookie
+        )
+
         // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置，vbox目录无需清理）
         authCookie = await quarkCleanUpShareOriginFolder(
             cookie: authCookie, excludeFileIds: fileIds
@@ -2816,6 +2824,129 @@ class CloudDriveManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// 探测刚转存的文件实际落盘位置：vbox 目录 vs "来自：分享" 目录
+    /// 仅用于诊断，不改变任何状态
+    private func quarkProbeSavedFileLocation(
+        fileName: String,
+        fileIds: [String],
+        vboxFolderId: String,
+        cookie: String
+    ) async -> String {
+        var currentCookie = cookie
+        var report: [String] = []
+        let fileIdSet = Set(fileIds)
+
+        // 1. 探测 vbox 目录
+        do {
+            let vboxResult = try await quarkListFolderFiles(
+                folderId: vboxFolderId,
+                cookie: currentCookie,
+                maxPages: 5
+            )
+            currentCookie = vboxResult.cookie
+            let matchedById = vboxResult.list.filter { item in
+                let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
+                return fileIdSet.contains(fid)
+            }
+            let matchedByName = vboxResult.list.filter { item in
+                let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+                return name == fileName
+            }
+            report.append("vbox目录(folderId=\(vboxFolderId)): 共\(vboxResult.list.count)项, ID匹配\(matchedById.count)项, 名称匹配\(matchedByName.count)项")
+            if let first = matchedByName.first ?? matchedById.first {
+                let fid = first["fid"] as? String ?? first["file_id"] as? String ?? ""
+                let name = first["file_name"] as? String ?? first["name"] as? String ?? ""
+                report.append("  -> vbox命中: fid=\(fid), name=\(name)")
+            }
+        } catch {
+            report.append("vbox目录探测失败: \(error.localizedDescription)")
+        }
+
+        // 2. 探测 "来自：分享" 目录
+        var shareOriginFid: String?
+        for nameVariant in ["来自：分享", "来自:分享", "来自分享的文件", "来自分享"] {
+            if let folder = try? await quarkFindVisibleFolder(cookie: currentCookie, folderName: nameVariant) {
+                shareOriginFid = folder.folderId
+                currentCookie = folder.cookie
+                break
+            }
+        }
+
+        if let shareOriginFid {
+            do {
+                let originResult = try await quarkListFolderFiles(
+                    folderId: shareOriginFid,
+                    cookie: currentCookie,
+                    maxPages: 5
+                )
+                currentCookie = originResult.cookie
+                let matchedById = originResult.list.filter { item in
+                    let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
+                    return fileIdSet.contains(fid)
+                }
+                let matchedByName = originResult.list.filter { item in
+                    let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+                    return name == fileName
+                }
+                report.append("来自分享目录(fid=\(shareOriginFid)): 共\(originResult.list.count)项, ID匹配\(matchedById.count)项, 名称匹配\(matchedByName.count)项")
+                if let first = matchedByName.first ?? matchedById.first {
+                    let fid = first["fid"] as? String ?? first["file_id"] as? String ?? ""
+                    let name = first["file_name"] as? String ?? first["name"] as? String ?? ""
+                    report.append("  -> 来自分享命中: fid=\(fid), name=\(name)")
+                }
+            } catch {
+                report.append("来自分享目录探测失败: \(error.localizedDescription)")
+            }
+        } else {
+            report.append("未找到\"来自：分享\"目录")
+        }
+
+        let summary = report.joined(separator: "; ")
+        print("[Quark-Probe] 转存落盘探测: \(summary)")
+        return summary
+    }
+
+    /// 列出指定目录下的所有文件（分页）
+    private func quarkListFolderFiles(
+        folderId: String,
+        cookie: String,
+        maxPages: Int
+    ) async throws -> (list: [[String: Any]], cookie: String) {
+        var currentCookie = cookie
+        var allList: [[String: Any]] = []
+        let pageSize = 200
+        let url = quarkAPIURL("/1/clouddrive/file/sort")
+
+        for page in 1...maxPages {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
+            let body: [String: Any] = [
+                "pdir_fid": folderId,
+                "_sort": "file_type:asc,updated_at:desc",
+                "_page": page,
+                "_size": pageSize,
+                "_fetch_total": 1
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            guard let (data, response) = try? await session.data(for: request) else {
+                break
+            }
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else {
+                break
+            }
+            allList.append(contentsOf: list)
+            if list.count < pageSize { break }
+        }
+
+        return (allList, currentCookie)
     }
 
     /// 对齐iBox原画抓包：调用 acquire_dl_token 获取加速下载token
