@@ -886,6 +886,8 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 已切换内核策略：MPV-MoltenVK\(isMPVBuildAvailable ? "" : "（当前构建未包含 Libmpv）")")
         case .ijk:
             log("[PlayerV2] 已切换内核策略：IJKPlayer\(isIJKBuildAvailable ? "" : "（当前构建未包含 IJKPlayer）")")
+        case .ali:
+            log("[PlayerV2] 已切换内核策略：AliPlayer\(isAliPlayerBuildAvailable ? "" : "（当前构建未包含 AliyunPlayer）")")
         }
 
         if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
@@ -5020,6 +5022,10 @@ struct EnginePickerPanelV2: View {
                                 Text("无画中画")
                                     .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.4))
+                            } else if engine == .ali {
+                                Text("原生画中画")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
                             } else if engine == .mpv {
                                 Text("画中画")
                                     .font(.system(size: 11))
