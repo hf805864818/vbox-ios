@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+
+#if canImport(IJKMediaFrameworkWithSSL)
 import IJKMediaFrameworkWithSSL
 
 // MARK: - IJKPlayer SwiftUI 桥接
@@ -249,3 +251,5 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
         }
     }
 }
+
+#endif
