@@ -201,7 +201,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func onPlayerEvent(_ player: Any, eventWithString eventStr: String, description: String) {
+        func onPlayerEvent(_ player: Any, eventWith eventStr: String, description: String) {
             // 备用事件回调
         }
 
@@ -229,11 +229,11 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         // MARK: - AliPlayerPictureInPictureDelegate
 
-        func pictureInPictureControllerWillStartPictureInPicture(_ controller: Any) {
+        func pictureInPictureControllerWillStartPicture(inPicture controller: Any) {
             log("[AliPlayer] PiP will start")
         }
 
-        func pictureInPictureControllerDidStartPictureInPicture(_ controller: Any) {
+        func pictureInPictureControllerDidStartPicture(inPicture controller: Any) {
             log("[AliPlayer] PiP did start")
             DispatchQueue.main.async {
                 self.parent.playerState.isPiPActive = true
@@ -241,11 +241,11 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func pictureInPictureControllerWillStopPictureInPicture(_ controller: Any) {
+        func pictureInPictureControllerWillStopPicture(inPicture controller: Any) {
             log("[AliPlayer] PiP will stop")
         }
 
-        func pictureInPictureControllerDidStopPictureInPicture(_ controller: Any) {
+        func pictureInPictureControllerDidStopPicture(inPicture controller: Any) {
             log("[AliPlayer] PiP did stop")
             DispatchQueue.main.async {
                 self.parent.playerState.isPiPActive = false
@@ -257,7 +257,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             log("[AliPlayer] PiP failed: \(error.localizedDescription)")
         }
 
-        func pictureInPictureController(_ controller: Any, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        func picture(inPictureController controller: Any, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
             completionHandler(true)
         }
     }
