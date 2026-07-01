@@ -1510,11 +1510,9 @@ class CloudDriveManager: ObservableObject {
 
         var authCookie = cookie
 
-        // 1. 确保 vbox 目录存在
-        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
-        authCookie = folder.cookie
-        let vboxFolderId = folder.folderId
-        print("[Quark] vbox目录 folderId=\(vboxFolderId), hasPUUS=\(authCookie.contains("__puus="))")
+        // 夸克 sharepage/save 会忽略/重写 to_pdir_fid，强制保存到\"来自：分享\"
+        // 这里传 \"0\" 让夸克按默认行为处理
+        let targetFolderId = "0"
 
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
@@ -1526,7 +1524,7 @@ class CloudDriveManager: ObservableObject {
             pwdId: pwdId,
             stoken: shareToken,
             file: sourceFile,
-            folderId: vboxFolderId,
+            folderId: targetFolderId,
             cookie: authCookie
         )
         let fileIds = saveResult.fileIds
@@ -1540,14 +1538,11 @@ class CloudDriveManager: ObservableObject {
             try await quarkPollTask(taskId: taskId, cookie: authCookie)
         }
 
-        // 清理 vbox 目录里的旧文件（排除本次转存的 fileId）
-        let folderName = quarkFolderName(cookie: authCookie)
-        authCookie = await quarkCleanUpVboxFiles(
-            cookie: authCookie,
-            folderName: folderName,
-            excludeFileIds: fileIds
+        // 清理\"来自：分享\"目录里的旧文件（排除本次转存的 fileId）
+        authCookie = await quarkCleanUpShareOriginFolder(
+            cookie: authCookie, excludeFileIds: fileIds
         )
-        print("[Quark] vbox目录旧文件清理完成")
+        print("[Quark] 「来自：分享」目录旧文件清理完成")
 
         // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
         if let memberType = await quarkGetMemberInfo(cookie: authCookie) {
