@@ -442,14 +442,14 @@ final class KXSPAPIService: ObservableObject {
     // MARK: - 业务接口
 
     /// 视频大分类 + 小分类
-    func fetchVideoNavList() async throws -> [KXSPNavCategory] {
+    func fetchVideoNavList() async throws -> [SangeBigCategory] {
         let resp = try await request(path: "/video/api/nav/list", params: [:])
         guard let data = resp["data"] as? [[String: Any]] else { return [] }
-        return data.compactMap { KXSPNavCategory(dict: $0) }
+        return data.compactMap { SangeBigCategory(dict: $0) }
     }
 
     /// 视频首页推荐
-    func fetchVideoIndex(page: Int = 1, pageSize: Int = 20) async throws -> [KXSPVideoItem] {
+    func fetchVideoIndex(page: Int = 1, pageSize: Int = 20) async throws -> [SangeVideoItem] {
         var params: [String: Any] = ["page": page, "pageSize": pageSize]
         if let fromId = runtime?.iosFromId?["indexFromId"] {
             params["fromId"] = fromId
@@ -461,7 +461,7 @@ final class KXSPAPIService: ObservableObject {
     /// 视频列表（长视频 / 抖音短视频均走此接口，按 classifyId 区分）
     func fetchVideoList(classifyId: String? = nil,
                         page: Int = 1,
-                        pageSize: Int = 20) async throws -> [KXSPVideoItem] {
+                        pageSize: Int = 20) async throws -> [SangeVideoItem] {
         var params: [String: Any] = ["page": page, "pageSize": pageSize]
         if let cid = classifyId, !cid.isEmpty { params["classifyId"] = cid }
         if let fromId = runtime?.iosFromId?["listFromId"] {
@@ -472,14 +472,14 @@ final class KXSPAPIService: ObservableObject {
     }
 
     /// 视频详情（含播放地址）
-    func fetchVideoDetail(id: String) async throws -> KXSPVideoItem? {
+    func fetchVideoDetail(id: String) async throws -> SangeVideoItem? {
         let resp = try await request(path: "/video/api/video/detail", params: ["id": id])
         guard let data = resp["data"] as? [String: Any] else { return nil }
-        return KXSPVideoItem(dict: data)
+        return SangeVideoItem(dict: data)
     }
 
     /// 短视频 / 抖音列表（若服务端有独立 shortVideo 模块可替换路径）
-    func fetchShortVideoList(page: Int = 1, pageSize: Int = 20) async throws -> [KXSPVideoItem] {
+    func fetchShortVideoList(page: Int = 1, pageSize: Int = 20) async throws -> [SangeVideoItem] {
         let params: [String: Any] = ["page": page, "pageSize": pageSize]
         // 当前 H5 未发现独立 /shortVideo/api 入口，先复用视频列表
         let resp = try await request(path: "/video/api/video/list", params: params)
@@ -491,7 +491,7 @@ final class KXSPAPIService: ObservableObject {
 
 // MARK: - 解析辅助
 private extension KXSPAPIService {
-    func parseVideoList(_ resp: [String: Any]) -> [KXSPVideoItem] {
+    func parseVideoList(_ resp: [String: Any]) -> [SangeVideoItem] {
         let list: [[String: Any]]
         if let data = resp["data"] as? [[String: Any]] {
             list = data
@@ -501,7 +501,7 @@ private extension KXSPAPIService {
         } else {
             list = []
         }
-        return list.compactMap { KXSPVideoItem(dict: $0) }
+        return list.compactMap { SangeVideoItem(dict: $0) }
     }
 }
 
