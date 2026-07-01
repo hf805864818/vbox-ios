@@ -51,6 +51,11 @@ jobs:
           # 通过 build_alias 注入 x86_64 令 build≠host
           echo 'export build_alias=x86_64-apple-darwin' >> build_tools/env.sh
 
+          # curl configure 的 shebang 是 /bin/sh，在部分系统上会被 dash 解析导致语法错误
+          # 强制用 bash 执行 configure，并把生成 configure 的 autoreconf 也改为 bash
+          sed -i '' 's|\${CURL_SOURCE_DIR}/configure|bash ${CURL_SOURCE_DIR}/configure|' build_tools/build_curl.sh
+          sed -i '' 's|autoreconf -fi|bash -c "autoreconf -fi"|' build_tools/build_curl.sh
+
           # curl 7.63.0 configure.ac 部分 AC_RUN_IFELSE 缺少 cross-compile 回退参数
           # buildconf 调用 autoconf 重新生成 configure 后, 自动修补交叉编译 fatal error
           AU=$(which autoconf)
@@ -71,10 +76,12 @@ jobs:
           ac_cv_func_malloc_0_nonnull: yes
           ac_cv_func_realloc_0_nonnull: yes
           build_alias: x86_64-apple-darwin
+          SHELL: /bin/bash
         run: |
           export PATH="/tmp:${PATH}"
           export MUPP_BUILD_ID=$(date +%Y%m%d%H%M%S)
           export build_alias=x86_64-apple-darwin
+          export SHELL=/bin/bash
           . setup.env
           build_iOS
 
