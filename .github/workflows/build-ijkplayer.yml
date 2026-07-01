@@ -46,7 +46,7 @@ jobs:
           sed -i '' 's/FF_XCODE_BITCODE="-fembed-bitcode"/FF_XCODE_BITCODE=""/' tools/do-compile-ffmpeg.sh
           sed -i '' 's/FF_XCODE_BITCODE="-fembed-bitcode"/FF_XCODE_BITCODE=""/' tools/do-compile-openssl.sh
           # 新 clang 对老 ffmpeg 的函数指针类型检查更严格，关闭该错误
-          sed -i '' 's/FFMPEG_EXTRA_CFLAGS=/FFMPEG_EXTRA_CFLAGS="-Wno-incompatible-function-pointer-types"/' tools/do-compile-ffmpeg.sh
+          sed -i '' 's/FFMPEG_EXTRA_CFLAGS=/FFMPEG_EXTRA_CFLAGS="-Wno-incompatible-function-pointer-types -Wno-int-conversion"/' tools/do-compile-ffmpeg.sh
 
       - name: Compile FFmpeg (arm64 only)
         working-directory: ./ijkplayer/ios
