@@ -48,6 +48,8 @@ jobs:
           find . -type f \( -name "*.sh" -o -name "*.cmake" -o -name "CMakeLists.txt" -o -name "Config*.pm" \) -exec sed -i '' 's/armv7 //g; s/ armv7//g' {} \;
           # iOS 8.0 部署目标太老，改到 12.0 避免 SDK 兼容警告
           sed -i '' 's/DEPLOYMENT_TARGET="8.0"/DEPLOYMENT_TARGET="12.0"/' build_tools/iOSConfig.sh
+          # 修复 curl 交叉编译: configure 尝试运行 arm64 测试程序失败, 加入 --host 告知 autotools 是交叉编译
+          find . -name "*.sh" -exec sed -i '' '/\.\/configure/!b; /--host/!s|\./configure|./configure --host=arm-apple-darwin|' {} \;
 
       - name: Build iOS SDK
         working-directory: ./CicadaPlayer
