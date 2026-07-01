@@ -16,6 +16,7 @@ extension Notification.Name {
     static let vboxMPVPause = Notification.Name("vbox.mpv.pause")
     static let vboxMPVSeek = Notification.Name("vbox.mpv.seek")
     static let vboxMPVSpeed = Notification.Name("vbox.mpv.speed")
+    static let vboxMPVStop = Notification.Name("vbox.mpv.stop")
 }
 
 // 屏幕方向辅助类
@@ -3246,7 +3247,7 @@ struct PlayerContainerView: View {
                 } else if playerState.compatibilityEngineName.contains("AliPlayer") {
                     #if canImport(AliyunPlayer)
                     AliPlayerRepresentable(
-                        url: url,
+                        url: url.absoluteString,
                         headers: playerState.compatibilityHeaders,
                         userAgent: nil as String?,
                         referer: nil as String?,

@@ -127,7 +127,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             // 跳转
             observers.append(center.addObserver(forName: .vboxMPVSeek, object: nil, queue: .main) { [weak self] note in
                 guard let position = note.userInfo?["position"] as? Double else { return }
-                self?.player?.seekToTime(Int64(position * 1000), seekMode: 1)
+                self?.player?.seek(toTime: Int64(position * 1000), seekMode: 1)
             })
 
             // 倍速
@@ -140,7 +140,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             // 画中画切换播放/暂停
             observers.append(center.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] _ in
                 guard let player = self?.player else { return }
-                if player.isPlaying {
+                if player.isPlaying() {
                     player.pause()
                 } else {
                     player.start()
@@ -152,8 +152,8 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             stopTimer()
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 guard let self = self, let player = self.player else { return }
-                let pos = Double(player.currentPosition) / 1000.0
-                let dur = Double(player.duration) / 1000.0
+                let pos = Double(player.currentPosition()) / 1000.0
+                let dur = Double(player.duration()) / 1000.0
                 DispatchQueue.main.async {
                     self.parent.onTimeUpdate?(pos)
                     if dur > 0 {
@@ -174,7 +174,6 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             stopTimer()
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
-            player?.setDelegate(nil)
             player?.stop()
             player?.destroy()
             player = nil
@@ -206,7 +205,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             // 备用事件回调
         }
 
-        func onError(_ player: Any!, errorModel: AVPErrorModel!) {
+        func onError(_ player: Any, errorModel: AVPErrorModel) {
             stopTimer()
             DispatchQueue.main.async {
                 self.parent.onError?(errorModel.message ?? "Unknown error")
@@ -254,7 +253,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func pictureInPictureController(_ controller: Any!, failedToStartPictureInPictureWithError error: Error!) {
+        func pictureInPictureController(_ controller: Any, failedToStartPictureInPictureWithError error: any Error) {
             log("[AliPlayer] PiP failed: \(error.localizedDescription)")
         }
 
