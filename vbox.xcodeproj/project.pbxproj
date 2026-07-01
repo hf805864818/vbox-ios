@@ -190,7 +190,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */
+				82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */,
 				91109A3AE5E69A5CD116E13D /* MPVKit.xcframework in Embed Frameworks */,
 				51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */,
 				EF66A1860129C0CCCB84E8A6 /* Libavcodec.xcframework in Embed Frameworks */,
@@ -382,7 +382,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016 /* libquickjs.a in Frameworks */,
-				83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */
+				83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */,
 				ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */,
 				CF8DB5B6D7C06688B86FAC21 /* Libmpv.xcframework in Frameworks */,
 				44512C970784869EA592C124 /* Libavcodec.xcframework in Frameworks */,

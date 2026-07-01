@@ -237,12 +237,13 @@ class PiPHelper: NSObject {
             // 启动定时器更新截图，模拟视频播放效果
             startSnapshotTimer(sourceView: playerView)
         } else {
-            // 回退：使用整个sourceView的截图
+            // 回退：使用整个sourceView的截图，并启动定时更新
             if let snapshot = sourceView.snapshotView(afterScreenUpdates: true) {
                 snapshot.frame = containerView.bounds
                 snapshot.tag = 1001
                 containerView.addSubview(snapshot)
             }
+            startSnapshotTimer(sourceView: sourceView)
         }
         
         // 关闭按钮
@@ -275,6 +276,7 @@ class PiPHelper: NSObject {
     }
     
     @objc func hideFloatingWindow() {
+        stopSnapshotTimer()
         floatingWindow?.isHidden = true
         floatingWindow = nil
         floatingPlayerView = nil
@@ -339,27 +341,17 @@ class PiPHelper: NSObject {
     private func startSnapshotTimer(sourceView: UIView) {
         snapshotSourceView = sourceView
         snapshotTimer?.invalidate()
-        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // 0.05秒 ≈ 20fps，让浮动小窗口画面更流畅
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self, let sourceView = self.snapshotSourceView else { return }
-            // 更新截图
-            UIGraphicsBeginImageContextWithOptions(sourceView.bounds.size, false, 0)
-            sourceView.drawHierarchy(in: sourceView.bounds, afterScreenUpdates: false)
-            let image = UIGraphicsGetImageFromCurrentImageContext()
-            UIGraphicsEndImageContext()
-            
-            if let image = image, let containerView = self.floatingPlayerView {
-                // 更新已有的UIImageView
-                if let imageView = containerView.subviews.first(where: { $0 is UIImageView }) as? UIImageView {
-                    imageView.image = image
-                } else if let snapshotView = containerView.subviews.first(where: { $0.tag == 1001 }) {
-                    // 替换截图视图为UIImageView以支持动态更新
-                    snapshotView.removeFromSuperview()
-                    let imageView = UIImageView(image: image)
-                    imageView.frame = containerView.bounds
-                    imageView.contentMode = .scaleAspectFill
-                    containerView.insertSubview(imageView, at: 0)
-                }
-            }
+            // 使用 snapshotView 捕获 OpenGL/Metal 播放器视图
+            guard let snapshot = sourceView.snapshotView(afterScreenUpdates: false) else { return }
+            guard let containerView = self.floatingPlayerView else { return }
+            // 移除旧的截图视图
+            containerView.subviews.filter { $0.tag == 1001 }.forEach { $0.removeFromSuperview() }
+            snapshot.frame = containerView.bounds
+            snapshot.tag = 1001
+            containerView.insertSubview(snapshot, at: 0)
         }
     }
     
