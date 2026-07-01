@@ -1509,9 +1509,8 @@ class CloudDriveManager: ObservableObject {
         }
 
         var authCookie = cookie
-        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
-        authCookie = folder.cookie
-        print("[Quark] folderId=\(folder.folderId.isEmpty ? "空" : folder.folderId), hasPUUS=\(authCookie.contains("__puus="))")
+        // 夸克 sharepage/save 会忽略 to_pdir_fid，强制保存到\"来自：分享\"，不再创建 vbox 目录
+        let vboxFolderId = "0"
 
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
@@ -1519,28 +1518,16 @@ class CloudDriveManager: ObservableObject {
         let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
         print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
 
-        let fileIds = try await quarkSaveShare(
+        let saveResult = try await quarkSaveShare(
             pwdId: pwdId,
             stoken: shareToken,
             file: sourceFile,
-            folderId: folder.folderId,
+            folderId: vboxFolderId,
             cookie: authCookie
         )
+        let fileIds = saveResult.fileIds
+        authCookie = saveResult.cookie
         print("[Quark] 转存完成 fileIds=\(fileIds)")
-
-        // 探测转存实际落盘位置（仅诊断，不改变状态）
-        _ = await quarkProbeSavedFileLocation(
-            fileName: sourceFile.fileName,
-            fileIds: fileIds,
-            vboxFolderId: folder.folderId,
-            cookie: authCookie
-        )
-
-        // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置，vbox目录无需清理）
-        authCookie = await quarkCleanUpShareOriginFolder(
-            cookie: authCookie, excludeFileIds: fileIds
-        )
-        print("[Quark] 「来自：分享」目录旧文件清理完成")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
@@ -1548,6 +1535,20 @@ class CloudDriveManager: ObservableObject {
         if let taskId = quarkLastSaveTaskId {
             try await quarkPollTask(taskId: taskId, cookie: authCookie)
         }
+
+        // 探测转存实际落盘位置（仅诊断，不改变状态）
+        _ = await quarkProbeSavedFileLocation(
+            fileName: sourceFile.fileName,
+            fileIds: fileIds,
+            vboxFolderId: vboxFolderId,
+            cookie: authCookie
+        )
+
+        // 清理"来自：分享"目录里的旧文件（排除本次转存的 fileId）
+        authCookie = await quarkCleanUpShareOriginFolder(
+            cookie: authCookie, excludeFileIds: fileIds
+        )
+        print("[Quark] 「来自：分享」目录旧文件清理完成")
         // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
         if let memberType = await quarkGetMemberInfo(cookie: authCookie) {
             print("[Quark] 当前会员: \(memberType)，SVIP可使用原画download_url")
@@ -1654,6 +1655,36 @@ class CloudDriveManager: ObservableObject {
             URLQueryItem(name: "uc_param_str", value: "")
         ] + extra
         return components.url!
+    }
+
+    /// 夸克 /file/sort 当前仅支持 GET，参数通过 URL query 传递
+    private func quarkFetchFileSortList(
+        folderId: String,
+        cookie: String,
+        page: Int = 1,
+        size: Int = 200,
+        sort: String = "file_type:asc,updated_at:desc",
+        fetchTotal: Int = 1
+    ) async -> (data: Data?, response: URLResponse?, cookie: String) {
+        var currentCookie = cookie
+        let extra = [
+            URLQueryItem(name: "pdir_fid", value: folderId),
+            URLQueryItem(name: "_page", value: String(page)),
+            URLQueryItem(name: "_size", value: String(size)),
+            URLQueryItem(name: "_fetch_total", value: String(fetchTotal)),
+            URLQueryItem(name: "_sort", value: sort)
+        ]
+        let url = quarkAPIURL("/1/clouddrive/file/sort", extra: extra)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        quarkSetCommonHeaders(&request, cookie: currentCookie)
+
+        guard let (data, response) = try? await session.data(for: request) else {
+            return (nil, nil, currentCookie)
+        }
+        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+        return (data, response, currentCookie)
     }
 
     private func quarkSetCommonHeaders(_ request: inout URLRequest, cookie: String, referer: String = "https://pan.quark.cn/") {
@@ -1902,30 +1933,17 @@ class CloudDriveManager: ObservableObject {
         }
         let targetFid = targetFolder.folderId
 
-        // 2. 列出目标目录下的文件
-        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
-        var request = URLRequest(url: listURL)
-        request.httpMethod = "POST"
-        quarkSetCommonHeaders(&request, cookie: cookie)
-        let body: [String: Any] = [
-            "pdir_fid": targetFid,
-            "_page": 1,
-            "_size": 200,
-            "_fetch_total": 1,
-            "_sort": "file_type:asc,updated_at:desc"
-        ]
-        request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
-        let listResult: (Data, URLResponse)?
-        do {
-            listResult = try await session.data(for: request)
-        } catch {
-            print("[Quark] ⚠️ 列出\(folderName)目录失败: \(error.localizedDescription)")
-            listResult = nil
-        }
-        guard let (data, response) = listResult else { return currentCookie }
-        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        // 2. 列出目标目录下的文件（GET 请求）
+        let sortResult = await quarkFetchFileSortList(
+            folderId: targetFid,
+            cookie: currentCookie,
+            page: 1,
+            size: 200,
+            sort: "file_type:asc,updated_at:desc"
+        )
+        currentCookie = sortResult.cookie
+        guard let data = sortResult.data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataObj = json["data"] as? [String: Any],
               let list = dataObj["list"] as? [[String: Any]], !list.isEmpty else {
             print("[Quark] ⚠️ \(folderName)目录为空或列表解析失败")
@@ -1952,12 +1970,11 @@ class CloudDriveManager: ObservableObject {
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
             quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
-            let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIdsToDelete))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            // 夸克 delete 接口的 filelist 和 exclude_fids 都要求是字符串数组
             let deleteBody: [String: Any] = [
                 "action_type": 2,
-                "filelist": filelistJSON,
-                "exclude_fids": []
+                "filelist": fileIdsToDelete,
+                "exclude_fids": excludeFileIds
             ]
             guard let deleteBodyData = try? JSONSerialization.data(withJSONObject: deleteBody) else {
                 print("[Quark] ⚠️ \(folderName)目录删除Body序列化失败")
@@ -2029,9 +2046,9 @@ class CloudDriveManager: ObservableObject {
     private func quarkCleanUpShareOriginFolder(cookie: String, excludeFileIds: [String] = []) async -> String {
         var currentCookie = cookie
 
-        // 1. 用 quarkFindVisibleFolder 搜索「来自：分享」（兼容全角/半角冒号）
+        // 1. 用 quarkFindVisibleFolder 搜索「来自：分享」及其变体
         var targetFid: String?
-        for nameVariant in ["来自：分享", "来自:分享"] {
+        for nameVariant in ["来自：分享", "来自:分享", "来自分享的文件", "来自分享"] {
             if let (fid, mergedCookie) = try? await quarkFindVisibleFolder(
                 cookie: currentCookie, folderName: nameVariant
             ) {
@@ -2042,12 +2059,11 @@ class CloudDriveManager: ObservableObject {
             }
         }
         guard let targetFid else {
-            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「来自：分享」文件夹（尝试了全角/半角冒号），跳过清理")
+            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「来自：分享」文件夹（尝试了全角/半角冒号、来自分享的文件、来自分享），跳过清理")
             return currentCookie
         }
 
         // 2. 列出目录内容（含子目录递归）
-        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         let pageSize = 200
         let maxPages = 10
 
@@ -2070,27 +2086,16 @@ class CloudDriveManager: ObservableObject {
             var dirCount = 0
 
             for page in 1...maxPages {
-                var request = URLRequest(url: listURL)
-                request.httpMethod = "POST"
-                quarkSetCommonHeaders(&request, cookie: cookie)
-                let body: [String: Any] = [
-                    "pdir_fid": dirFid,
-                    "_sort": "file_type:asc,file_name:asc",
-                    "_page": page,
-                    "_size": pageSize,
-                    "_fetch_total": 1
-                ]
-                request.httpBody = (try? JSONSerialization.data(withJSONObject: body))
-
-                let (data, response): (Data, URLResponse)
-                do {
-                    (data, response) = try await session.data(for: request)
-                } catch {
-                    break
-                }
-                cookie = quarkMergeSetCookie(from: response, into: cookie)
-
-                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let sortResult = await quarkFetchFileSortList(
+                    folderId: dirFid,
+                    cookie: cookie,
+                    page: page,
+                    size: pageSize,
+                    sort: "file_type:asc,file_name:asc"
+                )
+                cookie = sortResult.cookie
+                guard let data = sortResult.data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let dataObj = json["data"] as? [String: Any],
                       let list = dataObj["list"] as? [[String: Any]] else { break }
                 if list.isEmpty { break }
@@ -2134,12 +2139,11 @@ class CloudDriveManager: ObservableObject {
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
             quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
-            let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIdsToDelete))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            // 夸克 delete 接口的 filelist 和 exclude_fids 都要求是字符串数组
             let deleteBody: [String: Any] = [
                 "action_type": 2,
-                "filelist": filelistJSON,
-                "exclude_fids": []
+                "filelist": fileIdsToDelete,
+                "exclude_fids": excludeFileIds
             ]
             guard let deleteBodyData = try? JSONSerialization.data(withJSONObject: deleteBody) else {
                 print("[Quark] ⚠️ 「来自：分享」清理删除Body序列化失败")
@@ -2171,56 +2175,81 @@ class CloudDriveManager: ObservableObject {
             }
             if deleteOK {
                 print("[Quark] ✅ 已清理「\"来自：分享\"」目录下 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
+                // 彻底清理回收站
+                currentCookie = await quarkCleanRecycleBin(
+                    fileIds: fileIdsToDelete,
+                    cookie: currentCookie
+                )
             }
 
-            // 4. 彻底清理回收站
-            if let deleteData = deleteResult?.0,
-               let deleteJson = try? JSONSerialization.jsonObject(with: deleteData) as? [String: Any],
-               let taskId = deleteJson["task_id"] as? String {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
-                    URLQueryItem(name: "_page", value: "1"),
-                    URLQueryItem(name: "_size", value: "100"),
-                    URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
-                ])
-                var recycleReq = URLRequest(url: recycleURL)
-                recycleReq.httpMethod = "GET"
-                recycleReq.timeoutInterval = 10
-                quarkSetCommonHeaders(&recycleReq, cookie: currentCookie)
-
-                let recycleResult = try? await session.data(for: recycleReq)
-                if let recycleResp = recycleResult?.1 {
-                    currentCookie = quarkMergeSetCookie(from: recycleResp, into: currentCookie)
-                }
-                if let recycleData = recycleResult?.0,
-                   let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
-                   let recycleList = recycleJSON["data"] as? [[String: Any]] {
-                    let recordIds = recycleList.compactMap { item -> String? in
-                        let recordId = item["record_id"] as? String ?? ""
-                        if recordId.contains(taskId) || fileIdsToDelete.contains(where: { recordId.contains($0) }) {
-                            return recordId
-                        }
-                        return nil
-                    }
-                    if !recordIds.isEmpty {
-                        let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
-                        var removeReq = URLRequest(url: removeURL)
-                        removeReq.httpMethod = "POST"
-                        quarkSetCommonHeaders(&removeReq, cookie: currentCookie)
-                        let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
-                        removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
-                        let removeResult = try? await session.data(for: removeReq)
-                        if let removeResp = removeResult?.1 {
-                            currentCookie = quarkMergeSetCookie(from: removeResp, into: currentCookie)
-                        }
-                        print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录（来自：分享）")
-                    }
-                }
-            }
         } else {
             print("[Quark] ℹ️ 「\"来自：分享\"」目录无可清理的旧文件")
         }
 
+        return currentCookie
+    }
+
+    /// 从回收站彻底删除指定 fileIds 的记录
+    private func quarkCleanRecycleBin(fileIds: [String], cookie: String) async -> String {
+        var currentCookie = cookie
+        guard !fileIds.isEmpty else { return currentCookie }
+
+        // 等待删除任务进入回收站
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        var allRecords: [[String: Any]] = []
+        let pageSize = 100
+        for page in 1...5 {
+            let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
+                URLQueryItem(name: "_page", value: String(page)),
+                URLQueryItem(name: "_size", value: String(pageSize)),
+                URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
+            ])
+            var recycleReq = URLRequest(url: recycleURL)
+            recycleReq.httpMethod = "GET"
+            recycleReq.timeoutInterval = 10
+            quarkSetCommonHeaders(&recycleReq, cookie: currentCookie)
+
+            guard let (data, response) = try? await session.data(for: recycleReq) else { break }
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let list = json["data"] as? [[String: Any]] else { break }
+            allRecords.append(contentsOf: list)
+            if list.count < pageSize { break }
+        }
+
+        let targetFidSet = Set(fileIds)
+        let recordIds = allRecords.compactMap { item -> String? in
+            let recordId = "\(item["record_id"] ?? "")"
+            guard !recordId.isEmpty else { return nil }
+            let recycleFid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
+            if !recycleFid.isEmpty, targetFidSet.contains(recycleFid) {
+                return recordId
+            }
+            // 兜底：record_id 中包含 fileId 也匹配
+            if targetFidSet.contains(where: { recordId.contains($0) }) {
+                return recordId
+            }
+            return nil
+        }
+
+        guard !recordIds.isEmpty else { return currentCookie }
+
+        let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
+        var removeReq = URLRequest(url: removeURL)
+        removeReq.httpMethod = "POST"
+        quarkSetCommonHeaders(&removeReq, cookie: currentCookie)
+        let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
+        removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
+        if let (data, response) = try? await session.data(for: removeReq) {
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let code = json["code"] as? Int, code == 0 {
+                print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录（来自：分享）")
+            } else {
+                print("[Quark] ⚠️ 回收站清理接口返回异常")
+            }
+        }
         return currentCookie
     }
 
@@ -2311,7 +2340,6 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkFindVisibleFolder(cookie: String, folderName: String) async throws -> (folderId: String, cookie: String)? {
-        let listURL = quarkAPIURL("/1/clouddrive/file/sort")
         var currentCookie = cookie
         let pageSize = 200
         let maxPages = 200
@@ -2352,30 +2380,30 @@ class CloudDriveManager: ObservableObject {
         }
 
         func fetchList(page: Int, underscoreStyle: Bool) async throws -> ([[String: Any]]?, Int?, String?, String) {
-            var request = URLRequest(url: listURL)
-            request.httpMethod = "POST"
-            quarkSetCommonHeaders(&request, cookie: currentCookie)
-            let body: [String: Any]
+            // 夸克 /file/sort 当前仅支持 GET，参数通过 URL query 传递
+            let extra: [URLQueryItem]
             if underscoreStyle {
-                // 版本A：参数带下划线（目前大部分接口使用这一套）
-                body = [
-                    "pdir_fid": "0",
-                    "_sort": "file_type:asc,file_name:asc",
-                    "_page": page,
-                    "_size": pageSize,
-                    "_fetch_total": 1
+                extra = [
+                    URLQueryItem(name: "pdir_fid", value: "0"),
+                    URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+                    URLQueryItem(name: "_page", value: String(page)),
+                    URLQueryItem(name: "_size", value: String(pageSize)),
+                    URLQueryItem(name: "_fetch_total", value: "1")
                 ]
             } else {
-                // 版本B：参数不带下划线（部分环境/接口返回结构更稳定）
-                body = [
-                    "pdir_fid": "0",
-                    "sort_by": "file_name",
-                    "sort_order": "asc",
-                    "page": page,
-                    "size": pageSize
+                extra = [
+                    URLQueryItem(name: "pdir_fid", value: "0"),
+                    URLQueryItem(name: "sort_by", value: "file_name"),
+                    URLQueryItem(name: "sort_order", value: "asc"),
+                    URLQueryItem(name: "page", value: String(page)),
+                    URLQueryItem(name: "size", value: String(pageSize))
                 ]
             }
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let pageURL = quarkAPIURL("/1/clouddrive/file/sort", extra: extra)
+            var request = URLRequest(url: pageURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 15
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
 
             let (data, response) = try await session.data(for: request)
             currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
@@ -2519,56 +2547,14 @@ class CloudDriveManager: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         quarkSetCommonHeaders(&req, cookie: cookie)
-        // 夸克 file/delete API 的 filelist 字段要求 JSON 字符串格式
-        let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIds))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let body: [String: Any] = ["action_type": 2, "filelist": filelistJSON, "exclude_fids": []]
+        // 夸克 file/delete API 的 filelist 字段要求字符串数组
+        let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let deleteResult = try? await session.data(for: req)
         print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
 
-        // 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
-        if let data = deleteResult?.0,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let taskId = json["task_id"] as? String {
-            // 等待删除任务完成
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            // 查询回收站找到对应的记录
-            let recycleURL = quarkAPIURL("/1/clouddrive/file/recycle/list", extra: [
-                URLQueryItem(name: "_page", value: "1"),
-                URLQueryItem(name: "_size", value: "100"),
-                URLQueryItem(name: "_sort", value: "move_recycle_at:desc")
-            ])
-            var recycleReq = URLRequest(url: recycleURL)
-            recycleReq.httpMethod = "GET"
-            recycleReq.timeoutInterval = 10
-            quarkSetCommonHeaders(&recycleReq, cookie: cookie)
-
-            let recycleResult = try? await session.data(for: recycleReq)
-            if let recycleData = recycleResult?.0,
-               let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
-               let list = recycleJSON["data"] as? [[String: Any]] {
-                // 找到刚删除的文件记录
-                let recordIds = list.compactMap { item -> String? in
-                    // record_id 格式: "taskId-fid-时间-recycleV2"
-                    let recordId = item["record_id"] as? String ?? ""
-                    if recordId.contains(taskId) || fileIds.contains(where: { recordId.contains($0) }) {
-                        return recordId
-                    }
-                    return nil
-                }
-                if !recordIds.isEmpty {
-                    let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
-                    var removeReq = URLRequest(url: removeURL)
-                    removeReq.httpMethod = "POST"
-                    quarkSetCommonHeaders(&removeReq, cookie: cookie)
-                    let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
-                    removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
-                    let _ = try? await session.data(for: removeReq)
-                    print("[CloudDrive] ✅ 夸克已彻底清理回收站 \(recordIds.count) 条记录")
-                }
-            }
-        }
+        // 彻底清理回收站
+        _ = await quarkCleanRecycleBin(fileIds: fileIds, cookie: cookie)
     }
 
     private func quarkFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> QuarkShareFile {
@@ -2673,7 +2659,7 @@ class CloudDriveManager: ObservableObject {
         return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "mp3", "m4a"].contains { lower.hasSuffix(".\($0)") }
     }
 
-    private func quarkSaveShare(pwdId: String, stoken: String, file: QuarkShareFile, folderId: String, cookie: String) async throws -> [String] {
+    private func quarkSaveShare(pwdId: String, stoken: String, file: QuarkShareFile, folderId: String, cookie: String) async throws -> (fileIds: [String], cookie: String) {
         let url = quarkAPIURL("/1/clouddrive/share/sharepage/save", extra: [URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000)))])
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -2689,7 +2675,8 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let mergedCookie = quarkMergeSetCookie(from: response, into: request.value(forHTTPHeaderField: "Cookie") ?? cookie)
 
         let respStr = String(data: data, encoding: .utf8) ?? ""
         print("[Quark] save响应: \(respStr.prefix(500))")
@@ -2722,19 +2709,19 @@ class CloudDriveManager: ObservableObject {
             let saveAs = taskData?["save_as"] as? [String: Any]
             if let ids = saveAs?["save_as_top_fids"] as? [String], !ids.isEmpty {
                 print("[Quark] ✅ 转存成功，save_as_top_fids: \(ids)")
-                return ids
+                return (ids, mergedCookie)
             }
             if let ids = saveAs?["save_as_select_top_fids"] as? [String], !ids.isEmpty {
                 print("[Quark] ✅ 转存成功，save_as_select_top_fids: \(ids)")
-                return ids
+                return (ids, mergedCookie)
             }
             if let ids = d["file_ids"] as? [String], !ids.isEmpty {
-                return ids
+                return (ids, mergedCookie)
             }
             if let list = d["list"] as? [[String: Any]], !list.isEmpty {
                 let ids = list.compactMap { $0["fid"] as? String ?? $0["file_id"] as? String }
                 if !ids.isEmpty {
-                    return ids
+                    return (ids, mergedCookie)
                 }
             }
         }
@@ -2742,12 +2729,12 @@ class CloudDriveManager: ObservableObject {
         let recursiveIds = quarkExtractSavedFileIds(from: json, excluding: file.fid)
         if !recursiveIds.isEmpty {
             print("[Quark] ✅ 转存成功，递归提取 fid: \(recursiveIds)")
-            return recursiveIds
+            return (recursiveIds, mergedCookie)
         }
 
-        if let existingId = await quarkFindSavedFileId(fileName: file.fileName, folderId: folderId, cookie: cookie) {
+        if let existingId = await quarkFindSavedFileId(fileName: file.fileName, folderId: folderId, cookie: mergedCookie) {
             print("[Quark] ✅ 转存目录已存在同名文件，使用 fid=\(existingId)")
-            return [existingId]
+            return ([existingId], mergedCookie)
         }
 
         throw DriveError.noPlayURL("夸克转存成功但未返回已转存 fid")
@@ -2794,20 +2781,15 @@ class CloudDriveManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 800_000_000)
             }
 
-            let url = quarkAPIURL("/1/clouddrive/file/sort")
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            quarkSetCommonHeaders(&request, cookie: cookie)
-            let body: [String: Any] = [
-                "pdir_fid": folderId,
-                "sort_by": "file_name",
-                "sort_order": "asc",
-                "page": 1,
-                "size": 100
-            ]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            let sortResult = await quarkFetchFileSortList(
+                folderId: folderId,
+                cookie: cookie,
+                page: 1,
+                size: 100,
+                sort: "file_name:asc"
+            )
 
-            guard let (data, _) = try? await session.data(for: request),
+            guard let data = sortResult.data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
                   let list = dataObj["list"] as? [[String: Any]] else {
@@ -2838,31 +2820,46 @@ class CloudDriveManager: ObservableObject {
         var report: [String] = []
         let fileIdSet = Set(fileIds)
 
-        // 1. 探测 vbox 目录
-        do {
-            let vboxResult = try await quarkListFolderFiles(
-                folderId: vboxFolderId,
-                cookie: currentCookie,
-                maxPages: 5
-            )
-            currentCookie = vboxResult.cookie
-            let matchedById = vboxResult.list.filter { item in
+        func probeFolder(folderId: String, label: String) async -> String {
+            var list: [[String: Any]] = []
+            var probeCookie = currentCookie
+            for page in 1...5 {
+                let sortResult = await quarkFetchFileSortList(
+                    folderId: folderId,
+                    cookie: probeCookie,
+                    page: page,
+                    size: 200,
+                    sort: "file_type:asc,updated_at:desc"
+                )
+                probeCookie = sortResult.cookie
+                guard let data = sortResult.data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let dataObj = json["data"] as? [String: Any],
+                      let pageList = dataObj["list"] as? [[String: Any]] else { break }
+                list.append(contentsOf: pageList)
+                if pageList.count < 200 { break }
+            }
+            currentCookie = probeCookie
+
+            let matchedById = list.filter { item in
                 let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
                 return fileIdSet.contains(fid)
             }
-            let matchedByName = vboxResult.list.filter { item in
+            let matchedByName = list.filter { item in
                 let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
                 return name == fileName
             }
-            report.append("vbox目录(folderId=\(vboxFolderId)): 共\(vboxResult.list.count)项, ID匹配\(matchedById.count)项, 名称匹配\(matchedByName.count)项")
+            var lines: [String] = ["\(label)(folderId=\(folderId)): 共\(list.count)项, ID匹配\(matchedById.count)项, 名称匹配\(matchedByName.count)项"]
             if let first = matchedByName.first ?? matchedById.first {
                 let fid = first["fid"] as? String ?? first["file_id"] as? String ?? ""
                 let name = first["file_name"] as? String ?? first["name"] as? String ?? ""
-                report.append("  -> vbox命中: fid=\(fid), name=\(name)")
+                lines.append("  -> \(label)命中: fid=\(fid), name=\(name)")
             }
-        } catch {
-            report.append("vbox目录探测失败: \(error.localizedDescription)")
+            return lines.joined(separator: "; ")
         }
+
+        // 1. 探测 vbox 目录
+        report.append(await probeFolder(folderId: vboxFolderId, label: "vbox目录"))
 
         // 2. 探测 "来自：分享" 目录
         var shareOriginFid: String?
@@ -2875,30 +2872,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         if let shareOriginFid {
-            do {
-                let originResult = try await quarkListFolderFiles(
-                    folderId: shareOriginFid,
-                    cookie: currentCookie,
-                    maxPages: 5
-                )
-                currentCookie = originResult.cookie
-                let matchedById = originResult.list.filter { item in
-                    let fid = item["fid"] as? String ?? item["file_id"] as? String ?? ""
-                    return fileIdSet.contains(fid)
-                }
-                let matchedByName = originResult.list.filter { item in
-                    let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
-                    return name == fileName
-                }
-                report.append("来自分享目录(fid=\(shareOriginFid)): 共\(originResult.list.count)项, ID匹配\(matchedById.count)项, 名称匹配\(matchedByName.count)项")
-                if let first = matchedByName.first ?? matchedById.first {
-                    let fid = first["fid"] as? String ?? first["file_id"] as? String ?? ""
-                    let name = first["file_name"] as? String ?? first["name"] as? String ?? ""
-                    report.append("  -> 来自分享命中: fid=\(fid), name=\(name)")
-                }
-            } catch {
-                report.append("来自分享目录探测失败: \(error.localizedDescription)")
-            }
+            report.append(await probeFolder(folderId: shareOriginFid, label: "来自分享目录"))
         } else {
             report.append("未找到\"来自：分享\"目录")
         }
@@ -2908,46 +2882,7 @@ class CloudDriveManager: ObservableObject {
         return summary
     }
 
-    /// 列出指定目录下的所有文件（分页）
-    private func quarkListFolderFiles(
-        folderId: String,
-        cookie: String,
-        maxPages: Int
-    ) async throws -> (list: [[String: Any]], cookie: String) {
-        var currentCookie = cookie
-        var allList: [[String: Any]] = []
-        let pageSize = 200
-        let url = quarkAPIURL("/1/clouddrive/file/sort")
 
-        for page in 1...maxPages {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            quarkSetCommonHeaders(&request, cookie: currentCookie)
-            let body: [String: Any] = [
-                "pdir_fid": folderId,
-                "_sort": "file_type:asc,updated_at:desc",
-                "_page": page,
-                "_size": pageSize,
-                "_fetch_total": 1
-            ]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-            guard let (data, response) = try? await session.data(for: request) else {
-                break
-            }
-            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
-
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any],
-                  let list = dataObj["list"] as? [[String: Any]] else {
-                break
-            }
-            allList.append(contentsOf: list)
-            if list.count < pageSize { break }
-        }
-
-        return (allList, currentCookie)
-    }
 
     /// 对齐iBox原画抓包：调用 acquire_dl_token 获取加速下载token
     /// 注意：这个接口的Host是 drive-social-api.quark.cn，不是 drive-pc.quark.cn
