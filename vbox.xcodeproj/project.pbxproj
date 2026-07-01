@@ -179,6 +179,8 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -188,6 +190,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */
 				91109A3AE5E69A5CD116E13D /* MPVKit.xcframework in Embed Frameworks */,
 				51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */,
 				EF66A1860129C0CCCB84E8A6 /* Libavcodec.xcframework in Embed Frameworks */,
@@ -370,6 +373,7 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IJKMediaFrameworkWithSSL.framework; path = vbox/Libraries/IJKPlayer/IJKMediaFrameworkWithSSL.framework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -378,6 +382,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016 /* libquickjs.a in Frameworks */,
+				83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */
 				ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */,
 				CF8DB5B6D7C06688B86FAC21 /* Libmpv.xcframework in Frameworks */,
 				44512C970784869EA592C124 /* Libavcodec.xcframework in Frameworks */,
@@ -627,6 +632,7 @@
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
+				2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */
 				B13001 /* MPVKit.xcframework */,
 			);
 			path = Libraries;
@@ -907,6 +913,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
 					"$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies",
+					"$(SRCROOT)/vbox/Libraries/IJKPlayer",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -955,6 +962,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/vbox/Libraries/MPV",
 					"$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies",
+					"$(SRCROOT)/vbox/Libraries/IJKPlayer",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (

@@ -181,6 +181,19 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
                 self?.playerState?.playbackSpeed = speed
                 // ijkplayer 播放中动态修改播放速度有限制，先记录到状态
             })
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxPiPTogglePlayPause,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self = self, let player = self.player else { return }
+                if player.isPlaying() {
+                    player.pause()
+                } else {
+                    player.play()
+                }
+            })
         }
 
         // MARK: 状态处理
