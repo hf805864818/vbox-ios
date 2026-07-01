@@ -4381,7 +4381,7 @@ class CloudDriveManager: ObservableObject {
             }
             try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
             // 异步清理超过2小时的旧转存文件，不阻塞播放流程
-            baiduCleanupOldTransferFiles(cookie: pureAccountCookie)
+            baiduCleanupOldTransferFiles(cookie: pureAccountCookie, bdstoken: userBdstoken)
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
             let sourcePrefix: String
@@ -4971,9 +4971,17 @@ class CloudDriveManager: ObservableObject {
         return "/vbox/"
     }
 
-    private func baiduDeleteFiles(fileIds: [String], bduss: String) async {
+    private func baiduDeleteFiles(fileIds: [String], bduss: String, bdstoken: String? = nil) async {
         guard !fileIds.isEmpty else { return }
-        let url = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+        let effectiveBdstoken: String
+        if let bdstoken, !bdstoken.isEmpty {
+            effectiveBdstoken = bdstoken
+        } else {
+            // 延迟清理场景下 bdstoken 可能已过期，实时获取
+            let cookie = "BDUSS=\(bduss)"
+            effectiveBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? ""
+        }
+        let url = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=\(effectiveBdstoken)&channel=chunlei&web=1&app_id=250528&clienttype=0")!
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -4990,7 +4998,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
-    private func baiduCleanupOldTransferFiles(cookie: String) {
+    private func baiduCleanupOldTransferFiles(cookie: String, bdstoken: String) {
         Task {
             do {
                 let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
@@ -4999,7 +5007,7 @@ class CloudDriveManager: ObservableObject {
                 let listURL = URL(string: "https://pan.baidu.com/api/list")!
                 var components = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
                 components.queryItems = [
-                    URLQueryItem(name: "bdstoken", value: ""),
+                    URLQueryItem(name: "bdstoken", value: bdstoken),
                     URLQueryItem(name: "channel", value: "chunlei"),
                     URLQueryItem(name: "web", value: "1"),
                     URLQueryItem(name: "app_id", value: "250528"),
@@ -5038,7 +5046,7 @@ class CloudDriveManager: ObservableObject {
                 let encodedList = try? JSONSerialization.data(withJSONObject: paths)
                 let fileListStr = String(data: encodedList ?? Data(), encoding: .utf8) ?? "[]"
 
-                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=\(bdstoken)&channel=chunlei&web=1&app_id=250528&clienttype=0")!
                 var delReq = URLRequest(url: deleteURL)
                 delReq.httpMethod = "POST"
                 delReq.timeoutInterval = 12
