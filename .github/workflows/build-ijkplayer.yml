@@ -1,0 +1,82 @@
+name: Build IJKPlayer iOS Framework
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-ijkplayer.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 240
+    steps:
+      - name: Checkout ijkplayer
+        uses: actions/checkout@v4
+        with:
+          repository: Bilibili/ijkplayer
+          ref: master
+          path: ijkplayer
+
+      - name: Select Xcode
+        run: |
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode_16.1.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: Init iOS dependencies
+        working-directory: ./ijkplayer
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          ./init-ios.sh
+
+      - name: Compile FFmpeg (arm64 only)
+        working-directory: ./ijkplayer/ios
+        run: |
+          # 只编译 arm64 真机架构，加快构建速度
+          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-ffmpeg.sh
+          sed -i '' 's/FF_ALL_ARCHS=$FF_ALL_ARCHS_IOS8_SDK/FF_ALL_ARCHS="arm64"/' compile-openssl.sh
+          ./compile-ffmpeg.sh clean
+          ./compile-ffmpeg.sh all
+
+      - name: Build IJKMediaFrameworkWithSSL
+        working-directory: ./ijkplayer/ios/IJKMediaPlayer
+        run: |
+          xcodebuild -project IJKMediaPlayer.xcodeproj \
+            -scheme IJKMediaFrameworkWithSSL \
+            -sdk iphoneos \
+            -configuration Release \
+            -arch arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CONFIGURATION_BUILD_DIR=./build/Release-iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package Framework
+        run: |
+          mkdir -p IJKPlayer-Release
+          cp -R ./ijkplayer/ios/IJKMediaPlayer/build/Release-iphoneos/IJKMediaFrameworkWithSSL.framework IJKPlayer-Release/
+          ls -la IJKPlayer-Release/IJKMediaFrameworkWithSSL.framework/
+          zip -r IJKPlayer-iOS-arm64.zip IJKPlayer-Release/
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ijkplayer-ios-latest
+          name: IJKPlayer iOS Framework (arm64)
+          body: |
+            自动编译的 ijkplayer iOS framework
+            - 来源：Bilibili/ijkplayer master
+            - 架构：arm64 (真机)
+            - SSL：启用
+          files: IJKPlayer-iOS-arm64.zip
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
