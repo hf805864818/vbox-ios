@@ -47,6 +47,9 @@ jobs:
           sed -i '' 's/FF_XCODE_BITCODE="-fembed-bitcode"/FF_XCODE_BITCODE=""/' tools/do-compile-openssl.sh
           # 新 clang 对老 ffmpeg 的函数指针类型检查更严格，关闭该错误
           sed -i '' 's/FFMPEG_EXTRA_CFLAGS=/FFMPEG_EXTRA_CFLAGS="-Wno-incompatible-function-pointer-types -Wno-int-conversion"/' tools/do-compile-ffmpeg.sh
+          # Xcode 16.4 最低支持 iOS 12.0，替换所有低版本 Deployment Target
+          find . -type f -name "*.sh" -exec sed -i '' -E 's/(DEPLOYMENT_TARGET|IPHONEOS_DEPLOYMENT_TARGET)=["'']?[0-9]+\.[0-9]+/\1="12.0"/g' {} \;
+          find . -type f -name "*.sh" -exec sed -i '' -E 's/-miphoneos-version-min=[0-9]+\.[0-9]+/-miphoneos-version-min=12.0/g' {} \;
 
       - name: Compile FFmpeg (arm64 only)
         working-directory: ./ijkplayer/ios

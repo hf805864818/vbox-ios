@@ -48,9 +48,22 @@ jobs:
           find . -type f \( -name "*.sh" -o -name "*.cmake" -o -name "CMakeLists.txt" -o -name "Config*.pm" \) -exec sed -i '' 's/armv7 //g; s/ armv7//g' {} \;
           # iOS 8.0 部署目标太老，改到 12.0 避免 SDK 兼容警告
           sed -i '' 's/DEPLOYMENT_TARGET="8.0"/DEPLOYMENT_TARGET="12.0"/' build_tools/iOSConfig.sh
-          # 强制 autotools 交叉编译: ARM runner 上 config.guess 返回 aarch64,与 iOS target 相同
-          # 通过 build_alias 注入 x86_64 令 build≠host, configure 自动进入交叉编译模式
+          # 通过 build_alias 注入 x86_64 令 build≠host
           echo 'export build_alias=x86_64-apple-darwin' >> build_tools/env.sh
+
+          # curl 7.63.0 configure.ac 部分 AC_RUN_IFELSE 缺少 cross-compile 回退参数
+          # buildconf 调用 autoconf 重新生成 configure 后, 自动修补交叉编译 fatal error
+          AU=$(which autoconf)
+          cat > /tmp/autoconf << WRAP
+          #!/bin/bash
+          ${AU} "\$@"
+          if [ -f configure ]; then
+            sed -i '' 's|cannot run test program while cross compiling|& [XCOMP]|' configure
+            sed -i '' '/as_fn_error.*cannot run test.*\[XCOMP\]/s|as_fn_error|true #|' configure
+          fi
+          WRAP
+          chmod +x /tmp/autoconf
+          export PATH="/tmp:${PATH}"
 
       - name: Build iOS SDK
         working-directory: ./CicadaPlayer
@@ -60,8 +73,6 @@ jobs:
           build_alias: x86_64-apple-darwin
         run: |
           export MUPP_BUILD_ID=$(date +%Y%m%d%H%M%S)
-          # 强制 autotools configure 进入交叉编译模式: ARM runner 上 build=host=aarch64
-          # 设置 build_alias 环境变量令 config.guess 返回 x86_64, 使得 build≠host
           export build_alias=x86_64-apple-darwin
           . setup.env
           build_iOS
