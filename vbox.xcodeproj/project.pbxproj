@@ -175,6 +175,10 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		A12031 /* KXSPAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12031 /* KXSPAPIService.swift */; };
+		A12032 /* SangeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12032 /* SangeModels.swift */; };
+		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
+		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -362,6 +366,10 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		B12031 /* KXSPAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KXSPAPIService.swift; sourceTree = "<group>"; };
+		B12032 /* SangeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeModels.swift; sourceTree = "<group>"; };
+		B12033 /* SangeCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeCategoryView.swift; sourceTree = "<group>"; };
+		B12034 /* SangeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -528,6 +536,7 @@
 				9B2342222E4A4F78B5358A5A /* WelfareViewModel.swift */,
 				89DCA61AB0624F5991291A38 /* WelfareModels.swift */,
 				B10202 /* WelfareCrawlerConfig.swift */,
+				B12032 /* SangeModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -562,6 +571,7 @@
 				B10126 /* ShortDramaService.swift */,
 				B10200 /* YBoxService2.swift */,
 				B10201 /* WelfareCrawlerService.swift */,
+				B12031 /* KXSPAPIService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -593,6 +603,8 @@
 				B10127 /* ShortDramaView.swift */,
 				B10128 /* ShortDramaDetailView.swift */,
 				B10203 /* WelfareSubViews.swift */,
+				B12033 /* SangeCategoryView.swift */,
+				B12034 /* SangeListView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -823,6 +835,10 @@
 				A10201 /* WelfareCrawlerService.swift in Sources */,
 				A10202 /* WelfareCrawlerConfig.swift in Sources */,
 				A10203 /* WelfareSubViews.swift in Sources */,
+				A12031 /* KXSPAPIService.swift in Sources */,
+				A12032 /* SangeModels.swift in Sources */,
+				A12033 /* SangeCategoryView.swift in Sources */,
+				A12034 /* SangeListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
