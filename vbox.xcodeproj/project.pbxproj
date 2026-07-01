@@ -143,6 +143,10 @@
 		A12027 /* MDKPipManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12027 /* MDKPipManager.swift */; };
 		A12028 /* MPVPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12028 /* MPVPiPManager.swift */; };
 		A12030 /* MDKRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12030 /* MDKRenderView.swift */; };
+		A12031 /* KXSPAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12031 /* KXSPAPIService.swift */; };
+		A12032 /* SangeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12032 /* SangeModels.swift */; };
+		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
+		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -175,10 +179,6 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
-		A12031 /* KXSPAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12031 /* KXSPAPIService.swift */; };
-		A12032 /* SangeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12032 /* SangeModels.swift */; };
-		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
-		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -354,6 +354,10 @@
 		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
 		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
 		B12030 /* MDKRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKRenderView.swift; sourceTree = "<group>"; };
+		B12031 /* KXSPAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KXSPAPIService.swift; sourceTree = "<group>"; };
+		B12032 /* SangeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeModels.swift; sourceTree = "<group>"; };
+		B12033 /* SangeCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeCategoryView.swift; sourceTree = "<group>"; };
+		B12034 /* SangeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeListView.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -366,10 +370,6 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
-		B12031 /* KXSPAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KXSPAPIService.swift; sourceTree = "<group>"; };
-		B12032 /* SangeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeModels.swift; sourceTree = "<group>"; };
-		B12033 /* SangeCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeCategoryView.swift; sourceTree = "<group>"; };
-		B12034 /* SangeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
