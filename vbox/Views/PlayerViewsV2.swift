@@ -4017,6 +4017,13 @@ struct PlayerControlsView: View {
                     MPVPiPManager.shared.initializePiP()
                     MPVPiPManager.shared.startPiP()
                     #endif
+                } else if playerState.compatibilityEngineName.contains("IJK") {
+                    #if canImport(IJKMediaFrameworkWithSSL)
+                    // IJKPlayer 使用应用内浮动小窗口（截图方式模拟画中画）
+                    if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
+                        PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
+                    }
+                    #endif
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
