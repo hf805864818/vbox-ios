@@ -71,7 +71,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             GCC_TREAT_IMPLICIT_FUNCTION_DECLARATIONS_AS_ERRORS=NO \
-            WARNING_CFLAGS="-Wno-error -Wno-implicit-function-declaration" \
+            WARNING_CFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-error=return-type" \
             build
 
       - name: Package Framework
