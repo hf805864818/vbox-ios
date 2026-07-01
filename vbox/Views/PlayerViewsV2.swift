@@ -3245,26 +3245,20 @@ struct PlayerContainerView: View {
                     #endif
                 } else if playerState.compatibilityEngineName.contains("AliPlayer") {
                     #if canImport(AliyunPlayer)
-                    AliPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, userAgent: nil, referer: nil, playerState: playerState,
-                        onStatusChange: nil,
-                        onTimeUpdate: { time in
-                            playerState.currentTime = time
-                        },
-                        onDurationChange: { duration in
-                            playerState.duration = duration
-                        },
-                        onBufferUpdate: { buffer in
-                            playerState.bufferPosition = buffer
-                        },
-                        onError: { error in
-                            playerState.errorMessage = error
-                        },
-                        onReady: {
-                            playerState.isLoading = false
-                        },
-                        onSeekDone: {
-                            playerState.isSeeking = false
-                        })
+                    AliPlayerRepresentable(
+                        url: url,
+                        headers: playerState.compatibilityHeaders,
+                        userAgent: nil as String?,
+                        referer: nil as String?,
+                        playerState: playerState,
+                        onStatusChange: { _ in },
+                        onTimeUpdate: { time in playerState.currentTime = time },
+                        onDurationChange: { dur in playerState.duration = dur },
+                        onBufferUpdate: { _ in },
+                        onError: { msg in playerState.loadError = msg },
+                        onReady: { playerState.isLoading = false },
+                        onSeekDone: { playerState.isSeeking = false }
+                    )
                         .ignoresSafeArea()
                     #else
                     CompatibilityUnavailableView(engineName: "AliPlayer", message: "当前构建未包含 AliyunPlayer")
