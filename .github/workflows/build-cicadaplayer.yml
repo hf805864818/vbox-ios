@@ -48,17 +48,21 @@ jobs:
           find . -type f \( -name "*.sh" -o -name "*.cmake" -o -name "CMakeLists.txt" -o -name "Config*.pm" \) -exec sed -i '' 's/armv7 //g; s/ armv7//g' {} \;
           # iOS 8.0 部署目标太老，改到 12.0 避免 SDK 兼容警告
           sed -i '' 's/DEPLOYMENT_TARGET="8.0"/DEPLOYMENT_TARGET="12.0"/' build_tools/iOSConfig.sh
-          # 修复 curl 交叉编译: GitHub ARM runner 上 build=host=aarch64, configure 误判为非交叉编译而尝试运行 iOS arm64 测试程序
-          # 注入 --build=x86_64-apple-darwin 令 build≠host, 迫使 autotools 正确进入交叉编译模式
-          find . \( -name "*.sh" -o -name "Makefile" -o -name "*.mk" -o -name "*.cmake" -o -name "CMakeLists.txt" \) -exec sed -i '' '/\.\/configure/{/--build/!s|\./configure|./configure --build=x86_64-apple-darwin|;}' {} \;
+          # 强制 autotools 交叉编译: ARM runner 上 config.guess 返回 aarch64,与 iOS target 相同
+          # 通过 build_alias 注入 x86_64 令 build≠host, configure 自动进入交叉编译模式
+          echo 'export build_alias=x86_64-apple-darwin' >> build_tools/env.sh
 
       - name: Build iOS SDK
         working-directory: ./CicadaPlayer
         env:
           ac_cv_func_malloc_0_nonnull: yes
           ac_cv_func_realloc_0_nonnull: yes
+          build_alias: x86_64-apple-darwin
         run: |
           export MUPP_BUILD_ID=$(date +%Y%m%d%H%M%S)
+          # 强制 autotools configure 进入交叉编译模式: ARM runner 上 build=host=aarch64
+          # 设置 build_alias 环境变量令 config.guess 返回 x86_64, 使得 build≠host
+          export build_alias=x86_64-apple-darwin
           . setup.env
           build_iOS
 
