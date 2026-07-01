@@ -779,8 +779,7 @@ class PlayerState: ObservableObject {
         guard isMDKBuildAvailable else { return false }
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
-        // 夸克直链优先 MPV，不再优先 MDK
-        if text.contains("baidu-stream") { return true }
+        if text.contains("baidu-stream") || text.contains("quark-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         return false
     }
@@ -789,7 +788,6 @@ class PlayerState: ObservableObject {
         guard isMPVBuildAvailable else { return false }
         guard let url else { return compatibilityHint != nil }
         let text = url.absoluteString.lowercased()
-        // 夸克直链明确优先 MPV
         if text.contains("baidu-stream") || text.contains("quark-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         if compatibilityHint?.contains("MKV") == true { return true }
