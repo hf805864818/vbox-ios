@@ -1,0 +1,69 @@
+name: Build CicadaPlayer iOS Framework
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-cicadaplayer.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - name: Checkout CicadaPlayer
+        uses: actions/checkout@v4
+        with:
+          repository: alibaba/CicadaPlayer
+          ref: master
+          path: CicadaPlayer
+
+      - name: Select Xcode
+        run: |
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode_16.1.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+
+      - name: Install dependencies
+        run: |
+          brew install automake libtool autoconf cmake yasm 2>/dev/null || true
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Build iOS SDK
+        working-directory: ./CicadaPlayer
+        run: |
+          export MUPP_BUILD_ID=$(date +%Y%m%d%H%M%S)
+          . setup.env
+          build_iOS
+
+      - name: Package Framework
+        run: |
+          mkdir -p CicadaPlayer-Release
+          cp -R ./CicadaPlayer/output/CicadaPlayerSDK/SDK/ARM_SIMULATOR/CicadaPlayerSDK.framework CicadaPlayer-Release/ 2>/dev/null || \
+          cp -R ./CicadaPlayer/output/CicadaPlayerSDK/SDK/ARM/CicadaPlayerSDK.framework CicadaPlayer-Release/
+          # 同时复制依赖的 ffmpeg framework
+          cp -R ./CicadaPlayer/output/CicadaPlayerSDK/SDK/ARM_SIMULATOR/alivcffmpeg.framework CicadaPlayer-Release/ 2>/dev/null || \
+          cp -R ./CicadaPlayer/output/CicadaPlayerSDK/SDK/ARM/alivcffmpeg.framework CicadaPlayer-Release/
+          ls -la CicadaPlayer-Release/
+          zip -r CicadaPlayer-iOS-arm64.zip CicadaPlayer-Release/
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cicadaplayer-ios-latest
+          name: CicadaPlayer iOS Framework (arm64)
+          body: |
+            自动编译的 CicadaPlayer iOS framework
+            - 来源：alibaba/CicadaPlayer master
+            - 架构：arm64 (真机)
+            - 包含依赖：alivcffmpeg.framework
+          files: CicadaPlayer-iOS-arm64.zip
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
