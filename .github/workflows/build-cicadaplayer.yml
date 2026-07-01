@@ -72,6 +72,7 @@ jobs:
           ac_cv_func_realloc_0_nonnull: yes
           build_alias: x86_64-apple-darwin
         run: |
+          export PATH="/tmp:${PATH}"
           export MUPP_BUILD_ID=$(date +%Y%m%d%H%M%S)
           export build_alias=x86_64-apple-darwin
           . setup.env
