@@ -59,7 +59,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         // 设置 URL 源
         let source = AVPUrlSource()
-        source.url = url
+        source.playerUrl = url
         player.setUrlSource(source)
 
         player.setAutoPlay(false)
@@ -140,7 +140,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             // 画中画切换播放/暂停
             observers.append(center.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak self] _ in
                 guard let player = self?.player else { return }
-                if player.isPlaying() {
+                if player.playerStatus == 3 {
                     player.pause()
                 } else {
                     player.start()
