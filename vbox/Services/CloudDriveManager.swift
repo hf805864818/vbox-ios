@@ -1511,7 +1511,7 @@ class CloudDriveManager: ObservableObject {
         var authCookie = cookie
 
         // 播放前检测夸克空间，快满时清理"来自：分享"目录
-        authCookie = await quarkCleanShareOriginIfNeeded(cookie: authCookie, thresholdGB: 1.0)
+        authCookie = await quarkCleanShareOriginIfNeeded(cookie: authCookie, thresholdGB: 2.0)
 
         // 对齐 iBox：不创建自定义目录，to_pdir_fid 传 "0"，让夸克按默认行为保存
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
@@ -1542,6 +1542,7 @@ class CloudDriveManager: ObservableObject {
         // 抓包里的实际播放主链路是：先调 v2/play 刷新 Video-Auth，再用 file/download 的 download_url 走 Range 播放。
         // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
         var transcodeURL = ""
+        var effectiveFileId = fileId
         do {
             let playInfo = try await quarkRefreshVideoAuth(fileId: fileId, cookie: authCookie)
             authCookie = playInfo.cookie
@@ -1551,7 +1552,35 @@ class CloudDriveManager: ObservableObject {
             print("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url: \(error.localizedDescription)")
         }
 
-        let download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
+        var download: (url: String, fileName: String) = ("", "")
+        do {
+            download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
+        } catch {
+            let errMsg = error.localizedDescription
+            print("[Quark] ⚠️ download_url 首次尝试失败(fid=\(fileId)): \(errMsg)")
+            // 文件ID可能不对（save_as_top_fids可能是文件夹ID），尝试通过文件名查找
+            if errMsg.contains("file not found") || errMsg.contains("not found") {
+                if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
+                    print("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
+                    effectiveFileId = foundId
+                    download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
+                }
+                // 如果根目录没找到，尝试在"来自：分享"目录查找
+                if download.url.isEmpty {
+                    let shareFolder = await quarkFindShareOriginFolder(cookie: authCookie)
+                    if let shareFid = shareFolder {
+                        if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
+                            print("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
+                            effectiveFileId = foundId
+                            download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
+                        }
+                    }
+                }
+            }
+            if download.url.isEmpty {
+                throw DriveError.noPlayURL("夸克 download_url 获取失败：\(errMsg)")
+            }
+        }
         let playURL: String
         let source: String
         if !download.url.isEmpty {
@@ -2266,14 +2295,15 @@ class CloudDriveManager: ObservableObject {
         let usedGB = Double(used) / 1_073_741_824.0
         let usedPercent = Double(used) * 100.0 / Double(total)
 
-        print("[Quark] 容量状态: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB")
+        print("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
 
-        // 剩余空间低于阈值（默认1GB）时触发清理
+        // 剩余空间低于阈值时触发清理
         guard freeGB < thresholdGB else {
+            print("[Quark] ✅ 剩余空间充足(\(String(format: "%.2f", freeGB))GB >= \(thresholdGB)GB)，跳过清理")
             return currentCookie
         }
 
-        print("[Quark] ⚠️ 剩余空间不足 \(thresholdGB)GB，开始清理夸克转存文件")
+        print("[Quark] 🧹 剩余空间不足 \(String(format: "%.2f", freeGB))GB < \(thresholdGB)GB，开始清理夸克转存文件")
 
         // 辅助：用 GET 列出目录下所有文件/文件夹
         func collectFids(folderId: String, onlyVideo: Bool = false) async -> [String] {
@@ -2911,7 +2941,13 @@ class CloudDriveManager: ObservableObject {
 
         if let code = json["code"] as? Int, code != 0 {
             let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码: \(code)"
-            print("[Quark] ❌ 转存失败: \(message)")
+            print("[Quark] ❌ 转存失败: code=\(code), message=\(message)")
+            // 检测容量/配额相关错误，给出更明确的提示
+            let lowerMsg = message.lowercased()
+            if lowerMsg.contains("空间") || lowerMsg.contains("容量") || lowerMsg.contains("quota")
+               || lowerMsg.contains("full") || lowerMsg.contains("insufficient") || lowerMsg.contains("超限") {
+                throw DriveError.noPlayURL("夸克容量不足，无法转存此文件。请清理夸克云盘空间后重试")
+            }
             throw DriveError.noPlayURL("夸克转存失败: \(message)")
         }
 
@@ -3025,6 +3061,38 @@ class CloudDriveManager: ObservableObject {
                 if let fileId = item["file_id"] as? String, !fileId.isEmpty { return fileId }
                 if let fid = item["fid"] as? Int { return String(fid) }
                 if let fileId = item["file_id"] as? Int { return String(fileId) }
+            }
+        }
+        return nil
+    }
+
+    /// 查找"来自：分享"目录的fid，用于二次查找转存文件
+    private func quarkFindShareOriginFolder(cookie: String) async -> String? {
+        let url = quarkAPIURL("/1/clouddrive/file/sort")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        quarkSetCommonHeaders(&request, cookie: cookie)
+        let body: [String: Any] = [
+            "pdir_fid": "0",
+            "sort_by": "updated_at",
+            "sort_order": "desc",
+            "page": 1,
+            "size": 50
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        guard let (data, _) = try? await session.data(for: request),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["list"] as? [[String: Any]] else {
+            return nil
+        }
+
+        for item in list {
+            let name = item["file_name"] as? String ?? item["name"] as? String ?? ""
+            if name.contains("来自") && name.contains("分享") {
+                if let fid = item["fid"] as? String, !fid.isEmpty { return fid }
+                if let fid = item["fid"] as? Int { return String(fid) }
             }
         }
         return nil

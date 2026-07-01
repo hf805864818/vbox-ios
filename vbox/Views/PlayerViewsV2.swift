@@ -706,11 +706,8 @@ class PlayerState: ObservableObject {
     }
 
     private var isAliPlayerBuildAvailable: Bool {
-        #if canImport(AliyunPlayer)
-        return true
-        #else
-        return false
-        #endif
+        // canImport 对手动添加的 framework 可能不生效，改为运行时检测
+        return NSClassFromString("AliPlayer") != nil
     }
 
     private var shouldUseCompatibilityEngine: Bool {
@@ -3245,7 +3242,7 @@ struct PlayerContainerView: View {
                     CompatibilityUnavailableView(engineName: "IJKPlayer", message: "当前构建未包含 IJKPlayer")
                     #endif
                 } else if playerState.compatibilityEngineName.contains("AliPlayer") {
-                    #if canImport(AliyunPlayer)
+                    if isAliPlayerBuildAvailable {
                     AliPlayerRepresentable(
                         url: url.absoluteString,
                         headers: playerState.compatibilityHeaders,
@@ -3261,9 +3258,9 @@ struct PlayerContainerView: View {
                         onSeekDone: { playerState.isSeeking = false }
                     )
                         .ignoresSafeArea()
-                    #else
+                    } else {
                     CompatibilityUnavailableView(engineName: "AliPlayer", message: "当前构建未包含 AliyunPlayer")
-                    #endif
+                    }
                 } else {
                 #if canImport(MobileVLCKit)
                 VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
