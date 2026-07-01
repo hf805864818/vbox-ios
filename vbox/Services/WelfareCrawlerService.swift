@@ -469,7 +469,7 @@ final class WelfareCrawlerService {
                     req.timeoutInterval = 8
                     req.setValue(self.userAgent, forHTTPHeaderField: "User-Agent")
                     guard let data = await self.request(req) else { return [] }
-                    let items = self.parseVodJSON(data)
+                    let items = await self.parseVodJSON(data)
                     print("[WelfareCrawler] CMS直连[\(api.name)]: \(items.count)条")
                     return items
                 }
