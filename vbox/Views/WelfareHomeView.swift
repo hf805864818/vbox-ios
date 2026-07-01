@@ -79,6 +79,11 @@ struct WelfareCategorySection: View {
 
             // 平台网格（每行3个）
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                // 三更入口：放在包含香蕉秀的分类最前面
+                if category.platforms.contains(where: { $0.name == "香蕉秀" }) {
+                    sangeEntry
+                }
+
                 ForEach(category.platforms) { platform in
                     NavigationLink(destination: platformDestination(platform)) {
                         WelfarePlatformCard2(platform: platform, colors: gradientColors)
@@ -88,6 +93,34 @@ struct WelfareCategorySection: View {
             }
             .padding(.horizontal, 16)
         }
+    }
+
+    // MARK: 三更入口卡片
+    private var sangeEntry: some View {
+        NavigationLink(destination: SangeCategoryView()) {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(LinearGradient(colors: gradientColors.map { $0.opacity(0.15) },
+                                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(height: 72)
+                    VStack(spacing: 4) {
+                        Image(systemName: "moon.stars.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(gradientColors[0])
+                        Text("三更")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("视频/抖音")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     @ViewBuilder
