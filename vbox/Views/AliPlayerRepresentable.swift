@@ -159,7 +159,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
                     if dur > 0 {
                         self.parent.onDurationChange?(dur)
                     }
-                    let buf = Double(player.bufferedPosition) / 1000.0
+                    let buf = Double(player.bufferedPosition()) / 1000.0
                     self.parent.onBufferUpdate?(buf)
                 }
             }
@@ -181,7 +181,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         // MARK: - AVPDelegate
 
-        func onPlayerEvent(_ player: Any!, eventCode: Int) {
+        func onPlayerEvent(_ player: Any, eventCode: Int) {
             switch eventCode {
             case 0: // PrepareDone
                 self.player?.start()
@@ -201,7 +201,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func onPlayerEvent(_ player: Any!, eventWithString eventStr: String!, description: String!) {
+        func onPlayerEvent(_ player: Any, eventWithString eventStr: String, description: String) {
             // 备用事件回调
         }
 
@@ -212,28 +212,28 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func onPlayerStatusChanged(_ player: Any!, oldStatus: Int, newStatus: Int) {
+        func onPlayerStatusChanged(_ player: Any, oldStatus: Int, newStatus: Int) {
             DispatchQueue.main.async {
                 self.parent.playerState.isPlaying = (newStatus == 3) // started
                 self.parent.onStatusChange?(AliPlayerStatus(rawValue: newStatus) ?? .idle)
             }
         }
 
-        func onVideoSizeChanged(_ player: Any!, width: Int, height: Int) {
+        func onVideoSizeChanged(_ player: Any, width: Int, height: Int) {
             // 视频尺寸变化
         }
 
-        func onSeekDone(_ player: Any!) {
+        func onSeekDone(_ player: Any) {
             DispatchQueue.main.async { self.parent.onSeekDone?() }
         }
 
         // MARK: - AliPlayerPictureInPictureDelegate
 
-        func pictureInPictureControllerWillStartPictureInPicture(_ controller: Any!) {
+        func pictureInPictureControllerWillStartPictureInPicture(_ controller: Any) {
             log("[AliPlayer] PiP will start")
         }
 
-        func pictureInPictureControllerDidStartPictureInPicture(_ controller: Any!) {
+        func pictureInPictureControllerDidStartPictureInPicture(_ controller: Any) {
             log("[AliPlayer] PiP did start")
             DispatchQueue.main.async {
                 self.parent.playerState.isPiPActive = true
@@ -241,11 +241,11 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func pictureInPictureControllerWillStopPictureInPicture(_ controller: Any!) {
+        func pictureInPictureControllerWillStopPictureInPicture(_ controller: Any) {
             log("[AliPlayer] PiP will stop")
         }
 
-        func pictureInPictureControllerDidStopPictureInPicture(_ controller: Any!) {
+        func pictureInPictureControllerDidStopPictureInPicture(_ controller: Any) {
             log("[AliPlayer] PiP did stop")
             DispatchQueue.main.async {
                 self.parent.playerState.isPiPActive = false
@@ -253,11 +253,11 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             }
         }
 
-        func pictureInPictureController(_ controller: Any, failedToStartPictureInPictureWithError error: any Error) {
+        func picture(inPictureController controller: Any, failedToStartPictureInPictureWithError error: any Error) {
             log("[AliPlayer] PiP failed: \(error.localizedDescription)")
         }
 
-        func pictureInPictureController(_ controller: Any!, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: ((Bool) -> Void)!) {
+        func pictureInPictureController(_ controller: Any, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
             completionHandler(true)
         }
     }
