@@ -51,10 +51,19 @@ jobs:
           # 通过 build_alias 注入 x86_64 令 build≠host
           echo 'export build_alias=x86_64-apple-darwin' >> build_tools/env.sh
 
-          # curl configure 的 shebang 是 /bin/sh，在部分系统上会被 dash 解析导致语法错误
-          # 强制用 bash 执行 configure，并把生成 configure 的 autoreconf 也改为 bash
-          sed -i '' 's|\${CURL_SOURCE_DIR}/configure|bash ${CURL_SOURCE_DIR}/configure|' build_tools/build_curl.sh
-          sed -i '' 's|autoreconf -fi|bash -c "autoreconf -fi"|' build_tools/build_curl.sh
+          # 修复 CURL_SOURCE_DIR 路径：
+          # player_git_source_list.sh 把 curl clone 到 external/curl/
+          # 但 user_env.sh 设置 CURL_SOURCE_DIR=$TOP_DIR/external/curl（而 TOP_DIR=external/）
+          # 导致路径变成 external/external/curl/（不存在）
+          # 改为正确的 $TOP_DIR/curl
+          sed -i '' 's|CURL_SOURCE_DIR=$TOP_DIR/external/curl|CURL_SOURCE_DIR=$TOP_DIR/curl|' external/user_env.sh
+
+          # 对应修复 patch_curl 的相对路径（../../contribute → ../contribute）
+          sed -i '' 's|../../contribute/curl/|../contribute/curl/|' external/build_external.sh
+
+          # curl 7.68.0 的 configure 含 bash 语法但 shebang 是 /bin/sh
+          # 在 build_curl.sh 第 124 行把 configure 改为 bash 调用
+          sed -i '' 's|^\t\+${CURL_SOURCE_DIR}/configure|		bash ${CURL_SOURCE_DIR}/configure|' build_tools/build_curl.sh
 
           # curl 7.63.0 configure.ac 部分 AC_RUN_IFELSE 缺少 cross-compile 回退参数
           # buildconf 调用 autoconf 重新生成 configure 后, 自动修补交叉编译 fatal error
