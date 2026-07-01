@@ -632,7 +632,7 @@
 				B10012 /* QuickJSBridge.m */,
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
-				2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */
+				2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */,
 				B13001 /* MPVKit.xcframework */,
 			);
 			path = Libraries;
