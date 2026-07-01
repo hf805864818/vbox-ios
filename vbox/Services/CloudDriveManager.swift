@@ -1528,12 +1528,6 @@ class CloudDriveManager: ObservableObject {
         )
         print("[Quark] 转存完成 fileIds=\(fileIds)")
 
-        // 清理"来自：分享"目录（夸克 sharepage/save 实际转存落盘位置，vbox目录无需清理）
-        authCookie = await quarkCleanUpShareOriginFolder(
-            cookie: authCookie, excludeFileIds: fileIds
-        )
-        print("[Quark] 「来自：分享」目录旧文件清理完成")
-
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
         // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
@@ -2511,10 +2505,8 @@ class CloudDriveManager: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         quarkSetCommonHeaders(&req, cookie: cookie)
-        // 夸克 file/delete API 的 filelist 字段要求 JSON 字符串格式
-        let filelistJSON = (try? JSONSerialization.data(withJSONObject: fileIds))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let body: [String: Any] = ["action_type": 2, "filelist": filelistJSON, "exclude_fids": []]
+        // 对齐 iBox：filelist 字段传字符串数组
+        let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let deleteResult = try? await session.data(for: req)
         print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
@@ -2677,7 +2669,9 @@ class CloudDriveManager: ObservableObject {
             "pwd_id": pwdId,
             "stoken": stoken,
             "pdir_fid": file.pdirFid,
-            "scene": "link"
+            "scene": "link",
+            "platform_original": "chrome",
+            "nu_distribute": 0
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
