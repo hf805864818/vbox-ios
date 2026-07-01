@@ -1,0 +1,5 @@
+framework module AliyunPlayer {
+  umbrella header "AliPlayerBridge.h"
+  export *
+  module * { export * }
+}

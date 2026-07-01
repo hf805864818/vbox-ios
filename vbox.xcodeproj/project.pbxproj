@@ -181,6 +181,12 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		519CFD0B1832C3C94FEB4604 /* AliyunPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		6CF0422718C9122B706A6918 /* AliyunPlayer.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		EB43DD29E9F5BC7D9B136A4B /* AliyunMediaDownloader.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		D9DC71EEE315652DBB10FBC0 /* AliyunMediaDownloader.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		4A837931F7954B0C3F4174B8 /* alivcffmpeg.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		3CF55E2963D81606D26798FB /* alivcffmpeg.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -190,6 +196,9 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				6CF0422718C9122B706A6918 /* AliyunPlayer.framework in Embed Frameworks */,
+				D9DC71EEE315652DBB10FBC0 /* AliyunMediaDownloader.framework in Embed Frameworks */,
+				3CF55E2963D81606D26798FB /* alivcffmpeg.framework in Embed Frameworks */,
 				82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */,
 				91109A3AE5E69A5CD116E13D /* MPVKit.xcframework in Embed Frameworks */,
 				51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */,
@@ -374,6 +383,9 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunPlayer.framework; path = vbox/Libraries/AliyunPlayer.framework; sourceTree = SOURCE_ROOT; };
+		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
+		A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = alivcffmpeg.framework; path = vbox/Libraries/alivcffmpeg.framework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -382,6 +394,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016 /* libquickjs.a in Frameworks */,
+				519CFD0B1832C3C94FEB4604 /* AliyunPlayer.framework in Frameworks */,
+				EB43DD29E9F5BC7D9B136A4B /* AliyunMediaDownloader.framework in Frameworks */,
+				4A837931F7954B0C3F4174B8 /* alivcffmpeg.framework in Frameworks */,
 				83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */,
 				ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */,
 				CF8DB5B6D7C06688B86FAC21 /* Libmpv.xcframework in Frameworks */,
@@ -633,6 +648,9 @@
 				B10017 /* libquickjs.a */,
 				B10018 /* QuickJSBridge.h */,
 				2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */,
+				7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */,
+				B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */,
+				A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */,
 				B13001 /* MPVKit.xcframework */,
 			);
 			path = Libraries;
@@ -914,6 +932,7 @@
 					"$(SRCROOT)/vbox/Libraries/MPV",
 					"$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies",
 					"$(SRCROOT)/vbox/Libraries/IJKPlayer",
+					"$(SRCROOT)/vbox/Libraries",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
@@ -963,6 +982,7 @@
 					"$(SRCROOT)/vbox/Libraries/MPV",
 					"$(SRCROOT)/vbox/Libraries/MPV/MPVKitDependencies",
 					"$(SRCROOT)/vbox/Libraries/IJKPlayer",
+					"$(SRCROOT)/vbox/Libraries",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (

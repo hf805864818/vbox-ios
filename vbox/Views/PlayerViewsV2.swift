@@ -536,6 +536,7 @@ class PlayerState: ObservableObject {
         case vlc = "VLC"
         case mpv = "MPV"
         case ijk = "IJK"
+        case ali = "AliPlayer"
 
         var id: String { rawValue }
 
@@ -553,6 +554,8 @@ class PlayerState: ObservableObject {
                 return "MPV 内核，支持系统画中画"
             case .ijk:
                 return "IJKPlayer 内核，适合网盘直链"
+            case .ali:
+                return "阿里云播放器内核，原生系统画中画，夸克直链首选"
             }
         }
     }
@@ -701,10 +704,18 @@ class PlayerState: ObservableObject {
         #endif
     }
 
+    private var isAliPlayerBuildAvailable: Bool {
+        #if canImport(AliyunPlayer)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var shouldUseCompatibilityEngine: Bool {
         switch enginePreference {
         case .auto:
-            return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable || isIJKBuildAvailable)
+            return playbackEngineMode == .compatibility && (isMDKBuildAvailable || isMPVBuildAvailable || isVLCBuildAvailable || isIJKBuildAvailable || isAliPlayerBuildAvailable)
         case .system:
             return false
         case .mdk:
@@ -715,6 +726,8 @@ class PlayerState: ObservableObject {
             return isMPVBuildAvailable
         case .ijk:
             return isIJKBuildAvailable
+        case .ali:
+            return isAliPlayerBuildAvailable
         }
     }
 
@@ -742,6 +755,9 @@ class PlayerState: ObservableObject {
                 if isMDKBuildAvailable, shouldPreferMDK(for: nil) {
                     return "自动/MDK"
                 }
+                if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: nil) {
+                    return "自动/AliPlayer"
+                }
                 if isIJKBuildAvailable, shouldPreferIJK(for: nil) {
                     return "自动/IJK"
                 }
@@ -758,6 +774,8 @@ class PlayerState: ObservableObject {
             return "MPV"
         case .ijk:
             return "IJK"
+        case .ali:
+            return "AliPlayer"
         }
     }
 
@@ -771,9 +789,14 @@ class PlayerState: ObservableObject {
             return isVLCBuildAvailable ? "VLC" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .ijk:
             return isIJKBuildAvailable ? "IJKPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
+        case .ali:
+            return isAliPlayerBuildAvailable ? "AliPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .auto:
             if isMDKBuildAvailable, shouldPreferMDK(for: url) {
                 return "MDK"
+            }
+            if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: url) {
+                return "AliPlayer"
             }
             if isIJKBuildAvailable, shouldPreferIJK(for: url) {
                 return "IJKPlayer"
@@ -817,6 +840,16 @@ class PlayerState: ObservableObject {
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
         // 夸克直链优先 IJKPlayer
+        if text.contains("quark-stream") { return true }
+        if text.contains("baidu-stream") { return true }
+        return false
+    }
+
+    private func shouldPreferAliPlayer(for url: URL?) -> Bool {
+        guard isAliPlayerBuildAvailable else { return false }
+        guard let url else { return false }
+        let text = url.absoluteString.lowercased()
+        // 夸克直链优先 AliPlayer
         if text.contains("quark-stream") { return true }
         if text.contains("baidu-stream") { return true }
         return false
@@ -1979,15 +2012,18 @@ class PlayerState: ObservableObject {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
 
-        // 夸克直链：优先 IJKPlayer，其次 MPV/MDK/VLC
+        // 夸克直链：优先 AliPlayer，其次 IJKPlayer，再次 MPV/MDK/VLC
         if isQuarkLocalProxy && enginePreference == .auto {
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
-            if isIJKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "quark-stream 直链优先 IJKPlayer")
-                log("[Quark] 自动模式下夸克直链优先使用 IJKPlayer")
+            if isAliPlayerBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AliPlayer", reason: "quark-stream 直链优先 AliPlayer（原生PiP）")
+                log("[Quark] 自动模式下夸克直链优先使用 AliPlayer")
+            } else if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "quark-stream 直链优先 IJKPlayer（AliPlayer 不可用）")
+                log("[Quark] AliPlayer 不可用，降级使用 IJKPlayer")
             } else if isMPVBuildAvailable {
                 logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "quark-stream 直链（IJKPlayer 不可用）")
                 log("[Quark] IJKPlayer 不可用，降级使用 MPV-MoltenVK")
@@ -3204,6 +3240,32 @@ struct PlayerContainerView: View {
                         .ignoresSafeArea()
                     #else
                     CompatibilityUnavailableView(engineName: "IJKPlayer", message: "当前构建未包含 IJKPlayer")
+                    #endif
+                } else if playerState.compatibilityEngineName.contains("AliPlayer") {
+                    #if canImport(AliyunPlayer)
+                    AliPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, userAgent: nil, referer: nil, playerState: playerState,
+                        onStatusChange: nil,
+                        onTimeUpdate: { time in
+                            playerState.currentTime = time
+                        },
+                        onDurationChange: { duration in
+                            playerState.duration = duration
+                        },
+                        onBufferUpdate: { buffer in
+                            playerState.bufferPosition = buffer
+                        },
+                        onError: { error in
+                            playerState.errorMessage = error
+                        },
+                        onReady: {
+                            playerState.isLoading = false
+                        },
+                        onSeekDone: {
+                            playerState.isSeeking = false
+                        })
+                        .ignoresSafeArea()
+                    #else
+                    CompatibilityUnavailableView(engineName: "AliPlayer", message: "当前构建未包含 AliyunPlayer")
                     #endif
                 } else {
                 #if canImport(MobileVLCKit)
