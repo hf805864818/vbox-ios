@@ -1510,6 +1510,9 @@ class CloudDriveManager: ObservableObject {
 
         var authCookie = cookie
 
+        // 播放前检测夸克空间，快满时清理"来自：分享"目录
+        authCookie = await quarkCleanShareOriginIfNeeded(cookie: authCookie, thresholdGB: 1.0)
+
         // 对齐 iBox：不创建自定义目录，to_pdir_fid 传 "0"，让夸克按默认行为保存
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
@@ -2205,6 +2208,189 @@ class CloudDriveManager: ObservableObject {
             print("[Quark] ℹ️ 「\"来自：分享\"」目录无可清理的旧文件")
         }
 
+        return currentCookie
+    }
+
+    /// 查询夸克网盘容量信息
+    private func quarkGetQuotaInfo(cookie: String) async -> (used: Int64, total: Int64, cookie: String) {
+        var currentCookie = cookie
+        let url = quarkAPIURL("/1/clouddrive/quota/info", extra: [
+            URLQueryItem(name: "check_expire", value: "1"),
+            URLQueryItem(name: "check_items", value: "1")
+        ])
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        quarkSetCommonHeaders(&request, cookie: currentCookie)
+
+        guard let (data, response) = try? await session.data(for: request) else {
+            print("[Quark] ⚠️ 查询容量请求失败")
+            return (0, 0, currentCookie)
+        }
+        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any] else {
+            print("[Quark] ⚠️ 查询容量响应解析失败")
+            return (0, 0, currentCookie)
+        }
+
+        // 夸克容量字段可能是 Int/Int64/Double 或 String
+        func parseInt64(_ value: Any?) -> Int64 {
+            if let v = value as? Int64 { return v }
+            if let v = value as? Int { return Int64(v) }
+            if let v = value as? Double { return Int64(v) }
+            if let v = value as? String { return Int64(v) ?? 0 }
+            return 0
+        }
+
+        let used = parseInt64(dataObj["used"])
+        let total = parseInt64(dataObj["total"])
+        return (used, total, currentCookie)
+    }
+
+    /// 如果剩余空间不足，清理"来自：分享"目录下所有文件
+    private func quarkCleanShareOriginIfNeeded(cookie: String, thresholdGB: Double = 1.0) async -> String {
+        var currentCookie = cookie
+        let (used, total, mergedCookie) = await quarkGetQuotaInfo(cookie: currentCookie)
+        currentCookie = mergedCookie
+
+        guard total > 0 else {
+            print("[Quark] ⚠️ 无法获取夸克容量信息，跳过空间清理")
+            return currentCookie
+        }
+
+        let free = total - used
+        let freeGB = Double(free) / 1_073_741_824.0
+        let totalGB = Double(total) / 1_073_741_824.0
+        let usedGB = Double(used) / 1_073_741_824.0
+        let usedPercent = Double(used) * 100.0 / Double(total)
+
+        print("[Quark] 容量状态: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB")
+
+        // 剩余空间低于阈值（默认1GB）时触发清理
+        guard freeGB < thresholdGB else {
+            return currentCookie
+        }
+
+        print("[Quark] ⚠️ 剩余空间不足 \(thresholdGB)GB，开始清理\"来自：分享\"目录")
+
+        // 查找"来自：分享"目录（GET 请求）
+        var targetFid: String?
+        for nameVariant in ["来自：分享", "来自:分享", "来自分享的文件", "来自分享"] {
+            let searchExtra = [
+                URLQueryItem(name: "pdir_fid", value: "0"),
+                URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+                URLQueryItem(name: "_page", value: "1"),
+                URLQueryItem(name: "_size", value: "200"),
+                URLQueryItem(name: "_fetch_total", value: "1")
+            ]
+            let searchURL = quarkAPIURL("/1/clouddrive/file/sort", extra: searchExtra)
+            var searchReq = URLRequest(url: searchURL)
+            searchReq.httpMethod = "GET"
+            searchReq.timeoutInterval = 15
+            quarkSetCommonHeaders(&searchReq, cookie: currentCookie)
+
+            guard let (data, response) = try? await session.data(for: searchReq) else { continue }
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else { continue }
+
+            let targetName = nameVariant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            for item in list {
+                let itemName = (item["file_name"] as? String ?? item["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard itemName == targetName else { continue }
+                if let fid = item["fid"] as? String, !fid.isEmpty {
+                    targetFid = fid
+                } else if let fid = item["file_id"] as? String, !fid.isEmpty {
+                    targetFid = fid
+                } else if let fid = item["fid"] as? Int {
+                    targetFid = String(fid)
+                }
+                if targetFid != nil { break }
+            }
+            if targetFid != nil {
+                print("[Quark] 🔍 找到清理目标目录「\(nameVariant)」fid=\(targetFid!)")
+                break
+            }
+        }
+        guard let targetFid else {
+            print("[Quark] ⚠️ 未找到\"来自：分享\"目录，无法批量清理")
+            return currentCookie
+        }
+
+        // 使用 GET 列出目录下所有文件
+        var allFids: [String] = []
+        let pageSize = 200
+        for page in 1...10 {
+            let extra = [
+                URLQueryItem(name: "pdir_fid", value: targetFid),
+                URLQueryItem(name: "_sort", value: "file_type:asc,updated_at:desc"),
+                URLQueryItem(name: "_page", value: String(page)),
+                URLQueryItem(name: "_size", value: String(pageSize)),
+                URLQueryItem(name: "_fetch_total", value: "1")
+            ]
+            let listURL = quarkAPIURL("/1/clouddrive/file/sort", extra: extra)
+            var request = URLRequest(url: listURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 15
+            quarkSetCommonHeaders(&request, cookie: currentCookie)
+
+            guard let (data, response) = try? await session.data(for: request) else { break }
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["list"] as? [[String: Any]] else { break }
+            if list.isEmpty { break }
+
+            for item in list {
+                for key in ["fid", "file_id"] {
+                    if let fid = item[key] as? String, !fid.isEmpty {
+                        allFids.append(fid)
+                        break
+                    } else if let fid = item[key] as? Int {
+                        allFids.append(String(fid))
+                        break
+                    }
+                }
+            }
+            if list.count < pageSize { break }
+        }
+
+        guard !allFids.isEmpty else {
+            print("[Quark] ℹ️ \"来自：分享\"目录为空，无需清理")
+            return currentCookie
+        }
+
+        // 分批删除（每次最多100个）
+        let batchSize = 100
+        var deletedCount = 0
+        for i in stride(from: 0, to: allFids.count, by: batchSize) {
+            let batch = Array(allFids[i..<min(i + batchSize, allFids.count)])
+            let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
+            var deleteReq = URLRequest(url: deleteURL)
+            deleteReq.httpMethod = "POST"
+            quarkSetCommonHeaders(&deleteReq, cookie: currentCookie)
+            let deleteBody: [String: Any] = [
+                "action_type": 2,
+                "filelist": batch,
+                "exclude_fids": []
+            ]
+            guard let bodyData = try? JSONSerialization.data(withJSONObject: deleteBody) else { continue }
+            deleteReq.httpBody = bodyData
+
+            if let (data, response) = try? await session.data(for: deleteReq) {
+                currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let code = json["code"] as? Int, code == 0 {
+                    deletedCount += batch.count
+                }
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms 间隔，避免风控
+        }
+
+        print("[Quark] ✅ 空间不足触发清理，已删除 \(deletedCount)/\(allFids.count) 个文件")
         return currentCookie
     }
 
