@@ -2825,9 +2825,6 @@ class CloudDriveManager: ObservableObject {
         guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
 
         var authCookie = cookie
-        let folder = try await quarkEnsureFolderWithCookie(cookie: authCookie)
-        authCookie = folder.cookie
-
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
         var allPlayable: [QuarkShareFile] = []

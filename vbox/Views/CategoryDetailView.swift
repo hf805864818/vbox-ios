@@ -5,6 +5,7 @@ struct CategoryDetailView: View {
     let categoryType: String
     let categoryName: String
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
     private let doubanService = DoubanService.shared
     @State private var subjects: [DoubanSubject] = []
     @State private var filteredSubjects: [DoubanSubject] = []
@@ -296,6 +297,7 @@ struct SubscriptionSiteGrid: View {
         LazyVGrid(columns: columns, spacing: 12) {
             ForEach(Array(sites.enumerated()), id: \.offset) { _, site in
                 Button(action: {
+                    dismiss()
                     settings.triggerSearch(site.name)
                 }) {
                     VStack(spacing: 4) {
@@ -479,6 +481,7 @@ struct SubjectGridView: View {
 struct GridSubjectCard: View {
     let subject: DoubanSubject
     let settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -505,6 +508,7 @@ struct GridSubjectCard: View {
             }
         }
         .onTapGesture {
+            dismiss()
             settings.triggerSearch(subject.title)
         }
     }
