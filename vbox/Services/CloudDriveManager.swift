@@ -1631,6 +1631,9 @@ class CloudDriveManager: ObservableObject {
 
         guard var fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
+        // 用于延迟清理的 fileIds，缓存命中或重新转存后都需要更新
+        var cleanupFileIds = fileIds
+
         // 红色封面/被和谐资源的早期判断：转存返回 fileIds=["0"] 时，文件实际未真正保存到网盘
         let isPlaceholderFileId = fileId == "0" || fileIds.allSatisfy({ $0 == "0" })
         if isPlaceholderFileId {
@@ -1680,6 +1683,12 @@ class CloudDriveManager: ObservableObject {
                     )
                     self.log("[Quark] 重新转存完成 fileIds=\(newFileIds), fileName=\(sourceFile.fileName)")
                     quarkStoreSavedFileIds(newFileIds, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+                    // 更新清理用的 fileIds，并标记为不再来自缓存，触发任务轮询
+                    cleanupFileIds = newFileIds
+                    isFileIdsFromCache = false
+                    if let taskId = quarkLastSaveTaskId {
+                        try await quarkPollTask(taskId: taskId, cookie: authCookie)
+                    }
                     if let newFileId = newFileIds.first, newFileId != "0" {
                         fileId = newFileId
                         effectiveFileId = newFileId
@@ -1745,7 +1754,7 @@ class CloudDriveManager: ObservableObject {
             self.log("[Quark] ⚠️ 兜底线路暂不可用")
         }
 
-        scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 60 * 60)
+        scheduleCleanup(drive: .quark, fileIds: cleanupFileIds, token: authCookie, delay: 60 * 60)
 
         let playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
 
@@ -2247,10 +2256,11 @@ class CloudDriveManager: ObservableObject {
             return (memberQuota.used, memberQuota.total, currentCookie)
         }
 
-        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体，含 ut 参数）
+        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体，含 ut 时间戳）
+        let ut = String(Int(Date().timeIntervalSince1970 * 1000))
         let endpoints = [
-            ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str=&ut="),
-            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc&ut="),
+            ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str=&ut=\(ut)"),
+            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc&ut=\(ut)"),
         ]
 
         for (host, path, query) in endpoints {
@@ -2457,13 +2467,14 @@ class CloudDriveManager: ObservableObject {
             return fids
         }
 
-        // 辅助：批量删除 fileIds
-        func deleteFids(_ fids: [String]) async -> Int {
-            guard !fids.isEmpty else { return 0 }
+        // 辅助：批量删除 fileIds（受保护的 fid 不删除）
+        func deleteFids(_ fids: [String], excludeFids: Set<String> = []) async -> Int {
+            let fidsToDelete = fids.filter { !excludeFids.contains($0) }
+            guard !fidsToDelete.isEmpty else { return 0 }
             let batchSize = 100
             var deletedCount = 0
-            for i in stride(from: 0, to: fids.count, by: batchSize) {
-                let batch = Array(fids[i..<min(i + batchSize, fids.count)])
+            for i in stride(from: 0, to: fidsToDelete.count, by: batchSize) {
+                let batch = Array(fidsToDelete[i..<min(i + batchSize, fidsToDelete.count)])
                 let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
                 var deleteReq = URLRequest(url: deleteURL)
                 deleteReq.httpMethod = "POST"
@@ -2486,6 +2497,17 @@ class CloudDriveManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100ms 间隔，避免风控
             }
             return deletedCount
+        }
+
+        // 辅助：收集所有缓存中未过期的 fileId，避免播放前清理误删正在使用的转存文件
+        func protectedCachedFileIds() -> Set<String> {
+            let cache = loadQuarkSavedFidCache()
+            let now = Date()
+            var fids = Set<String>()
+            for item in cache.values where item.expiresAt > now {
+                item.fileIds.forEach { fids.insert($0) }
+            }
+            return fids
         }
 
         // 辅助：查找文件夹 fid
@@ -2546,11 +2568,12 @@ class CloudDriveManager: ObservableObject {
             self.log("[Quark] 📋 容量未知，保守清理：来自分享 \(shareResult.count) 个文件，根目录最新 \(rootResult.count) 个视频文件")
         }
 
-        // 合并去重后批量删除
+        // 合并去重后批量删除，排除缓存中未过期的 fileId（避免误删正在播放或待播放的转存文件）
         let allFids = Array(Set(shareResult + rootResult))
+        let protectedFids = protectedCachedFileIds()
         if !allFids.isEmpty {
-            totalDeleted = await deleteFids(allFids)
-            self.log("[Quark] ✅ 已清理 \(totalDeleted)/\(allFids.count) 个文件（来自分享 + 根目录）")
+            totalDeleted = await deleteFids(allFids, excludeFids: protectedFids)
+            self.log("[Quark] ✅ 已清理 \(totalDeleted)/\(allFids.count) 个文件（来自分享 + 根目录，保护缓存 \(protectedFids.count) 个）")
         }
 
         self.log("[Quark] ✅ 空间清理完成，共删除 \(totalDeleted) 个文件")
