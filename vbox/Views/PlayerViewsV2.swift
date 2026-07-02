@@ -450,7 +450,7 @@ struct VideoPlayerViewV2: View {
                             .padding(6)
                         }
                         .frame(maxWidth: 560)
-                        .frame(height: 126)
+                        .frame(height: 260)
                         .background(Color.black.opacity(0.75))
                         .cornerRadius(6)
                         .contentShape(Rectangle())
@@ -1450,7 +1450,8 @@ class PlayerState: ObservableObject {
         let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
         Task { @MainActor in
             debugLogs.append(short)
-            if debugLogs.count > 30 { debugLogs.removeFirst() }
+            // 保留最近 500 条，便于从头回溯完整播放/清理链路
+            if debugLogs.count > 500 { debugLogs.removeFirst(debugLogs.count - 500) }
         }
     }
 
