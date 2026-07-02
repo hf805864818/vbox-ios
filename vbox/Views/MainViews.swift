@@ -302,7 +302,10 @@ struct HomeView: View {
                 .environmentObject(settings)
         }
         .sheet(isPresented: $showRanking) {
-            DoubanRankingView()
+            DoubanRankingView { keyword in
+                showRanking = false
+                settings.triggerSearch(keyword)
+            }
                 .environmentObject(settings)
         }
         .sheet(isPresented: $showHistory) {

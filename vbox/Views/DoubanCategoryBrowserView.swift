@@ -386,6 +386,7 @@ struct DoubanGridSubjectCell: View {
             }
         }
         .onTapGesture {
+            dismiss()
             settings.triggerSearch(subject.title)
         }
     }
