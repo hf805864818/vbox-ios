@@ -2145,22 +2145,102 @@ class CloudDriveManager: ObservableObject {
         return (used, total, currentCookie)
     }
 
+    /// 兜底：通过 member 接口获取容量信息（对齐 iBox 2.4.6）
+    private func quarkGetQuotaFromMember(cookie: String) async -> (used: Int64, total: Int64) {
+        // 先尝试 pc-api.uc.cn 的 quota 接口（iBox 使用的端点）
+        if let q = await tryQuarkQuotaEndpoint(
+            host: "https://pc-api.uc.cn",
+            path: "/1/clouddrive/quota/info",
+            query: "pr=UCBrowser&fr=pc",
+            cookie: cookie
+        ) {
+            return q
+        }
+
+        // 兜底：从 member 接口的响应中解析容量信息
+        let url = quarkAPIURL("/1/clouddrive/member", extra: [
+            URLQueryItem(name: "fetch_subscribe", value: "true"),
+            URLQueryItem(name: "fetch_identity", value: "true"),
+            URLQueryItem(name: "_ch", value: "home"),
+            URLQueryItem(name: "ve", value: "3.19.0")
+        ])
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 10
+        quarkSetCommonHeaders(&req, cookie: cookie)
+
+        do {
+            let (data, _) = try await session.data(for: req)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let d = json["data"] as? [String: Any] {
+                let cap = d["capacity"] as? [String: Any]
+                let used = parseInt64(cap?["used"] ?? cap?["size_used"] ?? d["used"] ?? 0)
+                let total = parseInt64(cap?["total"] ?? cap?["size_total"] ?? d["total"] ?? 0)
+                if total > 0 {
+                    print("[Quark] ✅ member 兜底获取容量成功: used=\(used), total=\(total)")
+                    return (used, total)
+                }
+            }
+        } catch {
+            print("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
+        }
+        return (0, 0)
+    }
+
+    private func tryQuarkQuotaEndpoint(host: String, path: String, query: String, cookie: String) async -> (used: Int64, total: Int64)? {
+        guard let url = URL(string: "\(host)\(path)?\(query)") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 10
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        req.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        req.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, _) = try await session.data(for: req)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let d = json["data"] as? [String: Any] {
+                let used = parseInt64(d["used"])
+                let total = parseInt64(d["total"])
+                if total > 0 {
+                    print("[Quark] ✅ pc-api.uc.cn quota 获取成功: used=\(used), total=\(total)")
+                    return (used, total)
+                }
+            }
+        } catch {
+            print("[Quark] ⚠️ pc-api.uc.cn quota 请求失败: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
     /// 如果剩余空间不足，清理"来自：分享"目录下所有文件
     private func quarkCleanShareOriginIfNeeded(cookie: String, thresholdGB: Double = 1.0) async -> String {
+        print("[Quark] 🧹 开始容量检测...")
         var currentCookie = cookie
         let (used, total, mergedCookie) = await quarkGetQuotaInfo(cookie: currentCookie)
         currentCookie = mergedCookie
 
-        guard total > 0 else {
-            print("[Quark] ⚠️ 无法获取夸克容量信息，跳过空间清理")
+        // 如果主端点失败，尝试通过 member 接口获取容量
+        var effectiveUsed = used
+        var effectiveTotal = total
+        if total <= 0 {
+            print("[Quark] ⚠️ 主端点获取容量失败，尝试 member 接口兜底...")
+            let memberQuota = await quarkGetQuotaFromMember(cookie: currentCookie)
+            effectiveUsed = memberQuota.used
+            effectiveTotal = memberQuota.total
+        }
+
+        guard effectiveTotal > 0 else {
+            print("[Quark] ⚠️ 无法获取夸克容量信息（主端点+member兜底均失败），跳过空间清理")
             return currentCookie
         }
 
-        let free = total - used
+        let free = effectiveTotal - effectiveUsed
         let freeGB = Double(free) / 1_073_741_824.0
-        let totalGB = Double(total) / 1_073_741_824.0
-        let usedGB = Double(used) / 1_073_741_824.0
-        let usedPercent = Double(used) * 100.0 / Double(total)
+        let totalGB = Double(effectiveTotal) / 1_073_741_824.0
+        let usedGB = Double(effectiveUsed) / 1_073_741_824.0
+        let usedPercent = Double(effectiveUsed) * 100.0 / Double(effectiveTotal)
 
         print("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
 
@@ -2818,11 +2898,20 @@ class CloudDriveManager: ObservableObject {
             let saveAs = taskData?["save_as"] as? [String: Any]
             if let ids = saveAs?["save_as_top_fids"] as? [String], !ids.isEmpty {
                 print("[Quark] ✅ 转存成功，save_as_top_fids: \(ids)")
-                return ids
+                // save_as_top_fids 可能返回文件夹ID(如"0")而非文件ID
+                if ids.allSatisfy({ $0 == "0" || $0 == folderId }) {
+                    print("[Quark] ⚠️ save_as_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
+                } else {
+                    return ids
+                }
             }
             if let ids = saveAs?["save_as_select_top_fids"] as? [String], !ids.isEmpty {
                 print("[Quark] ✅ 转存成功，save_as_select_top_fids: \(ids)")
-                return ids
+                if ids.allSatisfy({ $0 == "0" || $0 == folderId }) {
+                    print("[Quark] ⚠️ save_as_select_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
+                } else {
+                    return ids
+                }
             }
             if let ids = d["file_ids"] as? [String], !ids.isEmpty {
                 return ids
