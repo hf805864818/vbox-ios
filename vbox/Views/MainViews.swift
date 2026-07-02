@@ -1157,7 +1157,7 @@ struct SearchView: View {
     private func addSearchLog(_ msg: String) {
         Task { @MainActor in
             searchDebugLogs.append(msg)
-            if searchDebugLogs.count > 50 { searchDebugLogs.removeFirst(searchDebugLogs.count - 50) }
+            if searchDebugLogs.count > 500 { searchDebugLogs.removeFirst(searchDebugLogs.count - 500) }
         }
     }
 

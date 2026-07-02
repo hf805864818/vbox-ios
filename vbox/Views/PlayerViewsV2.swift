@@ -450,7 +450,7 @@ struct VideoPlayerViewV2: View {
                             .padding(6)
                         }
                         .frame(maxWidth: 560)
-                        .frame(height: 260)
+                        .frame(height: 126)
                         .background(Color.black.opacity(0.75))
                         .cornerRadius(6)
                         .contentShape(Rectangle())
