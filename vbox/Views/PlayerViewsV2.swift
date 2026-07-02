@@ -209,9 +209,11 @@ class PiPHelper: NSObject {
         guard let scene = windowScene else { return }
         
         let window = UIWindow(windowScene: scene)
-        window.windowLevel = .statusBar + 1
+        // 使用 alert 层级以上，确保浮窗不会被系统 PiP/Alert 遮挡
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 10)
         window.backgroundColor = .clear
         window.isHidden = false
+        window.makeKeyAndVisible()
         
         let containerView = UIView(frame: CGRect(x: scene.screen.bounds.width - 220, y: 80, width: 200, height: 112))
         containerView.backgroundColor = .black
@@ -337,28 +339,45 @@ class PiPHelper: NSObject {
     
     // MARK: - 定时更新截图，模拟视频播放
     private var snapshotTimer: Timer?
+    private var snapshotDisplayLink: CADisplayLink?
     private weak var snapshotSourceView: UIView?
     
     private func startSnapshotTimer(sourceView: UIView) {
         snapshotSourceView = sourceView
         snapshotTimer?.invalidate()
-        // 0.05秒 ≈ 20fps，让浮动小窗口画面更流畅
-        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self, let sourceView = self.snapshotSourceView else { return }
-            // 使用 snapshotView 捕获 OpenGL/Metal 播放器视图
-            guard let snapshot = sourceView.snapshotView(afterScreenUpdates: false) else { return }
-            guard let containerView = self.floatingPlayerView else { return }
-            // 移除旧的截图视图
-            containerView.subviews.filter { $0.tag == 1001 }.forEach { $0.removeFromSuperview() }
-            snapshot.frame = containerView.bounds
-            snapshot.tag = 1001
-            containerView.insertSubview(snapshot, at: 0)
+        snapshotDisplayLink?.invalidate()
+
+        // 使用 CADisplayLink 保证进入后台前画面更新更频繁，并加入 common runloop
+        let displayLink = CADisplayLink(target: self, selector: #selector(updateSnapshotFrame))
+        displayLink.add(to: .main, forMode: .common)
+        snapshotDisplayLink = displayLink
+
+        // 额外用 Timer 兜底（后台 CADisplayLink 会暂停）
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.updateSnapshotFrame()
         }
+    }
+
+    @objc private func updateSnapshotFrame() {
+        guard let sourceView = snapshotSourceView,
+              let containerView = floatingPlayerView,
+              !containerView.bounds.isEmpty else { return }
+
+        // 捕获播放器视图当前帧，afterScreenUpdates=false 避免阻塞
+        guard let snapshot = sourceView.snapshotView(afterScreenUpdates: false) else { return }
+
+        // 移除旧的截图视图
+        containerView.subviews.filter { $0.tag == 1001 }.forEach { $0.removeFromSuperview() }
+        snapshot.frame = containerView.bounds
+        snapshot.tag = 1001
+        containerView.insertSubview(snapshot, at: 0)
     }
     
     private func stopSnapshotTimer() {
         snapshotTimer?.invalidate()
         snapshotTimer = nil
+        snapshotDisplayLink?.invalidate()
+        snapshotDisplayLink = nil
         snapshotSourceView = nil
     }
     
@@ -871,6 +890,7 @@ class PlayerState: ObservableObject {
     }
 
     func selectPlaybackEngine(_ preference: PlaybackEnginePreference) {
+        let oldPreference = enginePreference
         enginePreference = preference
         showEnginePicker = false
         switch preference {
@@ -890,8 +910,59 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 已切换内核策略：AliPlayer\(isAliPlayerBuildAvailable ? "" : "（当前构建未包含 AliyunPlayer）")")
         }
 
+        // 如果正在播放网盘资源（夸克/百度），切换内核后立即用新引擎重新播放当前资源
+        if oldPreference != preference, isPlaying || compatibilityURL != nil || player != nil {
+            restartCurrentResourceWithNewEngine()
+        }
+
         if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
             switchBaiduFile(index: currentEpisodeIndex)
+        }
+    }
+
+    /// 切换内核后，用新引擎重新播放当前正在播放的资源
+    private func restartCurrentResourceWithNewEngine() {
+        // 夸克多文件：重新播放当前集
+        if !quarkFileList.isEmpty, currentEpisodeIndex < quarkFileList.count,
+           !quarkShareURL.isEmpty {
+            currentTask?.cancel()
+            currentTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let file = self.quarkFileList[self.currentEpisodeIndex]
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: "\(self.quarkShareURL)/\(file.fid)")
+                    await self.playResolvedDriveVideo(result)
+                } catch {
+                    self.log("[PlayerV2] 切换内核后重新播放夸克失败: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
+
+        // 百度多文件
+        if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count,
+           !baiduShareURL.isEmpty {
+            switchBaiduFile(index: currentEpisodeIndex)
+            return
+        }
+
+        // 通用网盘/普通资源：如果有当前播放 URL，直接重新走 playDriveVideo
+        if let url = compatibilityURL?.absoluteString, !url.isEmpty {
+            currentTask?.cancel()
+            currentTask = Task { [weak self] in
+                guard let self else { return }
+                await self.playDriveVideo(url: url, headers: self.compatibilityHeaders)
+            }
+            return
+        }
+
+        // 系统播放器 AVPlayer 场景：如果正在播放，重新创建播放器以应用新内核选择
+        if let url = player?.currentItem?.asset as? AVURLAsset {
+            currentTask?.cancel()
+            currentTask = Task { [weak self] in
+                guard let self else { return }
+                await self.playDriveVideo(url: url.url.absoluteString, headers: [:])
+            }
         }
     }
 
@@ -1649,6 +1720,17 @@ class PlayerState: ObservableObject {
         volume = Double(AVAudioSession.sharedInstance().outputVolume)
         restorePlaybackProgress(for: video)
         loadDanmaku(for: video, fileName: video.vodName)
+
+        // 监听 CloudDriveManager 的日志广播，显示在播放器 Debug Overlay
+        NotificationCenter.default.addObserver(
+            forName: .cloudDriveLog,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let msg = notification.object as? String else { return }
+            self?.log(msg)
+        }
+
         currentTask = Task { [weak self] in
             guard let self = self else { return }
             await resolvePlayUrl(video: video)
@@ -1687,6 +1769,7 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
+        NotificationCenter.default.removeObserver(self, name: .cloudDriveLog, object: nil)
         // 清理 PiP 控制器（异步到主线程，避免 @MainActor 隔离冲突）
         Task { @MainActor in
             #if canImport(Libmpv)
@@ -2119,10 +2202,12 @@ class PlayerState: ObservableObject {
                     Task { @MainActor in
                         self.isLoading = false
                     }
+                    // 对夸克/百度本地代理都执行首帧黑屏检测（红色封面/和谐文件会返回尺寸为0）
                     self.scheduleVideoTrackCheck(
                         for: playerItem,
                         startedAt: playStartTime,
                         isBaiduLocalProxy: isBaiduLocalProxy,
+                        isQuarkLocalProxy: isQuarkLocalProxy || isQuarkM3U8LocalProxy,
                         fallbackURL: urlObj,
                         fallbackHeaders: assetHeaders
                     )
@@ -2415,10 +2500,12 @@ class PlayerState: ObservableObject {
         for item: AVPlayerItem,
         startedAt: Date,
         isBaiduLocalProxy: Bool,
+        isQuarkLocalProxy: Bool,
         fallbackURL: URL,
         fallbackHeaders: [String: String]
     ) {
-        guard isBaiduLocalProxy else { return }
+        // 对百度和夸克本地代理都进行首帧检测
+        guard isBaiduLocalProxy || isQuarkLocalProxy else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             guard self.player?.currentItem === item, self.loadError == nil else { return }
@@ -2427,8 +2514,14 @@ class PlayerState: ObservableObject {
             let seconds = self.player?.currentTime().seconds ?? 0
             self.log("[PlayerV2] 首帧检测：耗时=\(elapsed)ms，进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))")
             if seconds > 2, size.width <= 1 || size.height <= 1 {
-                self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
-                self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
+                if isQuarkLocalProxy {
+                    self.log("[PlayerV2] ⚠️ 夸克视频有播放进度但无画面，疑似文件已被和谐或转码失败")
+                    self.loadError = "该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源"
+                    self.isLoading = false
+                } else {
+                    self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
+                    self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
+                }
             }
         }
     }
@@ -4061,24 +4154,11 @@ struct PlayerControlsView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
             if playerState.compatibilityURL != nil {
-                if playerState.compatibilityEngineName.contains("MDK") {
-                    #if canImport(swift_mdk)
-                    NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
-                    #endif
-                } else if playerState.compatibilityEngineName.contains("MPV") {
-                    #if canImport(Libmpv)
-                    // 关键修复：先启动 MPV 帧捕获，让首帧能推送后再初始化/启动 PiP，避免死锁
-                    LibmpvMoltenVKPlayerCore.shared.startPiPCapture()
-                    MPVPiPManager.shared.initializePiP()
-                    MPVPiPManager.shared.startPiP()
-                    #endif
-                } else if playerState.compatibilityEngineName.contains("IJK") {
-                    #if canImport(IJKMediaFrameworkWithSSL)
-                    // IJKPlayer 使用应用内浮动小窗口（截图方式模拟画中画）
-                    if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
-                        PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
-                    }
-                    #endif
+                // 兼容内核统一走应用内浮动窗口（截图方式），兼容 VLC/IJK/MPV/MDK/阿里
+                if let playerView = findCurrentPlayerView() {
+                    PiPHelper.shared.showFloatingWindow(sourceView: playerView)
+                } else if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
+                    PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
@@ -4092,6 +4172,34 @@ struct PlayerControlsView: View {
                 UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
             }
         }
+    }
+
+    /// 在 App 视图层级中查找当前播放器视图（兼容 AVPlayerLayer / OpenGL / Metal 等内核）
+    private func findCurrentPlayerView() -> UIView? {
+        guard let rootView = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first?.windows
+            .first(where: { $0.isKeyWindow })?.rootViewController?.view else { return nil }
+
+        let candidates = ["Player", "Video", "GL", "Metal", "Render", "AliPlayer", "VLC", "IJK", "MPV", "MDK"]
+        var result: UIView?
+
+        func search(_ view: UIView) {
+            if result != nil { return }
+            let clsName = String(describing: type(of: view))
+            for keyword in candidates {
+                if clsName.contains(keyword) {
+                    result = view
+                    return
+                }
+            }
+            for sub in view.subviews {
+                search(sub)
+            }
+        }
+
+        search(rootView)
+        return result
     }
 
     private func updateOrientation() {

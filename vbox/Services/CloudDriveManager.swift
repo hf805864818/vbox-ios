@@ -1,6 +1,11 @@
 import Foundation
 import Combine
 
+/// 用于 CloudDriveManager 向播放器 Debug Overlay 广播日志
+extension Notification.Name {
+    static let cloudDriveLog = Notification.Name("cloudDriveLog")
+}
+
 struct DriveToken: Codable {
     let type: String
     let name: String
@@ -15,6 +20,14 @@ struct BaiduFileItem: Codable {
 class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
+
+    /// 广播日志到播放器 Debug Overlay（替代 print，便于用户直接看到关键流程）
+    private func log(_ message: String) {
+        print(message)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .cloudDriveLog, object: message)
+        }
+    }
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
     // 严格对齐 iBox 百度路链：分享文件先转存到固定目录，再从用户网盘路径取链播放。
     // 注意：百度 API 的真实根路径是 "/"；App 里看到的“我的资源”是 UI 分类名，不应写进 API path。
@@ -940,7 +953,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func cleanupFiles(drive: DriveType, fileIds: [String], token: String) async {
-        print("[CloudDrive] 清理 \(drive.rawValue) 转存文件: \(fileIds.count) 个")
+        self.log("[CloudDrive] 清理 \(drive.rawValue) 转存文件: \(fileIds.count) 个")
         switch drive {
         case .quark: await quarkDeleteFiles(fileIds: fileIds, cookie: token)
         case .baidu: await baiduDeleteFiles(fileIds: fileIds, bduss: token)
@@ -1501,9 +1514,9 @@ class CloudDriveManager: ObservableObject {
     // MARK: - 夸克网盘
 
     func resolveQuarkPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
-        print("[Quark] 开始解析: \(shareURL)")
+        self.log("[Quark] 开始解析: \(shareURL)")
         let (pwdId, passcode) = quarkExtractShareInfo(shareURL: shareURL)
-        print("[Quark] pwdId=\(pwdId), passcode=\(passcode.isEmpty ? "无" : "已传递")")
+        self.log("[Quark] pwdId=\(pwdId), passcode=\(passcode.isEmpty ? "无" : "已传递")")
         guard !pwdId.isEmpty else {
             throw DriveError.invalidShareURL
         }
@@ -1515,11 +1528,11 @@ class CloudDriveManager: ObservableObject {
 
         // 对齐 iBox：不创建自定义目录，to_pdir_fid 传 "0"，让夸克按默认行为保存
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
-        print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
+        self.log("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
         let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
         let fileExt = (sourceFile.fileName as NSString).pathExtension.lowercased()
-        print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
+        self.log("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
 
         let fileIds = try await quarkSaveShare(
             pwdId: pwdId,
@@ -1528,7 +1541,7 @@ class CloudDriveManager: ObservableObject {
             folderId: "0",
             cookie: authCookie
         )
-        print("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
+        self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
@@ -1538,7 +1551,7 @@ class CloudDriveManager: ObservableObject {
         }
         // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
         if let memberType = await quarkGetMemberInfo(cookie: authCookie) {
-            print("[Quark] 当前会员: \(memberType)，SVIP可使用原画download_url")
+            self.log("[Quark] 当前会员: \(memberType)，SVIP可使用原画download_url")
         }
         // 抓包里的实际播放主链路是：先调 v2/play 刷新 Video-Auth，再用 file/download 的 download_url 走 Range 播放。
         // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
@@ -1548,9 +1561,9 @@ class CloudDriveManager: ObservableObject {
             let playInfo = try await quarkRefreshVideoAuth(fileId: fileId, cookie: authCookie)
             authCookie = playInfo.cookie
             transcodeURL = playInfo.playURL
-            print("[Quark] v2/play 完成 hasVideoAuth=\(authCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
+            self.log("[Quark] v2/play 完成 hasVideoAuth=\(authCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
         } catch {
-            print("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url: \(error.localizedDescription)")
+            self.log("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url: \(error.localizedDescription)")
         }
 
         var download: (url: String, fileName: String) = ("", "")
@@ -1558,11 +1571,11 @@ class CloudDriveManager: ObservableObject {
             download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
         } catch {
             let errMsg = error.localizedDescription
-            print("[Quark] ⚠️ download_url 首次尝试失败(fid=\(fileId)): \(errMsg)")
+            self.log("[Quark] ⚠️ download_url 首次尝试失败(fid=\(fileId)): \(errMsg)")
             // 文件ID可能不对（save_as_top_fids可能是文件夹ID），尝试通过文件名查找
             if errMsg.contains("file not found") || errMsg.contains("not found") {
                 if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
-                    print("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
+                    self.log("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
                     effectiveFileId = foundId
                     download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
                 }
@@ -1571,7 +1584,7 @@ class CloudDriveManager: ObservableObject {
                     let shareFolder = await quarkFindShareOriginFolder(cookie: authCookie)
                     if let shareFid = shareFolder {
                         if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
-                            print("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
+                            self.log("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
                             effectiveFileId = foundId
                             download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
                         }
@@ -1587,11 +1600,11 @@ class CloudDriveManager: ObservableObject {
         if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
-            print("[Quark] 📥 主线路: download_url (直链), host=\(URL(string: playURL)?.host ?? "unknown")")
+            self.log("[Quark] 📥 主线路: download_url (直链), host=\(URL(string: playURL)?.host ?? "unknown")")
         } else if !transcodeURL.isEmpty {
             playURL = transcodeURL
             source = "v2-play-fallback"
-            print("[Quark] 📥 主线路: v2/play (转码m3u8, download_url为空), host=\(URL(string: playURL)?.host ?? "unknown")")
+            self.log("[Quark] 📥 主线路: v2/play (转码m3u8, download_url为空), host=\(URL(string: playURL)?.host ?? "unknown")")
         } else {
             throw DriveError.noPlayURL("夸克: download_url 和转码地址均为空")
         }
@@ -1608,11 +1621,11 @@ class CloudDriveManager: ObservableObject {
             fallbackSource = nil
         }
 
-        print("[Quark] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
+        self.log("[Quark] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
         if let fallbackURL, let fallbackSource {
-            print("[Quark] ✅ 兜底线路 source=\(fallbackSource), host=\(URL(string: fallbackURL)?.host ?? "unknown")")
+            self.log("[Quark] ✅ 兜底线路 source=\(fallbackSource), host=\(URL(string: fallbackURL)?.host ?? "unknown")")
         } else {
-            print("[Quark] ⚠️ 兜底线路暂不可用")
+            self.log("[Quark] ⚠️ 兜底线路暂不可用")
         }
 
         scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 60 * 60)
@@ -1637,14 +1650,14 @@ class CloudDriveManager: ObservableObject {
             do {
                 let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie)
                 if attempt > 0 {
-                    print("[Quark] 🔄 重试第\(attempt)次成功")
+                    self.log("[Quark] 🔄 重试第\(attempt)次成功")
                 }
                 return result
             } catch {
                 lastError = error
                 if attempt < maxRetries - 1 {
                     let delay = Double(1 << attempt) // 1s, 2s, 4s
-                    print("[Quark] ⚠️ 第\(attempt + 1)次尝试失败: \(error.localizedDescription)，\(String(format: "%.0f", delay))秒后重试...")
+                    self.log("[Quark] ⚠️ 第\(attempt + 1)次尝试失败: \(error.localizedDescription)，\(String(format: "%.0f", delay))秒后重试...")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
             }
@@ -1848,7 +1861,7 @@ class CloudDriveManager: ObservableObject {
         let hasPlus = st.contains("+")
         let hasSlash = st.contains("/")
         let hasEqual = st.contains("=")
-        print("[Quark] stoken诊断 length=\(st.count), hasPlus=\(hasPlus), hasSlash=\(hasSlash), hasEqual=\(hasEqual)")
+        self.log("[Quark] stoken诊断 length=\(st.count), hasPlus=\(hasPlus), hasSlash=\(hasSlash), hasEqual=\(hasEqual)")
         return st
     }
 
@@ -1865,7 +1878,7 @@ class CloudDriveManager: ObservableObject {
         quarkVboxCacheLock.lock()
         if let cachedFolderId = quarkVboxFolderCache[accountKey], !cachedFolderId.isEmpty {
             quarkVboxCacheLock.unlock()
-            print("[Quark] 使用缓存 folderId=\(cachedFolderId) (folder=\(folderName))")
+            self.log("[Quark] 使用缓存 folderId=\(cachedFolderId) (folder=\(folderName))")
             return (cachedFolderId, cookie)
         }
         quarkVboxCacheLock.unlock()
@@ -1890,7 +1903,7 @@ class CloudDriveManager: ObservableObject {
                 self.setQuarkVboxFolderCache(accountKey: accountKey, folderId: folder.folderId)
                 return folder
             } catch {
-                print("[Quark] ❌ \(folderName) 目录创建/查找失败：\(error.localizedDescription)")
+                self.log("[Quark] ❌ \(folderName) 目录创建/查找失败：\(error.localizedDescription)")
                 throw error
             }
         }
@@ -1920,12 +1933,12 @@ class CloudDriveManager: ObservableObject {
             ) {
                 targetFid = fid
                 currentCookie = mergedCookie
-                print("[Quark] 🔍 找到「\(nameVariant)」文件夹 fid=\(fid)")
+                self.log("[Quark] 🔍 找到「\(nameVariant)」文件夹 fid=\(fid)")
                 break
             }
         }
         guard let targetFid else {
-            print("[Quark] ⚠️ quarkFindVisibleFolder 未找到「来自：分享」文件夹（尝试了全角/半角冒号），跳过清理")
+            self.log("[Quark] ⚠️ quarkFindVisibleFolder 未找到「来自：分享」文件夹（尝试了全角/半角冒号），跳过清理")
             return currentCookie
         }
 
@@ -2003,7 +2016,7 @@ class CloudDriveManager: ObservableObject {
         var deletedFileCount = 0
         var deletedDirCount = 0
         let excludeSet = Set(excludeFileIds)
-        print("[Quark] 🔍 开始扫描「\"来自：分享\"」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
+        self.log("[Quark] 🔍 开始扫描「\"来自：分享\"」目录 (fid=\(targetFid))，排除 \(excludeFileIds.count) 个文件")
 
         let result = await collectFidsRecursive(dirFid: targetFid, cookie: &currentCookie, excludeSet: excludeSet)
         fileIdsToDelete = result.fids
@@ -2012,7 +2025,7 @@ class CloudDriveManager: ObservableObject {
 
         // 3. 删除旧文件和文件夹
         if !fileIdsToDelete.isEmpty {
-            print("[Quark] 🔍 「来自：分享」目录: 待删除 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
+            self.log("[Quark] 🔍 「来自：分享」目录: 待删除 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
             let deleteURL = quarkAPIURL("/1/clouddrive/file/delete")
             var deleteReq = URLRequest(url: deleteURL)
             deleteReq.httpMethod = "POST"
@@ -2025,7 +2038,7 @@ class CloudDriveManager: ObservableObject {
                 "exclude_fids": []
             ]
             guard let deleteBodyData = try? JSONSerialization.data(withJSONObject: deleteBody) else {
-                print("[Quark] ⚠️ 「来自：分享」清理删除Body序列化失败")
+                self.log("[Quark] ⚠️ 「来自：分享」清理删除Body序列化失败")
                 return currentCookie
             }
             deleteReq.httpBody = deleteBodyData
@@ -2033,7 +2046,7 @@ class CloudDriveManager: ObservableObject {
             do {
                 deleteResult = try await session.data(for: deleteReq)
             } catch {
-                print("[Quark] ⚠️ 清理「\"来自：分享\"」目录删除请求失败: \(error.localizedDescription)")
+                self.log("[Quark] ⚠️ 清理「\"来自：分享\"」目录删除请求失败: \(error.localizedDescription)")
                 deleteResult = nil
             }
             if let deleteResp = deleteResult?.1 {
@@ -2049,11 +2062,11 @@ class CloudDriveManager: ObservableObject {
                let deleteJson = try? JSONSerialization.jsonObject(with: deleteData) as? [String: Any] {
                 if let code = deleteJson["code"] as? Int, code != 0 {
                     deleteOK = false
-                    print("[Quark] ⚠️ 「来自：分享」删除API返回错误: code=\(code), message=\(deleteJson["message"] ?? "nil")")
+                    self.log("[Quark] ⚠️ 「来自：分享」删除API返回错误: code=\(code), message=\(deleteJson["message"] ?? "nil")")
                 }
             }
             if deleteOK {
-                print("[Quark] ✅ 已清理「\"来自：分享\"」目录下 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
+                self.log("[Quark] ✅ 已清理「\"来自：分享\"」目录下 \(deletedFileCount) 个旧文件 + \(deletedDirCount) 个旧文件夹")
             }
 
             // 4. 彻底清理回收站
@@ -2096,12 +2109,12 @@ class CloudDriveManager: ObservableObject {
                         if let removeResp = removeResult?.1 {
                             currentCookie = quarkMergeSetCookie(from: removeResp, into: currentCookie)
                         }
-                        print("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录（来自：分享）")
+                        self.log("[Quark] ✅ 已彻底清理回收站 \(recordIds.count) 条记录（来自：分享）")
                     }
                 }
             }
         } else {
-            print("[Quark] ℹ️ 「\"来自：分享\"」目录无可清理的旧文件")
+            self.log("[Quark] ℹ️ 「\"来自：分享\"」目录无可清理的旧文件")
         }
 
         return currentCookie
@@ -2111,11 +2124,16 @@ class CloudDriveManager: ObservableObject {
     private func quarkGetQuotaInfo(cookie: String) async -> (used: Int64, total: Int64, cookie: String) {
         var currentCookie = cookie
 
-        // 对齐 iBox 2.4.6：quota 端点用 pc-api.uc.cn（drive-pc.quark.cn 不支持 quota/info）
-        // 优先用 pc-api.uc.cn，失败再尝试 drive-pc.quark.cn
+        // 对齐 iBox 2.4.6：先通过 member 接口取 capacity 字段（最稳定，不需要 UC 账号）
+        if let memberQuota = await quarkGetQuotaFromMember(cookie: currentCookie),
+           memberQuota.total > 0 {
+            return (memberQuota.used, memberQuota.total, currentCookie)
+        }
+
+        // member 失败再尝试标准 quota 端点
         let endpoints = [
-            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc"),
             ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str="),
+            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc"),
         ]
 
         for (host, path, query) in endpoints {
@@ -2130,14 +2148,14 @@ class CloudDriveManager: ObservableObject {
             request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
 
             guard let (data, response) = try? await session.data(for: request) else {
-                print("[Quark] ⚠️ quota端点 \(host) 请求失败")
+                self.log("[Quark] ⚠️ quota端点 \(host) 请求失败")
                 continue
             }
             currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any] else {
-                print("[Quark] ⚠️ quota端点 \(host) 响应解析失败")
+                self.log("[Quark] ⚠️ quota端点 \(host) 响应解析失败")
                 continue
             }
 
@@ -2152,13 +2170,13 @@ class CloudDriveManager: ObservableObject {
             let used = parseInt64(dataObj["used"])
             let total = parseInt64(dataObj["total"])
             if total > 0 {
-                print("[Quark] ✅ quota端点 \(host) 成功: used=\(used), total=\(total)")
+                self.log("[Quark] ✅ quota端点 \(host) 成功: used=\(used), total=\(total)")
                 return (used, total, currentCookie)
             }
-            print("[Quark] ⚠️ quota端点 \(host) total=0，尝试下一个")
+            self.log("[Quark] ⚠️ quota端点 \(host) total=0，尝试下一个")
         }
 
-        print("[Quark] ⚠️ 所有quota端点均失败")
+        self.log("[Quark] ⚠️ 所有quota端点均失败")
         return (0, 0, currentCookie)
     }
 
@@ -2186,57 +2204,64 @@ class CloudDriveManager: ObservableObject {
                     if let v = v as? String { return Int64(v) ?? 0 }
                     return 0
                 }
+                // 夸克 member 接口可能把容量放在 capacity 或 capinfo 字段
                 let cap = d["capacity"] as? [String: Any]
-                let used = p(cap?["used"] ?? cap?["size_used"] ?? d["used"] ?? 0)
-                let total = p(cap?["total"] ?? cap?["size_total"] ?? d["total"] ?? 0)
+                    ?? d["capinfo"] as? [String: Any]
+                    ?? d["account_capacity"] as? [String: Any]
+                var used = p(cap?["used"] ?? cap?["size_used"] ?? d["used"] ?? 0)
+                var total = p(cap?["total"] ?? cap?["size_total"] ?? d["total"] ?? 0)
+
+                // 有些接口 capacity 只给剩余，需要拿 account 字段的总容量
+                if total <= 0, let account = d["account"] as? [String: Any] {
+                    total = p(account["total_capacity"] ?? account["capacity_total"] ?? account["total"] ?? 0)
+                }
+                if used <= 0, let account = d["account"] as? [String: Any] {
+                    used = p(account["used_capacity"] ?? account["capacity_used"] ?? account["used"] ?? 0)
+                }
+
+                // 如果只有 total，尝试用 d["remain"] 推算 used
+                if total > 0 && used <= 0, let remain = d["remain"] {
+                    used = total - p(remain)
+                }
+
                 if total > 0 {
-                    print("[Quark] ✅ member 兜底获取容量成功: used=\(used), total=\(total)")
+                    self.log("[Quark] ✅ member 获取容量成功: used=\(used), total=\(total)")
                     return (used, total)
                 }
             }
         } catch {
-            print("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
+            self.log("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
         }
         return (0, 0)
     }
 
     /// 如果剩余空间不足，清理"来自：分享"目录下所有文件
     private func quarkCleanShareOriginIfNeeded(cookie: String, thresholdGB: Double = 1.0) async -> String {
-        print("[Quark] 🧹 开始容量检测...")
+        self.log("[Quark] 🧹 开始容量检测...")
         var currentCookie = cookie
         let (used, total, mergedCookie) = await quarkGetQuotaInfo(cookie: currentCookie)
         currentCookie = mergedCookie
 
-        // 如果主端点失败，尝试通过 member 接口获取容量
-        var effectiveUsed = used
-        var effectiveTotal = total
-        if total <= 0 {
-            print("[Quark] ⚠️ 主端点获取容量失败，尝试 member 接口兜底...")
-            let memberQuota = await quarkGetQuotaFromMember(cookie: currentCookie)
-            effectiveUsed = memberQuota.used
-            effectiveTotal = memberQuota.total
-        }
-
-        guard effectiveTotal > 0 else {
-            print("[Quark] ⚠️ 无法获取夸克容量信息（主端点+member兜底均失败），跳过空间清理")
+        guard total > 0 else {
+            self.log("[Quark] ⚠️ 无法获取夸克容量信息（member+quota端点均失败），跳过空间清理")
             return currentCookie
         }
 
-        let free = effectiveTotal - effectiveUsed
+        let free = total - used
         let freeGB = Double(free) / 1_073_741_824.0
-        let totalGB = Double(effectiveTotal) / 1_073_741_824.0
-        let usedGB = Double(effectiveUsed) / 1_073_741_824.0
-        let usedPercent = Double(effectiveUsed) * 100.0 / Double(effectiveTotal)
+        let totalGB = Double(total) / 1_073_741_824.0
+        let usedGB = Double(used) / 1_073_741_824.0
+        let usedPercent = Double(used) * 100.0 / Double(total)
 
-        print("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
+        self.log("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
 
         // 剩余空间低于阈值时触发清理
         guard freeGB < thresholdGB else {
-            print("[Quark] ✅ 剩余空间充足(\(String(format: "%.2f", freeGB))GB >= \(thresholdGB)GB)，跳过清理")
+            self.log("[Quark] ✅ 剩余空间充足(\(String(format: "%.2f", freeGB))GB >= \(thresholdGB)GB)，跳过清理")
             return currentCookie
         }
 
-        print("[Quark] 🧹 剩余空间不足 \(String(format: "%.2f", freeGB))GB < \(thresholdGB)GB，开始清理夸克转存文件")
+        self.log("[Quark] 🧹 剩余空间不足 \(String(format: "%.2f", freeGB))GB < \(thresholdGB)GB，开始清理夸克转存文件")
 
         // 辅助：用 GET 列出目录下所有文件/文件夹
         func collectFids(folderId: String, onlyVideo: Bool = false) async -> [String] {
@@ -2359,7 +2384,7 @@ class CloudDriveManager: ObservableObject {
         async let shareFids: [String] = {
             for nameVariant in ["来自：分享", "来自:分享", "来自分享的文件", "来自分享"] {
                 if let fid = await findFolderId(name: nameVariant) {
-                    print("[Quark] 🔍 找到清理目标目录「\(nameVariant)」fid=\(fid)")
+                    self.log("[Quark] 🔍 找到清理目标目录「\(nameVariant)」fid=\(fid)")
                     return await collectFids(folderId: fid)
                 }
             }
@@ -2370,23 +2395,23 @@ class CloudDriveManager: ObservableObject {
         let shareResult = await shareFids
         let rootResult = await rootFids
 
-        print("[Quark] 📋 扫描结果：来自分享 \(shareResult.count) 个文件，根目录 \(rootResult.count) 个视频文件")
+        self.log("[Quark] 📋 扫描结果：来自分享 \(shareResult.count) 个文件，根目录 \(rootResult.count) 个视频文件")
 
         // 合并去重后批量删除
         let allFids = Array(Set(shareResult + rootResult))
         if !allFids.isEmpty {
             totalDeleted = await deleteFids(allFids)
-            print("[Quark] ✅ 已清理 \(totalDeleted)/\(allFids.count) 个文件（来自分享 + 根目录）")
+            self.log("[Quark] ✅ 已清理 \(totalDeleted)/\(allFids.count) 个文件（来自分享 + 根目录）")
         }
 
-        print("[Quark] ✅ 空间清理完成，共删除 \(totalDeleted) 个文件")
+        self.log("[Quark] ✅ 空间清理完成，共删除 \(totalDeleted) 个文件")
         return currentCookie
     }
 
     private func quarkFindOrCreateVisibleFolder(cookie: String, folderName: String) async throws -> (folderId: String, cookie: String) {
         // 先查找已存在的目录
         if let folder = try await quarkFindVisibleFolder(cookie: cookie, folderName: folderName) {
-            print("[Quark] 使用根目录 \(folderName) 文件夹 fid=\(folder.folderId)")
+            self.log("[Quark] 使用根目录 \(folderName) 文件夹 fid=\(folder.folderId)")
             return folder
         }
 
@@ -2407,13 +2432,13 @@ class CloudDriveManager: ObservableObject {
         let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
         let preview = String(data: data.prefix(500), encoding: .utf8) ?? ""
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Quark] ❌ 创建 \(folderName) 目录响应非JSON: \(preview)")
+            self.log("[Quark] ❌ 创建 \(folderName) 目录响应非JSON: \(preview)")
             throw DriveError.invalidResponse
         }
 
         // 创建成功，提取fid
         if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
-            print("[Quark] ✅ 已创建根目录 \(folderName) 文件夹 fid=\(fid)")
+            self.log("[Quark] ✅ 已创建根目录 \(folderName) 文件夹 fid=\(fid)")
             return (fid, mergedCookie)
         }
 
@@ -2435,37 +2460,37 @@ class CloudDriveManager: ObservableObject {
             || code == 40005
 
         if isAlreadyExists {
-            print("[Quark] ⚠️ \(folderName) 目录疑似已存在/处理中(code=\(code), message=\(message))，尝试重新查找...")
+            self.log("[Quark] ⚠️ \(folderName) 目录疑似已存在/处理中(code=\(code), message=\(message))，尝试重新查找...")
             // 目录“已存在”但 file/sort 可能存在短暂不可见（或缓存延迟），做几次短重试
             for attempt in 1...5 {
                 if attempt > 1 {
                     try? await Task.sleep(nanoseconds: UInt64(200_000_000 * attempt))
                 }
                 if let folder = try await quarkFindVisibleFolder(cookie: mergedCookie, folderName: folderName) {
-                    print("[Quark] ✅ 找到已存在的 \(folderName) 文件夹 fid=\(folder.folderId) (attempt=\(attempt))")
+                    self.log("[Quark] ✅ 找到已存在的 \(folderName) 文件夹 fid=\(folder.folderId) (attempt=\(attempt))")
                     return folder
                 }
             }
 
             // 兜底：某些环境下根目录 file/sort 返回结构/字段不稳定，尝试用另一套分页参数再按名称查一次。
             if let fid = await quarkFindSavedFileId(fileName: folderName, folderId: "0", cookie: mergedCookie) {
-                print("[Quark] ✅ 兜底：按名称在根目录定位 \(folderName)，fid=\(fid)")
+                self.log("[Quark] ✅ 兜底：按名称在根目录定位 \(folderName)，fid=\(fid)")
                 return (fid, mergedCookie)
             }
-            print("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
+            self.log("[Quark] ⚠️ 标记已存在但 file/sort 仍找不到，尝试从创建响应取 fid...")
             if let fid = quarkExtractFirstFid(from: json), !fid.isEmpty {
-                print("[Quark] ✅ 从创建响应提取到 fid=\(fid)")
+                self.log("[Quark] ✅ 从创建响应提取到 fid=\(fid)")
                 return (fid, mergedCookie)
             }
-            print("[Quark] ⚠️ 创建响应也没有 fid，查看完整响应诊断: \(preview)")
+            self.log("[Quark] ⚠️ 创建响应也没有 fid，查看完整响应诊断: \(preview)")
         }
 
         if code != 0 && code != 200 {
-            print("[Quark] ❌ 创建 \(folderName) 目录失败: message=\(message), code=\(code), preview=\(preview)")
+            self.log("[Quark] ❌ 创建 \(folderName) 目录失败: message=\(message), code=\(code), preview=\(preview)")
             throw DriveError.noPlayURL("夸克创建 \(folderName) 目录失败：\(message) (code=\(code))")
         }
 
-        print("[Quark] ❌ 创建 \(folderName) 目录成功(status=\(code))但未返回 fid: \(preview)")
+        self.log("[Quark] ❌ 创建 \(folderName) 目录成功(status=\(code))但未返回 fid: \(preview)")
         throw DriveError.noPlayURL("夸克创建 \(folderName) 目录后未返回 fid")
     }
 
@@ -2560,26 +2585,26 @@ class CloudDriveManager: ObservableObject {
                 let (listOpt, codeOpt, messageOpt, preview) = try await fetchList(page: page, underscoreStyle: underscoreStyle)
                 guard let list = listOpt else {
                     if let codeOpt, let messageOpt {
-                        print("[Quark] ⚠️ 根目录列表返回异常 style=\(underscoreStyle ? "underscore" : "plain") code=\(codeOpt) message=\(messageOpt)，preview=\(preview)")
+                        self.log("[Quark] ⚠️ 根目录列表返回异常 style=\(underscoreStyle ? "underscore" : "plain") code=\(codeOpt) message=\(messageOpt)，preview=\(preview)")
                     } else {
-                        print("[Quark] ⚠️ 根目录列表结构异常 style=\(underscoreStyle ? "underscore" : "plain")，preview=\(preview)")
+                        self.log("[Quark] ⚠️ 根目录列表结构异常 style=\(underscoreStyle ? "underscore" : "plain")，preview=\(preview)")
                     }
                     break
                 }
 
-                print("[Quark] 根目录扫描 style=\(underscoreStyle ? "underscore" : "plain") page=\(page), count=\(list.count)")
+                self.log("[Quark] 根目录扫描 style=\(underscoreStyle ? "underscore" : "plain") page=\(page), count=\(list.count)")
                 for item in list {
                     let name = extractName(from: item)
                     guard name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == targetName else { continue }
                     if let folderId = extractFolderId(from: item) {
                         if looksLikeDirectory(item) {
-                            print("[Quark] ✅ 根目录命中 \(folderName) 文件夹 fid=\(folderId)")
+                            self.log("[Quark] ✅ 根目录命中 \(folderName) 文件夹 fid=\(folderId)")
                         } else {
-                            print("[Quark] ⚠️ 命中名称为 \(folderName) 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
+                            self.log("[Quark] ⚠️ 命中名称为 \(folderName) 的对象，但目录字段不典型，仍先使用 fid=\(folderId), item=\(item)")
                         }
                         return (folderId, currentCookie)
                     } else {
-                        print("[Quark] ⚠️ 命中 \(folderName) 但未提取到 fid，item=\(item)")
+                        self.log("[Quark] ⚠️ 命中 \(folderName) 但未提取到 fid，item=\(item)")
                     }
                 }
 
@@ -2612,7 +2637,7 @@ class CloudDriveManager: ObservableObject {
 
     /// 轮询夸克转存任务状态，等待文件落盘（对齐iBox抓包：GET /1/clouddrive/task）
     private func quarkPollTask(taskId: String, cookie: String, maxRetries: Int = 10, interval: TimeInterval = 1.0) async throws {
-        print("[Quark] ⏳ 轮询转存任务状态: \(taskId)")
+        self.log("[Quark] ⏳ 轮询转存任务状态: \(taskId)")
         for i in 0..<maxRetries {
             let url = quarkAPIURL("/1/clouddrive/task", extra: [
                 URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
@@ -2630,11 +2655,11 @@ class CloudDriveManager: ObservableObject {
                 let status = d["status"] as? Int ?? -1
                 let finish = d["finish"] as? Bool ?? false
                 if finish || status == 2 {
-                    print("[Quark] ✅ 转存任务完成: status=\(status), finish=\(finish)")
+                    self.log("[Quark] ✅ 转存任务完成: status=\(status), finish=\(finish)")
                     return
                 }
                 if status == 3 || status == -1 {
-                    print("[Quark] ⚠️ 转存任务异常: status=\(status)，继续尝试播放")
+                    self.log("[Quark] ⚠️ 转存任务异常: status=\(status)，继续尝试播放")
                     return
                 }
             }
@@ -2642,7 +2667,7 @@ class CloudDriveManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
         }
-        print("[Quark] ⚠️ 转存任务轮询超时，继续尝试播放")
+        self.log("[Quark] ⚠️ 转存任务轮询超时，继续尝试播放")
     }
 
     /// 获取夸克会员信息（对齐iBox抓包：GET /1/clouddrive/member）
@@ -2663,11 +2688,11 @@ class CloudDriveManager: ObservableObject {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let d = json["data"] as? [String: Any] {
                 let memberType = d["member_type"] as? String ?? "normal"
-                print("[Quark] 会员类型: \(memberType)")
+                self.log("[Quark] 会员类型: \(memberType)")
                 return memberType
             }
         } catch {
-            print("[Quark] 获取会员信息失败: \(error.localizedDescription)")
+            self.log("[Quark] 获取会员信息失败: \(error.localizedDescription)")
         }
         return nil
     }
@@ -2682,7 +2707,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let deleteResult = try? await session.data(for: req)
-        print("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
+        self.log("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
 
         // 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
         if let data = deleteResult?.0,
@@ -2722,7 +2747,7 @@ class CloudDriveManager: ObservableObject {
                     let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
                     removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
                     let _ = try? await session.data(for: removeReq)
-                    print("[CloudDrive] ✅ 夸克已彻底清理回收站 \(recordIds.count) 条记录")
+                    self.log("[CloudDrive] ✅ 夸克已彻底清理回收站 \(recordIds.count) 条记录")
                 }
             }
         }
@@ -2794,18 +2819,18 @@ class CloudDriveManager: ObservableObject {
         quarkSetCommonHeaders(&request, cookie: cookie, referer: quarkShareReferer(pwdId: pwdId))
         let stokenHasPlus = stoken.contains("+")
         let encodedPlus = url.absoluteString.contains("%2B")
-        print("[Quark] detail请求诊断 pdirFid=\(pdirFid), stokenLength=\(stoken.count), stokenHasPlus=\(stokenHasPlus), encodedPlus=\(encodedPlus)")
+        self.log("[Quark] detail请求诊断 pdirFid=\(pdirFid), stokenLength=\(stoken.count), stokenHasPlus=\(stokenHasPlus), encodedPlus=\(encodedPlus)")
         let (data, response) = try await session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             let preview = String(data: data.prefix(300), encoding: .utf8) ?? ""
-            print("[Quark] ❌ detail非JSON status=\(httpStatus), preview=\(preview)")
+            self.log("[Quark] ❌ detail非JSON status=\(httpStatus), preview=\(preview)")
             throw DriveError.invalidResponse
         }
         if let code = json["code"] as? Int, code != 0 {
             let message = json["message"] as? String ?? "code=\(code)"
             let preview = String(data: data.prefix(300), encoding: .utf8) ?? ""
-            print("[Quark] ❌ detail失败 status=\(httpStatus), code=\(code), message=\(message), preview=\(preview)")
+            self.log("[Quark] ❌ detail失败 status=\(httpStatus), code=\(code), message=\(message), preview=\(preview)")
             throw DriveError.noPlayURL("夸克文件列表失败：\(message)")
         }
         guard let dataObj = json["data"] as? [String: Any],
@@ -2848,22 +2873,22 @@ class CloudDriveManager: ObservableObject {
         let (data, _) = try await session.data(for: request)
 
         let respStr = String(data: data, encoding: .utf8) ?? ""
-        print("[Quark] save响应: \(respStr.prefix(500))")
+        self.log("[Quark] save响应: \(respStr.prefix(500))")
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Quark] ❌ 转存响应非JSON")
+            self.log("[Quark] ❌ 转存响应非JSON")
             throw DriveError.saveFailed
         }
 
         if let status = json["status"] as? Int, status != 200 {
             let message = json["message"] as? String ?? json["msg"] as? String ?? "状态码: \(status)"
-            print("[Quark] ❌ 转存失败: \(message)")
+            self.log("[Quark] ❌ 转存失败: \(message)")
             throw DriveError.noPlayURL("夸克转存失败: \(message)")
         }
 
         if let code = json["code"] as? Int, code != 0 {
             let message = json["message"] as? String ?? json["msg"] as? String ?? "错误码: \(code)"
-            print("[Quark] ❌ 转存失败: code=\(code), message=\(message)")
+            self.log("[Quark] ❌ 转存失败: code=\(code), message=\(message)")
             // 检测容量/配额相关错误，给出更明确的提示
             let lowerMsg = message.lowercased()
             if lowerMsg.contains("空间") || lowerMsg.contains("容量") || lowerMsg.contains("quota")
@@ -2877,24 +2902,24 @@ class CloudDriveManager: ObservableObject {
             // 保存task_id用于后续轮询
             if let taskId = d["task_id"] as? String {
                 quarkLastSaveTaskId = taskId
-                print("[Quark] 转存任务ID: \(taskId)")
+                self.log("[Quark] 转存任务ID: \(taskId)")
             }
             let taskResp = d["task_resp"] as? [String: Any]
             let taskData = taskResp?["data"] as? [String: Any]
             let saveAs = taskData?["save_as"] as? [String: Any]
             if let ids = saveAs?["save_as_top_fids"] as? [String], !ids.isEmpty {
-                print("[Quark] ✅ 转存成功，save_as_top_fids: \(ids)")
+                self.log("[Quark] ✅ 转存成功，save_as_top_fids: \(ids)")
                 // save_as_top_fids 可能返回文件夹ID(如"0")而非文件ID
                 if ids.allSatisfy({ $0 == "0" || $0 == folderId }) {
-                    print("[Quark] ⚠️ save_as_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
+                    self.log("[Quark] ⚠️ save_as_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
                 } else {
                     return ids
                 }
             }
             if let ids = saveAs?["save_as_select_top_fids"] as? [String], !ids.isEmpty {
-                print("[Quark] ✅ 转存成功，save_as_select_top_fids: \(ids)")
+                self.log("[Quark] ✅ 转存成功，save_as_select_top_fids: \(ids)")
                 if ids.allSatisfy({ $0 == "0" || $0 == folderId }) {
-                    print("[Quark] ⚠️ save_as_select_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
+                    self.log("[Quark] ⚠️ save_as_select_top_fids 返回的是目录ID，尝试按文件名查找实际fid")
                 } else {
                     return ids
                 }
@@ -2912,12 +2937,12 @@ class CloudDriveManager: ObservableObject {
 
         let recursiveIds = quarkExtractSavedFileIds(from: json, excluding: file.fid)
         if !recursiveIds.isEmpty {
-            print("[Quark] ✅ 转存成功，递归提取 fid: \(recursiveIds)")
+            self.log("[Quark] ✅ 转存成功，递归提取 fid: \(recursiveIds)")
             return recursiveIds
         }
 
         if let existingId = await quarkFindSavedFileId(fileName: file.fileName, folderId: folderId, cookie: cookie) {
-            print("[Quark] ✅ 转存目录已存在同名文件，使用 fid=\(existingId)")
+            self.log("[Quark] ✅ 转存目录已存在同名文件，使用 fid=\(existingId)")
             return [existingId]
         }
 
@@ -3064,7 +3089,7 @@ class CloudDriveManager: ObservableObject {
               let token = dataObj["token"] as? String, !token.isEmpty else {
             throw DriveError.noPlayURL("夸克 acquire_dl_token 未返回token")
         }
-        print("[Quark] 获取到加速下载token")
+        self.log("[Quark] 获取到加速下载token")
         return token
     }
 
@@ -3074,7 +3099,7 @@ class CloudDriveManager: ObservableObject {
         do {
             dlToken = try await quarkAcquireDLToken(cookie: cookie)
         } catch {
-            print("[Quark] ⚠️ acquire_dl_token 失败，继续尝试普通下载：\(error.localizedDescription)")
+            self.log("[Quark] ⚠️ acquire_dl_token 失败，继续尝试普通下载：\(error.localizedDescription)")
         }
 
         let url = quarkAPIURL("/1/clouddrive/file/download")
@@ -3106,9 +3131,9 @@ class CloudDriveManager: ObservableObject {
         let fileName = first["file_name"] as? String ?? ""
         let ext = (fileName as NSString).pathExtension.lowercased()
         if downloadURL.isEmpty {
-            print("[Quark] ⚠️ download_url 为空 (文件: \(fileName), 扩展名: \(ext))，将使用v2/play转码")
+            self.log("[Quark] ⚠️ download_url 为空 (文件: \(fileName), 扩展名: \(ext))，将使用v2/play转码")
         } else {
-            print("[Quark] 📥 download_url 已获取 (文件: \(fileName), 扩展名: \(ext))")
+            self.log("[Quark] 📥 download_url 已获取 (文件: \(fileName), 扩展名: \(ext))")
         }
         return (downloadURL, fileName)
     }
@@ -5211,7 +5236,7 @@ class CloudDriveManager: ObservableObject {
         let params = "filelist=\(filelistJSON.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? filelistJSON)"
         req.httpBody = params.data(using: .utf8)
         let _ = try? await session.data(for: req)
-        print("[CloudDrive] ✅ 百度已删除转存文件: \(paths)")
+        self.log("[CloudDrive] ✅ 百度已删除转存文件: \(paths)")
     }
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
@@ -6055,7 +6080,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let _ = try? await session.data(for: req)
-        print("[CloudDrive] ✅ UC 已删除 \(fileIds.count) 个转存文件")
+        self.log("[CloudDrive] ✅ UC 已删除 \(fileIds.count) 个转存文件")
     }
 
     private func ucFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> UCShareFile {
@@ -6170,12 +6195,12 @@ class CloudDriveManager: ObservableObject {
         let cleanURL = shareURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\u{200B}", with: "")
             .replacingOccurrences(of: "\u{FEFF}", with: "")
-        print("[CloudDrive] resolvePlayURL 输入: \(cleanURL.prefix(80))")
+        self.log("[CloudDrive] resolvePlayURL 输入: \(cleanURL.prefix(80))")
         guard let driveType = Self.detectDrive(from: cleanURL) else {
-            print("[CloudDrive] ❌ detectDrive 返回 nil")
+            self.log("[CloudDrive] ❌ detectDrive 返回 nil")
             throw DriveError.invalidShareURL
         }
-        print("[CloudDrive] ✅ detectDrive: \(driveType.rawValue)")
+        self.log("[CloudDrive] ✅ detectDrive: \(driveType.rawValue)")
 
         let tokens = tokens(for: driveType)
         guard !tokens.isEmpty else {
@@ -6184,7 +6209,7 @@ class CloudDriveManager: ObservableObject {
 
         var lastError: Error?
         if driveType == .baidu, let pair = baiduTokenPair() {
-            print("[CloudDrive] 🔄 尝试百度网盘 WebToken: \(pair.web.name)，PCSToken: \(pair.pcs?.name ?? "未配置")")
+            self.log("[CloudDrive] 🔄 尝试百度网盘 WebToken: \(pair.web.name)，PCSToken: \(pair.pcs?.name ?? "未配置")")
             return try await resolveBaiduPlayURL(
                 shareURL: shareURL,
                 bduss: pair.web.value,
@@ -6194,7 +6219,7 @@ class CloudDriveManager: ObservableObject {
 
         for (index, token) in tokens.enumerated() {
             let label = tokens.count > 1 ? " [\(index + 1)/\(tokens.count)]" : ""
-            print("[CloudDrive] 🔄 尝试 \(driveType.displayName) Token\(label): \(token.name)")
+            self.log("[CloudDrive] 🔄 尝试 \(driveType.displayName) Token\(label): \(token.name)")
             do {
                 let result: PlayResult
                 switch driveType {
@@ -6215,11 +6240,11 @@ class CloudDriveManager: ObservableObject {
                 case .pan189:
                     result = try await resolve189PanPlayURL(shareURL: shareURL, cookie: token.value)
                 }
-                print("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
+                self.log("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result
             } catch {
                 lastError = error
-                print("[CloudDrive] ⚠️ \(driveType.displayName) Token \"\(token.name)\" 失败: \(error.localizedDescription)")
+                self.log("[CloudDrive] ⚠️ \(driveType.displayName) Token \"\(token.name)\" 失败: \(error.localizedDescription)")
                 if isLikelyAuthInvalid(error) {
                     CloudDriveAuthManager.shared.markInvalid(driveType, reason: error.localizedDescription)
                 }
@@ -6228,7 +6253,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         let count = tokens.count
-        print("[CloudDrive] ❌ 所有 \(count) 个 \(driveType.displayName) Token 均失败")
+        self.log("[CloudDrive] ❌ 所有 \(count) 个 \(driveType.displayName) Token 均失败")
         throw lastError ?? DriveError.tokenNotConfigured(driveType.displayName)
     }
 
