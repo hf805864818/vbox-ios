@@ -73,6 +73,55 @@ struct WelfareCrawlerConfig: Codable, Identifiable {
     let htmlTemplate: HTMLTemplateType?
     let pages: [WelfarePageKind]
     let pageSections: [String: [String]]
+
+    // MARK: - 自定义域名覆盖（UserDefaults 持久化）
+    /// UserDefaults 存储 key 前缀
+    private static let customURLPrefix = "welfare_custom_url_"
+
+    /// 用户自定义的 baseURL（优先使用），为空则用默认 baseURL
+    var customBaseURL: String? {
+        get {
+            let key = Self.customURLPrefix + platformId
+            let url = UserDefaults.standard.string(forKey: key)
+            return url?.isEmpty == false ? url : nil
+        }
+        set {
+            let key = Self.customURLPrefix + platformId
+            if let url = newValue, !url.isEmpty {
+                UserDefaults.standard.set(url, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
+    /// 生效的 baseURL：优先用户自定义，没有则用默认
+    var effectiveBaseURL: String {
+        customBaseURL ?? baseURL
+    }
+
+    /// 是否已设置自定义域名
+    var hasCustomURL: Bool {
+        customBaseURL != nil
+    }
+
+    // MARK: - 全局自定义域名管理
+    /// 获取所有已设置自定义域名的平台 ID
+    static var allCustomPlatformIds: [String] {
+        let dict = UserDefaults.standard.dictionaryRepresentation()
+        return dict.keys.compactMap { key in
+            guard key.hasPrefix(customURLPrefix) else { return nil }
+            let platformId = String(key.dropFirst(customURLPrefix.count))
+            return platformId.isEmpty ? nil : platformId
+        }
+    }
+
+    /// 清除所有自定义域名
+    static func clearAllCustomURLs() {
+        for pid in allCustomPlatformIds {
+            UserDefaults.standard.removeObject(forKey: customURLPrefix + pid)
+        }
+    }
 }
 
 // MARK: - 全部平台爬虫配置（基于抓包数据精确映射，覆盖视频/直播/漫画/音频等）

@@ -136,12 +136,12 @@ final class WelfareCrawlerService {
     func fetchCategories(platformId: String) async -> [WelfareSection] {
         guard let cfg = WelfareCrawlerConfig.config(for: platformId),
               cfg.apiMode == .open else { return [] }
-        let urlStr = "\(cfg.baseURL)/api.php/provide/vod/?ac=class"
+        let urlStr = "\(cfg.effectiveBaseURL)/api.php/provide/vod/?ac=class"
         guard let url = URL(string: urlStr) else { return [] }
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.httpMethod = "GET"
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        req.setValue(cfg.effectiveBaseURL, forHTTPHeaderField: "Referer")
         guard let data = await request(req) else { return [] }
         if let resp = try? JSONDecoder().decode(CMSTypeResponse.self, from: data),
            let types = resp.`class` {
@@ -157,7 +157,7 @@ final class WelfareCrawlerService {
     private func fetchCMS(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, pg: Int,
                            onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let apiPath = cmsApiPath(for: kind)
-        let urlStr = "\(cfg.baseURL)\(apiPath)"
+        let urlStr = "\(cfg.effectiveBaseURL)\(apiPath)"
         guard let url = URL(string: urlStr) else {
             return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
         }
@@ -168,7 +168,7 @@ final class WelfareCrawlerService {
         req.httpBody = body.data(using: .utf8)
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        req.setValue(cfg.effectiveBaseURL, forHTTPHeaderField: "Referer")
 
         guard let data = await request(req) else {
             return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
@@ -189,14 +189,14 @@ final class WelfareCrawlerService {
 
         // 步骤1: 获取列表
         let path = cmsOpenPath(for: kind, pg: pg)
-        let listURLStr = "\(cfg.baseURL)\(path)"
+        let listURLStr = "\(cfg.effectiveBaseURL)\(path)"
         guard let listURL = URL(string: listURLStr) else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
         }
         var listReq = URLRequest(url: listURL); listReq.timeoutInterval = timeout
         listReq.httpMethod = "GET"
         listReq.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        listReq.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        listReq.setValue(cfg.effectiveBaseURL, forHTTPHeaderField: "Referer")
 
         guard let listData = await request(listReq) else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)
@@ -208,14 +208,14 @@ final class WelfareCrawlerService {
         let ids = listItems.prefix(20).map { $0.vodId }.joined(separator: ",")
 
         // 步骤2: 批量获取详情（含封面+播放链接）
-        let detailURLStr = "\(cfg.baseURL)/api.php/provide/vod/?ac=detail&ids=\(ids)"
+        let detailURLStr = "\(cfg.effectiveBaseURL)/api.php/provide/vod/?ac=detail&ids=\(ids)"
         guard let detailURL = URL(string: detailURLStr) else {
             onBatch?(listItems); return listItems
         }
         var detailReq = URLRequest(url: detailURL); detailReq.timeoutInterval = timeout
         detailReq.httpMethod = "GET"
         detailReq.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        detailReq.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        detailReq.setValue(cfg.effectiveBaseURL, forHTTPHeaderField: "Referer")
 
         guard let detailData = await request(detailReq) else {
             onBatch?(listItems); return listItems
@@ -253,13 +253,13 @@ final class WelfareCrawlerService {
 
         // 通用 HTML 提取（先尝试，失败则回退）
         let path = htmlPath(for: kind, pg: pg)
-        let urlStr = "\(cfg.baseURL)\(path)"
+        let urlStr = "\(cfg.effectiveBaseURL)\(path)"
         guard let url = URL(string: urlStr) else {
             return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
         }
         var req = URLRequest(url: url); req.timeoutInterval = timeout
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(cfg.baseURL, forHTTPHeaderField: "Referer")
+        req.setValue(cfg.effectiveBaseURL, forHTTPHeaderField: "Referer")
         guard let data = await request(req), let html = String(data: data, encoding: .utf8) else {
             return await proxyOrFallback(cfg: cfg, kind: kind, onBatch: onBatch)
         }
@@ -271,7 +271,7 @@ final class WelfareCrawlerService {
     // MARK: - Stui CMS 模板（hsck123.com / 黄色仓库）
     private func fetchStuiHomepage(cfg: WelfareCrawlerConfig,
                                      onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
-        guard let url = URL(string: cfg.baseURL) else {
+        guard let url = URL(string: cfg.effectiveBaseURL) else {
             return await fallback(id: cfg.platformId, kind: .home, onBatch: onBatch)
         }
         var req = URLRequest(url: url); req.timeoutInterval = timeout
@@ -324,7 +324,7 @@ final class WelfareCrawlerService {
     }
 
     private func cfgURLOrDefault(_ platformId: String) -> String {
-        WelfareCrawlerConfig.config(for: platformId)?.baseURL ?? "https://hsck123.com"
+        WelfareCrawlerConfig.config(for: platformId)?.effectiveBaseURL ?? "https://hsck123.com"
     }
 
     private func fetchStuiDetailStream(detailURL: String) async -> String? {
@@ -356,10 +356,10 @@ final class WelfareCrawlerService {
                                 onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
         let urlStr: String
         switch kind {
-        case .home, .comic: urlStr = "\(cfg.baseURL)/"
-        case .novel: urlStr = "\(cfg.baseURL)/novel/"
-        case .search: urlStr = "\(cfg.baseURL)/search/"
-        default: urlStr = "\(cfg.baseURL)/"
+        case .home, .comic: urlStr = "\(cfg.effectiveBaseURL)/"
+        case .novel: urlStr = "\(cfg.effectiveBaseURL)/novel/"
+        case .search: urlStr = "\(cfg.effectiveBaseURL)/search/"
+        default: urlStr = "\(cfg.effectiveBaseURL)/"
         }
         guard let url = URL(string: urlStr) else {
             return await fallback(id: cfg.platformId, kind: kind, onBatch: onBatch)

@@ -9,15 +9,31 @@ struct WelfareHomeView: View {
         NavigationView {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 24) {
-                    // 标题
-                    VStack(spacing: 4) {
-                        Text("福利专区")
-                            .font(.system(size: 28, weight: .bold))
-                        Text("视频 · 直播 · 漫画")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
+                    // 标题 + 设置按钮
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("福利专区")
+                                .font(.system(size: 28, weight: .bold))
+                            Text("视频 · 直播 · 漫画")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        // 域名设置按钮
+                        NavigationLink(destination: WelfareDomainSettingsView()
+                            .environmentObject(settings)) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, height: 40)
+                                .background(
+                                    Circle()
+                                        .fill(Color.primary.opacity(0.06))
+                                )
+                        }
                     }
                     .padding(.top, 16)
+                    .padding(.horizontal, 20)
 
                     // 三大分类区块
                     ForEach(ybox.categories) { category in

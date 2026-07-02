@@ -45,6 +45,15 @@ struct KXSPConfig {
     /// H5 URL 里带来的 httpUrl，没有协议头。可运行时覆盖。
     static let defaultHttpUrl = "xn--oorr81b2yk37g.com"
 
+    /// 备用域名列表（按优先级排序，第一个失败自动试下一个）
+    /// 后期域名挂了直接在这里加新域名就行，不需要改其他代码
+    static let fallbackDomains: [String] = [
+        "xn--oorr81b2yk37g.com",
+        // 可以在这里继续添加备用域名，例如：
+        // "example1.com",
+        // "example2.com",
+    ]
+
     /// 服务端 RSA 公钥（用于加密请求 AES key）
     static let serverPublicKeyPEM = """
     -----BEGIN PUBLIC KEY-----
@@ -335,6 +344,19 @@ final class KXSPAPIService: ObservableObject {
     private var runtime: KXSPRuntimeConfig?
     private var userData: [String: Any] = [:]
     private var deviceNumber: String = ""
+
+    // MARK: - 多域名切换
+    /// 可用域名列表（初始化时验证通过的域名会排在前面）
+    private var availableDomains: [String] = KXSPConfig.fallbackDomains
+    /// 当前使用的域名索引
+    private var currentDomainIndex: Int = 0
+    /// 当前生效的主域名
+    private var currentHttpUrl: String {
+        guard currentDomainIndex < availableDomains.count else {
+            return KXSPConfig.defaultHttpUrl
+        }
+        return availableDomains[currentDomainIndex]
+    }
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
