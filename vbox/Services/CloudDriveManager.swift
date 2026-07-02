@@ -2110,54 +2110,60 @@ class CloudDriveManager: ObservableObject {
     /// 查询夸克网盘容量信息
     private func quarkGetQuotaInfo(cookie: String) async -> (used: Int64, total: Int64, cookie: String) {
         var currentCookie = cookie
-        let url = quarkAPIURL("/1/clouddrive/quota/info", extra: [
-            URLQueryItem(name: "check_expire", value: "1"),
-            URLQueryItem(name: "check_items", value: "1")
-        ])
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 15
-        quarkSetCommonHeaders(&request, cookie: currentCookie)
 
-        guard let (data, response) = try? await session.data(for: request) else {
-            print("[Quark] ⚠️ 查询容量请求失败")
-            return (0, 0, currentCookie)
+        // 对齐 iBox 2.4.6：quota 端点用 pc-api.uc.cn（drive-pc.quark.cn 不支持 quota/info）
+        // 优先用 pc-api.uc.cn，失败再尝试 drive-pc.quark.cn
+        let endpoints = [
+            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc"),
+            ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str="),
+        ]
+
+        for (host, path, query) in endpoints {
+            guard let url = URL(string: "\(host)\(path)?\(query)") else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 15
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+            request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+
+            guard let (data, response) = try? await session.data(for: request) else {
+                print("[Quark] ⚠️ quota端点 \(host) 请求失败")
+                continue
+            }
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any] else {
+                print("[Quark] ⚠️ quota端点 \(host) 响应解析失败")
+                continue
+            }
+
+            func parseInt64(_ value: Any?) -> Int64 {
+                if let v = value as? Int64 { return v }
+                if let v = value as? Int { return Int64(v) }
+                if let v = value as? Double { return Int64(v) }
+                if let v = value as? String { return Int64(v) ?? 0 }
+                return 0
+            }
+
+            let used = parseInt64(dataObj["used"])
+            let total = parseInt64(dataObj["total"])
+            if total > 0 {
+                print("[Quark] ✅ quota端点 \(host) 成功: used=\(used), total=\(total)")
+                return (used, total, currentCookie)
+            }
+            print("[Quark] ⚠️ quota端点 \(host) total=0，尝试下一个")
         }
-        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any] else {
-            print("[Quark] ⚠️ 查询容量响应解析失败")
-            return (0, 0, currentCookie)
-        }
-
-        // 夸克容量字段可能是 Int/Int64/Double 或 String
-        func parseInt64(_ value: Any?) -> Int64 {
-            if let v = value as? Int64 { return v }
-            if let v = value as? Int { return Int64(v) }
-            if let v = value as? Double { return Int64(v) }
-            if let v = value as? String { return Int64(v) ?? 0 }
-            return 0
-        }
-
-        let used = parseInt64(dataObj["used"])
-        let total = parseInt64(dataObj["total"])
-        return (used, total, currentCookie)
+        print("[Quark] ⚠️ 所有quota端点均失败")
+        return (0, 0, currentCookie)
     }
 
     /// 兜底：通过 member 接口获取容量信息（对齐 iBox 2.4.6）
     private func quarkGetQuotaFromMember(cookie: String) async -> (used: Int64, total: Int64) {
-        // 先尝试 pc-api.uc.cn 的 quota 接口（iBox 使用的端点）
-        if let q = await tryQuarkQuotaEndpoint(
-            host: "https://pc-api.uc.cn",
-            path: "/1/clouddrive/quota/info",
-            query: "pr=UCBrowser&fr=pc",
-            cookie: cookie
-        ) {
-            return q
-        }
-
-        // 兜底：从 member 接口的响应中解析容量信息
         let url = quarkAPIURL("/1/clouddrive/member", extra: [
             URLQueryItem(name: "fetch_subscribe", value: "true"),
             URLQueryItem(name: "fetch_identity", value: "true"),
@@ -2173,9 +2179,16 @@ class CloudDriveManager: ObservableObject {
             let (data, _) = try await session.data(for: req)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let d = json["data"] as? [String: Any] {
+                func p(_ v: Any?) -> Int64 {
+                    if let v = v as? Int64 { return v }
+                    if let v = v as? Int { return Int64(v) }
+                    if let v = v as? Double { return Int64(v) }
+                    if let v = v as? String { return Int64(v) ?? 0 }
+                    return 0
+                }
                 let cap = d["capacity"] as? [String: Any]
-                let used = parseInt64(cap?["used"] ?? cap?["size_used"] ?? d["used"] ?? 0)
-                let total = parseInt64(cap?["total"] ?? cap?["size_total"] ?? d["total"] ?? 0)
+                let used = p(cap?["used"] ?? cap?["size_used"] ?? d["used"] ?? 0)
+                let total = p(cap?["total"] ?? cap?["size_total"] ?? d["total"] ?? 0)
                 if total > 0 {
                     print("[Quark] ✅ member 兜底获取容量成功: used=\(used), total=\(total)")
                     return (used, total)
@@ -2185,33 +2198,6 @@ class CloudDriveManager: ObservableObject {
             print("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
         }
         return (0, 0)
-    }
-
-    private func tryQuarkQuotaEndpoint(host: String, path: String, query: String, cookie: String) async -> (used: Int64, total: Int64)? {
-        guard let url = URL(string: "\(host)\(path)?\(query)") else { return nil }
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.timeoutInterval = 10
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        req.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        req.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
-
-        do {
-            let (data, _) = try await session.data(for: req)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let d = json["data"] as? [String: Any] {
-                let used = parseInt64(d["used"])
-                let total = parseInt64(d["total"])
-                if total > 0 {
-                    print("[Quark] ✅ pc-api.uc.cn quota 获取成功: used=\(used), total=\(total)")
-                    return (used, total)
-                }
-            }
-        } catch {
-            print("[Quark] ⚠️ pc-api.uc.cn quota 请求失败: \(error.localizedDescription)")
-        }
-        return nil
     }
 
     /// 如果剩余空间不足，清理"来自：分享"目录下所有文件
