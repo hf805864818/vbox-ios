@@ -1630,6 +1630,28 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
+    /// 对齐 iBox parseFile(retry:) 机制：最多重试3次，指数退避（1s/2s/4s）
+    private func resolveQuarkPlayURLWithRetry(shareURL: String, cookie: String, maxRetries: Int = 3) async throws -> PlayResult {
+        var lastError: Error?
+        for attempt in 0..<maxRetries {
+            do {
+                let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie)
+                if attempt > 0 {
+                    print("[Quark] 🔄 重试第\(attempt)次成功")
+                }
+                return result
+            } catch {
+                lastError = error
+                if attempt < maxRetries - 1 {
+                    let delay = Double(1 << attempt) // 1s, 2s, 4s
+                    print("[Quark] ⚠️ 第\(attempt + 1)次尝试失败: \(error.localizedDescription)，\(String(format: "%.0f", delay))秒后重试...")
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+            }
+        }
+        throw lastError ?? DriveError.noPlayURL("夸克播放解析失败（已重试\(maxRetries)次）")
+    }
+
     struct QuarkShareFile {
         let fid: String
         let fileName: String
@@ -1681,6 +1703,7 @@ class CloudDriveManager: ObservableObject {
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+        request.setValue("QingmanLslandApp/1.0", forHTTPHeaderField: "X-Client")
     }
 
     private func quarkShareReferer(pwdId: String) -> String {
@@ -1721,15 +1744,16 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func quarkPlaybackHeaders(cookie: String) -> [String: String] {
-        // 对齐iBox原画抓包：使用移动端UA + X-Device-ID，Range请求播放更流畅
+        // 对齐iBox 2.4.6：使用桌面端 Electron UA + iboxHeader 自定义头
         [
             "Cookie": cookie,
-            "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
             "Referer": "https://pan.quark.cn/",
             "Origin": "https://pan.quark.cn",
             "Accept": "*/*",
             "Accept-Encoding": "identity",
-            "X-Device-Id": quarkDeviceID
+            "X-Device-Id": quarkDeviceID,
+            "X-Client": "QingmanLslandApp/1.0"
         ]
     }
 
@@ -6270,7 +6294,7 @@ class CloudDriveManager: ObservableObject {
                 case .ali:
                     result = try await resolveAliPlayURL(shareURL: shareURL, refreshToken: token.value)
                 case .quark:
-                    result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: token.value)
+                    result = try await resolveQuarkPlayURLWithRetry(shareURL: shareURL, cookie: token.value)
                 case .baidu:
                     result = try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
                 case .one15:
