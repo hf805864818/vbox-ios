@@ -1549,6 +1549,7 @@ class CloudDriveManager: ObservableObject {
         let isPlaceholderFileId = fileId == "0" || fileIds.allSatisfy({ $0 == "0" })
         if isPlaceholderFileId {
             self.log("[Quark] ⚠️ 转存返回占位 fileId=0，疑似资源已被和谐或转码失败")
+            throw DriveError.noPlayURL("该资源在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
         }
 
         // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
@@ -2140,7 +2141,7 @@ class CloudDriveManager: ObservableObject {
             return (memberQuota.used, memberQuota.total, currentCookie)
         }
 
-        // member 失败再尝试标准 quota 端点
+        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体）
         let endpoints = [
             ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str="),
             ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc"),
@@ -2149,9 +2150,13 @@ class CloudDriveManager: ObservableObject {
         for (host, path, query) in endpoints {
             guard let url = URL(string: "\(host)\(path)?\(query)") else { continue }
             var request = URLRequest(url: url)
-            request.httpMethod = "GET"
+            request.httpMethod = "POST"
             request.timeoutInterval = 15
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             quarkSetCommonHeaders(&request, cookie: cookie)
+            // iBox 抓包显示 quota/info 需要 dlt_keys 字段，否则返回 405/参数错误
+            let body: [String: Any] = ["dlt_keys": ["uc_nor_dlt"]]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
             guard let (data, response) = try? await session.data(for: request) else {
                 self.log("[Quark] ⚠️ quota端点 \(host) 请求失败")

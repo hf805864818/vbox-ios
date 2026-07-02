@@ -3637,7 +3637,7 @@ struct PlayerContainerView: View {
 
                         EnginePickerPanelV2(playerState: playerState, isPortrait: false)
                             .environmentObject(settings)
-                            .frame(width: 100, height: 160)
+                            .frame(width: 100, height: 260)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
@@ -5129,46 +5129,48 @@ struct EnginePickerPanelV2: View {
     private var selectedColor: Color { Color(hex: "00BEFF") }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(PlayerState.PlaybackEnginePreference.allCases) { engine in
-                Button(action: {
-                    playerState.selectPlaybackEngine(engine)
-                }) {
-                    HStack {
-                        Text(engine.rawValue)
-                            .font(.system(size: isPortrait ? 16 : 13, weight: playerState.enginePreference == engine ? .semibold : .regular))
-                            .foregroundColor(playerState.enginePreference == engine ? selectedColor : textPrimary)
-                        Spacer()
-                        // PiP 支持状态标注（仅竖屏显示，横屏弹窗宽度有限不展示）
-                        if isPortrait {
-                            if engine == .vlc {
-                                Text("无画中画")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
-                            } else if engine == .mpv || engine == .ali {
-                                Text("画中画")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(PlayerState.PlaybackEnginePreference.allCases) { engine in
+                    Button(action: {
+                        playerState.selectPlaybackEngine(engine)
+                    }) {
+                        HStack {
+                            Text(engine.rawValue)
+                                .font(.system(size: isPortrait ? 16 : 13, weight: playerState.enginePreference == engine ? .semibold : .regular))
+                                .foregroundColor(playerState.enginePreference == engine ? selectedColor : textPrimary)
+                            Spacer()
+                            // PiP 支持状态标注（仅竖屏显示，横屏弹窗宽度有限不展示）
+                            if isPortrait {
+                                if engine == .vlc {
+                                    Text("无画中画")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.4))
+                                } else if engine == .mpv || engine == .ali {
+                                    Text("画中画")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
+                                }
+                            }
+                            if playerState.enginePreference == engine {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: isPortrait ? 14 : 11, weight: .semibold))
+                                    .foregroundColor(selectedColor)
                             }
                         }
-                        if playerState.enginePreference == engine {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: isPortrait ? 14 : 11, weight: .semibold))
-                                .foregroundColor(selectedColor)
-                        }
-                    }
-                    .background(
-                        playerState.enginePreference == engine ? selectedColor.opacity(0.15) : Color.clear
-                    )
-                    .padding(.horizontal, isPortrait ? 16 : 12)
-                    .padding(.vertical, isPortrait ? 14 : 10)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                if engine != PlayerState.PlaybackEnginePreference.allCases.last {
-                    Divider()
-                        .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                        .background(
+                            playerState.enginePreference == engine ? selectedColor.opacity(0.15) : Color.clear
+                        )
                         .padding(.horizontal, isPortrait ? 16 : 12)
+                        .padding(.vertical, isPortrait ? 14 : 10)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    if engine != PlayerState.PlaybackEnginePreference.allCases.last {
+                        Divider()
+                            .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                            .padding(.horizontal, isPortrait ? 16 : 12)
+                    }
                 }
             }
         }
