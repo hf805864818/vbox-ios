@@ -1632,12 +1632,12 @@ class CloudDriveManager: ObservableObject {
             self.log("[Quark] 转存完成 topLevelFids=\(topLevelFids), fileName=\(sourceFile.fileName)")
             // 先按顶层 fid 缓存，后续确定实际播放文件 fid 后再更新 playbackFileId
             quarkStoreSavedItem(topLevelFids: topLevelFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+            // 转存成功即安排 1 小时后清理，不管后续播放是否成功
+            scheduleCleanup(drive: .quark, fileIds: topLevelFids, token: authCookie, delay: 60 * 60)
+            self.log("[Quark] 🧹 已安排转存文件 1 小时后清理")
         }
 
         guard var playbackFileId = topLevelFids.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
-
-        // 用于延迟清理的顶层对象 fid（可能是文件或文件夹）
-        var cleanupTopFids = topLevelFids
 
         // 红色封面/被和谐资源的早期判断：转存返回 fileIds=["0"] 时，文件实际未真正保存到网盘
         let isPlaceholderFileId = playbackFileId == "0" || topLevelFids.allSatisfy({ $0 == "0" })
@@ -1696,8 +1696,10 @@ class CloudDriveManager: ObservableObject {
                     self.log("[Quark] 重新转存完成 topLevelFids=\(newTopFids), fileName=\(sourceFile.fileName)")
                     // 先缓存顶层对象，确定 playbackFileId 后再更新
                     quarkStoreSavedItem(topLevelFids: newTopFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
-                    // 更新清理用的顶层对象 fid，并标记为不再来自缓存，触发任务轮询
-                    cleanupTopFids = newTopFids
+                    // 重新转存也安排清理
+                    scheduleCleanup(drive: .quark, fileIds: newTopFids, token: authCookie, delay: 60 * 60)
+                    self.log("[Quark] 🧹 已安排重新转存文件 1 小时后清理")
+                    // 标记为不再来自缓存，触发任务轮询
                     isFileIdsFromCache = false
                     if let taskId = quarkLastSaveTaskId {
                         try await quarkPollTask(taskId: taskId, cookie: authCookie)
@@ -1770,8 +1772,6 @@ class CloudDriveManager: ObservableObject {
         } else {
             self.log("[Quark] ⚠️ 兜底线路暂不可用")
         }
-
-        scheduleCleanup(drive: .quark, fileIds: cleanupTopFids, token: authCookie, delay: 60 * 60)
 
         let playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
 
