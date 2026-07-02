@@ -65,8 +65,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         player.setPictureInPictureEnable(true)
         player.setPictureinPictureDelegate(context.coordinator)
 
-        let source = createAVPUrlSource()
-        source.playerUrl = url
+        let source = AVPUrlSourceProxy(urlString: url)
         player.setUrlSource(source)
 
         player.setAutoPlay(false)
@@ -376,13 +375,33 @@ class AVPConfigProxy {
 
 class AVPUrlSourceProxy {
     let obj: NSObject
-    init() {
+    init(urlString: String? = nil) {
         let cls = NSClassFromString("AVPUrlSource") as! NSObject.Type
-        obj = cls.init()
+        // 优先使用 SDK 提供的工厂方法，避免直接 init 后属性类型不匹配导致 AliPlayer 内部崩溃
+        if let urlString = urlString,
+           cls.responds(to: NSSelectorFromString("urlWithString:")),
+           let result = cls.perform(NSSelectorFromString("urlWithString:"), with: urlString)?.takeUnretainedValue() as? NSObject {
+            obj = result
+        } else {
+            obj = cls.init()
+        }
     }
     var playerUrl: String? {
-        get { obj.value(forKey: "playerUrl") as? String }
-        set { obj.setValue(newValue, forKey: "playerUrl") }
+        get {
+            // 部分 SDK 版本内部把 playerUrl 当作 NSURL 使用
+            if let url = obj.value(forKey: "playerUrl") as? URL {
+                return url.absoluteString
+            }
+            return obj.value(forKey: "playerUrl") as? String
+        }
+        set {
+            // 崩溃日志显示 AliPlayer 内部可能对 playerUrl 调用 absoluteString，因此优先存为 URL
+            if let newValue {
+                obj.setValue(URL(string: newValue), forKey: "playerUrl")
+            } else {
+                obj.setValue(nil, forKey: "playerUrl")
+            }
+        }
     }
 }
 
@@ -392,9 +411,6 @@ private func createAliPlayer() -> AliPlayerProxy? {
 }
 private func createAVPConfig() -> AVPConfigProxy {
     return AVPConfigProxy()
-}
-private func createAVPUrlSource() -> AVPUrlSourceProxy {
-    return AVPUrlSourceProxy()
 }
 
 private func log(_ msg: String) {
