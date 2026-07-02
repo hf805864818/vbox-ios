@@ -2180,8 +2180,8 @@ class CloudDriveManager: ObservableObject {
                 return 0
             }
 
-            let used = parseInt64(capObj?["used"] ?? capObj?["size_used"] ?? dataObj?["used"])
-            var total = parseInt64(capObj?["total"] ?? capObj?["size_total"] ?? dataObj?["total"])
+            let used = parseInt64(capObj["used"] ?? capObj["size_used"] ?? dataObj?["used"])
+            var total = parseInt64(capObj["total"] ?? capObj["size_total"] ?? dataObj?["total"])
             // 只有剩余量时，用 account.total_capacity 兜底
             if total <= 0, let account = dataObj?["account"] as? [String: Any] {
                 total = parseInt64(account["total_capacity"] ?? account["capacity_total"] ?? account["total"])
