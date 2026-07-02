@@ -2297,6 +2297,12 @@ class CloudDriveManager: ObservableObject {
             currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
 
             let rawBody = String(data: data, encoding: .utf8) ?? "<非UTF8>"
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            self.log("[Quark] 📊 quota端点 \(host) HTTP \(statusCode), 原始响应: \(rawBody.prefix(600))")
+            guard statusCode == 200 || statusCode == 201 else {
+                self.log("[Quark] ⚠️ quota端点 \(host) 非 200 响应，跳过")
+                continue
+            }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 self.log("[Quark] ⚠️ quota端点 \(host) 响应不是JSON: \(rawBody.prefix(500))")
                 continue
@@ -2444,11 +2450,20 @@ class CloudDriveManager: ObservableObject {
                 request.timeoutInterval = 15
                 quarkSetCommonHeaders(&request, cookie: currentCookie)
 
-                guard let (data, response) = try? await session.data(for: request) else { break }
+                guard let (data, response) = try? await session.data(for: request) else {
+                    self.log("[Quark] ⚠️ file/sort 请求失败 folderId=\(folderId), page=\(page)")
+                    break
+                }
                 currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let dataObj = json["data"] as? [String: Any],
-                      let list = dataObj["list"] as? [[String: Any]] else { break }
+                      let list = dataObj["list"] as? [[String: Any]] else {
+                    let raw = String(data: data, encoding: .utf8) ?? "<非UTF8>"
+                    self.log("[Quark] ⚠️ file/sort 解析失败 folderId=\(folderId), page=\(page), raw=\(raw.prefix(300))")
+                    break
+                }
+                let total = dataObj["_total"] as? Int ?? dataObj["total"] as? Int ?? -1
+                self.log("[Quark] 📂 file/sort folderId=\(folderId), page=\(page), 返回 \(list.count) 项, total=\(total)")
                 if list.isEmpty { break }
 
                 for item in list {
@@ -2575,10 +2590,10 @@ class CloudDriveManager: ObservableObject {
             }
             return []
         }()
-        // 容量检测成功时清理根目录所有视频；失败时为防止文件散落在根目录，仅清理最新的 20 个视频
+        // 容量检测成功或失败都清理根目录视频；失败时更激进，清理最新 100 个避免空间爆掉
         async let rootFids: [String] = quotaAvailable
             ? collectFids(folderId: "0", onlyVideo: true)
-            : collectFids(folderId: "0", onlyVideo: true, limit: 20)
+            : collectFids(folderId: "0", onlyVideo: true, limit: 100)
 
         let shareResult = await shareFids
         let rootResult = await rootFids
