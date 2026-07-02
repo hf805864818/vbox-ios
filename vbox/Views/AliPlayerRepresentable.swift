@@ -218,10 +218,17 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 class AliPlayerProxy: NSObject {
     private let obj: NSObject
 
-    init?() {
-        guard let cls = NSClassFromString("AliPlayer") as? NSObject.Type else { return nil }
+    override init() {
+        guard let cls = NSClassFromString("AliPlayer") as? NSObject.Type else {
+            fatalError("AliPlayer not available")
+        }
         self.obj = cls.init()
         super.init()
+    }
+
+    static func create() -> AliPlayerProxy? {
+        guard NSClassFromString("AliPlayer") != nil else { return nil }
+        return AliPlayerProxy()
     }
 
     func setPlayerView(_ view: UIView) { obj.perform(NSSelectorFromString("setPlayerView:"), with: view) }
@@ -325,7 +332,7 @@ class AVPUrlSourceProxy {
 
 // Helper to create proxy objects
 private func createAliPlayer() -> AliPlayerProxy? {
-    return AliPlayerProxy()
+    return AliPlayerProxy.create()
 }
 private func createAVPConfig() -> AVPConfigProxy {
     return AVPConfigProxy()

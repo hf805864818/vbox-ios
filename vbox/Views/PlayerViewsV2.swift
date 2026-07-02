@@ -3218,6 +3218,10 @@ struct PlayerContainerView: View {
     let video: VodItem
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
+
+    private var isAliPlayerBuildAvailable: Bool {
+        return NSClassFromString("AliPlayer") != nil
+    }
     
     var body: some View {
         ZStack {
