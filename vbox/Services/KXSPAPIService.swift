@@ -467,13 +467,13 @@ final class KXSPAPIService: ObservableObject {
         if let fromId = runtime?.iosFromId?["listFromId"] {
             params["fromId"] = fromId
         }
-        let resp = try await request(path: "/video/api/video/list", params: params)
+        let resp = try await request(path: "/video/api/list", params: params)
         return parseVideoList(resp)
     }
 
     /// 视频详情（含播放地址）
     func fetchVideoDetail(id: String) async throws -> SangeVideoItem? {
-        let resp = try await request(path: "/video/api/video/detail", params: ["id": id])
+        let resp = try await request(path: "/video/api/detail", params: ["id": id])
         guard let data = resp["data"] as? [String: Any] else { return nil }
         return SangeVideoItem(dict: data)
     }
@@ -482,7 +482,7 @@ final class KXSPAPIService: ObservableObject {
     func fetchShortVideoList(page: Int = 1, pageSize: Int = 20) async throws -> [SangeVideoItem] {
         let params: [String: Any] = ["page": page, "pageSize": pageSize]
         // 当前 H5 未发现独立 /shortVideo/api 入口，先复用视频列表
-        let resp = try await request(path: "/video/api/video/list", params: params)
+        let resp = try await request(path: "/video/api/list", params: params)
         return parseVideoList(resp)
     }
 
