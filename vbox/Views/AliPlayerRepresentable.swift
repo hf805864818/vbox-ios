@@ -60,6 +60,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         player.setConfig(config)
 
         player.setPictureInPictureEnable(true)
+        player.setPictureinPictureDelegate(context.coordinator)
 
         let source = createAVPUrlSource()
         source.playerUrl = url
@@ -173,6 +174,41 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             player?.destroy()
             player = nil
         }
+
+        // MARK: - PiP Delegate (runtime selectors, called by AliPlayer internally)
+
+        @objc func pictureInPictureControllerWillStartPictureInPicture(_ controller: Any) {
+            log("[PiP] will start")
+        }
+
+        @objc func pictureInPictureControllerDidStartPictureInPicture(_ controller: Any) {
+            log("[PiP] did start")
+            DispatchQueue.main.async {
+                self.parent.playerState.isPiPActive = true
+                NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+            }
+        }
+
+        @objc func pictureInPictureControllerWillStopPictureInPicture(_ controller: Any) {
+            log("[PiP] will stop")
+        }
+
+        @objc func pictureInPictureControllerDidStopPictureInPicture(_ controller: Any) {
+            log("[PiP] did stop")
+            DispatchQueue.main.async {
+                self.parent.playerState.isPiPActive = false
+                NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
+            }
+        }
+
+        @objc func pictureInPictureController(_ controller: Any, failedToStartPictureInPictureWithError error: Error) {
+            log("[PiP] failed: \(error.localizedDescription)")
+        }
+
+        @objc func pictureInPictureController(_ controller: Any, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+            log("[PiP] restore UI")
+            completionHandler(true)
+        }
     }
 }
 
@@ -191,6 +227,7 @@ class AliPlayerProxy: NSObject {
     func setPlayerView(_ view: UIView) { obj.perform(NSSelectorFromString("setPlayerView:"), with: view) }
     func setConfig(_ config: AVPConfigProxy) { obj.perform(NSSelectorFromString("setConfig:"), with: config.obj) }
     func setPictureInPictureEnable(_ enable: Bool) { obj.perform(NSSelectorFromString("setPictureInPictureEnable:"), with: enable) }
+    func setPictureinPictureDelegate(_ delegate: Any?) { obj.perform(NSSelectorFromString("setPictureinPictureDelegate:"), with: delegate) }
     func setUrlSource(_ source: AVPUrlSourceProxy) { obj.perform(NSSelectorFromString("setUrlSource:"), with: source.obj) }
     func setAutoPlay(_ auto: Bool) { obj.perform(NSSelectorFromString("setAutoPlay:"), with: auto) }
     func setLoop(_ loop: Bool) { obj.perform(NSSelectorFromString("setLoop:"), with: loop) }
