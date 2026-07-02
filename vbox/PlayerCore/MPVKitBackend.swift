@@ -743,6 +743,13 @@ final class MPVKitBackend: MPVBackend {
 
     func load(route: PlaybackRoute) {
         #if canImport(Libmpv)
+        // 先校验播放地址，避免空/无效 URL 导致底层崩溃
+        let urlString = route.url.absoluteString.trimmingCharacters(in: .whitespaces)
+        guard !urlString.isEmpty, urlString != "(null)", route.url.scheme != nil else {
+            emitFailure("MPV播放地址无效：\(urlString.isEmpty ? "空URL" : urlString)")
+            return
+        }
+
         teardown()
         setlocale(LC_NUMERIC, "C")
 
@@ -768,7 +775,7 @@ final class MPVKitBackend: MPVBackend {
         onEvent?(.log("MPV最小内核加载线路：\(route.title)"))
         startEventLoop(handle: newHandle)
 
-        let commandCode = Self.sendLoadfileCommand(handle: newHandle, url: route.url.absoluteString)
+        let commandCode = Self.sendLoadfileCommand(handle: newHandle, url: urlString)
         if commandCode < 0 {
             emitFailure("loadfile命令失败：\(commandCode)")
         }
