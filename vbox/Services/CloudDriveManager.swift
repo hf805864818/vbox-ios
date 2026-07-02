@@ -2247,10 +2247,10 @@ class CloudDriveManager: ObservableObject {
             return (memberQuota.used, memberQuota.total, currentCookie)
         }
 
-        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体）
+        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体，含 ut 参数）
         let endpoints = [
-            ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str="),
-            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc"),
+            ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str=&ut="),
+            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc&ut="),
         ]
 
         for (host, path, query) in endpoints {
@@ -2355,7 +2355,13 @@ class CloudDriveManager: ObservableObject {
                 if total > 0 {
                     self.log("[Quark] ✅ member 获取容量成功: used=\(used), total=\(total)")
                     return (used, total)
+                } else {
+                    let raw = String(data: data, encoding: .utf8) ?? "<非UTF8>"
+                    self.log("[Quark] ⚠️ member 接口未返回有效容量，原始响应: \(raw.prefix(800))")
                 }
+            } else {
+                let raw = String(data: data, encoding: .utf8) ?? "<非UTF8>"
+                self.log("[Quark] ⚠️ member 接口响应异常，原始响应: \(raw.prefix(800))")
             }
         } catch {
             self.log("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
@@ -2394,10 +2400,11 @@ class CloudDriveManager: ObservableObject {
         }
 
         // 辅助：用 GET 列出目录下所有文件/文件夹
-        func collectFids(folderId: String, onlyVideo: Bool = false) async -> [String] {
+        func collectFids(folderId: String, onlyVideo: Bool = false, limit: Int? = nil) async -> [String] {
             var fids: [String] = []
             let pageSize = 200
-            for page in 1...10 {
+            let maxPages = limit != nil ? min(10, (limit! + pageSize - 1) / pageSize) : 10
+            for page in 1...maxPages {
                 let extra = [
                     URLQueryItem(name: "pdir_fid", value: folderId),
                     URLQueryItem(name: "_sort", value: "file_type:asc,updated_at:desc"),
@@ -2439,8 +2446,13 @@ class CloudDriveManager: ObservableObject {
                             break
                         }
                     }
+
+                    if let limit = limit, fids.count >= limit {
+                        break
+                    }
                 }
                 if list.count < pageSize { break }
+                if let limit = limit, fids.count >= limit { break }
             }
             return fids
         }
@@ -2520,7 +2532,10 @@ class CloudDriveManager: ObservableObject {
             }
             return []
         }()
-        async let rootFids: [String] = quotaAvailable ? collectFids(folderId: "0", onlyVideo: true) : []
+        // 容量检测成功时清理根目录所有视频；失败时为防止文件散落在根目录，仅清理最新的 20 个视频
+        async let rootFids: [String] = quotaAvailable
+            ? collectFids(folderId: "0", onlyVideo: true)
+            : collectFids(folderId: "0", onlyVideo: true, limit: 20)
 
         let shareResult = await shareFids
         let rootResult = await rootFids
@@ -2528,7 +2543,7 @@ class CloudDriveManager: ObservableObject {
         if quotaAvailable {
             self.log("[Quark] 📋 扫描结果：来自分享 \(shareResult.count) 个文件，根目录 \(rootResult.count) 个视频文件")
         } else {
-            self.log("[Quark] 📋 容量未知，保守清理：仅扫描来自分享 \(shareResult.count) 个文件，跳过根目录")
+            self.log("[Quark] 📋 容量未知，保守清理：来自分享 \(shareResult.count) 个文件，根目录最新 \(rootResult.count) 个视频文件")
         }
 
         // 合并去重后批量删除
