@@ -93,9 +93,12 @@ class CloudDriveManager: ObservableObject {
         let eligibleAt: Date
         let createdAt: Date
     }
-    /// 夸克转存后的文件 fid 缓存，用于避免同一资源重复转存
+    /// 夸克转存后的对象 fid 缓存，用于避免同一资源重复转存
+    /// - topLevelFids: sharepage/save 返回的 save_as_top_fids，可能是文件或文件夹
+    /// - playbackFileId: 实际用于 v2/play / download_url 的视频文件 fid
     private struct QuarkSavedFidCacheItem: Codable {
-        let fileIds: [String]
+        let topLevelFids: [String]
+        let playbackFileId: String?
         let fileName: String
         let folderId: String
         let cookieHash: String
@@ -910,7 +913,7 @@ class CloudDriveManager: ObservableObject {
         }
     }
 
-    private func quarkCachedSavedFileIds(pwdId: String, sourceFid: String, folderId: String, cookie: String) -> [String]? {
+    private func quarkCachedSavedTopFids(pwdId: String, sourceFid: String, folderId: String, cookie: String) -> [String]? {
         let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
         var cache = loadQuarkSavedFidCache()
         guard let item = cache[key], item.expiresAt > Date() else {
@@ -920,16 +923,17 @@ class CloudDriveManager: ObservableObject {
             }
             return nil
         }
-        self.log("[Quark] ✅ 命中转存 fid 缓存: \(item.fileIds)，跳过本次转存")
-        return item.fileIds
+        self.log("[Quark] ✅ 命中转存 fid 缓存: \(item.topLevelFids)，跳过本次转存")
+        return item.topLevelFids
     }
 
-    private func quarkStoreSavedFileIds(_ fileIds: [String], fileName: String, folderId: String, cookie: String, pwdId: String, sourceFid: String, ttl: TimeInterval = 30 * 60) {
-        guard !fileIds.isEmpty, !fileIds.allSatisfy({ $0 == "0" }) else { return }
+    private func quarkStoreSavedItem(topLevelFids: [String], playbackFileId: String?, fileName: String, folderId: String, cookie: String, pwdId: String, sourceFid: String, ttl: TimeInterval = 30 * 60) {
+        guard !topLevelFids.isEmpty, !topLevelFids.allSatisfy({ $0 == "0" }) else { return }
         let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
         var cache = loadQuarkSavedFidCache()
         cache[key] = QuarkSavedFidCacheItem(
-            fileIds: fileIds,
+            topLevelFids: topLevelFids,
+            playbackFileId: playbackFileId,
             fileName: fileName,
             folderId: folderId,
             cookieHash: String(cookie.hash),
@@ -937,7 +941,7 @@ class CloudDriveManager: ObservableObject {
             expiresAt: Date().addingTimeInterval(ttl)
         )
         saveQuarkSavedFidCache(cache)
-        self.log("[Quark] 💾 已缓存转存 fid: \(fileIds)，有效期 \(Int(ttl/60)) 分钟")
+        self.log("[Quark] 💾 已缓存转存对象: topLevelFids=\(topLevelFids), playbackFileId=\(playbackFileId ?? "nil")，有效期 \(Int(ttl/60)) 分钟")
     }
 
     private func quarkInvalidateSavedFidCache(pwdId: String, sourceFid: String, folderId: String, cookie: String) {
@@ -1611,31 +1615,32 @@ class CloudDriveManager: ObservableObject {
         self.log("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
 
         // 先尝试命中转存 fid 缓存，避免同一资源重复转存
-        var fileIds: [String]
+        var topLevelFids: [String]
         var isFileIdsFromCache = false
-        if let cachedFileIds = quarkCachedSavedFileIds(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie), !cachedFileIds.isEmpty {
-            fileIds = cachedFileIds
+        if let cachedTopFids = quarkCachedSavedTopFids(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie), !cachedTopFids.isEmpty {
+            topLevelFids = cachedTopFids
             isFileIdsFromCache = true
-            self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)（来自缓存）")
+            self.log("[Quark] 转存完成 topLevelFids=\(topLevelFids), fileName=\(sourceFile.fileName)（来自缓存）")
         } else {
-            fileIds = try await quarkSaveShare(
+            topLevelFids = try await quarkSaveShare(
                 pwdId: pwdId,
                 stoken: shareToken,
                 file: sourceFile,
                 folderId: "0",
                 cookie: authCookie
             )
-            self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
-            quarkStoreSavedFileIds(fileIds, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+            self.log("[Quark] 转存完成 topLevelFids=\(topLevelFids), fileName=\(sourceFile.fileName)")
+            // 先按顶层 fid 缓存，后续确定实际播放文件 fid 后再更新 playbackFileId
+            quarkStoreSavedItem(topLevelFids: topLevelFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
         }
 
-        guard var fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
+        guard var playbackFileId = topLevelFids.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
-        // 用于延迟清理的 fileIds，缓存命中或重新转存后都需要更新
-        var cleanupFileIds = fileIds
+        // 用于延迟清理的顶层对象 fid（可能是文件或文件夹）
+        var cleanupTopFids = topLevelFids
 
         // 红色封面/被和谐资源的早期判断：转存返回 fileIds=["0"] 时，文件实际未真正保存到网盘
-        let isPlaceholderFileId = fileId == "0" || fileIds.allSatisfy({ $0 == "0" })
+        let isPlaceholderFileId = playbackFileId == "0" || topLevelFids.allSatisfy({ $0 == "0" })
         if isPlaceholderFileId {
             self.log("[Quark] ⚠️ 转存返回占位 fileId=0，疑似资源已被和谐或转码失败")
             throw DriveError.noPlayURL("该资源在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
@@ -1645,6 +1650,13 @@ class CloudDriveManager: ObservableObject {
         if !isFileIdsFromCache, let taskId = quarkLastSaveTaskId {
             try await quarkPollTask(taskId: taskId, cookie: authCookie)
         }
+
+        // 辅助：缓存命中后若后续确定了新的 playbackFileId，更新缓存
+        func updateCachedPlaybackFileId(_ newPlaybackFileId: String) {
+            guard !isFileIdsFromCache else { return }
+            quarkStoreSavedItem(topLevelFids: topLevelFids, playbackFileId: newPlaybackFileId, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+        }
+
         // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
         if let memberType = await quarkGetMemberInfo(cookie: authCookie) {
             self.log("[Quark] 当前会员: \(memberType)，SVIP可使用原画download_url")
@@ -1652,9 +1664,9 @@ class CloudDriveManager: ObservableObject {
         // 抓包里的实际播放主链路是：先调 v2/play 刷新 Video-Auth，再用 file/download 的 download_url 走 Range 播放。
         // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
         var transcodeURL = ""
-        var effectiveFileId = fileId
+        var effectiveFileId = playbackFileId
         do {
-            let playInfo = try await quarkRefreshVideoAuth(fileId: fileId, cookie: authCookie)
+            let playInfo = try await quarkRefreshVideoAuth(fileId: playbackFileId, cookie: authCookie)
             authCookie = playInfo.cookie
             transcodeURL = playInfo.playURL
             self.log("[Quark] v2/play 完成 hasVideoAuth=\(authCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
@@ -1664,40 +1676,43 @@ class CloudDriveManager: ObservableObject {
 
         var download: (url: String, fileName: String) = ("", "")
         do {
-            download = try await quarkGetDownloadURL(fileId: fileId, cookie: authCookie)
+            download = try await quarkGetDownloadURL(fileId: playbackFileId, cookie: authCookie)
         } catch {
             let errMsg = error.localizedDescription
-            self.log("[Quark] ⚠️ download_url 首次尝试失败(fid=\(fileId)): \(errMsg)")
+            self.log("[Quark] ⚠️ download_url 首次尝试失败(fid=\(playbackFileId)): \(errMsg)")
             // 文件ID可能不对（save_as_top_fids可能是文件夹ID），尝试通过文件名查找或重新转存
             if errMsg.contains("file not found") || errMsg.contains("not found") {
                 if isFileIdsFromCache {
                     // 缓存的 fileId 已失效（可能被清理或过期），清除缓存并重新转存
                     self.log("[Quark] ⚠️ 缓存的 fileId 已失效，清除缓存并重新转存")
                     quarkInvalidateSavedFidCache(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie)
-                    let newFileIds = try await quarkSaveShare(
+                    let newTopFids = try await quarkSaveShare(
                         pwdId: pwdId,
                         stoken: shareToken,
                         file: sourceFile,
                         folderId: "0",
                         cookie: authCookie
                     )
-                    self.log("[Quark] 重新转存完成 fileIds=\(newFileIds), fileName=\(sourceFile.fileName)")
-                    quarkStoreSavedFileIds(newFileIds, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
-                    // 更新清理用的 fileIds，并标记为不再来自缓存，触发任务轮询
-                    cleanupFileIds = newFileIds
+                    self.log("[Quark] 重新转存完成 topLevelFids=\(newTopFids), fileName=\(sourceFile.fileName)")
+                    // 先缓存顶层对象，确定 playbackFileId 后再更新
+                    quarkStoreSavedItem(topLevelFids: newTopFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+                    // 更新清理用的顶层对象 fid，并标记为不再来自缓存，触发任务轮询
+                    cleanupTopFids = newTopFids
                     isFileIdsFromCache = false
                     if let taskId = quarkLastSaveTaskId {
                         try await quarkPollTask(taskId: taskId, cookie: authCookie)
                     }
-                    if let newFileId = newFileIds.first, newFileId != "0" {
-                        fileId = newFileId
+                    if let newFileId = newTopFids.first, newFileId != "0" {
+                        playbackFileId = newFileId
                         effectiveFileId = newFileId
                         download = (try? await quarkGetDownloadURL(fileId: newFileId, cookie: authCookie)) ?? ("", "")
                     }
                 } else {
                     if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
                         self.log("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
+                        playbackFileId = foundId
                         effectiveFileId = foundId
+                        updateCachedPlaybackFileId(foundId)
                         download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
                     }
                     // 如果根目录没找到，尝试在"来自：分享"目录查找
@@ -1706,7 +1721,9 @@ class CloudDriveManager: ObservableObject {
                         if let shareFid = shareFolder {
                             if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
                                 self.log("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
+                                playbackFileId = foundId
                                 effectiveFileId = foundId
+                                updateCachedPlaybackFileId(foundId)
                                 download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
                             }
                         }
@@ -1754,7 +1771,7 @@ class CloudDriveManager: ObservableObject {
             self.log("[Quark] ⚠️ 兜底线路暂不可用")
         }
 
-        scheduleCleanup(drive: .quark, fileIds: cleanupFileIds, token: authCookie, delay: 60 * 60)
+        scheduleCleanup(drive: .quark, fileIds: cleanupTopFids, token: authCookie, delay: 60 * 60)
 
         let playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
 
@@ -2410,7 +2427,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         // 辅助：用 GET 列出目录下所有文件/文件夹
-        func collectFids(folderId: String, onlyVideo: Bool = false, limit: Int? = nil) async -> [String] {
+        func collectFids(folderId: String, onlyVideo: Bool = false, limit: Int? = nil, includeFolders: Bool = false) async -> [String] {
             var fids: [String] = []
             let pageSize = 200
             let maxPages = limit != nil ? min(10, (limit! + pageSize - 1) / pageSize) : 10
@@ -2436,12 +2453,13 @@ class CloudDriveManager: ObservableObject {
                 if list.isEmpty { break }
 
                 for item in list {
-                    // 跳过文件夹
                     let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
-                    if isDir { continue }
 
-                    // 如仅需视频，过滤后缀
-                    if onlyVideo {
+                    // 默认跳过文件夹；明确 includeFolders 时收集文件夹 fid
+                    if isDir && !includeFolders { continue }
+
+                    // 如仅需视频，过滤后缀（文件夹不应用视频后缀过滤）
+                    if onlyVideo && !isDir {
                         let name = (item["file_name"] as? String ?? item["name"] as? String ?? "").lowercased()
                         let videoExts = [".mp4", ".mkv", ".avi", ".ts", ".mov", ".flv", ".wmv", ".m4v", ".3gp"]
                         guard videoExts.contains(where: { name.hasSuffix($0) }) else { continue }
@@ -2499,13 +2517,16 @@ class CloudDriveManager: ObservableObject {
             return deletedCount
         }
 
-        // 辅助：收集所有缓存中未过期的 fileId，避免播放前清理误删正在使用的转存文件
+        // 辅助：收集所有缓存中未过期的对象 fid，避免播放前清理误删正在使用的转存文件
         func protectedCachedFileIds() -> Set<String> {
             let cache = loadQuarkSavedFidCache()
             let now = Date()
             var fids = Set<String>()
             for item in cache.values where item.expiresAt > now {
-                item.fileIds.forEach { fids.insert($0) }
+                item.topLevelFids.forEach { fids.insert($0) }
+                if let playbackFileId = item.playbackFileId {
+                    fids.insert(playbackFileId)
+                }
             }
             return fids
         }
@@ -2549,7 +2570,8 @@ class CloudDriveManager: ObservableObject {
             for nameVariant in ["来自：分享", "来自:分享", "来自分享的文件", "来自分享"] {
                 if let fid = await findFolderId(name: nameVariant) {
                     self.log("[Quark] 🔍 找到清理目标目录「\(nameVariant)」fid=\(fid)")
-                    return await collectFids(folderId: fid)
+                    // 分享目录内同时清理子文件夹和文件，避免文件夹形式转存残留
+                    return await collectFids(folderId: fid, includeFolders: true)
                 }
             }
             return []
