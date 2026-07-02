@@ -79,37 +79,44 @@ class YBoxService2: ObservableObject {
     init() { buildCategories() }
 
     private func buildCategories() {
+        // 从 WelfareCrawlerConfig 获取各平台有效域名（支持用户自定义覆盖）
+        let bananaURL = baseURL(for: "banana", defaultURL: "https://zfvwi8.ipajx0.cc")
+        let liveURL = baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
+        let comic18URL = baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
+        let kmURL = baseURL(for: "km", defaultURL: "https://1080.hlkjsm.com")
+        let byfmURL = baseURL(for: "byfm", defaultURL: "https://api.byfm2.app")
+
         // ═══ YBox 原始平台（保留自有API，不通过爬虫） ═══
         let yboxVideo: [YBoxPlatform2] = [
             YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
-                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "短视频/长视频"),
+                         baseURL: bananaURL, desc: "短视频/长视频"),
             YBoxPlatform2(name: "幻想次元", icon: "sparkles", type: .video,
-                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "二次元角色扮演"),
+                         baseURL: bananaURL, desc: "二次元角色扮演"),
             YBoxPlatform2(name: "午夜寻欢", icon: "moon.stars.fill", type: .video,
-                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "夜间精彩"),
+                         baseURL: bananaURL, desc: "夜间精彩"),
             YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
-                         baseURL: "https://zfvwi8.ipajx0.cc", desc: "专题视频"),
+                         baseURL: bananaURL, desc: "专题视频"),
             YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
-                         baseURL: "https://1080.hlkjsm.com", desc: "综合视频站",
+                         baseURL: kmURL, desc: "综合视频站",
                          crawlerPlatformId: "km"),
             YBoxPlatform2(name: "BYFM有声", icon: "headphones", type: .audio,
-                         baseURL: "https://api.byfm2.app", desc: "有声小说50类"),
+                         baseURL: byfmURL, desc: "有声小说50类"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
             YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "CCTV/卫视/广播"),
+                         baseURL: liveURL, desc: "CCTV/卫视/广播"),
             YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "娱乐直播"),
+                         baseURL: liveURL, desc: "娱乐直播"),
             YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "才艺互动"),
+                         baseURL: liveURL, desc: "才艺互动"),
             YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "社区直播"),
+                         baseURL: liveURL, desc: "社区直播"),
         ]
 
         let yboxComic: [YBoxPlatform2] = [
             YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic,
-                         baseURL: "https://www.18akmanhua.com", desc: "日漫/韩漫/同人"),
+                         baseURL: comic18URL, desc: "日漫/韩漫/同人"),
             YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic,
                          baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
         ]
@@ -134,7 +141,7 @@ class YBoxService2: ObservableObject {
                 name: cfg.platformName,
                 icon: icon,
                 type: platformTypeForContentType(cfg.contentType),
-                baseURL: cfg.baseURL,
+                baseURL: cfg.effectiveBaseURL,
                 desc: desc,
                 crawlerPlatformId: cfg.platformId
             )
@@ -229,19 +236,36 @@ class YBoxService2: ObservableObject {
         return descs[id] ?? "资源平台"
     }
 
+    // MARK: - 自定义域名支持
+    /// 获取平台的有效 baseURL（优先用户自定义，其次默认）
+    private func baseURL(for platformId: String, defaultURL: String) -> String {
+        WelfareCrawlerConfig.config(for: platformId)?.effectiveBaseURL ?? defaultURL
+    }
+
+    // 常用平台域名快捷访问
+    private var bananaBaseURL: String {
+        baseURL(for: "banana", defaultURL: "https://zfvwi8.ipajx0.cc")
+    }
+    private var liveBaseURL: String {
+        baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
+    }
+    private var comic18BaseURL: String {
+        baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
+    }
+
     // MARK: - 香蕉秀
     func fetchBananaSpecials() async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "https://zfvwi8.ipajx0.cc/special/listing-0-0-1") else { return [] }
+        guard let url = URL(string: "\(bananaBaseURL)/special/listing-0-0-1") else { return [] }
         return await fetchBananaData(url: url, isSpecial: true)
     }
 
     func fetchBananaMiniVods(page: Int = 1) async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "https://zfvwi8.ipajx0.cc/minivod/reqlist?page=\(page)") else { return [] }
+        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)") else { return [] }
         return await fetchBananaData(url: url, isSpecial: false)
     }
 
     func fetchBananaPlayURL(playPath: String) async -> String? {
-        guard let url = URL(string: "https://zfvwi8.ipajx0.cc" + playPath) else { return nil }
+        guard let url = URL(string: bananaBaseURL + playPath) else { return nil }
         do {
             let (data, _) = try await session.data(from: url)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -295,7 +319,7 @@ class YBoxService2: ObservableObject {
     func loadLiveSources() async {
         guard !isLiveLoaded else { return }
         do {
-            guard let url = URL(string: "http://api.hclyz.com:81/mf/json.txt") else { return }
+            guard let url = URL(string: "\(liveBaseURL)/json.txt") else { return }
             let (data, _) = try await session.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let pt = json["pingtai"] as? [[String: Any]] else { return }
@@ -315,7 +339,7 @@ class YBoxService2: ObservableObject {
     }
 
     func fetchLiveChannels(address: String) async -> [YBoxLiveChannel2] {
-        guard let url = URL(string: "http://api.hclyz.com:81/mf/" + address) else { return [] }
+        guard let url = URL(string: "\(liveBaseURL)/" + address) else { return [] }
         do {
             let (data, _) = try await session.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
@@ -336,7 +360,7 @@ class YBoxService2: ObservableObject {
 
     // MARK: - 18禁漫画
     func fetch18Comics() async -> [YBoxComicItem2] {
-        guard let url = URL(string: "https://www.18akmanhua.com") else { return [] }
+        guard let url = URL(string: comic18BaseURL) else { return [] }
         do {
             let (data, _) = try await session.data(from: url)
             guard let html = String(data: data, encoding: .utf8) else { return [] }
