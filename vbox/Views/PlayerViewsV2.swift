@@ -4161,7 +4161,7 @@ struct PlayerControlsView: View {
             let isAliPlayer = playerState.compatibilityEngineName.contains("AliPlayer") || playerState.enginePreference == .ali
             if isAliPlayer {
                 let started = AliPlayerRepresentable.enterPictureInPicture()
-                log("[PlayerV2] AliPlayer 原生画中画尝试结果: \(started ? "成功" : "失败，将回退到截图浮窗")")
+                playerState.log("[PlayerV2] AliPlayer 原生画中画尝试结果: \(started ? "成功" : "失败，将回退到截图浮窗")")
                 if !started {
                     if let playerView = findCurrentPlayerView() {
                         PiPHelper.shared.showFloatingWindow(sourceView: playerView)
