@@ -867,10 +867,12 @@ class PlayerState: ObservableObject {
         guard isAliPlayerBuildAvailable else { return false }
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
-        // 夸克直链优先 AliPlayer
-        if text.contains("quark-stream") { return true }
-        if text.contains("quark-m3u8") { return true }
-        if text.contains("baidu-stream") { return true }
+        // 云盘本地代理 URL（127.0.0.1:18080）对 AliPlayer 兼容性差，自动模式下不优先。
+        // AliPlayer 保留用于普通网络视频或阿里直链场景。
+        if text.contains("quark-stream") { return false }
+        if text.contains("quark-m3u8") { return false }
+        if text.contains("baidu-stream") { return false }
+        if text.contains("127.0.0.1") { return false }
         return false
     }
 
@@ -2102,19 +2104,18 @@ class PlayerState: ObservableObject {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
 
-        // 夸克直链和m3u8：优先 AliPlayer，其次 IJKPlayer，再次 MPV/MDK/VLC
+        // 夸克直链和m3u8：优先 IJKPlayer，其次 MPV/MDK/VLC。
+        // AliPlayer 对本地代理 URL（127.0.0.1:18080/quark-stream）兼容性差，自动模式下不优先选择，
+        // 仍保留在手动选择中用于普通网络视频。
         if (isQuarkLocalProxy || isQuarkM3U8LocalProxy) && enginePreference == .auto {
             let proxyType = isQuarkLocalProxy ? "quark-stream" : "quark-m3u8"
             await MainActor.run {
                 playbackEngineMode = .compatibility
                 compatibilityHint = isQuarkLocalProxy ? "夸克网盘直链" : "夸克网盘转码"
             }
-            if isAliPlayerBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AliPlayer", reason: "\(proxyType) 优先 AliPlayer（原生PiP）")
-                log("[Quark] 自动模式下\(proxyType)优先使用 AliPlayer")
-            } else if isIJKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "\(proxyType) 优先 IJKPlayer（AliPlayer 不可用）")
-                log("[Quark] AliPlayer 不可用，\(proxyType)降级使用 IJKPlayer")
+            if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "\(proxyType) 优先 IJKPlayer")
+                log("[Quark] 自动模式下\(proxyType)优先使用 IJKPlayer")
             } else if isMPVBuildAvailable {
                 logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "\(proxyType)（IJKPlayer 不可用）")
                 log("[Quark] IJKPlayer 不可用，\(proxyType)降级使用 MPV-MoltenVK")
