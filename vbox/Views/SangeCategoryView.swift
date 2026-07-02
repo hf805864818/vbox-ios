@@ -226,7 +226,7 @@ struct SangeCategoryView: View {
                     ForEach(0..<5, id: \.self) { _ in
                         RoundedRectangle(cornerRadius: 10)
                             .fill(Color.gray.opacity(0.15))
-                            .frame(width: 140, height: 200)
+                            .frame(width: 200, height: 112)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -264,10 +264,10 @@ struct SangeCategoryView: View {
         }
     }
 
-    // MARK: 推荐卡片
+    // MARK: 推荐卡片（横版）
     private func recommendCard(item: SangeVideoItem) -> some View {
         let coverUrl = item.cover
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
                 AsyncImage(url: URL(string: coverUrl)) { phase in
                     if let image = phase.image {
@@ -282,7 +282,7 @@ struct SangeCategoryView: View {
                             .overlay(ProgressView())
                     }
                 }
-                .frame(width: 140, height: 200)
+                .frame(width: 200, height: 112) // 16:9 横版
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
@@ -304,10 +304,10 @@ struct SangeCategoryView: View {
 
             // 标题
             Text(item.name)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(textColor)
                 .lineLimit(2)
-                .frame(width: 140, alignment: .leading)
+                .frame(width: 200, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
         }
     }
