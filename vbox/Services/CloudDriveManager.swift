@@ -2273,11 +2273,10 @@ class CloudDriveManager: ObservableObject {
             return (memberQuota.used, memberQuota.total, currentCookie)
         }
 
-        // member 失败再尝试标准 quota 端点（对齐 iBox 抓包：POST + dlt_keys 请求体，含 ut 时间戳）
+        // member 失败再尝试标准 quota 端点（只使用夸克域名，避免 UC 域名 cookie 不匹配导致 401）
         let ut = String(Int(Date().timeIntervalSince1970 * 1000))
         let endpoints = [
             ("https://drive-pc.quark.cn", "/1/clouddrive/quota/info", "pr=ucpro&fr=pc&uc_param_str=&ut=\(ut)"),
-            ("https://pc-api.uc.cn", "/1/clouddrive/quota/info", "pr=UCBrowser&fr=pc&ut=\(ut)"),
         ]
 
         for (host, path, query) in endpoints {
