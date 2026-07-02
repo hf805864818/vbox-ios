@@ -80,6 +80,34 @@ struct KXSPRuntimeConfig {
     var playServer: [String: Any]?
     /// 短视频播放服务器配置
     var shortPlayServer: [String: Any]?
+
+    /// 从 playServer 中提取的播放线路列表（[{lineName, lineDomain}]）
+    var playLines: [[String: String]] {
+        guard let playServer = playServer,
+              let lines = playServer["playLine"] as? [[String: String]] else {
+            return []
+        }
+        return lines
+    }
+
+    /// 第一条播放线路的域名（用于视频播放地址补全）
+    var firstPlayDomain: String? {
+        playLines.first?["lineDomain"]
+    }
+
+    /// 从 shortPlayServer 中提取的短视频播放线路列表
+    var shortPlayLines: [[String: String]] {
+        guard let shortPlayServer = shortPlayServer,
+              let lines = shortPlayServer["playLine"] as? [[String: String]] else {
+            return []
+        }
+        return lines
+    }
+
+    /// 短视频第一条播放线路的域名
+    var firstShortPlayDomain: String? {
+        shortPlayLines.first?["lineDomain"]
+    }
     /// AI 接口域名
     var aiApi: String?
     /// 官网
@@ -475,7 +503,31 @@ final class KXSPAPIService: ObservableObject {
     func fetchVideoDetail(id: String) async throws -> SangeVideoItem? {
         let resp = try await request(path: "/video/api/detail", params: ["id": id])
         guard let data = resp["data"] as? [String: Any] else { return nil }
-        return SangeVideoItem(dict: data)
+        var item = SangeVideoItem(dict: data)
+        // 自动补全封面和播放地址域名
+        item.cover = fullImageUrl(item.cover)
+        if let playUrl = item.playUrl {
+            item.playUrl = fullVideoUrl(playUrl)
+        }
+        if let defaultPlayUrl = item.defaultPlayUrl {
+            item.defaultPlayUrl = fullVideoUrl(defaultPlayUrl)
+        }
+        return item
+    }
+
+    /// 首页推荐列表（推荐分类 + 每个分类下的视频列表）
+    /// 接口路径: /video/api/recommend/list
+    func fetchRecommendList(page: Int = 1,
+                            pageSize: Int = 20) async throws -> [SangeRecommendCategory] {
+        var params: [String: Any] = ["page": page, "pageSize": pageSize]
+        // fromId 优先用 recommendFromId，其次用 listFromId
+        if let fromId = runtime?.iosFromId?["recommendFromId"] {
+            params["fromId"] = fromId
+        } else if let fromId = runtime?.iosFromId?["listFromId"] {
+            params["fromId"] = fromId
+        }
+        let resp = try await request(path: "/video/api/recommend/list", params: params)
+        return parseRecommendList(resp)
     }
 
     /// 短视频 / 抖音列表（若服务端有独立 shortVideo 模块可替换路径）
@@ -487,21 +539,156 @@ final class KXSPAPIService: ObservableObject {
     }
 
     /// 漫画 / 小说等其它模块可继续扩展……
+
+    // MARK: - URL 补全
+
+    /// 图片路径补全：如果已经是 http 开头直接返回，否则拼接 imageDomain（优先）或 fileDomain
+    func fullImageUrl(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return path
+        }
+        let domain = runtime?.imageDomain ?? runtime?.fileDomain ?? ""
+        if domain.isEmpty { return path }
+        let trimmed = path.hasPrefix("/") ? path : "/" + path
+        return domain + trimmed
+    }
+
+    /// 视频播放地址补全：如果已经是 http 开头直接返回，否则拼接 playServer 第一条线路域名
+    func fullVideoUrl(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return path
+        }
+        // 优先使用 playServer 第一条线路域名
+        if let domain = runtime?.firstPlayDomain, !domain.isEmpty {
+            let trimmed = path.hasPrefix("/") ? path : "/" + path
+            return domain + trimmed
+        }
+        // 回退到 videoDomain 列表第一个
+        if let domains = runtime?.videoDomain, !domains.isEmpty {
+            let domain = domains[0].hasPrefix("http") ? domains[0] : "https://" + domains[0]
+            let trimmed = path.hasPrefix("/") ? path : "/" + path
+            return domain + trimmed
+        }
+        // 最后回退到 fileDomain
+        if let file = runtime?.fileDomain {
+            let trimmed = path.hasPrefix("/") ? path : "/" + path
+            return file + trimmed
+        }
+        return path
+    }
+
+    /// 短视频播放地址补全
+    func fullShortVideoUrl(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return path
+        }
+        let domain = runtime?.firstShortPlayDomain ?? runtime?.firstPlayDomain ?? ""
+        if domain.isEmpty { return path }
+        let trimmed = path.hasPrefix("/") ? path : "/" + path
+        return domain + trimmed
+    }
 }
 
 // MARK: - 解析辅助
 private extension KXSPAPIService {
     func parseVideoList(_ resp: [String: Any]) -> [SangeVideoItem] {
         let list: [[String: Any]]
+
+        // 1. data 直接是数组
         if let data = resp["data"] as? [[String: Any]] {
             list = data
-        } else if let data = resp["data"] as? [String: Any],
+        }
+        // 2. data 是字典，里面有 list 字段
+        else if let data = resp["data"] as? [String: Any],
                   let rows = data["list"] as? [[String: Any]] {
             list = rows
-        } else {
+        }
+        // 3. data 是字典，里面有 rows 字段
+        else if let data = resp["data"] as? [String: Any],
+                  let rows = data["rows"] as? [[String: Any]] {
+            list = rows
+        }
+        // 4. data 是字典，里面有 videoList 字段（推荐接口的单个分类场景）
+        else if let data = resp["data"] as? [String: Any],
+                  let rows = data["videoList"] as? [[String: Any]] {
+            list = rows
+        }
+        // 5. data 是字典，items 字段
+        else if let data = resp["data"] as? [String: Any],
+                  let rows = data["items"] as? [[String: Any]] {
+            list = rows
+        }
+        // 6. 顶层直接有 list 字段
+        else if let rows = resp["list"] as? [[String: Any]] {
+            list = rows
+        }
+        // 7. 顶层直接有 rows 字段
+        else if let rows = resp["rows"] as? [[String: Any]] {
+            list = rows
+        }
+        else {
             list = []
         }
-        return list.compactMap { SangeVideoItem(dict: $0) }
+
+        return list.compactMap { dict in
+            var item = SangeVideoItem(dict: dict)
+            // 自动补全封面和播放地址域名
+            item.cover = fullImageUrl(item.cover)
+            if let playUrl = item.playUrl {
+                item.playUrl = fullVideoUrl(playUrl)
+            }
+            if let defaultPlayUrl = item.defaultPlayUrl {
+                item.defaultPlayUrl = fullVideoUrl(defaultPlayUrl)
+            }
+            return item
+        }
+    }
+
+    /// 解析推荐列表接口返回（推荐分类数组，每个分类内含 videoList）
+    func parseRecommendList(_ resp: [String: Any]) -> [SangeRecommendCategory] {
+        let categories: [[String: Any]]
+
+        // 1. data 直接是数组
+        if let data = resp["data"] as? [[String: Any]] {
+            categories = data
+        }
+        // 2. data 是字典，里面有 list 字段
+        else if let data = resp["data"] as? [String: Any],
+                  let list = data["list"] as? [[String: Any]] {
+            categories = list
+        }
+        // 3. data 是字典，里面有 rows 字段
+        else if let data = resp["data"] as? [String: Any],
+                  let list = data["rows"] as? [[String: Any]] {
+            categories = list
+        }
+        // 4. 顶层直接有 list
+        else if let list = resp["list"] as? [[String: Any]] {
+            categories = list
+        }
+        else {
+            categories = []
+        }
+
+        return categories.compactMap { catDict in
+            var cat = SangeRecommendCategory(dict: catDict)
+            // 对每个分类下的视频补全域名
+            cat.videoList = cat.videoList.map { video in
+                var v = video
+                v.cover = fullImageUrl(v.cover)
+                if let playUrl = v.playUrl {
+                    v.playUrl = fullVideoUrl(playUrl)
+                }
+                if let defaultPlayUrl = v.defaultPlayUrl {
+                    v.defaultPlayUrl = fullVideoUrl(defaultPlayUrl)
+                }
+                return v
+            }
+            return cat
+        }
     }
 }
 
