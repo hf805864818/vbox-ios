@@ -1545,6 +1545,12 @@ class CloudDriveManager: ObservableObject {
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
+        // 红色封面/被和谐资源的早期判断：转存返回 fileIds=["0"] 时，文件实际未真正保存到网盘
+        let isPlaceholderFileId = fileId == "0" || fileIds.allSatisfy({ $0 == "0" })
+        if isPlaceholderFileId {
+            self.log("[Quark] ⚠️ 转存返回占位 fileId=0，疑似资源已被和谐或转码失败")
+        }
+
         // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
         if let taskId = quarkLastSaveTaskId {
             try await quarkPollTask(taskId: taskId, cookie: authCookie)
@@ -1592,6 +1598,10 @@ class CloudDriveManager: ObservableObject {
                 }
             }
             if download.url.isEmpty {
+                // 如果转存拿到的是占位 fileId=0，且按文件名也找不到真实文件，说明资源本身已失效
+                if isPlaceholderFileId {
+                    throw DriveError.noPlayURL("该资源在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
+                }
                 throw DriveError.noPlayURL("夸克 download_url 获取失败：\(errMsg)")
             }
         }
@@ -2141,11 +2151,7 @@ class CloudDriveManager: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = 15
-            request.setValue(cookie, forHTTPHeaderField: "Cookie")
-            request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-            request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
+            quarkSetCommonHeaders(&request, cookie: cookie)
 
             guard let (data, response) = try? await session.data(for: request) else {
                 self.log("[Quark] ⚠️ quota端点 \(host) 请求失败")
@@ -2153,11 +2159,18 @@ class CloudDriveManager: ObservableObject {
             }
             currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
 
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any] else {
-                self.log("[Quark] ⚠️ quota端点 \(host) 响应解析失败")
+            let rawBody = String(data: data, encoding: .utf8) ?? "<非UTF8>"
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                self.log("[Quark] ⚠️ quota端点 \(host) 响应不是JSON: \(rawBody.prefix(500))")
                 continue
             }
+
+            // 容量字段可能在 data 下，也可能在更深层；兜底直接使用顶层 json
+            let dataObj = json["data"] as? [String: Any]
+            let capObj: [String: Any] = dataObj?["capinfo"] as? [String: Any]
+                ?? dataObj?["capacity"] as? [String: Any]
+                ?? dataObj?["account_capacity"] as? [String: Any]
+                ?? json
 
             func parseInt64(_ value: Any?) -> Int64 {
                 if let v = value as? Int64 { return v }
@@ -2167,13 +2180,17 @@ class CloudDriveManager: ObservableObject {
                 return 0
             }
 
-            let used = parseInt64(dataObj["used"])
-            let total = parseInt64(dataObj["total"])
+            let used = parseInt64(capObj?["used"] ?? capObj?["size_used"] ?? dataObj?["used"])
+            var total = parseInt64(capObj?["total"] ?? capObj?["size_total"] ?? dataObj?["total"])
+            // 只有剩余量时，用 account.total_capacity 兜底
+            if total <= 0, let account = dataObj?["account"] as? [String: Any] {
+                total = parseInt64(account["total_capacity"] ?? account["capacity_total"] ?? account["total"])
+            }
             if total > 0 {
                 self.log("[Quark] ✅ quota端点 \(host) 成功: used=\(used), total=\(total)")
                 return (used, total, currentCookie)
             }
-            self.log("[Quark] ⚠️ quota端点 \(host) total=0，尝试下一个")
+            self.log("[Quark] ⚠️ quota端点 \(host) total=0，原始响应: \(rawBody.prefix(500))")
         }
 
         self.log("[Quark] ⚠️ 所有quota端点均失败")
@@ -2242,26 +2259,28 @@ class CloudDriveManager: ObservableObject {
         let (used, total, mergedCookie) = await quarkGetQuotaInfo(cookie: currentCookie)
         currentCookie = mergedCookie
 
-        guard total > 0 else {
-            self.log("[Quark] ⚠️ 无法获取夸克容量信息（member+quota端点均失败），跳过空间清理")
-            return currentCookie
+        let quotaAvailable = total > 0
+        var freeGB: Double = 0
+        if quotaAvailable {
+            let free = total - used
+            freeGB = Double(free) / 1_073_741_824.0
+            let totalGB = Double(total) / 1_073_741_824.0
+            let usedGB = Double(used) / 1_073_741_824.0
+            let usedPercent = Double(used) * 100.0 / Double(total)
+
+            self.log("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
         }
 
-        let free = total - used
-        let freeGB = Double(free) / 1_073_741_824.0
-        let totalGB = Double(total) / 1_073_741_824.0
-        let usedGB = Double(used) / 1_073_741_824.0
-        let usedPercent = Double(used) * 100.0 / Double(total)
-
-        self.log("[Quark] 📊 容量检测: 已用 \(String(format: "%.2f", usedGB))GB / 总共 \(String(format: "%.2f", totalGB))GB (\(String(format: "%.1f", usedPercent))%)，剩余 \(String(format: "%.2f", freeGB))GB，清理阈值 \(thresholdGB)GB")
-
-        // 剩余空间低于阈值时触发清理
-        guard freeGB < thresholdGB else {
-            self.log("[Quark] ✅ 剩余空间充足(\(String(format: "%.2f", freeGB))GB >= \(thresholdGB)GB)，跳过清理")
-            return currentCookie
+        if quotaAvailable {
+            // 剩余空间低于阈值时触发清理
+            guard freeGB < thresholdGB else {
+                self.log("[Quark] ✅ 剩余空间充足(\(String(format: "%.2f", freeGB))GB >= \(thresholdGB)GB)，跳过清理")
+                return currentCookie
+            }
+            self.log("[Quark] 🧹 剩余空间不足 \(String(format: "%.2f", freeGB))GB < \(thresholdGB)GB，开始清理夸克转存文件")
+        } else {
+            self.log("[Quark] ⚠️ 无法获取夸克容量信息（member+quota端点均失败），按保守策略清理最近转存的文件")
         }
-
-        self.log("[Quark] 🧹 剩余空间不足 \(String(format: "%.2f", freeGB))GB < \(thresholdGB)GB，开始清理夸克转存文件")
 
         // 辅助：用 GET 列出目录下所有文件/文件夹
         func collectFids(folderId: String, onlyVideo: Bool = false) async -> [String] {
@@ -2390,12 +2409,16 @@ class CloudDriveManager: ObservableObject {
             }
             return []
         }()
-        async let rootFids: [String] = collectFids(folderId: "0", onlyVideo: true)
+        async let rootFids: [String] = quotaAvailable ? collectFids(folderId: "0", onlyVideo: true) : []
 
         let shareResult = await shareFids
         let rootResult = await rootFids
 
-        self.log("[Quark] 📋 扫描结果：来自分享 \(shareResult.count) 个文件，根目录 \(rootResult.count) 个视频文件")
+        if quotaAvailable {
+            self.log("[Quark] 📋 扫描结果：来自分享 \(shareResult.count) 个文件，根目录 \(rootResult.count) 个视频文件")
+        } else {
+            self.log("[Quark] 📋 容量未知，保守清理：仅扫描来自分享 \(shareResult.count) 个文件，跳过根目录")
+        }
 
         // 合并去重后批量删除
         let allFids = Array(Set(shareResult + rootResult))

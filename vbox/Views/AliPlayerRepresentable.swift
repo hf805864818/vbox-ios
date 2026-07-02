@@ -17,6 +17,9 @@ struct AliPlayerRepresentable: UIViewRepresentable {
     let onReady: (() -> Void)?
     let onSeekDone: (() -> Void)?
 
+    // 持有当前活跃的 Coordinator，以便外部（如画中画按钮）能操作 AliPlayer
+    static weak var currentCoordinator: Coordinator?
+
     enum AliPlayerStatus: Int {
         case idle = 0
         case initialized = 1
@@ -74,6 +77,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         context.coordinator.player = player
         context.coordinator.containerView = containerView
+        Self.currentCoordinator = context.coordinator
 
         DispatchQueue.main.async {
             player.prepare()
@@ -87,7 +91,29 @@ struct AliPlayerRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        if Self.currentCoordinator === coordinator {
+            Self.currentCoordinator = nil
+        }
         coordinator.cleanup()
+    }
+
+    /// 尝试让当前 AliPlayer 进入原生系统画中画
+    @discardableResult
+    static func enterPictureInPicture() -> Bool {
+        guard let coordinator = currentCoordinator, let player = coordinator.player else {
+            log("[PiP] 没有可用的 AliPlayer 实例")
+            return false
+        }
+        return player.enterPictureInPicture()
+    }
+
+    /// 尝试让当前 AliPlayer 退出原生系统画中画
+    @discardableResult
+    static func exitPictureInPicture() -> Bool {
+        guard let coordinator = currentCoordinator, let player = coordinator.player else {
+            return false
+        }
+        return player.exitPictureInPicture()
     }
 
     // MARK: - Coordinator
@@ -272,6 +298,36 @@ class AliPlayerProxy: NSObject {
             return unsafeBitCast(imp, to: StatusFunc.self)(obj, sel)
         }
         return 0
+    }
+
+    /// 运行时尝试调用 AliPlayer 原生画中画进入方法（不同 SDK 版本方法名可能不同）
+    @discardableResult
+    func enterPictureInPicture() -> Bool {
+        let candidates = ["startPictureInPicture", "enterPictureInPicture", "startPiP"]
+        for name in candidates {
+            let sel = NSSelectorFromString(name)
+            if obj.responds(to: sel) {
+                obj.perform(sel)
+                log("[PiP] 调用 AliPlayer.\(name) 进入原生画中画")
+                return true
+            }
+        }
+        log("[PiP] ⚠️ 当前 AliPlayer SDK 未暴露进入画中画方法")
+        return false
+    }
+
+    /// 运行时尝试调用 AliPlayer 原生画中画退出方法
+    @discardableResult
+    func exitPictureInPicture() -> Bool {
+        let candidates = ["stopPictureInPicture", "exitPictureInPicture", "stopPiP"]
+        for name in candidates {
+            let sel = NSSelectorFromString(name)
+            if obj.responds(to: sel) {
+                obj.perform(sel)
+                return true
+            }
+        }
+        return false
     }
 
     // 让 Coordinator 能接收 AVPDelegate 回调

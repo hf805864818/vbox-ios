@@ -807,13 +807,13 @@ class PlayerState: ObservableObject {
         case .ijk:
             return isIJKBuildAvailable ? "IJKPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .ali:
-            return isAliPlayerBuildAvailable ? "阿里" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
+            return isAliPlayerBuildAvailable ? "AliPlayer" : (isMPVBuildAvailable ? "MPV-MoltenVK" : "VLC")
         case .auto:
             if isMDKBuildAvailable, shouldPreferMDK(for: url) {
                 return "MDK"
             }
             if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: url) {
-                return "阿里"
+                return "AliPlayer"
             }
             if isIJKBuildAvailable, shouldPreferIJK(for: url) {
                 return "IJKPlayer"
@@ -907,6 +907,10 @@ class PlayerState: ObservableObject {
         case .ijk:
             log("[PlayerV2] 已切换内核策略：IJKPlayer\(isIJKBuildAvailable ? "" : "（当前构建未包含 IJKPlayer）")")
         case .ali:
+            // 如果当前未检测到 AliPlayer，再次触发运行时加载（应对 TrollStore 等场景下启动时未成功加载的情况）
+            if !isAliPlayerBuildAvailable {
+                loadAliyunPlayerIfNeeded()
+            }
             log("[PlayerV2] 已切换内核策略：AliPlayer\(isAliPlayerBuildAvailable ? "" : "（当前构建未包含 AliyunPlayer）")")
         }
 
@@ -4153,8 +4157,20 @@ struct PlayerControlsView: View {
             // 启动系统画中画并返回桌面
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-            if playerState.compatibilityURL != nil {
-                // 兼容内核统一走应用内浮动窗口（截图方式），兼容 VLC/IJK/MPV/MDK/阿里
+            // 阿里内核优先走原生系统画中画
+            let isAliPlayer = playerState.compatibilityEngineName.contains("AliPlayer") || playerState.enginePreference == .ali
+            if isAliPlayer {
+                let started = AliPlayerRepresentable.enterPictureInPicture()
+                log("[PlayerV2] AliPlayer 原生画中画尝试结果: \(started ? "成功" : "失败，将回退到截图浮窗")")
+                if !started {
+                    if let playerView = findCurrentPlayerView() {
+                        PiPHelper.shared.showFloatingWindow(sourceView: playerView)
+                    } else if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
+                        PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
+                    }
+                }
+            } else if playerState.compatibilityURL != nil {
+                // 其他兼容内核走应用内浮动窗口（截图方式），兼容 VLC/IJK/MPV/MDK
                 if let playerView = findCurrentPlayerView() {
                     PiPHelper.shared.showFloatingWindow(sourceView: playerView)
                 } else if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
@@ -5129,7 +5145,7 @@ struct EnginePickerPanelV2: View {
                                 Text("无画中画")
                                     .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.4))
-                            } else if engine == .mpv {
+                            } else if engine == .mpv || engine == .ali {
                                 Text("画中画")
                                     .font(.system(size: 11))
                                     .foregroundColor(Color(hex: "00BEFF").opacity(0.7))
