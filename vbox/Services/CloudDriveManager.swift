@@ -2181,7 +2181,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 兜底：通过 member 接口获取容量信息（对齐 iBox 2.4.6）
-    private func quarkGetQuotaFromMember(cookie: String) async -> (used: Int64, total: Int64) {
+    private func quarkGetQuotaFromMember(cookie: String) async -> (used: Int64, total: Int64)? {
         let url = quarkAPIURL("/1/clouddrive/member", extra: [
             URLQueryItem(name: "fetch_subscribe", value: "true"),
             URLQueryItem(name: "fetch_identity", value: "true"),
@@ -2232,7 +2232,7 @@ class CloudDriveManager: ObservableObject {
         } catch {
             self.log("[Quark] ⚠️ member 兜底容量获取失败: \(error.localizedDescription)")
         }
-        return (0, 0)
+        return nil
     }
 
     /// 如果剩余空间不足，清理"来自：分享"目录下所有文件
