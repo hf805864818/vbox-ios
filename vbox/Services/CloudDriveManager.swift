@@ -1518,7 +1518,8 @@ class CloudDriveManager: ObservableObject {
         print("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
         let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
-        print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
+        let fileExt = (sourceFile.fileName as NSString).pathExtension.lowercased()
+        print("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
 
         let fileIds = try await quarkSaveShare(
             pwdId: pwdId,
@@ -1527,7 +1528,7 @@ class CloudDriveManager: ObservableObject {
             folderId: "0",
             cookie: authCookie
         )
-        print("[Quark] 转存完成 fileIds=\(fileIds)")
+        print("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
 
         guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
@@ -1586,9 +1587,11 @@ class CloudDriveManager: ObservableObject {
         if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
+            print("[Quark] 📥 主线路: download_url (直链), host=\(URL(string: playURL)?.host ?? "unknown")")
         } else if !transcodeURL.isEmpty {
             playURL = transcodeURL
             source = "v2-play-fallback"
+            print("[Quark] 📥 主线路: v2/play (转码m3u8, download_url为空), host=\(URL(string: playURL)?.host ?? "unknown")")
         } else {
             throw DriveError.noPlayURL("夸克: download_url 和转码地址均为空")
         }
@@ -1605,11 +1608,11 @@ class CloudDriveManager: ObservableObject {
             fallbackSource = nil
         }
 
-        print("[Quark] ✅ 主线路 source=\(source), hasPUUS=\(authCookie.contains("__puus=")), hasVideoAuth=\(authCookie.contains("Video-Auth=")), host=\(URL(string: playURL)?.host ?? "unknown")")
+        print("[Quark] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
         if let fallbackURL, let fallbackSource {
             print("[Quark] ✅ 兜底线路 source=\(fallbackSource), host=\(URL(string: fallbackURL)?.host ?? "unknown")")
         } else {
-            print("[Quark] ⚠️ 兜底线路暂不可用，当前仅返回主线路")
+            print("[Quark] ⚠️ 兜底线路暂不可用")
         }
 
         scheduleCleanup(drive: .quark, fileIds: fileIds, token: authCookie, delay: 60 * 60)
@@ -3173,6 +3176,12 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = first["download_url"] as? String ?? ""
         let fileName = first["file_name"] as? String ?? ""
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        if downloadURL.isEmpty {
+            print("[Quark] ⚠️ download_url 为空 (文件: \(fileName), 扩展名: \(ext))，将使用v2/play转码")
+        } else {
+            print("[Quark] 📥 download_url 已获取 (文件: \(fileName), 扩展名: \(ext))")
+        }
         return (downloadURL, fileName)
     }
 
