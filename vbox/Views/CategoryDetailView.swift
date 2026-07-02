@@ -286,6 +286,7 @@ struct CategoryDetailView: View {
 struct SubscriptionSiteGrid: View {
     let sites: [SiteConfig]
     let settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
