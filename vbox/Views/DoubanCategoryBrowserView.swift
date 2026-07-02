@@ -325,6 +325,7 @@ struct SubjectGridContentView: View {
 struct DoubanGridSubjectCell: View {
     let subject: DoubanSubject
     let settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
