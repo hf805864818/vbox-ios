@@ -101,6 +101,7 @@ struct SangeListView: View {
     let bigCategory: SangeBigCategory
     let subCategory: SangeSubCategory
 
+    // 横版封面两列布局
     private let columns = [
         GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10)
@@ -229,7 +230,7 @@ struct SangeListView: View {
         // 列表接口返回的 item.cover 已经在 parseVideoList 中补全了域名
         let coverUrl = item.cover
         return VStack(alignment: .leading, spacing: 8) {
-            // 封面图
+            // 封面图（横版 16:9）
             ZStack(alignment: .bottomLeading) {
                 AsyncImage(url: URL(string: coverUrl)) { phase in
                     if let image = phase.image {
@@ -245,7 +246,7 @@ struct SangeListView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .aspectRatio(3 / 4, contentMode: .fill)
+                .aspectRatio(16 / 9, contentMode: .fill)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
