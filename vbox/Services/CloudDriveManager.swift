@@ -84,6 +84,7 @@ class CloudDriveManager: ObservableObject {
     private let baiduRouteDiagnosticsKey = "baidu_route_diagnostics_v1"
     private let cleanupQueueKey = "cloud_drive_cleanup_queue_v1"
     private let quarkVboxFolderCacheKey = "quark_vbox_folder_cache_v1"
+    private let quarkSavedFidCacheKey = "quark_saved_fid_cache_v1"
 
     private struct CleanupQueueItem: Codable, Hashable {
         let drive: String
@@ -91,6 +92,15 @@ class CloudDriveManager: ObservableObject {
         let fileId: String
         let eligibleAt: Date
         let createdAt: Date
+    }
+    /// 夸克转存后的文件 fid 缓存，用于避免同一资源重复转存
+    private struct QuarkSavedFidCacheItem: Codable {
+        let fileIds: [String]
+        let fileName: String
+        let folderId: String
+        let cookieHash: String
+        let createdAt: Date
+        let expiresAt: Date
     }
     private struct BaiduPlayCacheItem {
         let result: PlayResult
@@ -873,6 +883,72 @@ class CloudDriveManager: ObservableObject {
         saveQuarkVboxFolderCache()
     }
 
+    // MARK: - 夸克转存后 fileId 缓存
+
+    private func quarkSavedFidCacheKey(pwdId: String, sourceFid: String, folderId: String, cookie: String) -> String {
+        let cookieHash = String(cookie.hash)
+        return "\(pwdId)|\(sourceFid)|\(folderId)|\(cookieHash)"
+    }
+
+    private func loadQuarkSavedFidCache() -> [String: QuarkSavedFidCacheItem] {
+        guard let data = defaults.data(forKey: quarkSavedFidCacheKey),
+              let cache = try? JSONDecoder().decode([String: QuarkSavedFidCacheItem].self, from: data) else {
+            return [:]
+        }
+        return cache
+    }
+
+    private func saveQuarkSavedFidCache(_ cache: [String: QuarkSavedFidCacheItem]) {
+        var cleaned = cache
+        let now = Date()
+        cleaned = cleaned.filter { $0.value.expiresAt > now }
+        if cleaned.count > 300 {
+            cleaned = Dictionary(uniqueKeysWithValues: cleaned.sorted { $0.value.createdAt > $1.value.createdAt }.prefix(300).map { ($0.key, $0.value) })
+        }
+        if let data = try? JSONEncoder().encode(cleaned) {
+            defaults.set(data, forKey: quarkSavedFidCacheKey)
+        }
+    }
+
+    private func quarkCachedSavedFileIds(pwdId: String, sourceFid: String, folderId: String, cookie: String) -> [String]? {
+        let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
+        var cache = loadQuarkSavedFidCache()
+        guard let item = cache[key], item.expiresAt > Date() else {
+            if cache[key] != nil {
+                cache.removeValue(forKey: key)
+                saveQuarkSavedFidCache(cache)
+            }
+            return nil
+        }
+        self.log("[Quark] ✅ 命中转存 fid 缓存: \(item.fileIds)，跳过本次转存")
+        return item.fileIds
+    }
+
+    private func quarkStoreSavedFileIds(_ fileIds: [String], fileName: String, folderId: String, cookie: String, pwdId: String, sourceFid: String, ttl: TimeInterval = 30 * 60) {
+        guard !fileIds.isEmpty, !fileIds.allSatisfy({ $0 == "0" }) else { return }
+        let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
+        var cache = loadQuarkSavedFidCache()
+        cache[key] = QuarkSavedFidCacheItem(
+            fileIds: fileIds,
+            fileName: fileName,
+            folderId: folderId,
+            cookieHash: String(cookie.hash),
+            createdAt: Date(),
+            expiresAt: Date().addingTimeInterval(ttl)
+        )
+        saveQuarkSavedFidCache(cache)
+        self.log("[Quark] 💾 已缓存转存 fid: \(fileIds)，有效期 \(Int(ttl/60)) 分钟")
+    }
+
+    private func quarkInvalidateSavedFidCache(pwdId: String, sourceFid: String, folderId: String, cookie: String) {
+        let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
+        var cache = loadQuarkSavedFidCache()
+        guard cache[key] != nil else { return }
+        cache.removeValue(forKey: key)
+        saveQuarkSavedFidCache(cache)
+        self.log("[Quark] 🗑️ 已清除失效的转存 fid 缓存")
+    }
+
     func addToken(type: DriveType, name: String, value: String) {
         savedTokens.removeAll { $0.type == type.rawValue && $0.name == name }
         savedTokens.append(DriveToken(type: type.rawValue, name: name, value: value))
@@ -1534,16 +1610,26 @@ class CloudDriveManager: ObservableObject {
         let fileExt = (sourceFile.fileName as NSString).pathExtension.lowercased()
         self.log("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
 
-        let fileIds = try await quarkSaveShare(
-            pwdId: pwdId,
-            stoken: shareToken,
-            file: sourceFile,
-            folderId: "0",
-            cookie: authCookie
-        )
-        self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
+        // 先尝试命中转存 fid 缓存，避免同一资源重复转存
+        var fileIds: [String]
+        var isFileIdsFromCache = false
+        if let cachedFileIds = quarkCachedSavedFileIds(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie), !cachedFileIds.isEmpty {
+            fileIds = cachedFileIds
+            isFileIdsFromCache = true
+            self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)（来自缓存）")
+        } else {
+            fileIds = try await quarkSaveShare(
+                pwdId: pwdId,
+                stoken: shareToken,
+                file: sourceFile,
+                folderId: "0",
+                cookie: authCookie
+            )
+            self.log("[Quark] 转存完成 fileIds=\(fileIds), fileName=\(sourceFile.fileName)")
+            quarkStoreSavedFileIds(fileIds, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+        }
 
-        guard let fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
+        guard var fileId = fileIds.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
 
         // 红色封面/被和谐资源的早期判断：转存返回 fileIds=["0"] 时，文件实际未真正保存到网盘
         let isPlaceholderFileId = fileId == "0" || fileIds.allSatisfy({ $0 == "0" })
@@ -1553,7 +1639,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         // 轮询转存任务状态，等待文件落盘（对齐iBox抓包流程）
-        if let taskId = quarkLastSaveTaskId {
+        if !isFileIdsFromCache, let taskId = quarkLastSaveTaskId {
             try await quarkPollTask(taskId: taskId, cookie: authCookie)
         }
         // 获取会员信息（对齐iBox抓包：GET /member），用于判断清晰度权限
@@ -1579,21 +1665,41 @@ class CloudDriveManager: ObservableObject {
         } catch {
             let errMsg = error.localizedDescription
             self.log("[Quark] ⚠️ download_url 首次尝试失败(fid=\(fileId)): \(errMsg)")
-            // 文件ID可能不对（save_as_top_fids可能是文件夹ID），尝试通过文件名查找
+            // 文件ID可能不对（save_as_top_fids可能是文件夹ID），尝试通过文件名查找或重新转存
             if errMsg.contains("file not found") || errMsg.contains("not found") {
-                if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
-                    self.log("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
-                    effectiveFileId = foundId
-                    download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
-                }
-                // 如果根目录没找到，尝试在"来自：分享"目录查找
-                if download.url.isEmpty {
-                    let shareFolder = await quarkFindShareOriginFolder(cookie: authCookie)
-                    if let shareFid = shareFolder {
-                        if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
-                            self.log("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
-                            effectiveFileId = foundId
-                            download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
+                if isFileIdsFromCache {
+                    // 缓存的 fileId 已失效（可能被清理或过期），清除缓存并重新转存
+                    self.log("[Quark] ⚠️ 缓存的 fileId 已失效，清除缓存并重新转存")
+                    quarkInvalidateSavedFidCache(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie)
+                    let newFileIds = try await quarkSaveShare(
+                        pwdId: pwdId,
+                        stoken: shareToken,
+                        file: sourceFile,
+                        folderId: "0",
+                        cookie: authCookie
+                    )
+                    self.log("[Quark] 重新转存完成 fileIds=\(newFileIds), fileName=\(sourceFile.fileName)")
+                    quarkStoreSavedFileIds(newFileIds, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
+                    if let newFileId = newFileIds.first, newFileId != "0" {
+                        fileId = newFileId
+                        effectiveFileId = newFileId
+                        download = (try? await quarkGetDownloadURL(fileId: newFileId, cookie: authCookie)) ?? ("", "")
+                    }
+                } else {
+                    if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
+                        self.log("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
+                        effectiveFileId = foundId
+                        download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
+                    }
+                    // 如果根目录没找到，尝试在"来自：分享"目录查找
+                    if download.url.isEmpty {
+                        let shareFolder = await quarkFindShareOriginFolder(cookie: authCookie)
+                        if let shareFid = shareFolder {
+                            if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
+                                self.log("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
+                                effectiveFileId = foundId
+                                download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
+                            }
                         }
                     }
                 }
