@@ -289,5 +289,33 @@ class LogVarDanmakuService: ObservableObject {
         UserDefaults.standard.set(data, forKey: persistentKey(key))
     }
 
+    func sendDanmaku(episodeId: Int, content: String, time: Double, mode: Int = 1, color: Int = 16777215) async -> Bool {
+        guard let url = URL(string: "\(baseURL)/api/v2/comment/\(episodeId)") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "time": time,
+            "mode": mode,
+            "color": color,
+            "comment": content
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                print("[Danmaku] 发送成功: \(content)")
+                return true
+            } else if let str = String(data: data, encoding: .utf8) {
+                print("[Danmaku] 发送失败: \(str)")
+            }
+        } catch {
+            print("[Danmaku] 发送异常: \(error)")
+        }
+        return false
+    }
+
     func clearCache() { cache.removeAll(); matchCache.removeAll() }
 }

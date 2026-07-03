@@ -661,6 +661,7 @@ class PlayerState: ObservableObject {
     @Published var showDanmakuSettings = false
     @Published var showEnginePicker = false
     @Published var showDanmakuInput = false
+    @Published var currentDanmakuEpisodeId: Int? = nil
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
@@ -1169,6 +1170,12 @@ class PlayerState: ObservableObject {
         guard !query.isEmpty else { return }
         log("[Danmaku] 开始匹配：\(query)")
         danmakuTask = Task { [weak self] in
+            // 先匹配episodeId，保存到状态
+            if let episodeId = await LogVarDanmakuService.shared.matchEpisode(fileName: query) {
+                await MainActor.run {
+                    self?.currentDanmakuEpisodeId = episodeId
+                }
+            }
             let items = await LogVarDanmakuService.shared.matchAndFetch(fileName: query)
             await MainActor.run {
                 guard let self else { return }
@@ -4098,7 +4105,7 @@ struct PortraitBottomBar: View {
             Button(action: { playerState.showDanmaku.toggle() }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .font(Font.custom("PingFang SC", size: 15).weight(.bold))
                         .foregroundColor(playerState.showDanmaku ? Color(hex: "00BE06") : .white.opacity(0.6))
                     if playerState.showDanmaku {
                         Image(systemName: "checkmark")
@@ -4118,7 +4125,7 @@ struct PortraitBottomBar: View {
             Button(action: { playerState.showDanmakuSettings = true }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .font(Font.custom("PingFang SC", size: 15).weight(.bold))
                         .foregroundColor(.white.opacity(0.6))
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 7, weight: .bold))
@@ -4228,7 +4235,7 @@ struct LandscapeBottomBar: View {
             Button(action: { playerState.showDanmaku.toggle() }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .font(Font.custom("PingFang SC", size: 15).weight(.bold))
                         .foregroundColor(playerState.showDanmaku ? Color(hex: "00BE06") : .white.opacity(0.6))
                     if playerState.showDanmaku {
                         Image(systemName: "checkmark")
@@ -4248,7 +4255,7 @@ struct LandscapeBottomBar: View {
             Button(action: { playerState.showDanmakuSettings = true }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .font(Font.custom("PingFang SC", size: 15).weight(.bold))
                         .foregroundColor(.white.opacity(0.6))
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 7, weight: .bold))
