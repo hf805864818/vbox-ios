@@ -660,6 +660,7 @@ class PlayerState: ObservableObject {
     @Published var showQualityPicker = false
     @Published var showDanmakuSettings = false
     @Published var showEnginePicker = false
+    @Published var showDanmakuInput = false
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
@@ -3582,15 +3583,33 @@ struct PlayerContainerView: View {
             Group {
                 if playerState.showQualityPicker {
                     if playerState.isPortrait {
-                        PortraitPopupView(isPresented: $playerState.showQualityPicker, title: "清晰度") {
+                        // 竖屏：清晰度小长条弹窗，固定在倍数弹窗位置（右下角进度条上方）
+                        GeometryReader { geo in
+                            Color.black.opacity(0.3)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        playerState.showQualityPicker = false
+                                    }
+                                }
+
                             QualityPickerPanelV2(
                                 selectedQuality: $playerState.selectedQuality,
                                 isBaiduSourceMode: !playerState.baiduFileList.isEmpty,
+                                isPortrait: true,
                                 onQualityChange: { index in
                                     playerState.changeQuality(index: index)
                                 }
                             )
+                            .environmentObject(settings)
+                            .frame(width: 80)
+                            .position(x: geo.size.width - 60, y: geo.size.height - 260)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.9))
+                            ))
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         // 横屏：小竖条弹窗，固定在清晰度按键上方
                         GeometryReader { geo in
@@ -3669,6 +3688,58 @@ struct PlayerContainerView: View {
                         .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
                         .position(x: geo.size.width / 2, y: geo.size.height / 2 - 40)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            // 弹幕输入弹窗
+            Group {
+                if playerState.showDanmakuInput {
+                    GeometryReader { geo in
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showDanmakuInput = false
+                                }
+                            }
+
+                        VStack(spacing: 0) {
+                            HStack(spacing: 12) {
+                                TextField("发送弹幕...", text: .constant(""))
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 20)
+                                            .fill(Color.white.opacity(0.15))
+                                    )
+                                    .textFieldStyle(PlainTextFieldStyle())
+
+                                Button(action: {
+                                    // TODO: 对接弹幕发送功能
+                                    playerState.showDanmakuInput = false
+                                }) {
+                                    Text("发送")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 20)
+                                                .fill(Color(hex: "00BE06"))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .background(Color(hex: "1A1A1A"))
+                            .cornerRadius(12)
+                        }
+                        .position(x: geo.size.width / 2, y: geo.size.height - 160)
+                        .transition(.opacity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -3980,7 +4051,10 @@ struct PortraitBottomBar: View {
     /// 格式化倍速显示文字（如 "1.0x"）
     private var speedDisplayText: String {
         let s = playerState.playbackSpeed
-        return (s == floor(s)) ? String(format: "%.0fx", s) : String(format: "%.1fx", s)
+        let formatted = String(format: "%.2f", s)
+        let trimmed = formatted.hasSuffix(".00") ? String(formatted.dropLast(3)) :
+                       formatted.hasSuffix("0") ? String(formatted.dropLast(1)) : formatted
+        return trimmed + "x"
     }
 
     /// 当前清晰度显示文字
@@ -4024,20 +4098,15 @@ struct PortraitBottomBar: View {
             Button(action: { playerState.showDanmaku.toggle() }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(playerState.showDanmaku ? .white : .white.opacity(0.6))
-                        .frame(width: 32, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(playerState.showDanmaku ? Color(hex: "00BE06") : Color.white.opacity(0.2))
-                        )
+                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .foregroundColor(playerState.showDanmaku ? Color(hex: "00BE06") : .white.opacity(0.6))
                     if playerState.showDanmaku {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 7, weight: .bold))
+                            .font(.system(size: 6, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 12, height: 12)
+                            .frame(width: 10, height: 10)
                             .background(Circle().fill(Color(hex: "00BE06")))
-                            .offset(x: 2, y: 2)
+                            .offset(x: 6, y: -2)
                     }
                 }
                 .frame(width: 48, height: 44)
@@ -4049,43 +4118,19 @@ struct PortraitBottomBar: View {
             Button(action: { playerState.showDanmakuSettings = true }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.custom("PingFang SC", size: 15, weight: .bold))
                         .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 32, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.white.opacity(0.2))
-                        )
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(width: 14, height: 14)
-                        .background(Circle().fill(Color.white.opacity(0.25)))
-                        .offset(x: 2, y: 2)
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                        .offset(x: 8, y: -2)
                 }
                 .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // === 中间输入框区域 ===
-            Spacer(minLength: 8)
-
-            // 弹幕输入框 - 深灰底色长条输入框
-            HStack {
-                Text("请文明发龙弹幕")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "00BE06"))
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white.opacity(0.12))
-            )
-
-            Spacer(minLength: 8)
+            Spacer()
 
             // === 右侧功能区 ===
 
@@ -4136,7 +4181,10 @@ struct LandscapeBottomBar: View {
     /// 格式化倍速显示文字（如 "1.0x"）
     private var speedDisplayText: String {
         let s = playerState.playbackSpeed
-        return (s == floor(s)) ? String(format: "%.0fx", s) : String(format: "%.1fx", s)
+        let formatted = String(format: "%.2f", s)
+        let trimmed = formatted.hasSuffix(".00") ? String(formatted.dropLast(3)) :
+                       formatted.hasSuffix("0") ? String(formatted.dropLast(1)) : formatted
+        return trimmed + "x"
     }
 
     /// 当前清晰度显示文字
@@ -4180,20 +4228,15 @@ struct LandscapeBottomBar: View {
             Button(action: { playerState.showDanmaku.toggle() }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(playerState.showDanmaku ? .white : .white.opacity(0.6))
-                        .frame(width: 32, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(playerState.showDanmaku ? Color(hex: "00BE06") : Color.white.opacity(0.2))
-                        )
+                        .font(.custom("PingFang SC", size: 15, weight: .bold))
+                        .foregroundColor(playerState.showDanmaku ? Color(hex: "00BE06") : .white.opacity(0.6))
                     if playerState.showDanmaku {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 7, weight: .bold))
+                            .font(.system(size: 6, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 12, height: 12)
+                            .frame(width: 10, height: 10)
                             .background(Circle().fill(Color(hex: "00BE06")))
-                            .offset(x: 2, y: 2)
+                            .offset(x: 6, y: -2)
                     }
                 }
                 .frame(width: 48, height: 44)
@@ -4205,19 +4248,12 @@ struct LandscapeBottomBar: View {
             Button(action: { playerState.showDanmakuSettings = true }) {
                 ZStack(alignment: .bottomTrailing) {
                     Text("弹")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.custom("PingFang SC", size: 15, weight: .bold))
                         .foregroundColor(.white.opacity(0.6))
-                        .frame(width: 32, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.white.opacity(0.2))
-                        )
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(width: 14, height: 14)
-                        .background(Circle().fill(Color.white.opacity(0.25)))
-                        .offset(x: 2, y: 2)
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                        .offset(x: 8, y: -2)
                 }
                 .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
@@ -4227,19 +4263,23 @@ struct LandscapeBottomBar: View {
             // === 中间输入框区域 ===
             Spacer(minLength: 12)
 
-            // 弹幕输入框 - 深灰底色长条输入框
-            HStack {
-                Text("请文明发龙弹幕")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "00BE06"))
-                Spacer()
+            // 弹幕输入框 - 深灰底色长条输入框，点击后弹出输入
+            Button(action: { playerState.showDanmakuInput = true }) {
+                HStack {
+                    Text("请文明发送弹幕")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(hex: "00BE06"))
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 36)
+                .frame(maxWidth: 200)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.white.opacity(0.12))
+                )
             }
-            .padding(.horizontal, 16)
-            .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white.opacity(0.12))
-            )
+            .buttonStyle(PlainButtonStyle())
 
             Spacer(minLength: 12)
 
@@ -4277,17 +4317,11 @@ struct LandscapeBottomBar: View {
 
             // 4. 内核按钮
             Button(action: { playerState.showEnginePicker.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 18))
-                    Text(playerState.currentEngineButtonTitle)
-                        .font(.system(size: 9))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
-                .frame(width: 56, height: 44)
-                .contentShape(Rectangle())
+                Text(playerState.currentEngineButtonTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
+                    .frame(width: 56, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -4344,8 +4378,8 @@ struct PlayerControlsView: View {
                             }
                         }) {
                             Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
+                                .font(.system(size: 16, weight: .light))
+                                .foregroundColor(.white.opacity(0.8))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -5257,7 +5291,7 @@ struct PlayerSettingsPanelV2: View {
                 }
             }
         }
-        .frame(width: 70)
+        .frame(width: 90)
         .background(panelBackground)
         .cornerRadius(8)
         .overlay(
