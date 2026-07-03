@@ -127,6 +127,34 @@ jobs:
           zip -r vbox.ipa Payload/
           echo "IPA: $(ls -lh vbox.ipa)"
 
+      - name: 📝 生成 Release Notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.MARKETING_VERSION }}"
+          BUILD="${{ steps.get_version.outputs.BUILD_NUM }}"
+
+          # 获取上一个 tag（跳过当前 tag）
+          PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
+          if [ -n "$PREVIOUS_TAG" ]; then
+            # 获取上一个 tag 到 HEAD 的提交，过滤 feat/fix/perf/refactor
+            NOTES=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" | \
+              grep -iE "^(feat|fix|perf|refactor):" | \
+              sed -E 's/^[[:space:]]*(feat|fix|perf|refactor)[[:space:]]*:[[:space:]]*//I' | \
+              awk '{print NR "、" $0}')
+          fi
+
+          if [ -z "$NOTES" ]; then
+            NOTES="版本 v$VERSION (build $BUILD)"
+          fi
+
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "$NOTES" > release_notes.txt
+          echo "=== 生成 Release Notes ==="
+          cat release_notes.txt
+
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
@@ -134,12 +162,18 @@ jobs:
           path: vbox.ipa
           compression-level: 0
 
+      - name: 📤 Upload Release Notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release_notes.txt
+
       - name: 🚀 Release to A Repo
         run: |
           gh release delete "v${{ steps.get_version.outputs.MARKETING_VERSION }}" --yes 2>/dev/null || true
           gh release create "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
             --title "v${{ steps.get_version.outputs.MARKETING_VERSION }}" \
-            --notes "版本 ${{ steps.get_version.outputs.MARKETING_VERSION }} (build ${{ steps.get_version.outputs.BUILD_NUM }})" \
+            --notes-file release_notes.txt \
             vbox.ipa
         env:
           GH_TOKEN: ${{ github.token }}
@@ -153,6 +187,12 @@ jobs:
         with:
           name: vbox-ipa
           path: ./vbox-ipa
+
+      - name: 📥 Download Release Notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: ./release-notes
 
       - name: 🚀 Sync Release to B Repo
         env:
@@ -219,12 +259,29 @@ jobs:
           echo "🗑️ 删除旧 Release..."
           GH_TOKEN="$B_REPO_TOKEN" gh release delete "$VERSION" --yes --repo $B_REPO_OWNER/$B_REPO_NAME 2>&1 || echo "旧 Release 不存在"
 
+          # 查找 Release Notes 文件
+          NOTES_FILE=$(find ./release-notes -name "release_notes.txt" -type f | head -1)
+          if [ -z "$NOTES_FILE" ]; then
+            echo "⚠️ 未找到 release_notes.txt，使用默认说明"
+            NOTES_FILE=""
+          else
+            echo "✅ Release Notes: $NOTES_FILE"
+          fi
+
           # 创建新 Release
           echo "🚀 创建 Release $VERSION..."
-          GH_TOKEN="$B_REPO_TOKEN" gh release create "$VERSION" \
-            --repo $B_REPO_OWNER/$B_REPO_NAME \
-            --title "$VERSION" \
-            --notes "版本 $VERSION" \
-            "$IPA_PATH"
+          if [ -n "$NOTES_FILE" ]; then
+            GH_TOKEN="$B_REPO_TOKEN" gh release create "$VERSION" \
+              --repo $B_REPO_OWNER/$B_REPO_NAME \
+              --title "$VERSION" \
+              --notes-file "$NOTES_FILE" \
+              "$IPA_PATH"
+          else
+            GH_TOKEN="$B_REPO_TOKEN" gh release create "$VERSION" \
+              --repo $B_REPO_OWNER/$B_REPO_NAME \
+              --title "$VERSION" \
+              --notes "版本 $VERSION" \
+              "$IPA_PATH"
+          fi
           echo "✅ 同步完成"
 
