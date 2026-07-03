@@ -2928,16 +2928,20 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    private func quarkDeleteFiles(fileIds: [String], cookie: String) async {
-        guard !fileIds.isEmpty else { return }
+    private func quarkDeleteFiles(fileIds: [String], cookie: String) async -> String {
+        guard !fileIds.isEmpty else { return cookie }
+        var currentCookie = cookie
         let url = quarkAPIURL("/1/clouddrive/file/delete")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        quarkSetCommonHeaders(&req, cookie: cookie)
+        quarkSetCommonHeaders(&req, cookie: currentCookie)
         // 对齐 iBox：filelist 字段传字符串数组
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         let deleteResult = try? await session.data(for: req)
+        if let response = deleteResult?.1 {
+            currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+        }
         self.log("[CloudDrive] ✅ 夸克已提交删除 \(fileIds.count) 个转存文件")
 
         // 彻底清理回收站（对齐iBox抓包：先 recycle/list 再 recycle/remove）
@@ -2955,9 +2959,12 @@ class CloudDriveManager: ObservableObject {
             var recycleReq = URLRequest(url: recycleURL)
             recycleReq.httpMethod = "GET"
             recycleReq.timeoutInterval = 10
-            quarkSetCommonHeaders(&recycleReq, cookie: cookie)
+            quarkSetCommonHeaders(&recycleReq, cookie: currentCookie)
 
             let recycleResult = try? await session.data(for: recycleReq)
+            if let response = recycleResult?.1 {
+                currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+            }
             if let recycleData = recycleResult?.0,
                let recycleJSON = try? JSONSerialization.jsonObject(with: recycleData) as? [String: Any],
                let list = recycleJSON["data"] as? [[String: Any]] {
@@ -2974,14 +2981,18 @@ class CloudDriveManager: ObservableObject {
                     let removeURL = quarkAPIURL("/1/clouddrive/file/recycle/remove")
                     var removeReq = URLRequest(url: removeURL)
                     removeReq.httpMethod = "POST"
-                    quarkSetCommonHeaders(&removeReq, cookie: cookie)
+                    quarkSetCommonHeaders(&removeReq, cookie: currentCookie)
                     let removeBody: [String: Any] = ["select_mode": 2, "record_list": recordIds]
                     removeReq.httpBody = try? JSONSerialization.data(withJSONObject: removeBody)
-                    let _ = try? await session.data(for: removeReq)
+                    let removeResult = try? await session.data(for: removeReq)
+                    if let response = removeResult?.1 {
+                        currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+                    }
                     self.log("[CloudDrive] ✅ 夸克已彻底清理回收站 \(recordIds.count) 条记录")
                 }
             }
         }
+        return currentCookie
     }
 
     private func quarkFirstPlayableFile(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> QuarkShareFile {
