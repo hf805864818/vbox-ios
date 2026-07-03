@@ -177,6 +177,9 @@ class DanmakuUIView: UIView {
 
         var visibleIDs = Set<Int>()
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
         for item in items {
             let progress = min(max((currentTime - item.time) / item.duration, 0), 1)
             let yPos = CGFloat(item.lane) * laneHeight + 20
@@ -203,13 +206,15 @@ class DanmakuUIView: UIView {
                 textLayer.foregroundColor = color.cgColor
             }
 
-            // 每帧只更新位置（Core Animation 隐式动画）
+            // 每帧只更新位置，禁用隐式动画避免卡顿
             textLayer.frame = CGRect(x: xPos, y: yPos, width: textWidth + 40, height: danmakuFontSize + 10)
 
             if textLayer.superlayer == nil {
                 self.layer.addSublayer(textLayer)
             }
         }
+
+        CATransaction.commit()
 
         // 释放不可见的 layer 回对象池，不销毁
         layerPool.releaseUnused(visibleIDs: visibleIDs)

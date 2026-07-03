@@ -172,9 +172,10 @@ class PiPHelper: NSObject {
             playerLayer = existingLayer
             print("[PiP] 复用 AVPlayerViewController 内部的 playerLayer")
         } else {
-            // 回退：创建独立的 playerLayer
+            // 回退：创建独立的 playerLayer，使用标准 16:9 尺寸避免 PiP 画面异常
             let newLayer = AVPlayerLayer(player: player)
-            newLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            newLayer.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            newLayer.videoGravity = .resizeAspect
             pipPlayerLayer = newLayer
             playerLayer = newLayer
             print("[PiP] 创建独立 playerLayer（回退方案）")
@@ -1235,12 +1236,12 @@ class PlayerState: ObservableObject {
 
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
-        // 缩小时间窗口，减少单次发射量，避免瞬间大量弹幕涌入
-        let windowStart = max(0, time - 0.02)
-        let windowEnd = time + 0.05
+        // 缩小时间窗口并限制单次发射量，避免瞬间大量弹幕涌入导致重叠/卡顿
+        let windowStart = max(0, time - 0.05)
+        let windowEnd = time + 0.1
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(3)
+            .prefix(2)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -1251,22 +1252,23 @@ class PlayerState: ObservableObject {
         let duration = baseDuration / max(danmakuSpeed, 0.25)
         // 动态计算轨道数：根据字体大小和显示区域
         let laneHeight = danmakuFontSize + 22
-        let maxAreaHeight = 400 * danmakuArea
-        let maxLanes = max(4, Int(maxAreaHeight / laneHeight))
-        let screenW = CGFloat(400) // 预估屏幕宽度，用于计算弹幕位置
+        // 使用更合理的预估高度，竖屏约 400pt，横屏约 220pt
+        let areaHeight = isPortrait ? 400.0 * danmakuArea : 220.0 * danmakuArea
+        let maxLanes = max(4, Int(areaHeight / laneHeight))
+        let screenW = isPortrait ? CGFloat(400) : CGFloat(700) // 横屏更宽
 
         // 清理已过期的轨道占用记录（弹幕已离开屏幕）
         laneOccupancy = laneOccupancy.filter { _, info in
             time - info.time < duration
         }
 
-        let appended = newItems.map { item in
+        let appended = newItems.compactMap { item -> DanmakuRenderItem? in
             let itemWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
             danmakuWidthCache[item.id] = itemWidth
 
             // 水平碰撞检测：计算前一条弹幕当前位置，确保新弹幕不会追上
-            let minGap: Double = 1.2 // 同轨道最小时间间隔（秒）
-            let minHorizontalGap: CGFloat = 60.0 // 水平最小间距（点）
+            let minGap: Double = 1.8 // 同轨道最小时间间隔（秒）
+            let minHorizontalGap: CGFloat = 100.0 // 水平最小间距（点）
 
             var assignedLane = 0
             var foundLane = false
@@ -1277,9 +1279,9 @@ class PlayerState: ObservableObject {
                     // 时间间隔必须足够
                     guard timeGap >= minGap else { continue }
 
-                    // 水平碰撞检测：计算前一条弹幕当前位置
-                    let lastWidth = danmakuWidthCache.values.first ?? 100
-                    let lastProgress = min(max((time - lastInfo.time) / duration, 0), 1)
+                    // 水平碰撞检测：使用当前 lane 上一条弹幕的宽度
+                    let lastWidth = max(80, CGFloat(lastInfo.contentLength) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
+                    let lastProgress = min(max(timeGap / duration, 0), 1)
                     let lastXPos = screenW - lastProgress * (screenW + lastWidth)
                     let lastRightEdge = lastXPos + lastWidth
 
@@ -1299,21 +1301,8 @@ class PlayerState: ObservableObject {
                 }
             }
 
-            // 如果没有找到完全空闲的轨道，使用间隔最大且水平安全的轨道
-            if !foundLane {
-                var bestLane = 0
-                var bestScore: Double = -1
-                for lane in 0..<maxLanes {
-                    let timeGap = time - (laneOccupancy[lane]?.time ?? 0)
-                    // 评分：时间间隔越大越好，同时考虑轨道索引（优先使用上方轨道）
-                    let score = timeGap + Double(maxLanes - lane) * 0.1
-                    if score > bestScore {
-                        bestScore = score
-                        bestLane = lane
-                    }
-                }
-                assignedLane = bestLane
-            }
+            // 找不到安全轨道直接丢弃该弹幕，避免重叠
+            guard foundLane else { return nil }
 
             // 更新轨道占用时间和内容长度
             laneOccupancy[assignedLane] = (time: time, contentLength: item.content.count)
@@ -1329,6 +1318,7 @@ class PlayerState: ObservableObject {
         }
         danmakuItems = (danmakuItems + appended)
             .filter { time - $0.time < $0.duration }
+            .suffix(30) // 限制同时渲染的弹幕数量，避免卡顿
     }
 
     private func playbackProgressKey(for video: VodItem) -> String {
@@ -3609,8 +3599,8 @@ struct PlayerContainerView: View {
                                 }
                             )
                             .environmentObject(settings)
-                            .frame(width: 80)
-                            .position(x: geo.size.width - 60, y: geo.size.height - 260)
+                            .frame(width: 110)
+                            .position(x: geo.size.width - 75, y: geo.size.height - 260)
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -3637,9 +3627,9 @@ struct PlayerContainerView: View {
                                 }
                             )
                             .environmentObject(settings)
-                            .frame(width: 70)
+                            .frame(width: 100)
                             // 固定在进度条上方（与倍数弹窗同位置区域）
-                            .position(x: geo.size.width - 38, y: geo.size.height - 200)
+                            .position(x: geo.size.width - 53, y: geo.size.height - 200)
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -4327,7 +4317,9 @@ struct LandscapeBottomBar: View {
                 Text(playerState.currentEngineButtonTitle)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
-                    .frame(width: 56, height: 44)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(width: 78, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -4385,8 +4377,8 @@ struct PlayerControlsView: View {
                             }
                         }) {
                             Image(systemName: playerState.isOrientationLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 16, weight: .light))
-                                .foregroundColor(.white.opacity(0.8))
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.white.opacity(0.9))
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -4426,6 +4418,7 @@ struct PlayerControlsView: View {
                 let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
                 if let asset = try? AVURLAsset(url: compatURL, options: avOptions) {
                     let avPlayerForPiP = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                    avPlayerForPiP.play()
                     PiPHelper.shared.setupPiP(for: avPlayerForPiP)
                     playerState.log("[PlayerV2] 兼容内核尝试走 AVPlayer 系统画中画：\(compatURL.absoluteString.prefix(80))")
                 } else {
@@ -5345,6 +5338,8 @@ struct QualityPickerPanelV2: View {
                         Text(qualities[index])
                             .font(.system(size: isPortrait ? 16 : 13, weight: selectedQuality == index ? .semibold : .regular))
                             .foregroundColor(selectedQuality == index ? selectedColor : textPrimary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                         Spacer()
                         if selectedQuality == index {
                             Image(systemName: "checkmark")
