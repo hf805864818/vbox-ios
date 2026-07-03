@@ -3,8 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var settings = AppSettings()
     @State private var selectedTab: Tab = .home
-    @State private var showUpdateAlert = false
-    @State private var showUpdateSheet = false
+    @State private var showUpdateSheet: Bool = false
 
     enum Tab: String, CaseIterable {
         case home = "首页"
@@ -128,20 +127,16 @@ struct ContentView: View {
             Task {
                 await SpiderManager.shared.initialize()
                 await UpdateManager.shared.checkForUpdate()
-                if UpdateManager.shared.hasUpdate { showUpdateAlert = true }
+                if UpdateManager.shared.hasUpdate { showUpdateSheet = true }
             }
         }
-        .alert("发现新版本", isPresented: $showUpdateAlert) {
-            Button("稍后") { }
-            Button("查看更新") { showUpdateSheet = true }
-        } message: {
-            if !UpdateManager.shared.releaseNotes.isEmpty {
-                Text(UpdateManager.shared.releaseNotes)
-            } else {
-                Text("新版本 v\(UpdateManager.shared.latestVersion) 可用")
+        .overlay {
+            if showUpdateSheet {
+                UpdateSheet(isPresented: $showUpdateSheet)
+                    .transition(.opacity)
+                    .zIndex(1)
             }
         }
-        .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
     }
 
     private var activeTabColor: Color {
