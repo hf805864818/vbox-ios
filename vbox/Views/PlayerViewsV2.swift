@@ -3977,59 +3977,149 @@ struct PortraitBottomBar: View {
     let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
 
+    /// 格式化倍速显示文字（如 "1.0x"）
+    private var speedDisplayText: String {
+        let s = playerState.playbackSpeed
+        return (s == floor(s)) ? String(format: "%.0fx", s) : String(format: "%.1fx", s)
+    }
+
+    /// 当前清晰度显示文字
+    private var qualityDisplayText: String {
+        let isBaidu = playerState.episodeItems.isEmpty && !playerState.baiduFileList.isEmpty
+        if isBaidu {
+            return "原画"
+        } else {
+            let qualities = ["标清", "高清", "蓝光"]
+            return qualities.indices.contains(playerState.selectedQuality) ? qualities[playerState.selectedQuality] : "高清"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
+            // === 左侧功能区 ===
+
+            // 1. 暂停/播放按钮 - 两条竖线风格
             Button(action: { playerState.togglePlayback(player: player) }) {
                 Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
-                    .frame(width: 56, height: 44)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(player == nil && playerState.compatibilityURL == nil)
             .buttonStyle(PlainButtonStyle())
 
+            // 2. 下一集按钮 - 左三角箭头风格
             Button(action: { playerState.playNextEpisode() }) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 20))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
-                    .frame(width: 56, height: 44)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(!playerState.hasNextEpisode)
             .buttonStyle(PlainButtonStyle())
 
-            Spacer()
-
-            // 选集按钮
-            Button(action: { playerState.showEpisodePicker.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 18))
-                    Text("选集")
-                        .font(.system(size: 10, weight: .medium))
+            // 3. 弹幕开关按钮 - "弹"字图标，开启时右下角绿色对勾
+            Button(action: { playerState.showDanmaku.toggle() }) {
+                ZStack(alignment: .bottomTrailing) {
+                    Text("弹")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(playerState.showDanmaku ? .white : .white.opacity(0.6))
+                        .frame(width: 32, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(playerState.showDanmaku ? Color(hex: "00BE06") : Color.white.opacity(0.2))
+                        )
+                    if playerState.showDanmaku {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 12, height: 12)
+                            .background(Circle().fill(Color(hex: "00BE06")))
+                            .offset(x: 2, y: 2)
+                    }
                 }
-                .foregroundColor(.white)
-                .frame(width: 56, height: 44)
+                .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // 倍数按钮
+            // 4. 弹幕设置按钮 - "弹"字+齿轮小图标
+            Button(action: { playerState.showDanmakuSettings = true }) {
+                ZStack(alignment: .bottomTrailing) {
+                    Text("弹")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 32, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.white.opacity(0.2))
+                        )
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.white.opacity(0.8))
+                        .frame(width: 14, height: 14)
+                        .background(Circle().fill(Color.white.opacity(0.25)))
+                        .offset(x: 2, y: 2)
+                }
+                .frame(width: 48, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // === 中间输入框区域 ===
+            Spacer(minLength: 8)
+
+            // 弹幕输入框 - 深灰底色长条输入框
+            HStack {
+                Text("请文明发龙弹幕")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "00BE06"))
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.white.opacity(0.12))
+            )
+
+            Spacer(minLength: 8)
+
+            // === 右侧功能区 ===
+
+            // 1. 倍速按钮 - 文字显示当前倍速值
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     playerState.showSettings.toggle()
                 }
             }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "speedometer")
-                        .font(.system(size: 18))
-                    Text("倍数")
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .foregroundColor(playerState.showSettings ? Color(hex: "2196F3") : .white)
-                .frame(width: 56, height: 44)
-                .contentShape(Rectangle())
+                Text(speedDisplayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(playerState.showSettings ? Color(hex: "00BE06") : .white)
+                    .frame(width: 48, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // 2. 清晰度按钮 - 显示当前分辨率
+            Button(action: { playerState.showQualityPicker.toggle() }) {
+                Text(qualityDisplayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // 3. 选集按钮
+            Button(action: { playerState.showEpisodePicker.toggle() }) {
+                Text("选集")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -4043,95 +4133,145 @@ struct LandscapeBottomBar: View {
     let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
 
+    /// 格式化倍速显示文字（如 "1.0x"）
+    private var speedDisplayText: String {
+        let s = playerState.playbackSpeed
+        return (s == floor(s)) ? String(format: "%.0fx", s) : String(format: "%.1fx", s)
+    }
+
+    /// 当前清晰度显示文字
+    private var qualityDisplayText: String {
+        let isBaidu = playerState.episodeItems.isEmpty && !playerState.baiduFileList.isEmpty
+        if isBaidu {
+            return "原画"
+        } else {
+            let qualities = ["标清", "高清", "蓝光"]
+            return qualities.indices.contains(playerState.selectedQuality) ? qualities[playerState.selectedQuality] : "高清"
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 0) {
+            // === 左侧功能区 ===
+
+            // 1. 暂停/播放按钮 - 两条竖线风格
             Button(action: { playerState.togglePlayback(player: player) }) {
                 Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundColor((player == nil && playerState.compatibilityURL == nil) ? .gray : .white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
             .disabled(player == nil && playerState.compatibilityURL == nil)
 
+            // 2. 下一集按钮 - 左三角箭头风格
             Button(action: { playerState.playNextEpisode() }) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 20))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundColor(playerState.hasNextEpisode ? .white : .gray)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
             .disabled(!playerState.hasNextEpisode)
 
-            Spacer()
-
-            // 弹幕按钮
-            Button(action: { playerState.showDanmakuSettings = true }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "text.bubble")
-                        .font(.system(size: 18))
-                    Text("弹幕")
-                        .font(.system(size: 10))
+            // 3. 弹幕开关按钮 - "弹"字图标，开启时右下角绿色对勾
+            Button(action: { playerState.showDanmaku.toggle() }) {
+                ZStack(alignment: .bottomTrailing) {
+                    Text("弹")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(playerState.showDanmaku ? .white : .white.opacity(0.6))
+                        .frame(width: 32, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(playerState.showDanmaku ? Color(hex: "00BE06") : Color.white.opacity(0.2))
+                        )
+                    if playerState.showDanmaku {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 12, height: 12)
+                            .background(Circle().fill(Color(hex: "00BE06")))
+                            .offset(x: 2, y: 2)
+                    }
                 }
-                .foregroundColor(playerState.showDanmaku ? Color(hex: "00BEFF") : .white)
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // 清晰度按钮
-            Button(action: { playerState.showQualityPicker.toggle() }) {
-                Text(playerState.episodeItems.isEmpty && playerState.baiduFileList.isEmpty ? "高清" : "原画")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
+            // 4. 弹幕设置按钮 - "弹"字+齿轮小图标
+            Button(action: { playerState.showDanmakuSettings = true }) {
+                ZStack(alignment: .bottomTrailing) {
+                    Text("弹")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 32, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.white.opacity(0.2))
+                        )
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.white.opacity(0.8))
+                        .frame(width: 14, height: 14)
+                        .background(Circle().fill(Color.white.opacity(0.25)))
+                        .offset(x: 2, y: 2)
+                }
+                .frame(width: 48, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // === 中间输入框区域 ===
+            Spacer(minLength: 12)
+
+            // 弹幕输入框 - 深灰底色长条输入框
+            HStack {
+                Text("请文明发龙弹幕")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "00BE06"))
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.white.opacity(0.12))
+            )
+
+            Spacer(minLength: 12)
+
+            // === 右侧功能区 ===
+
+            // 1. 倍速按钮 - 文字显示当前倍速值
+            Button(action: { playerState.showSettings.toggle() }) {
+                Text(speedDisplayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(playerState.showSettings ? Color(hex: "00BE06") : .white)
+                    .frame(width: 56, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // 内核按钮
-            Button(action: { playerState.showEnginePicker.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 18))
-                    Text(playerState.currentEngineButtonTitle)
-                        .font(.system(size: 9))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
-                .frame(width: 56, height: 44)
-                .contentShape(Rectangle())
+            // 2. 清晰度按钮 - 显示当前分辨率文字
+            Button(action: { playerState.showQualityPicker.toggle() }) {
+                Text(qualityDisplayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 56, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // 选集按钮
+            // 3. 选集按钮
             Button(action: { playerState.showEpisodePicker.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 18))
-                    Text("选集")
-                        .font(.system(size: 10))
-                }
-                .foregroundColor(.white)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            // 倍数按钮
-            Button(action: { playerState.showSettings.toggle() }) {
-                VStack(spacing: 2) {
-                    Image(systemName: "speedometer")
-                        .font(.system(size: 18))
-                    Text("倍数")
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .foregroundColor(.white)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                Text("选集")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 56, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
         }
