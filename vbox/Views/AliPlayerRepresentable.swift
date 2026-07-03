@@ -175,7 +175,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
             })
         }
 
-        private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
             guard let player = player else { return }
             // AliPlayer scalingMode: 0=aspectFit, 1=aspectFill, 2=fill
             switch mode {
@@ -290,6 +290,13 @@ class AliPlayerProxy: NSObject {
     func stop() { obj.perform(NSSelectorFromString("stop")) }
     func destroy() { obj.perform(NSSelectorFromString("destroy")) }
     func redraw() { obj.perform(NSSelectorFromString("redraw")) }
+    func setScalingMode(_ mode: Int) {
+        let sel = NSSelectorFromString("setScalingMode:")
+        typealias ScalingFunc = @convention(c) (NSObject, Selector, Int) -> Void
+        if let imp = obj.method(for: sel) {
+            unsafeBitCast(imp, to: ScalingFunc.self)(obj, sel, mode)
+        }
+    }
     func seek(toTime: Int64, seekMode: Int) {
         let sel = NSSelectorFromString("seekToTime:seekMode:")
         typealias SeekFunc = @convention(c) (NSObject, Selector, Int64, Int) -> Void
