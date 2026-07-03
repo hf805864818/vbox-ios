@@ -74,6 +74,7 @@ final class VLCPlayerEngine: NSObject, PlayerEngine {
         case .resize:
             renderView.contentMode = .scaleToFill
         }
+        print("[VLC] 屏幕拉伸模式切换为：\(mode.rawValue)")
     }
 
     func load(route: PlaybackRoute) {

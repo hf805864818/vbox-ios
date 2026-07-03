@@ -1233,9 +1233,16 @@ class PlayerState: ObservableObject {
     private var laneOccupancy: [Int: (time: Double, contentLength: Int)] = [:]
     /// 记录每条弹幕的预估宽度，用于水平碰撞检测
     private var danmakuWidthCache: [Int: CGFloat] = [:]
+    /// 限制弹幕刷新频率
+    private var lastDanmakuUpdateTime: Double = -1
 
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
+        // 限制刷新频率约 20fps，避免频繁计算和 UI 刷新导致卡顿
+        if lastDanmakuUpdateTime > 0, time - lastDanmakuUpdateTime < 0.05 {
+            return
+        }
+        lastDanmakuUpdateTime = time
         // 缩小时间窗口并限制单次发射量，避免瞬间大量弹幕涌入导致重叠/卡顿
         let windowStart = max(0, time - 0.05)
         let windowEnd = time + 0.1
@@ -1318,7 +1325,7 @@ class PlayerState: ObservableObject {
         }
         danmakuItems = (danmakuItems + appended)
             .filter { time - $0.time < $0.duration }
-            .suffix(30) // 限制同时渲染的弹幕数量，避免卡顿
+            .suffix(15) // 限制同时渲染的弹幕数量，避免卡顿
     }
 
     private func playbackProgressKey(for video: VodItem) -> String {

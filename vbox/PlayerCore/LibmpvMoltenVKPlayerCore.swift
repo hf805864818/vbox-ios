@@ -63,11 +63,15 @@ final class LibmpvMoltenVKRenderView: UIView {
         switch mode {
         case .aspectFill:
             metalLayer.contentsGravity = .resizeAspectFill
+            self.contentMode = .scaleAspectFill
         case .aspectFit:
             metalLayer.contentsGravity = .resizeAspect
+            self.contentMode = .scaleAspectFit
         case .resize:
             metalLayer.contentsGravity = .resize
+            self.contentMode = .scaleToFill
         }
+        print("[MPV-MoltenVK] 屏幕拉伸模式切换为：\(mode.rawValue)")
     }
 }
 

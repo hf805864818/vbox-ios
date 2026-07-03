@@ -160,7 +160,8 @@ class DanmakuUIView: UIView {
 
     func updateItems(_ items: [DanmakuRenderItem], currentTime: Double) {
         let sameItems = items.count == lastItems.count && items.map(\.id) == lastItems.map(\.id)
-        guard !sameItems || abs(currentTime - lastTime) > 0.005 else { return }
+        // 降低刷新频率到 20fps，减少 CPU 占用；item 变化时立即刷新
+        guard !sameItems || abs(currentTime - lastTime) > 0.05 else { return }
         lastItems = items
         lastTime = currentTime
 
