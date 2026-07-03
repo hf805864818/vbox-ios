@@ -19,6 +19,7 @@ struct SettingsView: View {
     @State private var showCacheAlert = false
     @State private var cacheSize: String = "256 MB"
     @State private var showUpdateSheet = false
+    @State private var showNoUpdateAlert = false
     @StateObject private var updateManager = UpdateManager.shared
     @State private var isChecking = false
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
@@ -75,6 +76,11 @@ struct SettingsView: View {
             }
         } message: { Text("确定要清除所有缓存数据吗？") }
         .sheet(isPresented: $showUpdateSheet) { UpdateSheet() }
+        .alert("检查更新", isPresented: $showNoUpdateAlert) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text("当前版本 \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知") 已是最新版本")
+        }
     }
 
     // MARK: - 拆分视图（解决编译器超时）
@@ -576,7 +582,18 @@ struct SettingsView: View {
             HStack {
                 Text("版本").foregroundColor(.primary); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "未知").foregroundColor(.gray)
             }.padding(.horizontal, 16).padding(.vertical, 12)
-            Button(action: { showUpdateSheet = true }) {
+            Button(action: {
+                Task {
+                    isChecking = true
+                    await updateManager.checkForUpdate()
+                    isChecking = false
+                    if updateManager.hasUpdate {
+                        showUpdateSheet = true
+                    } else {
+                        showNoUpdateAlert = true
+                    }
+                }
+            }) {
                 HStack {
                     Text("检查更新").foregroundColor(.primary); Spacer()
                     if isChecking { ProgressView().scaleEffect(0.8) }
