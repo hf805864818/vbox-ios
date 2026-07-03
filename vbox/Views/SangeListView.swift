@@ -62,7 +62,7 @@ final class SangeListViewModel: ObservableObject {
                 let newItems: [SangeVideoItem]
                 switch bigCategory.navType {
                 case .video, .shortVideo:
-                    newItems = try await api.fetchVideoList(classifyId: subCategory.id,
+                    newItems = try await api.fetchVideoList(navigationId: subCategory.id,
                                                             page: page,
                                                             pageSize: 20)
                 default:

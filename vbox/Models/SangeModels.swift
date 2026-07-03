@@ -125,7 +125,7 @@ struct SangeVideoItem: Identifiable, Hashable {
     init(dict: [String: Any], navType: SangeNavType = .video) {
         self.id = dictString(dict, keys: ["id", "vodId", "videoId", "movId", "comicId", "novelId"]) ?? UUID().uuidString
         self.name = dictString(dict, keys: ["name", "title", "vodName", "videoName", "comicName", "novelName"]) ?? "未命名"
-        self.cover = dictString(dict, keys: ["cover", "coverUrl", "coverImage", "image", "pic", "vodPic", "thumb"]) ?? ""
+        self.cover = dictString(dict, keys: ["cover", "coverH", "coverUrl", "coverImage", "image", "pic", "vodPic", "thumb"]) ?? ""
         self.playUrl = dictString(dict, keys: ["playUrl", "url", "videoUrl", "vodPlayUrl", "streamUrl", "m3u8"])
         self.duration = dictString(dict, keys: ["duration", "time", "length", "vodDuration"])
         self.remarks = dictString(dict, keys: ["remarks", "typeName", "classifyName", "tag", "score"])
