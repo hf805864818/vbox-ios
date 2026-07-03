@@ -12,6 +12,7 @@ class UpdateManager: ObservableObject {
     @Published var latestVersion = ""
     @Published var latestBuild = ""
     @Published var downloadURL: String?
+    @Published var releasePageURL: String?
     @Published var releaseNotes = ""
     @Published var updateError: String?
 
@@ -48,6 +49,7 @@ class UpdateManager: ObservableObject {
                let json = releases.first {
                 let tagName = json["tag_name"] as? String ?? ""
                 let body = json["body"] as? String ?? ""
+                let htmlURL = json["html_url"] as? String
                 let assets = json["assets"] as? [[String: Any]] ?? []
 
                 // 找第一个IPA下载链接
@@ -66,6 +68,7 @@ class UpdateManager: ObservableObject {
                 latestVersion = remoteVersion
                 releaseNotes = body
                 downloadURL = ipaURL
+                releasePageURL = htmlURL
 
                 // 比较版本：如果当前版本小于远程版本则有更新
                 if currentVersion.compare(remoteVersion, options: .numeric) == .orderedAscending {
@@ -84,9 +87,9 @@ class UpdateManager: ObservableObject {
         isChecking = false
     }
 
-    /// 打开下载链接
-    func openDownload() {
-        guard let url = downloadURL, let urlObj = URL(string: url) else { return }
+    /// 打开 Release 页面
+    func openReleasePage() {
+        guard let url = releasePageURL ?? downloadURL, let urlObj = URL(string: url) else { return }
         UIApplication.shared.open(urlObj)
     }
 }
