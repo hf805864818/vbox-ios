@@ -94,8 +94,51 @@ class PiPHelper: NSObject {
     private var isFloatingMode = false
     private var pipStartRetries: Int = 0
     
-    private override init() { super.init() }
-    
+    private override init() {
+        super.init()
+        // 监听屏幕拉伸模式变化，对所有播放器视图统一设置 contentMode
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVideoGravityChanged(_:)), name: .vboxVideoGravityChanged, object: nil)
+    }
+
+    @objc private func handleVideoGravityChanged(_ notification: Notification) {
+        guard let mode = notification.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+        let contentMode: UIView.ContentMode
+        switch mode {
+        case .aspectFill:
+            contentMode = .scaleAspectFill
+        case .aspectFit:
+            contentMode = .scaleAspectFit
+        case .resize:
+            contentMode = .scaleToFill
+        }
+
+        DispatchQueue.main.async {
+            guard let rootView = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first?.windows
+                .first(where: { $0.isKeyWindow })?.rootViewController?.view else { return }
+
+            let candidates = ["Player", "Video", "GL", "Metal", "Render", "AliPlayer", "VLC", "IJK", "MPV", "MDK"]
+            self.setContentMode(contentMode, for: rootView, classNameHints: candidates)
+        }
+    }
+
+    private func setContentMode(_ contentMode: UIView.ContentMode, for view: UIView, classNameHints: [String]) {
+        let className = String(describing: type(of: view))
+        let isPlayerView = classNameHints.contains(where: { className.contains($0) })
+            || view is AVPlayerLayer
+            || view.layer is AVPlayerLayer
+            || String(describing: type(of: view.layer)).contains("Metal")
+            || String(describing: type(of: view.layer)).contains("OpenGL")
+        if isPlayerView {
+            view.contentMode = contentMode
+            view.clipsToBounds = true
+        }
+        for subview in view.subviews {
+            setContentMode(contentMode, for: subview, classNameHints: classNameHints)
+        }
+    }
+
     /// 保存 AVPlayerViewController 内部的 playerLayer 引用，供画中画使用
     func setPlayerLayer(_ layer: AVPlayerLayer) {
         // 如果 PiP 控制器已存在且使用的是旧 layer，需要重新创建
@@ -404,6 +447,7 @@ extension Notification.Name {
     static let vboxPiPStatusChanged = Notification.Name("vbox.pip.statusChanged")
     static let vboxPiPRestoreFullScreen = Notification.Name("vbox.pip.restoreFullScreen")
     static let vboxPiPTogglePlayPause = Notification.Name("vbox.pip.togglePlayPause")
+    static let vboxVideoGravityChanged = Notification.Name("vbox.videoGravity.changed")
 }
 
 // MARK: - 新版本播放器 (爱奇艺风格) - 简化版本，确保编译通过
@@ -628,7 +672,13 @@ class PlayerState: ObservableObject {
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
     @Published var isPiPActive = false
-    @Published var videoGravity: VideoGravityMode = .aspectFill
+    @Published var videoGravity: VideoGravityMode = .aspectFill {
+        didSet {
+            if oldValue != videoGravity {
+                NotificationCenter.default.post(name: .vboxVideoGravityChanged, object: nil, userInfo: ["mode": videoGravity])
+            }
+        }
+    }
     @Published var volume: Double = 0.5
     @Published var brightness: Double = 0.5
     @Published var danmakuItems: [DanmakuRenderItem] = []
@@ -769,16 +819,11 @@ class PlayerState: ObservableObject {
         switch enginePreference {
         case .auto:
             if playbackEngineMode == .compatibility {
-                if isMDKBuildAvailable, shouldPreferMDK(for: nil) {
-                    return "自动/MDK"
-                }
-                if isAliPlayerBuildAvailable, shouldPreferAliPlayer(for: nil) {
-                    return "自动/阿里"
-                }
-                if isIJKBuildAvailable, shouldPreferIJK(for: nil) {
-                    return "自动/IJK"
-                }
-                return isMPVBuildAvailable ? "自动/MPV" : "自动/VLC"
+                // 显示实际使用的兼容内核名称，避免与 EngineResolver 决策不一致
+                let shortName = compatibilityEngineName
+                    .replacingOccurrences(of: "-MoltenVK", with: "")
+                    .replacingOccurrences(of: "Player", with: "")
+                return "自动/\(shortName)"
             }
             return "自动"
         case .system:
@@ -889,6 +934,14 @@ class PlayerState: ObservableObject {
             ("高码率", "高码率视频")
         ]
         return rules.first(where: { lower.contains($0.0) })?.1
+    }
+
+    func cycleVideoGravity() {
+        let allModes = VideoGravityMode.allCases
+        if let idx = allModes.firstIndex(of: videoGravity) {
+            videoGravity = allModes[(idx + 1) % allModes.count]
+        }
+        log("[PlayerV2] 屏幕拉伸模式切换为：\(videoGravity.rawValue)")
     }
 
     func selectPlaybackEngine(_ preference: PlaybackEnginePreference) {
@@ -3669,7 +3722,12 @@ struct ErrorView: View {
     let error: String
     let onRetry: () -> Void
     @Environment(\.dismiss) private var dismiss
-    
+
+    private var isRetryable: Bool {
+        let lower = error.lowercased()
+        return !lower.contains("已失效") && !lower.contains("已被和谐") && !lower.contains("禁止播放") && !lower.contains("转存返回占位")
+    }
+
     var body: some View {
         VStack {
             Spacer()
@@ -3685,17 +3743,19 @@ struct ErrorView: View {
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                
+
                 HStack(spacing: 20) {
-                    Button(action: onRetry) {
-                        Text("重试")
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 40)
-                            .padding(.vertical, 12)
-                            .background(Color.blue)
-                            .cornerRadius(8)
+                    if isRetryable {
+                        Button(action: onRetry) {
+                            Text("重试")
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 40)
+                                .padding(.vertical, 12)
+                                .background(Color.blue)
+                                .cornerRadius(8)
+                        }
                     }
-                    
+
                     Button(action: { dismiss() }) {
                         Text("返回")
                             .foregroundColor(.white)
@@ -3717,7 +3777,12 @@ struct ErrorViewWithLogs: View {
     let logs: [String]
     let onRetry: () -> Void
     @Environment(\.dismiss) private var dismiss
-    
+
+    private var isRetryable: Bool {
+        let lower = error.lowercased()
+        return !lower.contains("已失效") && !lower.contains("已被和谐") && !lower.contains("禁止播放") && !lower.contains("转存返回占位")
+    }
+
     var body: some View {
         VStack {
             Spacer()
@@ -3734,10 +3799,12 @@ struct ErrorViewWithLogs: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 30)
                 HStack(spacing: 20) {
-                    Button(action: onRetry) {
-                        Text("重试").foregroundColor(.white)
-                            .padding(.horizontal, 40).padding(.vertical, 12)
-                            .background(Color.blue).cornerRadius(8)
+                    if isRetryable {
+                        Button(action: onRetry) {
+                            Text("重试").foregroundColor(.white)
+                                .padding(.horizontal, 40).padding(.vertical, 12)
+                                .background(Color.blue).cornerRadius(8)
+                        }
                     }
                     Button(action: { dismiss() }) {
                         Text("返回").foregroundColor(.white)
@@ -3809,10 +3876,7 @@ struct PlayerTopBarView: View {
                             .frame(width: 44, height: 44)
 
                         Button(action: {
-                            let allModes = PlayerState.VideoGravityMode.allCases
-                            if let idx = allModes.firstIndex(of: playerState.videoGravity) {
-                                playerState.videoGravity = allModes[(idx + 1) % allModes.count]
-                            }
+                            playerState.cycleVideoGravity()
                         }) {
                             Image(systemName: playerState.videoGravity.icon)
                                 .font(.system(size: 16, weight: .semibold))
@@ -4159,24 +4223,16 @@ struct PlayerControlsView: View {
             // 启动系统画中画并返回桌面
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-            // 阿里内核优先走原生系统画中画
-            let isAliPlayer = playerState.compatibilityEngineName.contains("AliPlayer") || playerState.enginePreference == .ali
-            if isAliPlayer {
-                let started = AliPlayerRepresentable.enterPictureInPicture()
-                playerState.log("[PlayerV2] AliPlayer 原生画中画尝试结果: \(started ? "成功" : "失败，将回退到截图浮窗")")
-                if !started {
-                    if let playerView = findCurrentPlayerView() {
-                        PiPHelper.shared.showFloatingWindow(sourceView: playerView)
-                    } else if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
-                        PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
-                    }
-                }
-            } else if playerState.compatibilityURL != nil {
-                // 其他兼容内核走应用内浮动窗口（截图方式），兼容 VLC/IJK/MPV/MDK
-                if let playerView = findCurrentPlayerView() {
-                    PiPHelper.shared.showFloatingWindow(sourceView: playerView)
-                } else if let keyWindow = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) {
-                    PiPHelper.shared.showFloatingWindow(sourceView: keyWindow)
+            // 所有内核统一尝试系统画中画（桌面小窗口），失败不再回退截图浮窗。
+            // 兼容内核通过 AVURLAsset + 私有 header 字段复用当前播放 headers，让 AVPlayer 也能播放本地代理 URL。
+            if let compatURL = playerState.compatibilityURL {
+                let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
+                if let asset = try? AVURLAsset(url: compatURL, options: avOptions) {
+                    let avPlayerForPiP = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                    PiPHelper.shared.setupPiP(for: avPlayerForPiP)
+                    playerState.log("[PlayerV2] 兼容内核尝试走 AVPlayer 系统画中画：\(compatURL.absoluteString.prefix(80))")
+                } else {
+                    playerState.log("[PlayerV2] 兼容内核系统画中画不可用（无法创建 AVURLAsset）")
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
