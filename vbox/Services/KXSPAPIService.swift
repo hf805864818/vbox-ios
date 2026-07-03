@@ -44,6 +44,8 @@ struct KXSPConfig {
 
     /// H5 URL 里带来的 httpUrl，没有协议头。可运行时覆盖。
     static let defaultHttpUrl = "xn--oorr81b2yk37g.com"
+    /// 视频内容 API 默认域名（aiApi），带 https:// 前缀
+    static let defaultAiApi = "https://test1234.xn--6kr83q8rgfo4c.com"
 
     /// 备用域名列表（按优先级排序，第一个失败自动试下一个）
     /// 后期域名挂了直接在这里加新域名就行，不需要改其他代码
@@ -409,6 +411,8 @@ final class KXSPAPIService: ObservableObject {
     }
 
     // MARK: - 公共请求
+
+    /// 用户/配置类 API 请求（使用 httpUrl 域名，请求体/响应体均为 JSON 包装）
     private func request(path: String,
                          params: [String: Any],
                          useRuntimeConfig: Bool = true) async throws -> [String: Any] {
@@ -472,6 +476,70 @@ final class KXSPAPIService: ObservableObject {
         return decryptedJSON
     }
 
+    /// 视频内容类 API 请求（使用 aiApi 域名，请求体/响应体均为纯 base64 字符串）
+    private func videoRequest(path: String,
+                              params: [String: Any]) async throws -> [String: Any] {
+        let clientId = runtime?.clientId ?? KXSPConfig.defaultClientId
+        let tenantId = runtime?.tenantId ?? KXSPConfig.defaultTenantId
+        // 视频 API 使用 aiApi 域名
+        let baseURL = runtime?.aiApi ?? KXSPConfig.defaultAiApi
+
+        let aesKey = randomString(length: 32)
+        let plainJSON = try JSONSerialization.data(withJSONObject: params)
+        guard let encryptedData = KXSPCrypto.aesEncrypt(data: plainJSON, key: aesKey) else {
+            throw KXSPError.cryptoFailure("AES 加密失败")
+        }
+        guard let aesKeyB64 = aesKey.data(using: .utf8)?.base64EncodedString(),
+              let encryptedKey = KXSPCrypto.rsaEncrypt(string: aesKeyB64,
+                                                        publicKeyPEM: KXSPConfig.serverPublicKeyPEM) else {
+            throw KXSPError.cryptoFailure("RSA 加密 AES key 失败")
+        }
+
+        guard let url = URL(string: baseURL + path) else {
+            throw KXSPError.invalidURL
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json;charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        req.setValue(clientId, forHTTPHeaderField: "clientId")
+        req.setValue(tenantId, forHTTPHeaderField: "tenantId")
+        req.setValue(encryptedKey, forHTTPHeaderField: "encrypt-key")
+        req.setValue("true", forHTTPHeaderField: "isEncrypt")
+        // 视频 API 请求体是纯 base64 字符串
+        req.httpBody = encryptedData.data(using: .utf8)
+
+        let (data, response) = try await session.data(for: req)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw KXSPError.invalidResponse
+        }
+
+        guard httpResp.statusCode == 200 else {
+            throw KXSPError.serverError(httpResp.statusCode, String(data: data, encoding: .utf8))
+        }
+
+        guard let respEncryptKey = httpResp.value(forHTTPHeaderField: "encrypt-key"),
+              let respKeyB64 = KXSPCrypto.rsaDecrypt(base64: respEncryptKey,
+                                                      privateKeyPEM: KXSPConfig.clientPrivateKeyPEM),
+              let respKeyData = Data(base64Encoded: respKeyB64),
+              let respKeyString = String(data: respKeyData, encoding: .utf8) else {
+            throw KXSPError.missingEncryptKey
+        }
+
+        // 视频 API 响应体是纯 base64 字符串，直接解密
+        guard let encryptedResp = String(data: data, encoding: .utf8),
+              let decryptedData = KXSPCrypto.aesDecrypt(base64: encryptedResp, key: respKeyString),
+              let decryptedJSON = try? JSONSerialization.jsonObject(with: decryptedData) as? [String: Any] else {
+            throw KXSPError.invalidResponse
+        }
+
+        if let code = decryptedJSON["code"] as? Int, code != 200 {
+            throw KXSPError.serverError(code, decryptedJSON["msg"] as? String)
+        }
+
+        return decryptedJSON
+    }
+
     // MARK: - 账号 / 配置
     private func fetchAccount() async throws -> [String: Any] {
         var params: [String: Any] = [
@@ -491,76 +559,115 @@ final class KXSPAPIService: ObservableObject {
 
     // MARK: - 业务接口
 
-    /// 视频大分类 + 小分类
+    /// 视频导航分类列表（顶部大分类）
     func fetchVideoNavList() async throws -> [SangeBigCategory] {
-        let resp = try await request(path: "/video/api/nav/list", params: [:])
+        let params: [String: Any] = [
+            "locationType": "nav_index_top",
+            "navTagStatus": 0,
+            "appId": 0,
+            "deviceNumber": deviceNumber,
+            "deviceType": KXSPConfig.deviceType
+        ]
+        let resp = try await videoRequest(path: "/video/api/nav/list", params: params)
         guard let data = resp["data"] as? [[String: Any]] else { return [] }
         return data.compactMap { SangeBigCategory(dict: $0) }
     }
 
-    /// 视频首页推荐
-    func fetchVideoIndex(page: Int = 1, pageSize: Int = 20) async throws -> [SangeVideoItem] {
-        var params: [String: Any] = ["page": page, "pageSize": pageSize]
-        if let fromId = runtime?.iosFromId?["indexFromId"] {
-            params["fromId"] = fromId
-        }
-        let resp = try await request(path: "/video/api/index", params: params)
-        return parseVideoList(resp)
-    }
-
-    /// 视频列表（长视频 / 抖音短视频均走此接口，按 classifyId 区分）
-    func fetchVideoList(classifyId: String? = nil,
+    /// 视频列表（按分类 navigationId 获取）
+    func fetchVideoList(navigationId: String? = nil,
                         page: Int = 1,
                         pageSize: Int = 20) async throws -> [SangeVideoItem] {
-        var params: [String: Any] = ["page": page, "pageSize": pageSize]
-        if let cid = classifyId, !cid.isEmpty { params["classifyId"] = cid }
+        var params: [String: Any] = [
+            "page": page,
+            "pageSize": pageSize,
+            "appId": 0,
+            "deviceNumber": deviceNumber,
+            "deviceType": KXSPConfig.deviceType
+        ]
+        if let navId = navigationId, !navId.isEmpty {
+            params["navigationId"] = navId
+        }
         if let fromId = runtime?.iosFromId?["listFromId"] {
             params["fromId"] = fromId
         }
-        let resp = try await request(path: "/video/api/list", params: params)
+        let resp = try await videoRequest(path: "/video/api/video/list", params: params)
         return parseVideoList(resp)
     }
 
     /// 视频详情（含播放地址）
     func fetchVideoDetail(id: String) async throws -> SangeVideoItem? {
-        let resp = try await request(path: "/video/api/detail", params: ["id": id])
-        guard let data = resp["data"] as? [String: Any] else { return nil }
-        var item = SangeVideoItem(dict: data)
-        // 自动补全封面和播放地址域名
-        item.cover = fullImageUrl(item.cover)
-        if let playUrl = item.playUrl {
-            item.playUrl = fullVideoUrl(playUrl)
+        let params: [String: Any] = [
+            "id": id,
+            "appId": 0,
+            "deviceNumber": deviceNumber,
+            "deviceType": KXSPConfig.deviceType
+        ]
+        let resp = try await videoRequest(path: "/video/api/video/detail", params: params)
+        // 详情接口 data 直接是视频对象
+        var item: SangeVideoItem?
+        if let data = resp["data"] as? [String: Any] {
+            item = SangeVideoItem(dict: data)
+        } else if let data = resp["data"] as? [[String: Any]], let first = data.first {
+            item = SangeVideoItem(dict: first)
         }
-        if let defaultPlayUrl = item.defaultPlayUrl {
-            item.defaultPlayUrl = fullVideoUrl(defaultPlayUrl)
+        if var video = item {
+            // 自动补全封面和播放地址域名
+            video.cover = fullImageUrl(video.cover)
+            if let playUrl = video.playUrl {
+                video.playUrl = fullVideoUrl(playUrl)
+            }
+            if let defaultPlayUrl = video.defaultPlayUrl {
+                video.defaultPlayUrl = fullVideoUrl(defaultPlayUrl)
+            }
+            return video
         }
-        return item
+        return nil
     }
 
-    /// 首页推荐列表（推荐分类 + 每个分类下的视频列表）
+    /// 首页推荐列表（多个推荐分类，每个分类下有视频列表）
     /// 接口路径: /video/api/recommend/list
     func fetchRecommendList(page: Int = 1,
                             pageSize: Int = 20) async throws -> [SangeRecommendCategory] {
-        var params: [String: Any] = ["page": page, "pageSize": pageSize]
-        // fromId 优先用 recommendFromId，其次用 listFromId
-        if let fromId = runtime?.iosFromId?["recommendFromId"] {
+        // 先获取导航分类，拿到第一个分类 ID 作为 navId
+        let navList = try? await fetchVideoNavList()
+        let firstNavId = navList?.first?.id
+
+        var params: [String: Any] = [
+            "count": pageSize,
+            "appId": 0,
+            "deviceNumber": deviceNumber,
+            "deviceType": KXSPConfig.deviceType
+        ]
+        // 必须有 navId
+        if let navId = firstNavId {
+            params["navId"] = navId
+        } else if let fromId = runtime?.iosFromId?["recommendFromId"] {
             params["fromId"] = fromId
         } else if let fromId = runtime?.iosFromId?["listFromId"] {
             params["fromId"] = fromId
         }
-        let resp = try await request(path: "/video/api/recommend/list", params: params)
+        let resp = try await videoRequest(path: "/video/api/recommend/list", params: params)
         return parseRecommendList(resp)
     }
 
-    /// 短视频 / 抖音列表（若服务端有独立 shortVideo 模块可替换路径）
-    func fetchShortVideoList(page: Int = 1, pageSize: Int = 20) async throws -> [SangeVideoItem] {
-        let params: [String: Any] = ["page": page, "pageSize": pageSize]
-        // 当前 H5 未发现独立 /shortVideo/api 入口，先复用视频列表
-        let resp = try await request(path: "/video/api/list", params: params)
+    /// 搜索视频
+    func searchVideo(keyword: String,
+                     page: Int = 1,
+                     pageSize: Int = 20) async throws -> [SangeVideoItem] {
+        var params: [String: Any] = [
+            "page": page,
+            "pageSize": pageSize,
+            "keyword": keyword,
+            "appId": 0,
+            "deviceNumber": deviceNumber,
+            "deviceType": KXSPConfig.deviceType
+        ]
+        if let fromId = runtime?.iosFromId?["listFromId"] {
+            params["fromId"] = fromId
+        }
+        let resp = try await videoRequest(path: "/video/api/search", params: params)
         return parseVideoList(resp)
     }
-
-    /// 漫画 / 小说等其它模块可继续扩展……
 
     // MARK: - URL 补全
 
@@ -671,32 +778,61 @@ private extension KXSPAPIService {
 
     /// 解析推荐列表接口返回（推荐分类数组，每个分类内含 videoList）
     func parseRecommendList(_ resp: [String: Any]) -> [SangeRecommendCategory] {
-        let categories: [[String: Any]]
+        let rawList: [[String: Any]]
 
         // 1. data 直接是数组
         if let data = resp["data"] as? [[String: Any]] {
-            categories = data
+            rawList = data
         }
         // 2. data 是字典，里面有 list 字段
         else if let data = resp["data"] as? [String: Any],
                   let list = data["list"] as? [[String: Any]] {
-            categories = list
+            rawList = list
         }
         // 3. data 是字典，里面有 rows 字段
         else if let data = resp["data"] as? [String: Any],
                   let list = data["rows"] as? [[String: Any]] {
-            categories = list
+            rawList = list
         }
         // 4. 顶层直接有 list
         else if let list = resp["list"] as? [[String: Any]] {
-            categories = list
+            rawList = list
         }
         else {
-            categories = []
+            rawList = []
         }
 
-        return categories.compactMap { catDict in
-            var cat = SangeRecommendCategory(dict: catDict)
+        // 处理两种结构：
+        // - 直接是分类字典 {recId, recName, videoList: [...]}
+        // - 嵌套结构 {recommendCategory: {...}, videoList: [...]}
+        return rawList.compactMap { catDict in
+            let finalDict: [String: Any]
+            let videoList: [[String: Any]]
+
+            if let recCat = catDict["recommendCategory"] as? [String: Any] {
+                // 嵌套结构：把 recommendCategory 和 videoList 合并
+                var merged = recCat
+                let vl = catDict["videoList"] as? [[String: Any]] ?? []
+                merged["videoList"] = vl
+                finalDict = merged
+                videoList = vl
+            } else {
+                // 直接结构
+                finalDict = catDict
+                if let vl = catDict["videoList"] as? [[String: Any]] {
+                    videoList = vl
+                } else if let vl = catDict["list"] as? [[String: Any]] {
+                    videoList = vl
+                } else {
+                    videoList = []
+                }
+            }
+
+            var cat = SangeRecommendCategory(dict: finalDict)
+            // 如果 model 没解析到 videoList，手动赋值
+            if cat.videoList.isEmpty && !videoList.isEmpty {
+                cat.videoList = videoList.compactMap { SangeVideoItem(dict: $0) }
+            }
             // 对每个分类下的视频补全域名
             cat.videoList = cat.videoList.map { video in
                 var v = video
