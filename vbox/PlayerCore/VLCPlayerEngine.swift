@@ -21,6 +21,8 @@ final class VLCPlayerEngine: NSObject, PlayerEngine {
     private var progressTimer: Timer?
     private var didFinish = false
 
+    private var gravityObserver: NSObjectProtocol?
+
     deinit {
         teardown()
     }
@@ -45,7 +47,33 @@ final class VLCPlayerEngine: NSObject, PlayerEngine {
             view.addSubview(drawable)
         }
         mediaPlayer.drawable = drawable
+        applyVideoGravity(.aspectFill)
+        setupGravityObserver()
         #endif
+    }
+
+    private func setupGravityObserver() {
+        guard gravityObserver == nil else { return }
+        gravityObserver = NotificationCenter.default.addObserver(
+            forName: .vboxVideoGravityChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+            self?.applyVideoGravity(mode)
+        }
+    }
+
+    private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        guard let renderView = renderView else { return }
+        switch mode {
+        case .aspectFill:
+            renderView.contentMode = .scaleAspectFill
+        case .aspectFit:
+            renderView.contentMode = .scaleAspectFit
+        case .resize:
+            renderView.contentMode = .scaleToFill
+        }
     }
 
     func load(route: PlaybackRoute) {
@@ -135,6 +163,10 @@ final class VLCPlayerEngine: NSObject, PlayerEngine {
     func teardown() {
         progressTimer?.invalidate()
         progressTimer = nil
+        if let observer = gravityObserver {
+            NotificationCenter.default.removeObserver(observer)
+            gravityObserver = nil
+        }
         #if canImport(MobileVLCKit)
         mediaPlayer.stop()
         mediaPlayer.drawable = nil

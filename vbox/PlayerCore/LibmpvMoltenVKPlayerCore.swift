@@ -10,6 +10,7 @@ import Libmpv
 
 final class LibmpvMoltenVKRenderView: UIView {
     let metalLayer = MPVKitMetalLayer()
+    private var gravityObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -19,6 +20,12 @@ final class LibmpvMoltenVKRenderView: UIView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         configure()
+    }
+
+    deinit {
+        if let observer = gravityObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func layoutSubviews() {
@@ -41,6 +48,26 @@ final class LibmpvMoltenVKRenderView: UIView {
         metalLayer.framebufferOnly = false  // 必须为 false 才能读取像素
         metalLayer.backgroundColor = UIColor.black.cgColor
         layer.addSublayer(metalLayer)
+        applyVideoGravity(.aspectFill)
+        gravityObserver = NotificationCenter.default.addObserver(
+            forName: .vboxVideoGravityChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+            self?.applyVideoGravity(mode)
+        }
+    }
+
+    private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        switch mode {
+        case .aspectFill:
+            metalLayer.contentsGravity = .resizeAspectFill
+        case .aspectFit:
+            metalLayer.contentsGravity = .resizeAspect
+        case .resize:
+            metalLayer.contentsGravity = .resize
+        }
     }
 }
 

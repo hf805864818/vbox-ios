@@ -44,10 +44,30 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
 
         init(playerState: PlayerState) {
             self.playerState = playerState
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxVideoGravityChanged,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+                self?.applyVideoGravity(mode)
+            })
         }
 
         deinit {
             stop()
+        }
+
+        private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+            guard let player = player else { return }
+            switch mode {
+            case .aspectFill:
+                player.scalingMode = .aspectFill
+            case .aspectFit:
+                player.scalingMode = .aspectFit
+            case .resize:
+                player.scalingMode = .fill
+            }
         }
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
@@ -90,6 +110,7 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
             startProgressTimer()
 
             player?.prepareToPlay()
+            applyVideoGravity(playerState?.videoGravity ?? .aspectFill)
 
             playerState?.isLoading = true
             playerState?.loadingMessage = "正在启动 IJKPlayer..."
