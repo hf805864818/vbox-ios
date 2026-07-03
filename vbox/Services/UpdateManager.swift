@@ -21,11 +21,25 @@ class UpdateManager: ObservableObject {
     private let repoName = "vbox-release"       // 替换为 B 仓库的名称
 
     private var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3"
+        let raw = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3"
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var currentBuild: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        let raw = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 把 tag/版本字符串清理成纯数字+点，例如 "v3.700-beta" -> "3.700"
+    private func cleanVersion(_ version: String) -> String {
+        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 去掉常见的 v 前缀
+        var cleaned = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
+        // 取第一个 "-" 之前的部分，避免 "3.700-beta" 干扰比较
+        cleaned = cleaned.components(separatedBy: "-").first ?? cleaned
+        // 去掉所有非数字和非点的字符
+        cleaned = cleaned.filter { $0.isNumber || $0 == "." }
+        return cleaned
     }
 
     private init() {}
@@ -61,9 +75,9 @@ class UpdateManager: ObservableObject {
                     }
                 }
 
-                // 解析版本号：去掉 v 前缀，eg: v1.0-fixed-build -> 1.0
-                let remoteVersion = tagName.replacingOccurrences(of: "v", with: "")
-                    .components(separatedBy: "-").first ?? tagName
+                // 解析版本号并清理
+                let remoteVersion = cleanVersion(tagName)
+                let localVersion = cleanVersion(currentVersion)
 
                 latestVersion = remoteVersion
                 releaseNotes = body
@@ -71,12 +85,12 @@ class UpdateManager: ObservableObject {
                 releasePageURL = htmlURL
 
                 // 比较版本：如果当前版本小于远程版本则有更新
-                if currentVersion.compare(remoteVersion, options: .numeric) == .orderedAscending {
+                if localVersion.compare(remoteVersion, options: .numeric) == .orderedAscending {
                     hasUpdate = true
-                    print("[UpdateManager] 发现新版本: v\(remoteVersion)，当前: v\(currentVersion)")
+                    print("[UpdateManager] 发现新版本: v\(remoteVersion)，当前: v\(localVersion)")
                 } else {
                     hasUpdate = false
-                    print("[UpdateManager] 已是最新版: v\(currentVersion)，远程: v\(remoteVersion)")
+                    print("[UpdateManager] 已是最新版: v\(localVersion)，远程: v\(remoteVersion)")
                 }
             }
         } catch {
