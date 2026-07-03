@@ -80,6 +80,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         DispatchQueue.main.async {
             player.prepare()
+            context.coordinator.applyVideoGravity(self.playerState.videoGravity)
         }
 
         return containerView
@@ -138,6 +139,11 @@ struct AliPlayerRepresentable: UIViewRepresentable {
                 self?.startTimer()
             })
 
+            observers.append(center.addObserver(forName: .vboxVideoGravityChanged, object: nil, queue: .main) { [weak self] note in
+                guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+                self?.applyVideoGravity(mode)
+            })
+
             observers.append(center.addObserver(forName: .vboxMPVPause, object: nil, queue: .main) { [weak self] _ in
                 self?.player?.pause()
                 self?.stopTimer()
@@ -167,6 +173,19 @@ struct AliPlayerRepresentable: UIViewRepresentable {
                     player.start()
                 }
             })
+        }
+
+        private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+            guard let player = player else { return }
+            // AliPlayer scalingMode: 0=aspectFit, 1=aspectFill, 2=fill
+            switch mode {
+            case .aspectFill:
+                player.setScalingMode(1)
+            case .aspectFit:
+                player.setScalingMode(0)
+            case .resize:
+                player.setScalingMode(2)
+            }
         }
 
         func startTimer() {

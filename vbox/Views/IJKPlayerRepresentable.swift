@@ -60,14 +60,22 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
 
         private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
             guard let player = player else { return }
+            let scalingMode: IJKMPMovieScalingMode
+            let contentMode: UIView.ContentMode
             switch mode {
             case .aspectFill:
-                player.scalingMode = .aspectFill
+                scalingMode = .aspectFill
+                contentMode = .scaleAspectFill
             case .aspectFit:
-                player.scalingMode = .aspectFit
+                scalingMode = .aspectFit
+                contentMode = .scaleAspectFit
             case .resize:
-                player.scalingMode = .fill
+                scalingMode = .fill
+                contentMode = .scaleToFill
             }
+            player.scalingMode = scalingMode
+            player.view.contentMode = contentMode
+            playerState?.log("[IJK] 屏幕拉伸模式切换为：\(mode.rawValue)")
         }
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
