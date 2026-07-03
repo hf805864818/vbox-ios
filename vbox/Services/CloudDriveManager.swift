@@ -927,7 +927,7 @@ class CloudDriveManager: ObservableObject {
         return item.topLevelFids
     }
 
-    private func quarkStoreSavedItem(topLevelFids: [String], playbackFileId: String?, fileName: String, folderId: String, cookie: String, pwdId: String, sourceFid: String, ttl: TimeInterval = 30 * 60) {
+    private func quarkStoreSavedItem(topLevelFids: [String], playbackFileId: String?, fileName: String, folderId: String, cookie: String, pwdId: String, sourceFid: String, ttl: TimeInterval = 5 * 60) {
         guard !topLevelFids.isEmpty, !topLevelFids.allSatisfy({ $0 == "0" }) else { return }
         let key = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFid, folderId: folderId, cookie: cookie)
         var cache = loadQuarkSavedFidCache()
@@ -951,6 +951,33 @@ class CloudDriveManager: ObservableObject {
         cache.removeValue(forKey: key)
         saveQuarkSavedFidCache(cache)
         self.log("[Quark] 🗑️ 已清除失效的转存 fid 缓存")
+    }
+
+    /// 清理缓存中除当前 key 外的所有历史转存对象，保留当前正在播放的转存文件/文件夹
+    private func quarkCleanupPreviousSavedItems(excludingKey currentKey: String, cookie: String) async -> String {
+        var currentCookie = cookie
+        var cache = loadQuarkSavedFidCache()
+        var keysToRemove: [String] = []
+        var fidsToDelete: [String] = []
+        for (key, item) in cache {
+            guard key != currentKey else { continue }
+            keysToRemove.append(key)
+            fidsToDelete.append(contentsOf: item.topLevelFids)
+        }
+        guard !fidsToDelete.isEmpty else { return currentCookie }
+
+        let uniqueFids = Array(Set(fidsToDelete)).filter { !$0.isEmpty && $0 != "0" }
+        guard !uniqueFids.isEmpty else { return currentCookie }
+
+        self.log("[Quark] 🧹 新转存完成，清理 \(uniqueFids.count) 个历史转存对象：\(uniqueFids)")
+        currentCookie = await quarkDeleteFiles(fileIds: uniqueFids, cookie: currentCookie)
+
+        for key in keysToRemove {
+            cache.removeValue(forKey: key)
+        }
+        saveQuarkSavedFidCache(cache)
+        self.log("[Quark] 🧹 已清理 \(keysToRemove.count) 条历史转存缓存")
+        return currentCookie
     }
 
     func addToken(type: DriveType, name: String, value: String) {
@@ -1631,10 +1658,13 @@ class CloudDriveManager: ObservableObject {
             )
             self.log("[Quark] 转存完成 topLevelFids=\(topLevelFids), fileName=\(sourceFile.fileName)")
             // 先按顶层 fid 缓存，后续确定实际播放文件 fid 后再更新 playbackFileId
+            let currentCacheKey = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie)
             quarkStoreSavedItem(topLevelFids: topLevelFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
             // 转存成功即安排 1 小时后清理，不管后续播放是否成功
             scheduleCleanup(drive: .quark, fileIds: topLevelFids, token: authCookie, delay: 60 * 60)
             self.log("[Quark] 🧹 已安排转存文件 1 小时后清理")
+            // 同时清理缓存中所有历史转存对象，只保留当前
+            authCookie = await quarkCleanupPreviousSavedItems(excludingKey: currentCacheKey, cookie: authCookie)
         }
 
         guard var playbackFileId = topLevelFids.first else { throw DriveError.noPlayURL("夸克: 转存后未返回文件ID") }
@@ -1695,10 +1725,13 @@ class CloudDriveManager: ObservableObject {
                     )
                     self.log("[Quark] 重新转存完成 topLevelFids=\(newTopFids), fileName=\(sourceFile.fileName)")
                     // 先缓存顶层对象，确定 playbackFileId 后再更新
+                    let newCacheKey = quarkSavedFidCacheKey(pwdId: pwdId, sourceFid: sourceFile.fid, folderId: "0", cookie: authCookie)
                     quarkStoreSavedItem(topLevelFids: newTopFids, playbackFileId: nil, fileName: sourceFile.fileName, folderId: "0", cookie: authCookie, pwdId: pwdId, sourceFid: sourceFile.fid)
                     // 重新转存也安排清理
                     scheduleCleanup(drive: .quark, fileIds: newTopFids, token: authCookie, delay: 60 * 60)
                     self.log("[Quark] 🧹 已安排重新转存文件 1 小时后清理")
+                    // 清理历史转存对象，只保留当前
+                    authCookie = await quarkCleanupPreviousSavedItems(excludingKey: newCacheKey, cookie: authCookie)
                     // 标记为不再来自缓存，触发任务轮询
                     isFileIdsFromCache = false
                     if let taskId = quarkLastSaveTaskId {
@@ -1710,26 +1743,9 @@ class CloudDriveManager: ObservableObject {
                         download = (try? await quarkGetDownloadURL(fileId: newFileId, cookie: authCookie)) ?? ("", "")
                     }
                 } else {
-                    if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: "0", cookie: authCookie) {
-                        self.log("[Quark] 🔍 通过文件名找到实际fid=\(foundId)，重试download_url")
-                        playbackFileId = foundId
-                        effectiveFileId = foundId
-                        updateCachedPlaybackFileId(foundId)
-                        download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
-                    }
-                    // 如果根目录没找到，尝试在"来自：分享"目录查找
-                    if download.url.isEmpty {
-                        let shareFolder = await quarkFindShareOriginFolder(cookie: authCookie)
-                        if let shareFid = shareFolder {
-                            if let foundId = await quarkFindSavedFileId(fileName: sourceFile.fileName, folderId: shareFid, cookie: authCookie) {
-                                self.log("[Quark] 🔍 在分享目录找到实际fid=\(foundId)，重试download_url")
-                                playbackFileId = foundId
-                                effectiveFileId = foundId
-                                updateCachedPlaybackFileId(foundId)
-                                download = (try? await quarkGetDownloadURL(fileId: foundId, cookie: authCookie)) ?? ("", "")
-                            }
-                        }
-                    }
+                    // 非缓存失效情况下 file not found，大概率是资源已被和谐或禁止播放，直接提示不再查找
+                    self.log("[Quark] ⚠️ download_url 返回 file not found，判定资源已被和谐或禁止播放")
+                    throw DriveError.noPlayURL("该资源已被和谐或禁止播放，请尝试其他资源")
                 }
             }
             if download.url.isEmpty {
@@ -1798,6 +1814,13 @@ class CloudDriveManager: ObservableObject {
                 return result
             } catch {
                 lastError = error
+                let errMsg = error.localizedDescription.lowercased()
+                // 资源已失效、被和谐、禁止播放等确定性错误不重试
+                let nonRetryable = errMsg.contains("已失效") || errMsg.contains("已被和谐") || errMsg.contains("禁止播放") || errMsg.contains("转存返回占位")
+                if nonRetryable {
+                    self.log("[Quark] 🚫 确定性错误，不再重试: \(error.localizedDescription)")
+                    throw error
+                }
                 if attempt < maxRetries - 1 {
                     let delay = Double(1 << attempt) // 1s, 2s, 4s
                     self.log("[Quark] ⚠️ 第\(attempt + 1)次尝试失败: \(error.localizedDescription)，\(String(format: "%.0f", delay))秒后重试...")
