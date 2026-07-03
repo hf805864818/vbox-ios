@@ -189,6 +189,7 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* WelfareDomainSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* WelfareDomainSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -270,6 +271,7 @@
 		822F991529A94E749D9BC1C5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		89DCA61AB0624F5991291A38 /* WelfareModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareModels.swift; sourceTree = "<group>"; };
 		8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareHomeView.swift; sourceTree = "<group>"; };
+		D5E6F7A8B9C0D1E2F3A4B5C6 /* WelfareDomainSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareDomainSettingsView.swift; sourceTree = "<group>"; };
 		8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
 		933905689FCEDA2327DA3D6A /* Libavformat.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavformat.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavformat.xcframework; sourceTree = SOURCE_ROOT; };
 		9353A6CB751B12B08CDC9742 /* Libass.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libass.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libass.xcframework; sourceTree = SOURCE_ROOT; };
@@ -625,6 +627,7 @@
 				B10142 /* LiveTVView.swift */,
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
+				D5E6F7A8B9C0D1E2F3A4B5C6 /* WelfareDomainSettingsView.swift */,
 				AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */,
 				B10127 /* ShortDramaView.swift */,
 				B10128 /* ShortDramaDetailView.swift */,
@@ -856,6 +859,7 @@
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
 				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* WelfareDomainSettingsView.swift in Sources */,
 				7A7823D2B97C4619836BF72B /* WelfarePlatformView.swift in Sources */,
 				0519F2A24E0B464A834BDE28 /* WelfareViewModel.swift in Sources */,
 				C2034606B1124B3E957C55F8 /* WelfareModels.swift in Sources */,
