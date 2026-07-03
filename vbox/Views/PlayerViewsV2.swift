@@ -4274,6 +4274,22 @@ struct LandscapeBottomBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
+
+            // 4. 内核按钮
+            Button(action: { playerState.showEnginePicker.toggle() }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "cpu")
+                        .font(.system(size: 18))
+                    Text(playerState.currentEngineButtonTitle)
+                        .font(.system(size: 9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundColor(playerState.playbackEngineMode == .compatibility ? Color(hex: "00BEFF") : .white)
+                .frame(width: 56, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 20)
