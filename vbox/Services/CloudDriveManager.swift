@@ -4802,6 +4802,16 @@ class CloudDriveManager: ObservableObject {
         let webCookie = parsed.cookie
         let pcs = normalizeBaiduPCSCookie(pcsCookie)
 
+        // 提前触发兜底清理：确保缓存命中路径也能清理 /vbox 下超过 2 小时的旧文件
+        let earlyCleanupCookie = baiduMergeCookieStrings([webCookie, pcs])
+        let earlyPureCookie = baiduPureAccountCookie(earlyCleanupCookie)
+        Task { [weak self] in
+            let token = await self?.baiduFetchUserBdstokenLocal(cookie: earlyPureCookie) ?? ""
+            if !token.isEmpty {
+                self?.baiduCleanupOldTransferFiles(cookie: earlyPureCookie, bdstoken: token)
+            }
+        }
+
         if let itemResult = try? await baiduResolveViaIBoxPlayItem(
             cacheKey: cacheKey,
             shareURL: shareURL,
@@ -4864,8 +4874,6 @@ class CloudDriveManager: ObservableObject {
                 throw DriveError.noPlayURL(message)
             }
             try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
-            // 异步清理超过2小时的旧转存文件，不阻塞播放流程
-            baiduCleanupOldTransferFiles(cookie: pureAccountCookie, bdstoken: userBdstoken)
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
             let sourcePrefix: String
@@ -4890,6 +4898,8 @@ class CloudDriveManager: ObservableObject {
                 sourcePrefix = "main-transfer"
                 baiduLog("[Baidu-iBoxRoute] ✅ 本机转存完成：\(filePath)")
                 recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "转存成功", detail: "已转存到：\(filePath)", fsId: fsId, fileName: selected.name)
+                // 转存成功后立即调度 1 小时后清理（不等播放成功，避免播放失败留下孤儿文件）
+                scheduleCleanup(drive: .baidu, fileIds: [filePath], token: pureAccountCookie, delay: 60 * 60)
             }
 
             var mediainfoFallback: PlayResult?
@@ -4941,8 +4951,6 @@ class CloudDriveManager: ObservableObject {
             baiduStorePlayResult(result, for: cacheKey)
             recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "成功", detail: "source=\(source)，engine=\(playItem.preferredEngine)", fsId: fsId, fileName: selected.name)
             baiduLog("[Baidu-iBoxRoute] ✅ iBox-style 原画地址获取成功：source=\(source), engine=\(playItem.preferredEngine)")
-            // 1小时后清理本次转存的文件
-            scheduleCleanup(drive: .baidu, fileIds: [filePath], token: bduss, delay: 60 * 60)
             return result
         } catch {
             baiduLog("[Baidu-iBoxRoute] ❌ iBox-style 转存/locatedownload 失败：\(error.localizedDescription)")
@@ -5457,19 +5465,33 @@ class CloudDriveManager: ObservableObject {
 
     private func baiduDeleteFiles(fileIds: [String], bduss: String, bdstoken: String? = nil) async {
         guard !fileIds.isEmpty else { return }
+
+        // 自动检测：bduss 是完整 Cookie 字符串还是纯 BDUSS 值
+        let isFullCookie = bduss.contains(";") || bduss.lowercased().contains("stoken=")
+        let cookieHeader: String
+        let rawBDUSS: String
+        if isFullCookie {
+            cookieHeader = bduss
+            rawBDUSS = baiduCookieValue(bduss, named: "BDUSS") ?? bduss
+        } else {
+            cookieHeader = "BDUSS=\(bduss)"
+            rawBDUSS = bduss
+        }
+
         let effectiveBdstoken: String
         if let bdstoken, !bdstoken.isEmpty {
             effectiveBdstoken = bdstoken
         } else {
             // 延迟清理场景下 bdstoken 可能已过期，实时获取
-            let cookie = "BDUSS=\(bduss)"
+            let cookie = "BDUSS=\(rawBDUSS)"
             effectiveBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? ""
         }
-        let url = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=\(effectiveBdstoken)&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+        // 对齐 iBox 2.4.6 删除 API 格式，提升兼容性
+        let url = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&bdstoken=\(effectiveBdstoken)")!
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.setValue("BDUSS=\(bduss)", forHTTPHeaderField: "Cookie")
+        req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
         // 支持 fileId 或 path 两种格式：path 以 / 开头，fileId 是纯数字
         let paths = fileIds.map { $0.hasPrefix("/") ? $0 : "/vbox/\($0)" }
@@ -5483,38 +5505,63 @@ class CloudDriveManager: ObservableObject {
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
     private func baiduCleanupOldTransferFiles(cookie: String, bdstoken: String) {
+        // 守卫：bdstoken 为空时无法调用任何百度 API，直接跳过
+        guard !bdstoken.isEmpty else {
+            baiduLog("[Baidu-Cleanup] ⚠️ bdstoken 为空，跳过旧文件清理")
+            return
+        }
+        guard let _ = baiduCookieValue(cookie, named: "BDUSS") else {
+            baiduLog("[Baidu-Cleanup] ⚠️ Cookie 中缺少 BDUSS，跳过旧文件清理")
+            return
+        }
+
         Task {
             do {
-                let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
-                // 列出 /vbox/ 目录
-                let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
-                let listURL = URL(string: "https://pan.baidu.com/api/list")!
-                var components = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
-                components.queryItems = [
-                    URLQueryItem(name: "bdstoken", value: bdstoken),
-                    URLQueryItem(name: "channel", value: "chunlei"),
-                    URLQueryItem(name: "web", value: "1"),
-                    URLQueryItem(name: "app_id", value: "250528"),
-                    URLQueryItem(name: "clienttype", value: "0")
-                ]
-                var req = URLRequest(url: components.url!)
-                req.httpMethod = "POST"
-                req.timeoutInterval = 12
-                req.setValue(cookie, forHTTPHeaderField: "Cookie")
-                req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-                req.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=1".data(using: .utf8)
-
-                let (data, _) = try await session.data(for: req)
-                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let errno = json["errno"] as? Int, errno == 0,
-                      let root = json["data"] as? [String: Any],
-                      let list = root["list"] as? [[String: Any]] else {
+                // 异步执行前重新获取 bdstoken，防止过期
+                let freshBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? bdstoken
+                guard !freshBdstoken.isEmpty else {
+                    baiduLog("[Baidu-Cleanup] ⚠️ 无法刷新 bdstoken，跳过清理")
                     return
                 }
 
+                let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
+                let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
+
+                // 分页列出 /vbox/ 目录，每页 200 个，最多 5 页（1000 个文件）
+                var allFiles: [[String: Any]] = []
+                for page in 1...5 {
+                    let listURL = URL(string: "https://pan.baidu.com/api/list")!
+                    var components = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
+                    components.queryItems = [
+                        URLQueryItem(name: "bdstoken", value: freshBdstoken),
+                        URLQueryItem(name: "channel", value: "chunlei"),
+                        URLQueryItem(name: "web", value: "1"),
+                        URLQueryItem(name: "app_id", value: "250528"),
+                        URLQueryItem(name: "clienttype", value: "0")
+                    ]
+                    var req = URLRequest(url: components.url!)
+                    req.httpMethod = "POST"
+                    req.timeoutInterval = 12
+                    req.setValue(cookie, forHTTPHeaderField: "Cookie")
+                    req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+                    req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=\(page)".data(using: .utf8)
+
+                    let (data, _) = try await session.data(for: req)
+                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let errno = json["errno"] as? Int, errno == 0,
+                          let root = json["data"] as? [String: Any],
+                          let list = root["list"] as? [[String: Any]] else {
+                        break
+                    }
+                    if list.isEmpty { break }
+                    allFiles.append(contentsOf: list)
+                    if list.count < 200 { break }
+                }
+                guard !allFiles.isEmpty else { return }
+
                 // 找出超过2小时的文件
-                let oldFiles: [[String: Any]] = list.filter { item in
+                let oldFiles: [[String: Any]] = allFiles.filter { item in
                     let ctime = item["ctime"] as? Int ?? 0
                     let mtime = item["mtime"] as? Int ?? 0
                     let timestamp = max(ctime, mtime)
@@ -5530,7 +5577,8 @@ class CloudDriveManager: ObservableObject {
                 let encodedList = try? JSONSerialization.data(withJSONObject: paths)
                 let fileListStr = String(data: encodedList ?? Data(), encoding: .utf8) ?? "[]"
 
-                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?a=delete&bdstoken=\(bdstoken)&channel=chunlei&web=1&app_id=250528&clienttype=0")!
+                // 对齐 iBox 删除 API 格式
+                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&bdstoken=\(freshBdstoken)")!
                 var delReq = URLRequest(url: deleteURL)
                 delReq.httpMethod = "POST"
                 delReq.timeoutInterval = 12
