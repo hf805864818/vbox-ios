@@ -155,6 +155,7 @@
 		A12032 /* SangeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12032 /* SangeModels.swift */; };
 		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
 		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
+		A12035 /* SecureCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12035 /* SecureCredentialStore.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* WelfareDomainSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* WelfareDomainSettingsView.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -378,6 +379,7 @@
 		B12032 /* SangeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeModels.swift; sourceTree = "<group>"; };
 		B12033 /* SangeCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeCategoryView.swift; sourceTree = "<group>"; };
 		B12034 /* SangeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeListView.swift; sourceTree = "<group>"; };
+		B12035 /* SecureCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureCredentialStore.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
@@ -592,6 +594,7 @@
 				B10140 /* WKWebViewParser.swift */,
 				B10143 /* LiveTVService.swift */,
 				B11002 /* DatabaseManager.swift */,
+				B12035 /* SecureCredentialStore.swift */,
 				B11003 /* ZhanyuanSearchService.swift */,
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
 				B10126 /* ShortDramaService.swift */,
@@ -875,6 +878,7 @@
 				A12032 /* SangeModels.swift in Sources */,
 				A12033 /* SangeCategoryView.swift in Sources */,
 				A12034 /* SangeListView.swift in Sources */,
+				A12035 /* SecureCredentialStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
