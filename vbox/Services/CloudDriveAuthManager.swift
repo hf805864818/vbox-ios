@@ -3,19 +3,6 @@ import Combine
 import UIKit
 import WebKit
 
-private final class UCTrustSessionDelegate: NSObject, URLSessionDelegate {
-    func urlSession(_ session: URLSession,
-                    didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let serverTrust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
-    }
-}
-
 enum CloudDriveAuthType: String, Codable {
     case manual
     case qr
@@ -94,13 +81,35 @@ final class CloudDriveAuthManager: ObservableObject {
     private let aliOAuthClientId = "25dzX3vbRqA4f1D1ma2M"
     private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
 
+    // MARK: - 阿里云盘配置（便于远程/热更新与切换 QR 源）
+    private struct AliPassportConfig {
+        static let baseURL = "https://passport.alipan.com/newlogin/qrcode"
+        static let appName = "aliyun_drive"
+        static let fromSite = "52"
+        static let appEntrance = "web"
+        static let isMobile = "false"
+        static let lang = "zh_CN"
+        static let bxVersion = "2.2.5"
+        static let origin = "https://www.alipan.com"
+        static let referer = "https://www.alipan.com/"
+    }
+
+    private struct AliOAuthConfig {
+        static let qrcodeURL = "https://openapi.alipan.com/oauth/authorize/qrcode"
+        static let statusURLPrefix = "https://openapi.alipan.com/oauth/qrcode"
+        static let scopes = ["user:base", "file:all:read"]
+        static let width = 500
+        static let height = 500
+    }
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
         let ucConfig = URLSessionConfiguration.default
         ucConfig.timeoutIntervalForRequest = 30
-        ucSession = URLSession(configuration: ucConfig, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
+        // 移除全信任证书 Delegate，恢复系统默认证书校验
+        ucSession = URLSession(configuration: ucConfig)
         load()
         syncLegacyTokensIfNeeded()
     }
@@ -123,7 +132,7 @@ final class CloudDriveAuthManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AuthError.invalidResponse("阿里 OAuth 返回无法解析")
         }
-        if let code = json["code"] as? String, code != "OK" {
+        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
             throw AuthError.remoteError(json["message"] as? String ?? code)
         }
 
@@ -189,7 +198,7 @@ final class CloudDriveAuthManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AuthError.invalidResponse("阿里刷新 token 返回无法解析")
         }
-        if let code = json["code"] as? String {
+        if let code = json["code"] as? String, code != "0" && code != "OK" && code != "ok" {
             print("[Ali Token] refresh 返回错误: code=\(code), message=\(json["message"] as? String ?? "nil"), 完整: \(json)")
             markInvalid(.ali, reason: json["message"] as? String ?? code)
             throw AuthError.remoteError(json["message"] as? String ?? code)
@@ -226,21 +235,21 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func aliPassportCreateQrToken() async throws -> AliPassportQrToken {
-        // 更新 _bx-v 参数和 appEntrance 以匹配阿里云盘最新 API 版本
-        var components = URLComponents(string: "https://passport.alipan.com/newlogin/qrcode/generate.do")!
+        // 使用 AliPassportConfig 中的常量，便于统一升级与远程配置
+        var components = URLComponents(string: AliPassportConfig.baseURL + "/generate.do")!
         components.queryItems = [
-            URLQueryItem(name: "appName", value: "aliyun_drive"),
-            URLQueryItem(name: "fromSite", value: "52"),
-            URLQueryItem(name: "appEntrance", value: "web"),
-            URLQueryItem(name: "isMobile", value: "false"),
-            URLQueryItem(name: "lang", value: "zh_CN"),
+            URLQueryItem(name: "appName", value: AliPassportConfig.appName),
+            URLQueryItem(name: "fromSite", value: AliPassportConfig.fromSite),
+            URLQueryItem(name: "appEntrance", value: AliPassportConfig.appEntrance),
+            URLQueryItem(name: "isMobile", value: AliPassportConfig.isMobile),
+            URLQueryItem(name: "lang", value: AliPassportConfig.lang),
             URLQueryItem(name: "returnUrl", value: ""),
             URLQueryItem(name: "bizParams", value: ""),
-            URLQueryItem(name: "_bx-v", value: "2.2.5")
+            URLQueryItem(name: "_bx-v", value: AliPassportConfig.bxVersion)
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://www.alipan.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+        request.setValue(AliPassportConfig.origin, forHTTPHeaderField: "Origin")
+        request.setValue(AliPassportConfig.referer, forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
@@ -274,19 +283,19 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func aliPassportPollQrStatus(token: AliPassportQrToken) async throws -> AliPassportQrPollResult {
-        var components = URLComponents(string: "https://passport.alipan.com/newlogin/qrcode/query.do")!
+        var components = URLComponents(string: AliPassportConfig.baseURL + "/query.do")!
         components.queryItems = [
-            URLQueryItem(name: "appName", value: "aliyun_drive"),
-            URLQueryItem(name: "fromSite", value: "52"),
-            URLQueryItem(name: "appEntrance", value: "web"),
-            URLQueryItem(name: "isMobile", value: "false"),
-            URLQueryItem(name: "lang", value: "zh_CN"),
+            URLQueryItem(name: "appName", value: AliPassportConfig.appName),
+            URLQueryItem(name: "fromSite", value: AliPassportConfig.fromSite),
+            URLQueryItem(name: "appEntrance", value: AliPassportConfig.appEntrance),
+            URLQueryItem(name: "isMobile", value: AliPassportConfig.isMobile),
+            URLQueryItem(name: "lang", value: AliPassportConfig.lang),
             URLQueryItem(name: "t", value: token.t),
             URLQueryItem(name: "ck", value: token.ck)
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://www.alipan.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+        request.setValue(AliPassportConfig.origin, forHTTPHeaderField: "Origin")
+        request.setValue(AliPassportConfig.referer, forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
@@ -308,7 +317,7 @@ final class CloudDriveAuthManager: ObservableObject {
         switch rawStatus {
         case "NEW":
             return .pending
-        case "SCANED":
+        case "SCANED", "SCANNED":
             return .scanned
         case "CONFIRMED":
             guard let bizExt = dataObj["bizExt"] as? String else {
@@ -316,8 +325,11 @@ final class CloudDriveAuthManager: ObservableObject {
                 return .failed(message: "扫码确认成功但未返回 bizExt")
             }
             print("[Ali Passport] bizExt raw (first 100): \(String(bizExt.prefix(100)))")
-            let normalized = bizExt.replacingOccurrences(of: "-", with: "+")
-                                   .replacingOccurrences(of: "_", with: "/")
+            let normalized = bizExt
+                .replacingOccurrences(of: "-", with: "+")
+                .replacingOccurrences(of: "_", with: "/")
+                .replacingOccurrences(of: "\n", with: "")
+                .replacingOccurrences(of: " ", with: "")
             var bizData: Data?
             if let data = Data(base64Encoded: normalized) {
                 bizData = data
@@ -357,7 +369,7 @@ final class CloudDriveAuthManager: ObservableObject {
         case "EXPIRED":
             print("[Ali Passport] QR code expired, t=\(token.t.prefix(10))...")
             return .expired
-        case "CANCELED":
+        case "CANCELED", "CANCELLED":
             return .canceled
         default:
             print("[Ali Passport] unknown status: \(rawStatus)")
@@ -367,6 +379,8 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func aliPassportSaveCredential(refreshToken: String, userInfo: [String: Any]) {
         let accessToken = userInfo["token"] as? String
+            ?? userInfo["accessToken"] as? String
+            ?? userInfo["access_token"] as? String
         let expiresIn = (userInfo["expiresIn"] as? Double) ?? Double(userInfo["expiresIn"] as? Int ?? 0)
         let driveId = userInfo["default_drive_id"] as? String
             ?? userInfo["drive_id"] as? String
@@ -428,6 +442,91 @@ final class CloudDriveAuthManager: ObservableObject {
         }
     }
 
+    // MARK: - 阿里 OAuth QR（Passport QR 的兜底/替代方案）
+
+    struct AliOAuthQrToken {
+        let sid: String
+        let qrData: String
+    }
+
+    enum AliOAuthQrPollResult {
+        case pending
+        case scanned
+        case success(authCode: String)
+        case expired
+        case failed(message: String)
+    }
+
+    func aliOAuthCreateQrToken() async throws -> AliOAuthQrToken {
+        var request = URLRequest(url: URL(string: AliOAuthConfig.qrcodeURL)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
+        let body: [String: Any] = [
+            "client_id": aliOAuthClientId,
+            "client_secret": "",
+            "scopes": AliOAuthConfig.scopes,
+            "width": AliOAuthConfig.width,
+            "height": AliOAuthConfig.height
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AuthError.invalidResponse("阿里 OAuth QR 生成返回无法解析")
+        }
+        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
+            throw AuthError.remoteError(json["message"] as? String ?? code)
+        }
+        if let code = json["code"] as? Int, code != 0 && code != 200 {
+            throw AuthError.remoteError(json["message"] as? String ?? "code=\(code)")
+        }
+        let dataObj = json["data"] as? [String: Any] ?? json
+        guard let sid = dataObj["sid"] as? String,
+              let qrData = dataObj["qrCodeUrl"] as? String ?? dataObj["qr_data"] as? String,
+              !sid.isEmpty, !qrData.isEmpty else {
+            throw AuthError.invalidResponse("阿里 OAuth QR 生成未返回 sid/qrData")
+        }
+        return AliOAuthQrToken(sid: sid, qrData: qrData)
+    }
+
+    func aliOAuthPollQrStatus(token: AliOAuthQrToken) async throws -> AliOAuthQrPollResult {
+        let url = URL(string: "\(AliOAuthConfig.statusURLPrefix)/\(token.sid)/status")!
+        var request = URLRequest(url: url)
+        request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .failed(message: "阿里 OAuth QR 轮询返回格式异常")
+        }
+        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
+            return .failed(message: json["message"] as? String ?? code)
+        }
+        let dataObj = json["data"] as? [String: Any] ?? json
+        let rawStatus = (dataObj["status"] as? String ?? "").lowercased()
+        switch rawStatus {
+        case "waitlogin", "new", "waiting", "":
+            return .pending
+        case "scansuccess", "scaned", "scanned", "scan_success":
+            return .scanned
+        case "loginfailed", "canceled", "cancelled", "cancel", "expired":
+            return .expired
+        case "loginsuccess", "confirmed", "login_success", "success":
+            guard let authCode = dataObj["authCode"] as? String
+                    ?? dataObj["auth_code"] as? String
+                    ?? dataObj["code"] as? String, !authCode.isEmpty else {
+                return .failed(message: "登录成功但未返回 authCode")
+            }
+            return .success(authCode: authCode)
+        default:
+            return .failed(message: "未知状态 \(rawStatus)")
+        }
+    }
+
+    func aliOAuthSaveCredential(authCode: String) async throws {
+        try await exchangeAliOAuthCode(authCode)
+    }
+
     // MARK: - UC 原生扫码
 
     struct UCQrLoginToken {
@@ -475,7 +574,10 @@ final class CloudDriveAuthManager: ObservableObject {
             print("[VBox UC CreateToken] API status: \(apiStatus) message: \(msg)")
             // 状态码不是 2000000 时继续尝试提取 token（UC 接口可能不返回 2000000）
         }
-        guard let token = extractString(json, keys: ["token", "qrcode_token"]) ?? extractNestedString(json, path: ["data", "members", "token"]) else {
+        guard let token = extractString(json, keys: ["token", "qrcode_token"])
+                ?? extractNestedString(json, path: ["data", "members", "token"])
+                ?? extractNestedString(json, path: ["data", "token"])
+                ?? extractNestedString(json, path: ["result", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
         print("[VBox UC CreateToken] token: \(token.prefix(20))... clientId: \(clientId)")
@@ -503,6 +605,7 @@ final class CloudDriveAuthManager: ObservableObject {
         print("[VBox UC Poll] raw: \(rawBody)")
         let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
             ?? extractNestedString(json, path: ["data", "service_ticket"])
+            ?? extractNestedString(json, path: ["result", "service_ticket"])
             ?? extractString(json, keys: ["service_ticket", "ticket"])
         if let ticket, !ticket.isEmpty {
             return .success(serviceTicket: ticket)
@@ -521,7 +624,8 @@ final class CloudDriveAuthManager: ObservableObject {
             }
         }
         if status == -2 {
-            return .failed(message: json["message"] as? String ?? "UC 轮询状态码 -2")
+            // -2 在部分版本中表示"未扫描"或临时状态，继续轮询而非直接失败
+            return .pending
         }
         if [50004002, 50004003, 50004004, 50004005].contains(status) { return .expired }
         if status == 50004000 { return .scanned }
@@ -534,10 +638,9 @@ final class CloudDriveAuthManager: ObservableObject {
         // UC 云盘使用自己的 CAS 体系，优先使用 drive.uc.cn 域名换取 Cookie
         // 若 UC 自身接口失败，回退到 pan.quark.cn（兼容旧版 CAS 共享体系）
         
-        // 策略1: 使用 UC 自身 account/info 接口
+        // 策略1: 使用 UC 自身 account/info 接口换取 Cookie
         let ucEndpoints = [
-            "https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc",
-            "https://pc-api.uc.cn/1/clouddrive/member?pr=UCBrowser&fr=pc&sys=darwin&ve=3.19.0",
+            "https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc"
         ]
         
         var lastCookie = ""
@@ -558,7 +661,7 @@ final class CloudDriveAuthManager: ObservableObject {
             let config = URLSessionConfiguration.ephemeral
             config.httpCookieAcceptPolicy = .always
             config.httpShouldSetCookies = true
-            let oneShot = URLSession(configuration: config, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
+            let oneShot = URLSession(configuration: config)
             defer { oneShot.finishTasksAndInvalidate() }
 
             do {
@@ -566,43 +669,57 @@ final class CloudDriveAuthManager: ObservableObject {
                 let rawBody = String(data: data, encoding: .utf8) ?? "nil"
                 let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
                 print("[VBox UC Exchange] endpoint: \(endpoint.prefix(50))... HTTP \(httpStatusCode): \(rawBody.prefix(300))")
-                
+
                 let ucURL = URL(string: "https://drive.uc.cn")!
                 let cookie = collectCookies(from: response as? HTTPURLResponse ?? HTTPURLResponse(), storage: oneShot.configuration.httpCookieStorage, url: ucURL)
                 lastCookie = cookie
                 
                 if !cookie.isEmpty {
-                    let cookieLower = cookie.lowercased()
-                    // 检查是否包含 UC 必须的认证字段
-                    let hasRequired = cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("uc")
-                    if hasRequired {
-                        print("[VBox UC Exchange] success with endpoint: \(endpoint.prefix(50))...")
-                        
-                        // 如果 response 包含用户信息则提取
-                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                        let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
-                            ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
-                        
-                        let credential = CloudDriveCredential(
-                            driveType: CloudDriveManager.DriveType.uc.rawValue,
-                            authType: .qr,
-                            accessToken: nil,
-                            refreshToken: nil,
-                            cookie: cookie,
-                            driveId: nil,
-                            userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
-                            userName: userName,
-                            avatar: extractNestedString(json ?? [:], path: ["data", "avatar"]) ?? extractString(json ?? [:], keys: ["avatar"]),
-                            expiresAt: nil,
-                            updatedAt: Date(),
-                            lastCheckedAt: Date(),
-                            state: .valid,
-                            statusMessage: "UC 扫码登录成功",
-                            extra: [:]
-                        )
-                        saveCredential(credential)
-                        return
+                    print("[VBox UC Exchange] success with endpoint: \(endpoint.prefix(50))...")
+
+                    // 如果 response 包含用户信息则提取
+                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
+                        ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
+
+                    let credential = CloudDriveCredential(
+                        driveType: CloudDriveManager.DriveType.uc.rawValue,
+                        authType: .qr,
+                        accessToken: nil,
+                        refreshToken: nil,
+                        cookie: cookie,
+                        driveId: nil,
+                        userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
+                        userName: userName,
+                        avatar: extractNestedString(json ?? [:], path: ["data", "avatar"]) ?? extractString(json ?? [:], keys: ["avatar"]),
+                        expiresAt: nil,
+                        updatedAt: Date(),
+                        lastCheckedAt: Date(),
+                        state: .valid,
+                        statusMessage: "UC 扫码登录成功",
+                        extra: [:]
+                    )
+                    saveCredential(credential)
+
+                    // 异步兑换 UCTV Token，不影响登录成功返回
+                    Task {
+                        do {
+                            let tvToken = try await self.ucExchangeTVToken(cookie: cookie)
+                            await MainActor.run {
+                                guard var cred = self.credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
+                                var extra = cred.extra
+                                extra["uc_tv_token"] = tvToken
+                                cred.extra = extra
+                                cred.statusMessage = "UC 扫码登录成功（已获取 UCTV Token）"
+                                self.credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
+                                self.persist()
+                                CloudDriveAuthManager.logSensitive("[VBox UC] UCTV Token 已保存", value: tvToken)
+                            }
+                        } catch {
+                            print("[VBox UC] UCTV Token 兑换失败（非阻断）: \(error)")
+                        }
                     }
+                    return
                 }
             } catch {
                 lastError = error
@@ -620,15 +737,15 @@ final class CloudDriveAuthManager: ObservableObject {
             URLQueryItem(name: "platform", value: "pc")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.httpShouldSetCookies = true
-        let oneShot = URLSession(configuration: config, delegate: UCTrustSessionDelegate(), delegateQueue: nil)
+        let oneShot = URLSession(configuration: config)
         defer { oneShot.finishTasksAndInvalidate() }
 
         let (data, response) = try await oneShot.data(for: request)
@@ -660,9 +777,9 @@ final class CloudDriveAuthManager: ObservableObject {
         for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
             print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
         }
-        // 至少要有 __pus 或 __kps 或 uc 标识才视为有效
-        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("uc") else {
-            throw AuthError.invalidResponse("UC Cookie 缺少必须字段 (__pus/__kps/__uid/uc)，登录可能无效")
+        // 回退到 quark 时，只有拿到夸克核心登录态字段才保存，避免保存无效 cookie
+        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") else {
+            throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid)，登录可能无效")
         }
 
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -686,6 +803,66 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: [:]
         )
         saveCredential(credential)
+
+        // 尝试兑换 UCTV Token，用于 open-api-drive.uc.cn 播放兜底
+        Task {
+            do {
+                let tvToken = try await self.ucExchangeTVToken(cookie: finalCookie)
+                await MainActor.run {
+                    guard var cred = self.credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
+                    var extra = cred.extra
+                    extra["uc_tv_token"] = tvToken
+                    cred.extra = extra
+                    cred.statusMessage = "UC 扫码登录成功（已获取 UCTV Token）"
+                    self.credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
+                    self.persist()
+                    CloudDriveAuthManager.logSensitive("[VBox UC] UCTV Token 已保存", value: tvToken)
+                }
+            } catch {
+                print("[VBox UC] UCTV Token 兑换失败（非阻断）: \(error)")
+            }
+        }
+    }
+
+    func ucExchangeTVToken(cookie: String) async throws -> String {
+        // 优先 HTTPS，失败再回退 HTTP（HTTP 需要 Info.plist 配置 ATS 例外）
+        let endpoints = ["https://api.extscreen.com/ucdrive/token", "http://api.extscreen.com/ucdrive/token"]
+        let body: [String: Any] = [
+            "token": "",
+            "device_type": "ios",
+            "app_version": "1.0.0"
+        ]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        var lastError: Error?
+        for endpoint in endpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            request.httpBody = bodyData
+            do {
+                let (data, _) = try await session.data(for: request)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw AuthError.invalidResponse("UCTV Token 返回无法解析")
+                }
+                if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
+                    throw AuthError.remoteError(json["message"] as? String ?? code)
+                }
+                if let code = json["code"] as? Int, code != 0 && code != 200 {
+                    throw AuthError.remoteError(json["message"] as? String ?? "code=\(code)")
+                }
+                let dataObj = json["data"] as? [String: Any] ?? json
+                guard let token = dataObj["token"] as? String ?? dataObj["uc_tv_token"] as? String ?? dataObj["access_token"] as? String, !token.isEmpty else {
+                    throw AuthError.invalidResponse("UCTV Token 返回为空")
+                }
+                return token
+            } catch {
+                lastError = error
+                print("[VBox UC] UCTV Token 端点 \(endpoint) 失败: \(error)")
+            }
+        }
+        throw lastError ?? AuthError.remoteError("UCTV Token 兑换失败")
     }
 
     // MARK: - 百度原生扫码
@@ -1262,27 +1439,30 @@ final class CloudDriveAuthManager: ObservableObject {
 
                     let cookies = await self.getAllCookies()
                     let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
-                    
+                    let bearerToken = self.extractBearerToken(from: cookies)
+                    let localToken = await self.evaluateLocalStorageToken()
+                    let accessToken = (bearerToken ?? localToken)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
                     print("[Pan123] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
 
-                    // 检测登录成功的标志
+                    // 检测登录成功的标志：精确 Cookie 或 JS Token
                     let hasLoginCookie = cookies.contains { cookie in
                         let name = cookie.name.lowercased()
                         let value = cookie.value
-                        return (name.contains("authorization") ||
-                                name.contains("token") ||
+                        return (name == "authorization" ||
+                                name == "token" ||
                                 name == "userid" ||
                                 name == "uid" ||
                                 name.contains("passport") ||
                                 name.contains("login")) && value.count > 10
-                    }
+                    } || (accessToken?.count ?? 0 > 10)
 
                     if hasLoginCookie {
                         await MainActor.run {
                             self.isLoggedIn = true
-                            self.statusText = "登录成功，正在保存 Cookie..."
-                            print("[Pan123] login success, cookieStr length: \(cookieStr.count)")
-                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr)
+                            self.statusText = "登录成功，正在保存 Token..."
+                            print("[Pan123] login success, cookieStr length: \(cookieStr.count), token length: \(accessToken?.count ?? 0)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr, accessToken: accessToken)
                         }
                         return
                     }
@@ -1295,9 +1475,9 @@ final class CloudDriveAuthManager: ObservableObject {
                         currentURL.contains("123684.com/home")) {
                         await MainActor.run {
                             self.isLoggedIn = true
-                            self.statusText = "登录成功（检测到页面跳转），正在保存 Cookie..."
+                            self.statusText = "登录成功（检测到页面跳转），正在保存 Token..."
                             print("[Pan123] login success via URL redirect: \(currentURL)")
-                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr)
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr, accessToken: accessToken)
                         }
                         return
                     }
@@ -1307,6 +1487,48 @@ final class CloudDriveAuthManager: ObservableObject {
                     self.statusText = "登录超时"
                 }
             }
+        }
+
+        /// 从 Cookie 中提取 Bearer Token（优先 authorization 或 token 字段）
+        private func extractBearerToken(from cookies: [HTTPCookie]) -> String? {
+            for cookie in cookies {
+                let name = cookie.name.lowercased()
+                let value = cookie.value
+                if name == "authorization" || name == "token" {
+                    if value.hasPrefix("Bearer ") {
+                        return String(value.dropFirst(7))
+                    }
+                    if value.count > 10 {
+                        return value
+                    }
+                }
+            }
+            return nil
+        }
+
+        /// 通过 JS 读取 123pan 的 localStorage / sessionStorage token
+        private func evaluateLocalStorageToken() async -> String? {
+            let scripts = [
+                "localStorage.getItem('token')",
+                "sessionStorage.getItem('token')",
+                "localStorage.getItem('Authorization')",
+                "sessionStorage.getItem('Authorization')"
+            ]
+            for script in scripts {
+                let result: Any? = await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async {
+                        self.webView.evaluateJavaScript(script) { value, _ in
+                            continuation.resume(returning: value)
+                        }
+                    }
+                }
+                guard let token = result as? String, !token.isEmpty else { continue }
+                if token.hasPrefix("Bearer ") {
+                    return String(token.dropFirst(7))
+                }
+                return token
+            }
+            return nil
         }
 
         private func getAllCookies() async -> [HTTPCookie] {
@@ -1467,7 +1689,8 @@ final class CloudDriveAuthManager: ObservableObject {
             case .baidu:
                 _ = try await baiduFetchTemplateVariables(cookie: credential.cookie ?? "")
             case .pan123:
-                try await validateCookie(url: "https://www.123pan.com/b/api/share/get?limit=1&next=1&shareKey=test&SharePwd=&ParentFileId=0&Page=1", cookie: credential.cookie ?? "", referer: "https://www.123pan.com/")
+                // 优先使用 Bearer Token + Cookie 校验；旧版本只有 Cookie 的也能继续校验
+                try await validatePan123Credential(credential: credential)
             case .pan139:
                 try await validateCookie(url: "https://yun.139.com/", cookie: credential.cookie ?? "", referer: "https://yun.139.com/")
             case .pan189:
@@ -1610,7 +1833,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     @discardableResult
-    func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil) -> Bool {
+    func saveWebViewCookie(type: CloudDriveManager.DriveType, cookie: String, userName: String? = nil, accessToken: String? = nil) -> Bool {
         if type == .baidu, !isBaiduAccountCookie(cookie) {
             var credential = credentials[type.rawValue]
             credential?.statusMessage = "已捕获百度 Cookie，但未包含完整 BDUSS/STOKEN，未覆盖账号 Cookie"
@@ -1625,7 +1848,7 @@ final class CloudDriveAuthManager: ObservableObject {
         let credential = CloudDriveCredential(
             driveType: type.rawValue,
             authType: .webView,
-            accessToken: nil,
+            accessToken: accessToken,
             refreshToken: type == .ali ? cookie : nil,
             cookie: type == .ali ? nil : cookie,
             driveId: nil,
@@ -1636,7 +1859,7 @@ final class CloudDriveAuthManager: ObservableObject {
             updatedAt: Date(),
             lastCheckedAt: nil,
             state: .unknown,
-            statusMessage: "WebView 已保存授权",
+            statusMessage: accessToken != nil ? "WebView 已保存授权（含 Bearer Token）" : "WebView 已保存授权",
             extra: [:]
         )
         saveCredential(credential)
@@ -1941,13 +2164,94 @@ final class CloudDriveAuthManager: ObservableObject {
         return output
     }
 
-    private func validateCookie(url: String, cookie: String, referer: String) async throws {
+    private func validatePan123Credential(credential: CloudDriveCredential) async throws {
+        let cookie = credential.cookie ?? ""
+        let token = credential.accessToken ?? ""
+        guard !cookie.isEmpty || !token.isEmpty else { throw AuthError.notAuthorized("123云盘 Cookie 与 Token 均为空") }
+
+        // 与 iBox 对齐：123pan Web 版文件列表接口；优先 GET，失败再尝试 POST
+        let base = "https://www.123pan.com/api/file/list/new"
+        let query = "driveId=0&limit=1&next=1&orderBy=filename&orderDirection=asc&parentFileId=0&trashed=false&operateType=4"
+        let methods = ["GET", "POST"]
+        var lastHTTPStatus = 0
+        var lastRawBody = ""
+        for method in methods {
+            var components = URLComponents(string: base)!
+            if method == "GET" {
+                components.query = query
+            }
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = method
+            request.setValue("https://www.123pan.com/", forHTTPHeaderField: "Referer")
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            if !cookie.isEmpty {
+                request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            }
+            if !token.isEmpty {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            if method == "POST" {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "driveId": 0, "limit": 1, "next": 1, "orderBy": "filename",
+                    "orderDirection": "asc", "parentFileId": 0, "trashed": false, "operateType": 4
+                ])
+            }
+            let (data, response) = try await session.data(for: request)
+            lastHTTPStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            lastRawBody = String(data: data, encoding: .utf8) ?? ""
+            if lastHTTPStatus == 401 || lastHTTPStatus == 403 {
+                // 继续尝试下一个 method，若全部尝试完仍无效则最后统一抛错
+                continue
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // 123pan 的 code 可能是 Int 或 String，统一处理
+                let codeInt = json["code"] as? Int
+                let codeString = json["code"] as? String
+                let isSuccess = (codeInt == 0 || codeInt == 200) || (codeString == "0" || codeString == "200" || codeString?.lowercased() == "ok")
+                if isSuccess {
+                    return // 校验通过
+                }
+                if let state = json["state"] as? Bool, state == false {
+                    let msg = json["error"] as? String ?? json["message"] as? String ?? "123云盘登录态无效"
+                    // 业务明确失败时，若还有其他 method 未尝试则继续
+                    if method != methods.last {
+                        print("[Pan123] 校验返回失败，尝试下一 method: \(msg)")
+                        continue
+                    }
+                    throw AuthError.remoteError(msg)
+                }
+                let isUnauthorized: Bool = {
+                    if let code = codeInt { return code == 401 || code == 403 || code == 40001 }
+                    if let code = codeString { return code == "401" || code == "403" || code == "40001" }
+                    return false
+                }()
+                if isUnauthorized {
+                    let msg = json["message"] as? String ?? "123云盘登录态无效 code=\(json["code"] ?? "")"
+                    if method != methods.last {
+                        print("[Pan123] 校验返回 \(json["code"] ?? ""), 尝试下一 method: \(msg)")
+                        continue
+                    }
+                    throw AuthError.remoteError(msg)
+                }
+            }
+        }
+        // 把最后尝试的 HTTP 状态码和原始响应体带出来，方便定位问题
+        let detail = lastHTTPStatus != 0 ? "HTTP \(lastHTTPStatus)" : "无响应"
+        let preview = String(lastRawBody.prefix(200))
+        throw AuthError.remoteError("123云盘登录态校验失败 (\(detail)): \(preview)")
+    }
+
+    private func validateCookie(url: String, cookie: String, referer: String, authorization: String? = nil) async throws {
         guard !cookie.isEmpty else { throw AuthError.notAuthorized("Cookie 为空") }
         var request = URLRequest(url: URL(string: url)!)
         request.httpMethod = url.contains("/file/sort") ? "POST" : "GET"
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue(referer, forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        if let auth = authorization, !auth.isEmpty {
+            request.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
+        }
         if request.httpMethod == "POST" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: ["pdir_fid": "0", "page": 1, "size": 1])
@@ -1967,17 +2271,37 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func load() {
-        guard let data = defaults.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([String: CloudDriveCredential].self, from: data) else {
-            credentials = [:]
-            return
+        do {
+            if let decoded = try SecureCredentialStore.loadCredentials() {
+                credentials = decoded
+                return
+            }
+        } catch {
+            print("[Auth] Keychain 读取失败: \(error)")
         }
-        credentials = decoded
+
+        // 从旧版 UserDefaults 迁移一次，随后删除旧数据
+        if let data = defaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([String: CloudDriveCredential].self, from: data) {
+            credentials = decoded
+            do {
+                try SecureCredentialStore.save(credentials: decoded)
+                print("[Auth] 已从 UserDefaults 迁移到 Keychain")
+            } catch {
+                print("[Auth] 迁移到 Keychain 失败: \(error)")
+            }
+            defaults.removeObject(forKey: storageKey)
+        } else {
+            credentials = [:]
+        }
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(credentials) else { return }
-        defaults.set(data, forKey: storageKey)
+        do {
+            try SecureCredentialStore.save(credentials: credentials)
+        } catch {
+            print("[Auth] Keychain 保存失败: \(error)")
+        }
     }
 
     private func syncLegacyTokensIfNeeded() {
@@ -1986,6 +2310,24 @@ final class CloudDriveAuthManager: ObservableObject {
                   credentials[type.rawValue] == nil else { continue }
             saveManualCredential(type: type, name: token.name, value: token.value)
         }
+    }
+
+    /// 启动时批量校验所有已保存凭证，将失效凭证标记为 invalid
+    func validateAllCredentials() async {
+        for credential in credentials.values {
+            guard let type = CloudDriveManager.DriveType(rawValue: credential.driveType) else { continue }
+            _ = try? await validateCredential(for: type)
+        }
+    }
+
+    /// 敏感字段日志脱敏（保留前 6 后 4，中间用 ... 替代）
+    static func logSensitive(_ message: String, value: String?) {
+        guard let value = value, !value.isEmpty else { return }
+        let head = min(6, value.count)
+        let tail = min(4, max(0, value.count - head))
+        let prefix = String(value.prefix(head))
+        let suffix = tail > 0 ? String(value.suffix(tail)) : ""
+        print("\(message): \(prefix)...\(suffix) (length=\(value.count))")
     }
 
     private static func shortTime(_ date: Date) -> String {
@@ -2036,12 +2378,14 @@ enum AuthError: LocalizedError {
     case invalidResponse(String)
     case remoteError(String)
     case notAuthorized(String)
+    case keychainError(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse(let message): return message
         case .remoteError(let message): return message
         case .notAuthorized(let message): return message
+        case .keychainError(let message): return "Keychain 错误: \(message)"
         }
     }
 }

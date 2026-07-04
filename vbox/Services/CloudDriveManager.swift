@@ -837,15 +837,34 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func loadTokens() {
+        do {
+            if let tokens = try SecureCredentialStore.loadTokens() {
+                savedTokens = tokens
+                return
+            }
+        } catch {
+            print("[CloudDriveManager] Keychain 读取 tokens 失败: \(error)")
+        }
+
+        // 从旧版 UserDefaults 迁移一次
         if let data = defaults.data(forKey: tokenKey),
            let tokens = try? JSONDecoder().decode([DriveToken].self, from: data) {
             savedTokens = tokens
+            do {
+                try SecureCredentialStore.save(tokens: tokens)
+                print("[CloudDriveManager] 已从 UserDefaults 迁移 tokens 到 Keychain")
+            } catch {
+                print("[CloudDriveManager] 迁移 tokens 到 Keychain 失败: \(error)")
+            }
+            defaults.removeObject(forKey: tokenKey)
         }
     }
 
     private func saveTokens() {
-        if let data = try? JSONEncoder().encode(savedTokens) {
-            defaults.set(data, forKey: tokenKey)
+        do {
+            try SecureCredentialStore.save(tokens: savedTokens)
+        } catch {
+            print("[CloudDriveManager] Keychain 保存 tokens 失败: \(error)")
         }
     }
 
@@ -1380,11 +1399,23 @@ class CloudDriveManager: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = [
             "refresh_token": refreshToken,
-            "grant_type": "refresh_token"
+            "grant_type": "refresh_token",
+            "client_id": "25dzX3vbRqA4f1D1ma2M"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
+        // 先检查 code，避免错误响应被 JSONDecoder 误解析
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
+                let msg = json["message"] as? String ?? code
+                throw DriveError.noPlayURL("阿里 token 刷新失败：\(msg)")
+            }
+            if let code = json["code"] as? Int, code != 0 && code != 200 {
+                let msg = json["message"] as? String ?? "code=\(code)"
+                throw DriveError.noPlayURL("阿里 token 刷新失败：\(msg)")
+            }
+        }
         return try JSONDecoder().decode(AliTokenResponse.self, from: data)
     }
 
@@ -1398,11 +1429,15 @@ class CloudDriveManager: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let code = json["code"] as? String,
-           code != "OK" {
-            let message = json["message"] as? String ?? code
-            throw DriveError.noPlayURL("阿里分享 token 获取失败：\(message)")
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let codeStr = json["code"] as? String
+            let codeInt = json["code"] as? Int
+            let isError = (codeStr != nil && codeStr != "OK" && codeStr != "ok" && codeStr != "0")
+                        || (codeInt != nil && codeInt != 0 && codeInt != 200)
+            if isError {
+                let message = json["message"] as? String ?? (codeStr ?? "code=\(codeInt ?? -1)")
+                throw DriveError.noPlayURL("阿里分享 token 获取失败：\(message)")
+            }
         }
         let result = try JSONDecoder().decode(AliShareTokenResponse.self, from: data)
         return result.shareToken
@@ -5815,24 +5850,64 @@ class CloudDriveManager: ObservableObject {
             "Origin": "https://www.123pan.com"
         ]
 
-        // 123云盘分享解析API
-        let apiURL = URL(string: "https://www.123pan.com/b/api/share/get?limit=100&next=1&orderBy=share_id&orderDirection=desc&shareKey=\(shareCode)&SharePwd=&ParentFileId=0&Page=1")!
+        let accessToken = CloudDriveAuthManager.shared.credential(for: .pan123)?.accessToken
+
+        // 123云盘分享解析API（使用 URLComponents 避免 shareCode 未编码）
+        var components = URLComponents(string: "https://www.123pan.com/b/api/share/get")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "100"),
+            URLQueryItem(name: "next", value: "1"),
+            URLQueryItem(name: "orderBy", value: "share_id"),
+            URLQueryItem(name: "orderDirection", value: "desc"),
+            URLQueryItem(name: "shareKey", value: shareCode),
+            URLQueryItem(name: "SharePwd", value: ""),
+            URLQueryItem(name: "ParentFileId", value: "0"),
+            URLQueryItem(name: "Page", value: "1")
+        ]
+        guard let apiURL = components.url else {
+            throw DriveError.invalidShareURL
+        }
         var request = URLRequest(url: apiURL)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "Cookie")
+        if let accessToken = accessToken, !accessToken.isEmpty {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
 
         let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any],
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("123云盘: 分享列表返回无法解析")
+        }
+        // 先检查 code 是否表示失败
+        if let code = json["code"] as? Int, code != 0, code != 200 {
+            let msg = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("123云盘: 分享列表接口返回错误: \(msg)")
+        }
+        if let code = json["code"] as? String, code != "0", code != "200", code.lowercased() != "ok" {
+            let msg = json["message"] as? String ?? code
+            throw DriveError.noPlayURL("123云盘: 分享列表接口返回错误: \(msg)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
               let list = dataObj["InfoList"] as? [[String: Any]],
               let firstFile = list.first else {
             throw DriveError.noPlayURL("123云盘: 无法获取文件列表")
         }
 
-        guard let fileId = firstFile["FileId"] as? Int,
-              let eTag = firstFile["Etag"] as? String else {
+        // 兼容 fileId 为 Int/String，eTag 字段大小写
+        let fileId: Any
+        if let id = firstFile["FileId"] as? Int {
+            fileId = id
+        } else if let idStr = firstFile["FileId"] as? String, !idStr.isEmpty {
+            fileId = idStr
+        } else {
             throw DriveError.noPlayURL("123云盘: 无法提取文件信息")
+        }
+        let eTag = firstFile["Etag"] as? String
+            ?? firstFile["ETag"] as? String
+            ?? firstFile["etag"] as? String
+        guard let eTag, !eTag.isEmpty else {
+            throw DriveError.noPlayURL("123云盘: 无法提取 ETag")
         }
 
         // 获取下载链接
@@ -5841,15 +5916,23 @@ class CloudDriveManager: ObservableObject {
         downloadReq.httpMethod = "POST"
         downloadReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
         downloadReq.setValue(token, forHTTPHeaderField: "Cookie")
+        if let accessToken = accessToken, !accessToken.isEmpty {
+            downloadReq.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
         for (k, v) in headers { downloadReq.setValue(v, forHTTPHeaderField: k) }
         let body: [String: Any] = ["fileId": fileId, "etag": eTag, "shareKey": shareCode, "SharePwd": ""]
         downloadReq.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (dlData, _) = try await session.data(for: downloadReq)
         guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any],
-              let dlDataObj = dlJson["data"] as? [String: Any],
-              let downloadUrl = dlDataObj["DownloadUrl"] as? String else {
+              let dlDataObj = dlJson["data"] as? [String: Any] else {
             throw DriveError.noPlayURL("123云盘: 无法获取下载链接")
+        }
+        let downloadUrl = dlDataObj["DownloadUrl"] as? String
+            ?? dlDataObj["download_url"] as? String
+            ?? dlDataObj["url"] as? String
+        guard let downloadUrl, !downloadUrl.isEmpty else {
+            throw DriveError.noPlayURL("123云盘: 下载链接为空")
         }
 
         return PlayResult(
@@ -6167,8 +6250,23 @@ class CloudDriveManager: ObservableObject {
             print("[UC] ⚠️ v2/play 失败，继续尝试 download_url：\(error.localizedDescription)")
         }
         let download = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
-        let playURL = download.isEmpty ? transcodeURL : download
-        guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url 和转码地址均为空") }
+        var playURL = download.isEmpty ? transcodeURL : download
+        var source = download.isEmpty ? "v2-play" : "download_url"
+
+        // 兜底：当 pc-api.uc.cn 无法拿到播放地址时，使用 UCTV Token 请求 open-api-drive.uc.cn/file
+        if playURL.isEmpty,
+           let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+           !tvToken.isEmpty {
+            do {
+                playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
+                source = "uc_tv_token"
+                print("[UC] ✅ 使用 UCTV Token 获取到播放地址")
+            } catch {
+                print("[UC] ⚠️ UCTV Token 播放兜底失败：\(error.localizedDescription)")
+            }
+        }
+
+        guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url、转码地址和 UCTV Token 兜底均为空") }
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
@@ -6177,10 +6275,10 @@ class CloudDriveManager: ObservableObject {
             url: playURL,
             headers: headers,
             driveType: .uc,
-            source: download.isEmpty ? "v2-play" : "download_url",
-            fallbackURL: (!download.isEmpty && !transcodeURL.isEmpty) ? transcodeURL : nil,
-            fallbackHeaders: (!download.isEmpty && !transcodeURL.isEmpty) ? headers : nil,
-            fallbackSource: (!download.isEmpty && !transcodeURL.isEmpty) ? "v2-play-m3u8" : nil
+            source: source,
+            fallbackURL: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? transcodeURL : nil,
+            fallbackHeaders: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? headers : nil,
+            fallbackSource: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? "v2-play-m3u8" : nil
         )
     }
 
@@ -6477,6 +6575,46 @@ class CloudDriveManager: ObservableObject {
             return url
         }
         return ""
+    }
+
+    private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
+        let url = URL(string: "https://open-api-drive.uc.cn/file")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(tvToken, forHTTPHeaderField: "Authorization")
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch", forHTTPHeaderField: "User-Agent")
+        let body: [String: Any] = [
+            "fid": fileId,
+            "resolutions": "normal,low,high,super,2k,4k",
+            "supports": "fmp4,m3u8"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("UCTV Token 获取播放地址失败：\(message)")
+        }
+        if let dataObj = json["data"] as? [String: Any] {
+            if let url = dataObj["url"] as? String, !url.isEmpty { return url }
+            if let url = dataObj["play_url"] as? String, !url.isEmpty { return url }
+            if let list = dataObj["video_list"] as? [[String: Any]] {
+                for item in list {
+                    if let info = item["video_info"] as? [String: Any],
+                       let url = info["url"] as? String, !url.isEmpty {
+                        return url
+                    }
+                }
+            }
+        }
+        if let url = json["url"] as? String, !url.isEmpty { return url }
+        if let url = json["play_url"] as? String, !url.isEmpty { return url }
+        throw DriveError.noPlayURL("UCTV Token 返回中未找到播放地址")
     }
 
     // MARK: - 统一解析入口
