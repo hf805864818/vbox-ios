@@ -339,6 +339,8 @@
 		B10152 /* TMDBService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBService.swift; sourceTree = "<group>"; };
 		B10153 /* MaShanZheng-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/MaShanZheng-Regular.ttf"; sourceTree = "<group>"; };
 		B10154 /* DoubanChartService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanChartService.swift; sourceTree = "<group>"; };
+		B10155 /* MissAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVService.swift; sourceTree = "<group>"; };
+		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10201 /* WelfareCrawlerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareCrawlerService.swift; sourceTree = "<group>"; };
 		B10202 /* WelfareCrawlerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareCrawlerConfig.swift; sourceTree = "<group>"; };
@@ -396,8 +398,6 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
-		B10155 /* MissAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVService.swift; sourceTree = "<group>"; };
-		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -604,9 +604,9 @@
 				B10126 /* ShortDramaService.swift */,
 				B10200 /* YBoxService2.swift */,
 				B10201 /* WelfareCrawlerService.swift */,
-			B12031 /* KXSPAPIService.swift */,
-			B10155 /* MissAVService.swift */,
-		);
+				B12031 /* KXSPAPIService.swift */,
+				B10155 /* MissAVService.swift */,
+			);
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -641,10 +641,10 @@
 				B10128 /* ShortDramaDetailView.swift */,
 				B10203 /* WelfareSubViews.swift */,
 				B12033 /* SangeCategoryView.swift */,
-			B12034 /* SangeListView.swift */,
-			B10156 /* MissAVViews.swift */,
-		);
-		path = Views;
+				B12034 /* SangeListView.swift */,
+				B10156 /* MissAVViews.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		G10011 /* Resources */ = {
