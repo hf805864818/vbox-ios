@@ -133,12 +133,11 @@ struct UpdateSheet: View {
                     .foregroundColor(.secondary)
                     .padding(.bottom, 20)
             }
-            .frame(width: 320, height: 460)
+            .frame(width: 320, height: 520)
             .background(
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color(uiColor: .systemBackground))
             )
-            .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
         }
     }
 }
