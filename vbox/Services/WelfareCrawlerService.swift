@@ -104,9 +104,15 @@ final class WelfareCrawlerService {
 
     // MARK: - 主入口
     func fetch(platformId: String, pageKind: WelfarePageKind, page: Int = 1,
+               sectionKeyword: String = "",
                onBatch: (([VodItem]) -> Void)? = nil) async -> [VodItem] {
         guard let cfg = WelfareCrawlerConfig.config(for: platformId) else {
             return await fallback(id: platformId, kind: pageKind, onBatch: onBatch)
+        }
+
+        // MissAV 专项：委托给 MissAVService（原生解析+WebView兜底）
+        if platformId == "missav" {
+            return await fetchMissAV(kind: pageKind, keyword: sectionKeyword, onBatch: onBatch)
         }
 
         switch cfg.parserType {
@@ -130,6 +136,28 @@ final class WelfareCrawlerService {
         case .disabled:
             return []
         }
+    }
+
+    // MARK: - MissAV 专项（委托给 MissAVService）
+    private func fetchMissAV(kind: WelfarePageKind, keyword: String = "",
+                              onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+        print("[WelfareCrawler] MissAV专项: kind=\(kind.rawValue) kw=\(keyword)")
+        let items = await MissAVService.shared.loadVideosForSection(
+            keyword: keyword,
+            pageKind: kind
+        )
+        if !items.isEmpty {
+            let tagged = items.map { item -> VodItem in
+                var t = item
+                if !(t.vodRemarks ?? "").hasPrefix("[福利]") { t.vodRemarks = "[福利]" + (t.vodRemarks ?? "") }
+                return t
+            }
+            print("[WelfareCrawler] MissAV专项成功: \(tagged.count)条")
+            onBatch?(tagged)
+            return tagged
+        }
+        print("[WelfareCrawler] MissAV专项无结果，回退")
+        return await fallback(id: "missav", kind: kind, onBatch: onBatch)
     }
 
     // MARK: - 获取平台分类列表（CMS API）

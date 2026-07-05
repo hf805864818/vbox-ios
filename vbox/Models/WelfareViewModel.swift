@@ -38,6 +38,7 @@ class WelfareViewModel: ObservableObject {
             platformId: platform.id,
             pageKind: pageKind,
             page: currentPage,
+            sectionKeyword: keyword,
             onBatch: { batch in
                 guard !Task.isCancelled else { return }
                 // 过滤含关键词的（搜索型）或无过滤（列表型）
