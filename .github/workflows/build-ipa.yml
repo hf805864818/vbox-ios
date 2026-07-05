@@ -88,6 +88,17 @@ jobs:
           sudo gem install cocoapods --no-document
           pod install --repo-update
 
+      - name: 🏗️ Clean
+        run: |
+          set -o pipefail
+          # 清除 Xcode 缓存和 DerivedData，确保新文件被正确编译
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          rm -rf ~/Library/Caches/org.llvm.clang/*
+          xcodebuild -workspace vbox.xcworkspace -scheme vbox \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            clean 2>&1
+
       - name: 🏗️ Build
         run: |
           set -o pipefail
