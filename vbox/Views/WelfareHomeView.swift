@@ -95,6 +95,11 @@ struct WelfareCategorySection: View {
 
             // 平台网格（每行3个）
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                // MissAV 入口：放在三更前面
+                if category.platforms.contains(where: { $0.name.lowercased() == "missav" }) {
+                    missavEntry
+                }
+                
                 // 三更入口：放在包含香蕉秀的分类最前面
                 if category.platforms.contains(where: { $0.name == "香蕉秀" }) {
                     sangeEntry
@@ -131,6 +136,34 @@ struct WelfareCategorySection: View {
                     }
                 }
                 Text("视频/抖音")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: MissAV 入口卡片
+    private var missavEntry: some View {
+        NavigationLink(destination: MissAVHomeView()) {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(LinearGradient(colors: gradientColors.map { $0.opacity(0.15) },
+                                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(height: 72)
+                    VStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(gradientColors[0])
+                        Text("MissAV")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("高清无码")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
