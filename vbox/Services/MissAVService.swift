@@ -26,7 +26,23 @@ final class MissAVService: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    let baseURLs = ["https://missav.ws", "https://missav.com"]
+    /// 动态 baseURL：优先从 WelfareCrawlerConfig 的自定义域名读取
+    private var activeBaseURLs: [String] {
+        if let custom = WelfareCrawlerConfig.config(for: "missav")?.effectiveBaseURL,
+           !custom.isEmpty,
+           custom != "https://missav.ws" {
+            var urls = [custom]
+            for fallback in defaultBaseURLs where fallback != custom {
+                urls.append(fallback)
+            }
+            return urls
+        }
+        return defaultBaseURLs
+    }
+
+    private let defaultBaseURLs = ["https://missav.ws", "https://missav.com"]
+
+    private var primaryBaseURL: String { activeBaseURLs.first ?? "https://missav.ws" }
 
     let sections: [MissAVMenuSection] = [
         MissAVMenuSection(id: "subtitle", title: "中文字幕", icon: "captions.bubble.fill", children: [
@@ -57,74 +73,167 @@ final class MissAVService: ObservableObject {
         return URLSession(configuration: config)
     }()
 
+    // MARK: - 公共接口
+
     func loadVideos(for item: MissAVMenuItem) async -> [VodItem] {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        if let html = await fetchHTML(path: item.path) {
+
+        // 优先用 WebView 渲染（MissAV 大量内容靠 JS 动态加载）
+        if let html = await fetchHTMLViaWebView(path: item.path) {
             let parsed = parseVideoList(from: html)
-            if !parsed.isEmpty { return parsed }
+            if !parsed.isEmpty {
+                print("[MissAVService] WebView解析成功: \(item.path) → \(parsed.count)条")
+                return parsed
+            }
+            print("[MissAVService] WebView解析为空: \(item.path)")
         }
-        return fallbackMockVideos(for: item)
+
+        // 回退到 URLSession
+        if let html = await fetchHTMLViaSession(path: item.path) {
+            let parsed = parseVideoList(from: html)
+            if !parsed.isEmpty {
+                print("[MissAVService] Session解析成功: \(item.path) → \(parsed.count)条")
+                return parsed
+            }
+            print("[MissAVService] Session解析为空: \(item.path)")
+        }
+
+        print("[MissAVService] 所有方式均失败: \(item.path)")
+        errorMessage = "无法加载 \(item.title)，请检查网络或切换域名"
+        return []
+    }
+
+    /// 从 WelfareCrawlerService 调用的接口
+    func loadVideosForSection(keyword: String, pageKind: WelfarePageKind, sectionName: String = "") async -> [VodItem] {
+        let effectiveKeyword = keyword.isEmpty ? sectionName : keyword
+        let item: MissAVMenuItem
+        switch pageKind {
+        case .video, .home:
+            item = MissAVMenuItem(id: "latest", title: "最新", path: "/cn")
+        case .actor:
+            item = MissAVMenuItem(id: "actress", title: "女优", path: "/cn/actresses")
+        case .classify:
+            let kw = effectiveKeyword.lowercased()
+            if kw.contains("有码") || kw.contains("censored") {
+                item = MissAVMenuItem(id: "genres", title: "类型", path: "/cn/genres")
+            } else if kw.contains("无码") || kw.contains("uncensored") {
+                item = MissAVMenuItem(id: "uncensored-main", title: "无码影片", path: "/cn/uncensored")
+            } else if kw.contains("欧美") || kw.contains("western") {
+                item = MissAVMenuItem(id: "asia-main", title: "亚洲 AV", path: "/cn/asian")
+            } else if kw.contains("中文") || kw.contains("chinese") {
+                item = MissAVMenuItem(id: "subtitle-main", title: "中文字幕", path: "/cn/chinese-subtitle")
+            } else {
+                item = MissAVMenuItem(id: "genres", title: "类型", path: "/cn/genres")
+            }
+        case .search:
+            return []
+        default:
+            item = MissAVMenuItem(id: "latest", title: "最新", path: "/cn")
+        }
+        return await loadVideos(for: item)
     }
 
     func resolvePlayableSource(for video: VodItem) async -> MissAVPlayableSource? {
         guard let detailURL = video.vodPlayUrl, !detailURL.isEmpty else { return nil }
-        if let html = await fetchHTML(fullURL: detailURL),
+        if let html = await fetchHTMLViaWebView(fullURL: detailURL),
+           let source = parsePlayableSource(from: html, detailURL: detailURL) {
+            return source
+        }
+        if let html = await fetchHTMLViaSession(fullURL: detailURL),
            let source = parsePlayableSource(from: html, detailURL: detailURL) {
             return source
         }
         return nil
     }
 
-    private func fetchHTML(path: String? = nil, fullURL: String? = nil) async -> String? {
+    // MARK: - URL 构建
+
+    /// 智能拼接 URL：如果 baseURL 已包含目标 path，避免重复拼接
+    private func buildURLs(path: String) -> [String] {
+        activeBaseURLs.map { base in
+            if base.hasSuffix(path) || base.hasSuffix(path + "/") {
+                return base
+            }
+            if base.hasSuffix("/cn") && path.hasPrefix("/cn/") {
+                return base + String(path.dropFirst(3))
+            }
+            if base.hasSuffix("/") && path.hasPrefix("/") {
+                return base + String(path.dropFirst())
+            }
+            return base + path
+        }
+    }
+
+    // MARK: - 网络请求
+
+    private func fetchHTMLViaSession(path: String? = nil, fullURL: String? = nil) async -> String? {
         let candidates: [String]
         if let fullURL, !fullURL.isEmpty {
             candidates = [fullURL]
         } else if let path {
-            candidates = baseURLs.map { $0 + path }
+            candidates = buildURLs(path: path)
         } else {
             return nil
         }
         for urlString in candidates {
-            if let html = await fetchHTMLViaSession(urlString: urlString) { return html }
-            if let html = await fetchHTMLViaWebView(urlString: urlString) { return html }
+            guard let url = URL(string: urlString) else { continue }
+            var request = URLRequest(url: url)
+            request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("zh-CN,zh-Hans;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+            request.setValue(primaryBaseURL + "/", forHTTPHeaderField: "Referer")
+            do {
+                let (data, response) = try await session.data(for: request)
+                if let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) {
+                    let html = String(data: data, encoding: .utf8) ?? ""
+                    if !html.isEmpty {
+                        print("[MissAVService] Session获取成功: \(urlString) (\(html.count)字节)")
+                        return html
+                    }
+                }
+            } catch {
+                print("[MissAVService] Session请求失败: \(urlString) \(error.localizedDescription)")
+            }
         }
         return nil
     }
 
-    private func fetchHTMLViaSession(urlString: String) async -> String? {
-        guard let url = URL(string: urlString) else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
-        request.setValue("zh-CN,zh-Hans;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-        request.setValue(baseURLs[0] + "/", forHTTPHeaderField: "Referer")
-        do {
-            let (data, response) = try await session.data(for: request)
-            if let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) {
-                return String(data: data, encoding: .utf8)
+    private func fetchHTMLViaWebView(path: String? = nil, fullURL: String? = nil) async -> String? {
+        let candidates: [String]
+        if let fullURL, !fullURL.isEmpty {
+            candidates = [fullURL]
+        } else if let path {
+            candidates = buildURLs(path: path)
+        } else {
+            return nil
+        }
+        for urlString in candidates {
+            do {
+                let result = try await BaiduWebViewBridge.shared.request(
+                    url: urlString,
+                    headers: [
+                        "User-Agent": Self.mobileUserAgent,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "zh-CN,zh-Hans;q=0.9,en;q=0.8",
+                        "Referer": primaryBaseURL + "/"
+                    ],
+                    timeout: 15
+                )
+                let html = String(data: result.data, encoding: .utf8) ?? ""
+                if !html.isEmpty {
+                    print("[MissAVService] WebView获取成功: \(urlString) (\(html.count)字节)")
+                    return html
+                }
+            } catch {
+                print("[MissAVService] WebView请求失败: \(urlString) \(error.localizedDescription)")
             }
-        } catch {}
+        }
         return nil
     }
 
-    private func fetchHTMLViaWebView(urlString: String) async -> String? {
-        do {
-            let result = try await BaiduWebViewBridge.shared.request(
-                url: urlString,
-                headers: [
-                    "User-Agent": Self.mobileUserAgent,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh-Hans;q=0.9,en;q=0.8",
-                    "Referer": baseURLs[0] + "/"
-                ],
-                timeout: 12
-            )
-            return String(data: result.data, encoding: .utf8)
-        } catch {}
-        return nil
-    }
+    // MARK: - HTML 解析
 
     private func parseVideoList(from html: String) -> [VodItem] {
         let normalized = html
@@ -135,48 +244,158 @@ final class MissAVService: ObservableObject {
 
         var items: [VodItem] = []
         var seen = Set<String>()
-        let blockPatterns = [
-            "<a[^>]+href=\"([^\"]*?/cn/[^\"]+)\"[^>]*>(.*?)</a>",
-            "<a[^>]+href=\"([^\"]*?/dm\\d+/[^\"]+)\"[^>]*>(.*?)</a>",
-            "<a[^>]+href=\"([^\"]*?/video/[^\"]+)\"[^>]*>(.*?)</a>"
+
+        let titlePatterns = [
+            #"title=["']([^"']{3,})["']"#,
+            #"alt=["']([^"']{3,})["']"#,
+            #"<span[^>]*class="[^"]*(?:title|name|text)[^"]*"[^>]*>([^<]{3,})</span>"#,
+            #"<h[3-6][^>]*>([^<]{3,})</h[3-6]>"#,
+            #"<div[^>]*class="[^"]*(?:title|name|text)[^"]*"[^>]*>([^<]{3,})</div>"#,
         ]
 
-        for pattern in blockPatterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { continue }
+        // 策略1: 视频卡片区块提取
+        let cardPatterns = [
+            #"<div[^>]*data-(?:video-)?id[^>]*>(.*?)</div>"#,
+            #"<(?:div|a|li)[^>]*class="[^"]*(?:video|item|card|thumbnail|vod|film)[^"]*"[^>]*>(.*?)</(?:div|a|li)>"#,
+            #"<a[^>]*href="([^"]*(?:/cn/|/dm\d+/|/video/)[^"]*)"[^>]*>(.{20,500}?)</a>"#,
+        ]
+
+        for cardPattern in cardPatterns {
+            guard let regex = try? NSRegularExpression(pattern: cardPattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { continue }
             let ns = normalized as NSString
-            for match in regex.matches(in: normalized, range: NSRange(location: 0, length: ns.length)) {
-                guard match.numberOfRanges >= 3 else { continue }
-                let href = ns.substring(with: match.range(at: 1))
-                let block = ns.substring(with: match.range(at: 2))
-                let detail = absoluteURL(href)
-                guard !seen.contains(detail) else { continue }
-                let image = firstMatch(in: block, patterns: ["data-src=\"([^\"]+)\"", "src=\"([^\"]+)\"", "poster=\"([^\"]+)\""]) ?? ""
-                let title = cleanTitle(firstMatch(in: block, patterns: ["title=\"([^\"]+)\"", "alt=\"([^\"]+)\"", "<h3[^>]*>(.*?)</h3>", "<span[^>]*class=\"[^\"]*title[^\"]*\"[^>]*>(.*?)</span>"]) ?? "")
-                let finalTitle = title.isEmpty ? ((detail.components(separatedBy: "/").last ?? UUID().uuidString).replacingOccurrences(of: "-", with: " ")) : title
-                let vodId = detail.components(separatedBy: "/").last ?? UUID().uuidString
-                items.append(VodItem(vodId: vodId, vodName: finalTitle, vodPic: normalizeImageURL(image), vodRemarks: vodId.uppercased(), vodArea: "MissAV", vodContent: finalTitle, vodPlayFrom: "missav", vodPlayUrl: detail))
-                seen.insert(detail)
+            let range = NSRange(location: 0, length: ns.length)
+            for match in regex.matches(in: normalized, range: range).prefix(50) {
+                let block: String
+                let href: String?
+                if match.numberOfRanges >= 3 {
+                    href = ns.substring(with: match.range(at: 1))
+                    block = ns.substring(with: match.range(at: 2))
+                } else if match.numberOfRanges >= 2 {
+                    href = nil
+                    block = ns.substring(with: match.range(at: 1))
+                } else { continue }
+
+                let detailURL: String
+                if let h = href {
+                    detailURL = absoluteURL(h)
+                } else {
+                    let h = firstMatch(in: block, patterns: [#"href="([^"]*(?:/cn/|/dm\d+/|/video/)[^"]*)""#])
+                    detailURL = h.map { absoluteURL($0) } ?? ""
+                    if detailURL.isEmpty { continue }
+                }
+
+                guard !seen.contains(detailURL) else { continue }
+                seen.insert(detailURL)
+
+                let image = firstMatch(in: block, patterns: [
+                    #"data-src=["']([^"']+)["']"#,
+                    #"src=["']([^"']+\.(?:jpg|jpeg|png|webp|gif)[^"']*)["']"#,
+                    #"data-original=["']([^"']+)["']"#,
+                    #"data-lazy-src=["']([^"']+)["']"#,
+                    #"poster=["']([^"']+)["']"#,
+                    #"https?://[^"'\s]+\.(?:jpg|jpeg|png|webp)[^"'\s]*"#,
+                ]) ?? ""
+
+                let title = cleanTitle(firstMatch(in: block, patterns: titlePatterns) ?? "")
+                let finalTitle: String
+                if title.isEmpty {
+                    let lastPath = detailURL.components(separatedBy: "/").last ?? ""
+                    finalTitle = lastPath.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: "-")
+                } else {
+                    finalTitle = title
+                }
+
+                let vodId = detailURL.components(separatedBy: "/").last?.replacingOccurrences(of: "-", with: "_") ?? UUID().uuidString
+                items.append(VodItem(
+                    vodId: vodId, vodName: finalTitle, vodPic: normalizeImageURL(image),
+                    vodRemarks: vodId.uppercased(), vodArea: "MissAV",
+                    vodContent: finalTitle, vodPlayFrom: "missav", vodPlayUrl: detailURL
+                ))
                 if items.count >= 40 { return items }
+            }
+            if !items.isEmpty { break }
+        }
+
+        // 策略2: 全页链接扫描
+        if items.isEmpty {
+            print("[MissAVService] 卡片模式无结果，全页扫描")
+            let blockPatterns = [
+                #"<a[^>]*href="([^"]*(?:/cn/[^"]+|/dm\d+/[^"]+|/video/[^"]+))"[^>]*>(.{10,400}?)</a>"#,
+                #"<a[^>]*href="([^"]*(?:/v/[^"]+))"[^>]*>(.{10,400}?)</a>"#,
+            ]
+            for pattern in blockPatterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { continue }
+                let ns = normalized as NSString
+                for match in regex.matches(in: normalized, range: NSRange(location: 0, length: ns.length)) {
+                    guard match.numberOfRanges >= 3 else { continue }
+                    let href = ns.substring(with: match.range(at: 1))
+                    let block = ns.substring(with: match.range(at: 2))
+                    let detail = absoluteURL(href)
+                    guard !seen.contains(detail) else { continue }
+                    seen.insert(detail)
+
+                    let image = firstMatch(in: block, patterns: [
+                        #"data-src=["']([^"']+)["']"#,
+                        #"src=["']([^"']+(?:jpg|jpeg|png|webp)[^"']*)["']"#,
+                        #"https?://[^"'\s]+\.(?:jpg|jpeg|png|webp)[^"'\s]*"#,
+                    ]) ?? ""
+
+                    let title = cleanTitle(firstMatch(in: block, patterns: titlePatterns) ?? "")
+                    let finalTitle: String
+                    if title.isEmpty {
+                        let lastPath = detail.components(separatedBy: "/").last ?? ""
+                        finalTitle = lastPath.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: "-")
+                    } else {
+                        finalTitle = title
+                    }
+
+                    let vodId = detail.components(separatedBy: "/").last?.replacingOccurrences(of: "-", with: "_") ?? UUID().uuidString
+                    items.append(VodItem(
+                        vodId: vodId, vodName: finalTitle, vodPic: normalizeImageURL(image),
+                        vodRemarks: vodId.uppercased(), vodArea: "MissAV",
+                        vodContent: finalTitle, vodPlayFrom: "missav", vodPlayUrl: detail
+                    ))
+                    if items.count >= 40 { break }
+                }
+                if !items.isEmpty { break }
             }
         }
 
-        let jsonLikePattern = "\"thumbnail\"\\s*:\\s*\"([^\"]+)\".*?\"title\"\\s*:\\s*\"([^\"]+)\".*?\"url\"\\s*:\\s*\"([^\"]+)\""
-        if let regex = try? NSRegularExpression(pattern: jsonLikePattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) {
-            let ns = normalized as NSString
-            for match in regex.matches(in: normalized, range: NSRange(location: 0, length: ns.length)) {
-                guard match.numberOfRanges >= 4 else { continue }
-                let image = ns.substring(with: match.range(at: 1))
-                let title = cleanTitle(ns.substring(with: match.range(at: 2)))
-                let detail = absoluteURL(ns.substring(with: match.range(at: 3)))
-                guard !seen.contains(detail), !title.isEmpty else { continue }
-                let vodId = detail.components(separatedBy: "/").last ?? UUID().uuidString
-                items.append(VodItem(vodId: vodId, vodName: title, vodPic: normalizeImageURL(image), vodRemarks: vodId.uppercased(), vodArea: "MissAV", vodContent: title, vodPlayFrom: "missav", vodPlayUrl: detail))
-                seen.insert(detail)
-                if items.count >= 40 { return items }
+        // 策略3: JSON内嵌数据
+        if items.isEmpty {
+            let jsonPatterns = [
+                #""thumbnail"\s*:\s*"([^"]+)".*?"title"\s*:\s*"([^"]+)".*?"url"\s*:\s*"([^"]+)""#,
+                #""image"\s*:\s*"([^"]+)".*?"title"\s*:\s*"([^"]+)".*?"link"\s*:\s*"([^"]+)""#,
+                #""img"\s*:\s*"([^"]+)".*?"name"\s*:\s*"([^"]+)".*?"href"\s*:\s*"([^"]+)""#,
+                #"src:\s*"([^"]+)".*?title:\s*"([^"]+)".*?url:\s*"([^"]+)""#,
+            ]
+            for jsonPattern in jsonPatterns {
+                guard let regex = try? NSRegularExpression(pattern: jsonPattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { continue }
+                let ns = normalized as NSString
+                for match in regex.matches(in: normalized, range: NSRange(location: 0, length: ns.length)) {
+                    guard match.numberOfRanges >= 4 else { continue }
+                    let image = ns.substring(with: match.range(at: 1))
+                    let title = cleanTitle(ns.substring(with: match.range(at: 2)))
+                    let detail = absoluteURL(ns.substring(with: match.range(at: 3)))
+                    guard !seen.contains(detail), !title.isEmpty else { continue }
+                    seen.insert(detail)
+                    let vodId = detail.components(separatedBy: "/").last ?? UUID().uuidString
+                    items.append(VodItem(vodId: vodId, vodName: title, vodPic: normalizeImageURL(image), vodRemarks: vodId.uppercased(), vodArea: "MissAV", vodContent: title, vodPlayFrom: "missav", vodPlayUrl: detail))
+                    if items.count >= 40 { break }
+                }
+                if !items.isEmpty { break }
             }
+        }
+
+        print("[MissAVService] parseVideoList: 共解析到 \(items.count) 条")
+        if items.isEmpty {
+            let preview = String(html.prefix(300)).replacingOccurrences(of: "\n", with: " ")
+            print("[MissAVService] HTML预览(300): \(preview)")
         }
         return items
     }
+
+    // MARK: - 播放源解析
 
     private func parsePlayableSource(from html: String, detailURL: String) -> MissAVPlayableSource? {
         let normalized = html
@@ -207,6 +426,8 @@ final class MissAVService: ObservableObject {
         return nil
     }
 
+    // MARK: - 辅助
+
     private func playbackHeaders(detailURL: String) -> [String: String] {
         ["User-Agent": Self.mobileUserAgent, "Accept": "*/*", "Accept-Language": "zh-CN,zh-Hans;q=0.9,en;q=0.8", "Referer": detailURL, "Origin": detailURL.components(separatedBy: "/").prefix(3).joined(separator: "/")]
     }
@@ -227,6 +448,9 @@ final class MissAVService: ObservableObject {
         stripHTML(text)
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -235,25 +459,19 @@ final class MissAVService: ObservableObject {
     }
 
     private func normalizeImageURL(_ text: String) -> String {
-        if text.hasPrefix("http") { return text }
-        if text.hasPrefix("//") { return "https:" + text }
-        if text.hasPrefix("/") { return baseURLs[0] + text }
-        return text
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http") { return trimmed }
+        if trimmed.hasPrefix("//") { return "https:" + trimmed }
+        if trimmed.hasPrefix("/") { return primaryBaseURL + trimmed }
+        return trimmed
     }
 
     private func absoluteURL(_ href: String) -> String {
-        if href.hasPrefix("http") { return href }
-        if href.hasPrefix("//") { return "https:" + href }
-        if href.hasPrefix("/") { return baseURLs[0] + href }
-        return baseURLs[0] + "/" + href
-    }
-
-    private func fallbackMockVideos(for item: MissAVMenuItem) -> [VodItem] {
-        let base = baseURLs[0]
-        return (1...12).map { index in
-            let title = "\(item.title) 示例影片 \(index)"
-            return VodItem(vodId: "missav-\(item.id)-\(index)", vodName: title, vodPic: "https://placehold.co/480x270/111827/F9FAFB?text=MISSAV+\(index)", vodRemarks: "MISSAV", vodArea: "MissAV", vodContent: title, vodPlayFrom: "missav", vodPlayUrl: base + item.path + "/demo-\(index)")
-        }
+        let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http") { return trimmed }
+        if trimmed.hasPrefix("//") { return "https:" + trimmed }
+        if trimmed.hasPrefix("/") { return primaryBaseURL + trimmed }
+        return primaryBaseURL + "/" + trimmed
     }
 
     static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
