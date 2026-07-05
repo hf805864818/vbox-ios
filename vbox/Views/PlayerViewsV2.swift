@@ -2688,6 +2688,15 @@ class PlayerState: ObservableObject {
                 return
             }
         }
+
+        // MissAV 专属链路：解析详情页得到真实 m3u8/mp4，并透传 Referer/Origin/User-Agent
+        if (video.vodPlayFrom ?? "").contains("missav"),
+           let source = await MissAVService.shared.resolvePlayableSource(for: video),
+           let url = createURL(from: source.url) {
+            log("[PlayerV2] MissAV 解析成功，带 header 原生播放")
+            await MainActor.run { initPlayer(url: url, customHeaders: source.headers) }
+            return
+        }
         
         let spider = await SpiderManager.shared
         var playUrl: String? = video.vodPlayUrl
@@ -3181,7 +3190,7 @@ class PlayerState: ObservableObject {
         }
     }
     
-    private func initPlayer(url: URL, noReferer: Bool = false) {
+    private func initPlayer(url: URL, noReferer: Bool = false, customHeaders: [String: String]? = nil) {
         if !noReferer { hasRetriedNoReferer = false }
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
 
@@ -3227,6 +3236,10 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
         } else {
             log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
+        }
+        if let customHeaders {
+            for (key, value) in customHeaders { headers[key] = value }
+            log("[PlayerV2] 已合并自定义HTTP头，Referer=\(headers["Referer"] ?? "nil")")
         }
         assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
         

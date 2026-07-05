@@ -1,0 +1,267 @@
+import SwiftUI
+import WebKit
+
+struct MissAVHomeView: View {
+    @StateObject private var service = MissAVService.shared
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("MissAV")
+                    .font(.system(size: 28, weight: .bold))
+                Text("视频分类 · 原生解析 · WebView兜底")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+
+                ForEach(service.sections) { section in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label(section.title, systemImage: section.icon)
+                            .font(.system(size: 18, weight: .bold))
+
+                        ForEach(section.children) { item in
+                            NavigationLink(destination: MissAVVideoListView(menuItem: item)) {
+                                HStack {
+                                    Text(item.title)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 40)
+        }
+        .navigationTitle("MissAV")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct MissAVVideoListView: View {
+    let menuItem: MissAVMenuItem
+    @StateObject private var service = MissAVService.shared
+    @State private var videos: [VodItem] = []
+    @State private var loading = true
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
+    var body: some View {
+        Group {
+            if loading {
+                ProgressView("正在加载 \(menuItem.title)...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 14) {
+                        ForEach(videos) { video in
+                            NavigationLink(destination: MissAVPlayerRouterView(video: video)) {
+                                MissAVVideoCard(video: video)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+                }
+            }
+        }
+        .navigationTitle(menuItem.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if videos.isEmpty {
+                videos = await service.loadVideos(for: menuItem)
+                loading = false
+            }
+        }
+    }
+}
+
+struct MissAVVideoCard: View {
+    let video: VodItem
+
+    private var codeText: String {
+        if let remarks = video.vodRemarks, !remarks.isEmpty { return remarks }
+        return video.vodId.replacingOccurrences(of: "_", with: "-").uppercased()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: URL(string: video.vodPic)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.18))
+                            .overlay(Image(systemName: "play.rectangle.fill").foregroundColor(.white.opacity(0.5)))
+                    }
+                }
+                .frame(height: 88)
+                .frame(maxWidth: .infinity)
+                .clipped()
+
+                LinearGradient(
+                    colors: [Color.black.opacity(0.0), Color.black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 88)
+
+                Text(codeText)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.45))
+                    .clipShape(Capsule())
+                    .padding(6)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Text(video.vodName)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            Text(video.vodArea ?? "MissAV")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct MissAVPlayerRouterView: View {
+    let video: VodItem
+    @StateObject private var service = MissAVService.shared
+    @State private var stage: Int = 0
+    @State private var resolvedVod: VodItem?
+
+    var body: some View {
+        Group {
+            switch stage {
+            case 1:
+                if let vod = resolvedVod {
+                    VideoPlayerViewV2(video: vod)
+                } else {
+                    ProgressView("准备原生播放器...")
+                }
+            case 2:
+                if let url = video.vodPlayUrl, let detailURL = URL(string: url) {
+                    MissAVWebPlayerView(url: detailURL, cleanAds: true)
+                } else {
+                    MissAVPlayerFallbackView(video: video)
+                }
+            case 3:
+                MissAVPlayerFallbackView(video: video)
+            default:
+                ProgressView("正在解析播放地址...")
+            }
+        }
+        .navigationTitle(video.vodName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await routePlayback() }
+    }
+
+    private func routePlayback() async {
+        if let source = await service.resolvePlayableSource(for: video) {
+            resolvedVod = VodItem(
+                vodId: video.vodId,
+                vodName: video.vodName,
+                vodPic: video.vodPic,
+                vodRemarks: video.vodRemarks,
+                vodYear: video.vodYear,
+                vodArea: video.vodArea,
+                vodDirector: video.vodDirector,
+                vodActor: video.vodActor,
+                vodContent: video.vodContent,
+                vodPlayFrom: "missav-native",
+                vodPlayUrl: source.url
+            )
+            stage = 1
+        } else if video.vodPlayUrl != nil {
+            stage = 2
+        } else {
+            stage = 3
+        }
+    }
+}
+
+struct MissAVPlayerFallbackView: View {
+    let video: VodItem
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 42))
+                .foregroundColor(.orange)
+            Text("当前未解析到原生播放地址")
+                .font(.system(size: 18, weight: .bold))
+            if let url = video.vodPlayUrl, let detailURL = URL(string: url) {
+                NavigationLink("打开详情页兜底播放") {
+                    MissAVWebPlayerView(url: detailURL, cleanAds: false)
+                }
+            }
+            Spacer()
+        }
+        .padding(.top, 80)
+    }
+}
+
+struct MissAVWebPlayerView: UIViewRepresentable {
+    let url: URL
+    let cleanAds: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(cleanAds: cleanAds) }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.customUserAgent = MissAVService.mobileUserAgent
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+
+        var request = URLRequest(url: url)
+        request.setValue(MissAVService.mobileUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://missav.ws/", forHTTPHeaderField: "Referer")
+        webView.load(request)
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        let cleanAds: Bool
+        init(cleanAds: Bool) { self.cleanAds = cleanAds }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard cleanAds else { return }
+            let js = """
+            setTimeout(function() {
+              document.querySelectorAll('iframe[src*=\"ad\"], .ad, .ads, [class*=\"ads\"], [id*=\"ads\"], .banner, .pop, .popup').forEach(function(e){e.remove();});
+              document.querySelectorAll('video').forEach(function(v){v.setAttribute('playsinline','true'); v.muted = false;});
+            }, 800);
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+}

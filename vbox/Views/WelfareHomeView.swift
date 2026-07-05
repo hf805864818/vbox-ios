@@ -141,8 +141,12 @@ struct WelfareCategorySection: View {
 
     @ViewBuilder
     private func platformDestination(_ platform: YBoxPlatform2) -> some View {
+        // MissAV：走专属分类 + 原生解析 + WebView兜底播放链路
+        if platform.crawlerPlatformId == "missav" || platform.name.lowercased() == "missav" {
+            MissAVHomeView()
+        }
         // 优先：有爬虫配置的平台，统一走 YBoxCrawlerContentView → WelfarePlatformView
-        if let pid = platform.crawlerPlatformId, !pid.isEmpty {
+        else if let pid = platform.crawlerPlatformId, !pid.isEmpty {
             YBoxCrawlerContentView(platform: platform)
         }
         // "更多直播"/"更多漫画" 折叠入口
