@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C0MISSAV001 /* MissAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0MISSAV101 /* MissAVService.swift */; };
-		C0MISSAV002 /* MissAVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0MISSAV102 /* MissAVViews.swift */; };
 		01F6F39CDE0989900175B1A7 /* Libavdevice.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		02831CE14AB9016BC0331BE0 /* Libcrypto.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		03441A3A19D4200B9B0C9F73 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97FF67C178D2D217311C1C6C /* Security.framework */; };
@@ -164,6 +162,8 @@
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		BF1133BC00ADC634CEAEF832 /* Libunibreak.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C0MISSAV001 /* BuildFile in Sources */ = {isa = PBXBuildFile; };
+		C0MISSAV002 /* BuildFile in Sources */ = {isa = PBXBuildFile; };
 		C2034606B1124B3E957C55F8 /* WelfareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89DCA61AB0624F5991291A38 /* WelfareModels.swift */; };
 		C79D5E5BDB224F76AD4DA758 /* Libavfilter.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CB01126FCF83B2983BB94723 /* Libuavs3d.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -601,7 +601,6 @@
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
 				B10126 /* ShortDramaService.swift */,
 				B10200 /* YBoxService2.swift */,
-				C0MISSAV101 /* MissAVService.swift */,
 				B10201 /* WelfareCrawlerService.swift */,
 				B12031 /* KXSPAPIService.swift */,
 			);
@@ -633,7 +632,6 @@
 				B10142 /* LiveTVView.swift */,
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
-				C0MISSAV102 /* MissAVViews.swift */,
 				D5E6F7A8B9C0D1E2F3A4B5C6 /* WelfareDomainSettingsView.swift */,
 				AC5E078A4B3F4802A4167971 /* WelfarePlatformView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -866,7 +864,7 @@
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
 				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
-				C0MISSAV002 /* MissAVViews.swift in Sources */,
+				C0MISSAV002 /* BuildFile in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* WelfareDomainSettingsView.swift in Sources */,
 				7A7823D2B97C4619836BF72B /* WelfarePlatformView.swift in Sources */,
 				0519F2A24E0B464A834BDE28 /* WelfareViewModel.swift in Sources */,
@@ -876,7 +874,7 @@
 				A10127 /* ShortDramaView.swift in Sources */,
 				A10128 /* ShortDramaDetailView.swift in Sources */,
 				A10200 /* YBoxService2.swift in Sources */,
-				C0MISSAV001 /* MissAVService.swift in Sources */,
+				C0MISSAV001 /* BuildFile in Sources */,
 				A10201 /* WelfareCrawlerService.swift in Sources */,
 				A10202 /* WelfareCrawlerConfig.swift in Sources */,
 				A10203 /* WelfareSubViews.swift in Sources */,
