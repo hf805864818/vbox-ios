@@ -222,6 +222,7 @@ struct MissAVPlayerRouterView: View {
             )
         }
     }
+}
 
 struct MissAVWebPlayerView: UIViewRepresentable {
     let url: URL
