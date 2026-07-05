@@ -23,9 +23,10 @@ struct WelfareHomeView: View {
                         NavigationLink(destination: WelfareDomainSettingsView()
                             .environmentObject(settings)) {
                             Image(systemName: "gearshape.fill")
-                                .font(.system(size: 18))
+                                .font(.system(size: 16))
                                 .foregroundColor(.secondary)
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.top, 16)
                     .padding(.horizontal, 20)

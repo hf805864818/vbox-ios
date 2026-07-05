@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 
 struct MissAVHomeView: View {
+    @EnvironmentObject private var settings: AppSettings
     @StateObject private var service = MissAVService.shared
 
     var body: some View {
@@ -51,6 +52,7 @@ struct MissAVVideoListView: View {
     @StateObject private var service = MissAVService.shared
     @State private var videos: [VodItem] = []
     @State private var loading = true
+    @State private var loadCount = 0
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
@@ -79,9 +81,20 @@ struct MissAVVideoListView: View {
         }
         .navigationTitle(menuItem.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            if videos.isEmpty {
-                videos = await service.loadVideos(for: menuItem)
+        .onAppear {
+            if videos.isEmpty || loadCount == 0 {
+                loadVideos()
+            }
+        }
+    }
+
+    private func loadVideos() {
+        loading = true
+        loadCount += 1
+        Task {
+            let loaded = await service.loadVideos(for: menuItem)
+            await MainActor.run {
+                videos = loaded
                 loading = false
             }
         }
@@ -149,36 +162,50 @@ struct MissAVVideoCard: View {
 struct MissAVPlayerRouterView: View {
     let video: VodItem
     @StateObject private var service = MissAVService.shared
-    @State private var stage: Int = 0
     @State private var resolvedVod: VodItem?
+    @State private var showPlayer = false
 
     var body: some View {
-        Group {
-            switch stage {
-            case 1:
-                if let vod = resolvedVod {
-                    VideoPlayerViewV2(video: vod)
-                } else {
-                    ProgressView("准备原生播放器...")
+        VStack(spacing: 12) {
+            // 封面预览
+            AsyncImage(url: URL(string: video.vodPic)) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
+                default:
+                    Rectangle().fill(Color.gray.opacity(0.2)).aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
                 }
-            case 2:
-                if let url = video.vodPlayUrl, let detailURL = URL(string: url) {
-                    MissAVWebPlayerView(url: detailURL, cleanAds: true)
-                } else {
-                    MissAVPlayerFallbackView(video: video)
-                }
-            case 3:
-                MissAVPlayerFallbackView(video: video)
-            default:
-                ProgressView("正在解析播放地址...")
             }
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .center) {
+                Button(action: { showPlayer = true }) {
+                    Image(systemName: "play.fill").font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                }
+            }
+
+            Text(video.vodName)
+                .font(.system(size: 18, weight: .bold))
+                .padding(.horizontal, 16)
+
+            Spacer()
         }
+        .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle(video.vodName)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await routePlayback() }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let vod = resolvedVod {
+                VideoDetailView(video: vod)
+            } else {
+                // 兜底：用原始视频信息
+                VideoDetailView(video: video)
+            }
+        }
+        .task {
+            await resolveAndPrepare()
+        }
     }
 
-    private func routePlayback() async {
+    private func resolveAndPrepare() async {
         if let source = await service.resolvePlayableSource(for: video) {
             resolvedVod = VodItem(
                 vodId: video.vodId,
@@ -193,35 +220,8 @@ struct MissAVPlayerRouterView: View {
                 vodPlayFrom: "missav-native",
                 vodPlayUrl: source.url
             )
-            stage = 1
-        } else if video.vodPlayUrl != nil {
-            stage = 2
-        } else {
-            stage = 3
         }
     }
-}
-
-struct MissAVPlayerFallbackView: View {
-    let video: VodItem
-
-    var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 42))
-                .foregroundColor(.orange)
-            Text("当前未解析到原生播放地址")
-                .font(.system(size: 18, weight: .bold))
-            if let url = video.vodPlayUrl, let detailURL = URL(string: url) {
-                NavigationLink("打开详情页兜底播放") {
-                    MissAVWebPlayerView(url: detailURL, cleanAds: false)
-                }
-            }
-            Spacer()
-        }
-        .padding(.top, 80)
-    }
-}
 
 struct MissAVWebPlayerView: UIViewRepresentable {
     let url: URL
