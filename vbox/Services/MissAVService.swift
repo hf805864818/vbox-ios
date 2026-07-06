@@ -549,7 +549,7 @@ final class MissAVWebViewDelegate: NSObject, WKNavigationDelegate {
     }
 }
 
-private final class MissAVNavigationLoader {
+final class MissAVNavigationLoader {
     static func loadHTML(urlString: String, userAgent: String, timeout: TimeInterval, completion: @escaping (String?) -> Void) {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
