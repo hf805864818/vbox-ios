@@ -244,53 +244,24 @@ final class MissAVService: ObservableObject {
     /// 通过 WKWebView 导航加载页面获取 HTML（绕过 Cloudflare XHR 检测）
     private func fetchHTMLViaWebViewNavigation(urlString: String) async -> String? {
         print("[MissAVService] WebView导航请求: \(urlString)")
-        let result = await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                let config = WKWebViewConfiguration()
-                config.websiteDataStore = .nonPersistent()
-                config.preferences.javaScriptEnabled = true
-                config.preferences.javaScriptCanOpenWindowsAutomatically = true
-                
-                let webView = WKWebView(frame: .zero, configuration: config)
-                webView.customUserAgent = Self.mobileUserAgent
-                webView.navigationDelegate = self
-                
-                var request = URLRequest(url: URL(string: urlString)!)
-                request.timeoutInterval = 20
-                request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
-                request.setValue("https://missav.ws/", forHTTPHeaderField: "Referer")
-                
-                print("[MissAVService] WebView开始加载: \(urlString)")
-                webView.load(request)
-                
-                // 超时兜底
-                let timeoutTask = Task {
-                    try await Task.sleep(nanoseconds: UInt64(25 * Double(NSEC_PER_SEC)))
-                    if !continuation.isFinished {
-                        print("[MissAVService] WebView导航超时: \(urlString)")
-                        continuation.resume(returning: nil)
-                        webView.stopLoading()
-                        webView.removeFromSuperview()
-                    }
-                }
-                
-                // 保存 webView 引用供 delegate 使用
-                self._missavWebView = webView
-                self._missavContinuation = continuation
-                self._missavTimeoutTask = timeoutTask
+        
+        let html = await withCheckedContinuation { continuation in
+            MissAVNavigationLoader.loadHTML(
+                urlString: urlString,
+                userAgent: Self.mobileUserAgent,
+                timeout: 20
+            ) { result in
+                continuation.resume(returning: result)
             }
         }
-        if let html = result, !html.isEmpty {
+        
+        if let html = html, !html.isEmpty {
             print("[MissAVService] WebView导航获取成功: \(urlString) (\(html.count)字节)")
         } else {
             print("[MissAVService] WebView导航获取失败或为空: \(urlString)")
         }
-        return result
+        return html
     }
-    
-    private var _missavWebView: WKWebView?
-    private var _missavContinuation: CheckedContinuation<String?, Never>?
-    private var _missavTimeoutTask: Task<Void, Never>?
 
     // MARK: - HTML 解析
 
@@ -536,51 +507,78 @@ final class MissAVService: ObservableObject {
     static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 }
 
-// MARK: - WKNavigationDelegate for MissAV
-extension MissAVService: WKNavigationDelegate {
+// MARK: - MissAV WebView Navigation Delegate
+
+@MainActor
+final class MissAVWebViewDelegate: NSObject, WKNavigationDelegate {
+    let completion: (String?) -> Void
+    var webView: WKWebView?
+    
+    init(webView: WKWebView, completion: @escaping (String?) -> Void) {
+        self.webView = webView
+        self.completion = completion
+    }
+    
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
-        
         webView.evaluateJavaScript("""
             (function() {
                 return document.documentElement ? document.documentElement.outerHTML : (document.body ? document.body.innerHTML : '');
             })();
         """) { [weak self] result, error in
+            guard let self = self else { return }
             if let error = error {
                 print("[MissAVService] WebView导航获取HTML失败: \(error.localizedDescription)")
-                continuation.resume(returning: nil)
-            } else if let html = result as? String, !html.isEmpty {
-                continuation.resume(returning: html)
-            } else {
-                continuation.resume(returning: nil)
+                self.completion(nil)
+                return
             }
-            
-            self?.cleanupMissAVWebView()
+            if let html = result as? String, !html.isEmpty {
+                self.completion(html)
+            } else {
+                self.completion(nil)
+            }
         }
     }
     
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
         print("[MissAVService] WebView导航加载失败: \(error.localizedDescription)")
-        continuation.resume(returning: nil)
-        cleanupMissAVWebView()
+        completion(nil)
     }
     
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
         print("[MissAVService] WebView导航预加载失败: \(error.localizedDescription)")
-        continuation.resume(returning: nil)
-        cleanupMissAVWebView()
+        completion(nil)
     }
-    
-    private func cleanupMissAVWebView() {
-        _missavTimeoutTask?.cancel()
-        _missavTimeoutTask = nil
-        if let webView = _missavWebView {
+}
+
+private final class MissAVNavigationLoader {
+    static func loadHTML(urlString: String, userAgent: String, timeout: TimeInterval, completion: @escaping (String?) -> Void) {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        config.preferences.javaScriptEnabled = true
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.customUserAgent = userAgent
+        let delegate = MissAVWebViewDelegate(webView: webView) { html in
             webView.stopLoading()
             webView.removeFromSuperview()
-            _missavWebView = nil
+            completion(html)
         }
-        _missavContinuation = nil
+        webView.navigationDelegate = delegate
+        
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.timeoutInterval = timeout
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://missav.ws/", forHTTPHeaderField: "Referer")
+        
+        webView.load(request)
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 2) {
+            if webView.isLoading {
+                webView.stopLoading()
+                webView.removeFromSuperview()
+                completion(nil)
+            }
+        }
     }
 }
