@@ -509,10 +509,9 @@ final class MissAVService: ObservableObject {
 
 // MARK: - MissAV WebView Navigation Delegate
 
-@MainActor
 final class MissAVWebViewDelegate: NSObject, WKNavigationDelegate {
     let completion: (String?) -> Void
-    var webView: WKWebView?
+    weak var webView: WKWebView?
     
     init(webView: WKWebView, completion: @escaping (String?) -> Void) {
         self.webView = webView
@@ -559,10 +558,23 @@ private final class MissAVNavigationLoader {
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.customUserAgent = userAgent
-        let delegate = MissAVWebViewDelegate(webView: webView) { html in
-            webView.stopLoading()
-            webView.removeFromSuperview()
+        var isCompleted = false
+        let lock = DispatchSemaphore(value: 1)
+        
+        func complete(_ html: String?) {
+            guard lock.wait(timeout: .now()) == .success else { return }
+            defer { lock.signal() }
+            guard !isCompleted else { return }
+            isCompleted = true
+            DispatchQueue.main.async {
+                webView.stopLoading()
+                webView.removeFromSuperview()
+            }
             completion(html)
+        }
+        
+        let delegate = MissAVWebViewDelegate(webView: webView) { html in
+            complete(html)
         }
         webView.navigationDelegate = delegate
         
@@ -574,11 +586,7 @@ private final class MissAVNavigationLoader {
         webView.load(request)
         
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 2) {
-            if webView.isLoading {
-                webView.stopLoading()
-                webView.removeFromSuperview()
-                completion(nil)
-            }
+            complete(nil)
         }
     }
 }
