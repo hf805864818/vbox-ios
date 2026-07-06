@@ -295,6 +295,12 @@ extension WelfareCrawlerConfig {
               [.video, .actor, .search],
               ["video": ["全部视频"], "actor": ["演员信息"]]),
 
+        .make("44hhqq", "44hhqq", "44hhqq", "https://www.99ggdd.com",
+              .htmlRegex, .video,
+              [.video, .actor, .classify, .search],
+              ["video": ["全部视频"], "actor": ["女优"], "classify": ["有码", "无码", "欧美", "中文"]],
+              htmlTemplate: .generic),
+
         .make("missav", "missav", "missav", "https://missav.ws",
               .htmlRegex, .video,
               [.video, .actor, .classify, .search],
