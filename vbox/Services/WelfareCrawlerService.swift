@@ -115,6 +115,11 @@ final class WelfareCrawlerService {
             return await fetchMissAV(kind: pageKind, keyword: sectionKeyword, onBatch: onBatch)
         }
 
+        // 44hhqq 专项：使用 WebView 导航加载 HTML（绕过 Cloudflare 检测）
+        if platformId == "44hhqq" {
+            return await fetch44hhqq(cfg: cfg, kind: pageKind, page: page, sectionKeyword: sectionKeyword, onBatch: onBatch)
+        }
+
         switch cfg.parserType {
         case .pwaApi:
             // PWA加密(pwaApi)平台：直连几乎必失败，走代理→SpiderManager回退
@@ -158,6 +163,184 @@ final class WelfareCrawlerService {
         }
         print("[WelfareCrawler] MissAV专项无结果，回退")
         return await fallback(id: "missav", kind: kind, onBatch: onBatch)
+    }
+
+    // MARK: - 44hhqq 专项（WebView 导航加载 HTML）
+    private func fetch44hhqq(cfg: WelfareCrawlerConfig, kind: WelfarePageKind, page: Int,
+                              sectionKeyword: String,
+                              onBatch: (([VodItem]) -> Void)?) async -> [VodItem] {
+        print("[WelfareCrawler] 44hhqq专项: kind=\(kind.rawValue) page=\(page) kw=\(sectionKeyword)")
+        let baseUrl = cfg.effectiveBaseURL
+        let path = htmlPath(for: kind, pg: page)
+        let urlStr = baseUrl + path
+        guard let html = await fetchHTMLViaWebView(urlString: urlStr) else {
+            print("[WelfareCrawler] 44hhqq WebView加载失败: \(urlStr)")
+            return await fallback(id: "44hhqq", kind: kind, onBatch: onBatch)
+        }
+        let items = parse44hhqqHTML(html, sectionKeyword: sectionKeyword)
+        if !items.isEmpty {
+            let tagged = items.map { item -> VodItem in
+                var t = item
+                if !(t.vodRemarks ?? "").hasPrefix("[福利]") { t.vodRemarks = "[福利]" + (t.vodRemarks ?? "") }
+                return t
+            }
+            print("[WelfareCrawler] 44hhqq专项成功: \(tagged.count)条")
+            onBatch?(tagged)
+            return tagged
+        }
+        print("[WelfareCrawler] 44hhqq专项无结果，回退")
+        return await fallback(id: "44hhqq", kind: kind, onBatch: onBatch)
+    }
+
+    private func fetchHTMLViaWebView(urlString: String) async -> String? {
+        print("[WelfareCrawler] WebView导航请求: \(urlString)")
+        return await withCheckedContinuation { continuation in
+            MissAVNavigationLoader.loadHTML(
+                urlString: urlString,
+                userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                timeout: 20
+            ) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func parse44hhqqHTML(_ html: String, sectionKeyword: String = "") -> [VodItem] {
+        var items: [VodItem] = []
+        var seen = Set<String>()
+        
+        // 策略1: 提取视频卡片 <a> 标签
+        let cardPattern = #"<a[^>]*href="([^"]*(?:/video/|/v/|/play/)[^"]*)"[^>]*>(.*?)</a>"#
+        if let regex = try? NSRegularExpression(pattern: cardPattern, options: [.dotMatchesLineSeparators]) {
+            let ns = html as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            for match in regex.matches(in: html, range: range).prefix(50) {
+                guard match.numberOfRanges >= 3 else { continue }
+                let href = ns.substring(with: match.range(at: 1))
+                let block = ns.substring(with: match.range(at: 2))
+                let detailURL: String
+                if href.hasPrefix("http") {
+                    detailURL = href
+                } else if href.hasPrefix("/") {
+                    let base = WelfareCrawlerConfig.config(for: "44hhqq")?.effectiveBaseURL ?? "https://www.99ggdd.com"
+                    detailURL = base + href
+                } else {
+                    let base = WelfareCrawlerConfig.config(for: "44hhqq")?.effectiveBaseURL ?? "https://www.99ggdd.com"
+                    detailURL = base + "/" + href
+                }
+                
+                guard !seen.contains(detailURL) else { continue }
+                seen.insert(detailURL)
+                
+                // 提取标题
+                let title = stripHTML(block)
+                    .replacingOccurrences(of: "&nbsp;", with: " ")
+                    .replacingOccurrences(of: "&amp;", with: "&")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { continue }
+                
+                // 提取封面
+                let imagePatterns = [
+                    #"data-src=["']([^"']+)["']"#,
+                    #"src=["']([^"']+)["']"#,
+                    #"data-original=["']([^"']+)["']"#,
+                ]
+                let image = firstMatch44hhqq(in: block, patterns: imagePatterns) ?? ""
+                
+                let vodId = detailURL.components(separatedBy: "/").last ?? UUID().uuidString
+                items.append(VodItem(
+                    vodId: vodId, vodName: title, vodPic: image,
+                    vodRemarks: "[福利]", vodArea: "44hhqq",
+                    vodContent: title, vodPlayFrom: "44hhqq", vodPlayUrl: detailURL
+                ))
+                if items.count >= 40 { return items }
+            }
+        }
+        
+        // 策略2: 提取带图片的视频链接
+        if items.isEmpty {
+            let imgPattern = #"<a[^>]*href="([^"]*(?:/video/|/v/|/play/)[^"]*)"[^>]*>.*?<img[^>]*src="([^"]+)".*?alt="([^"]*)"[^>]*>"#
+            if let regex = try? NSRegularExpression(pattern: imgPattern, options: [.dotMatchesLineSeparators]) {
+                let ns = html as NSString
+                let range = NSRange(location: 0, length: ns.length)
+                for match in regex.matches(in: html, range: range).prefix(50) {
+                    guard match.numberOfRanges >= 4 else { continue }
+                    let href = ns.substring(with: match.range(at: 1))
+                    let image = ns.substring(with: match.range(at: 2))
+                    let title = ns.substring(with: match.range(at: 3))
+                    
+                    let base = WelfareCrawlerConfig.config(for: "44hhqq")?.effectiveBaseURL ?? "https://www.99ggdd.com"
+                    let detailURL = href.hasPrefix("http") ? href : (href.hasPrefix("/") ? base + href : base + "/" + href)
+                    guard !seen.contains(detailURL), !title.isEmpty else { continue }
+                    seen.insert(detailURL)
+                    
+                    let vodId = detailURL.components(separatedBy: "/").last ?? UUID().uuidString
+                    items.append(VodItem(
+                        vodId: vodId, vodName: title, vodPic: image,
+                        vodRemarks: "[福利]", vodArea: "44hhqq",
+                        vodContent: title, vodPlayFrom: "44hhqq", vodPlayUrl: detailURL
+                    ))
+                    if items.count >= 40 { return items }
+                }
+            }
+        }
+        
+        // 策略3: 通用正则提取
+        if items.isEmpty {
+            let generalPattern = #"<div[^>]*class="[^"]*(?:video|item|card|vod)[^"]*"[^>]*>(.*?)</div>"#
+            if let regex = try? NSRegularExpression(pattern: generalPattern, options: [.dotMatchesLineSeparators]) {
+                let ns = html as NSString
+                let range = NSRange(location: 0, length: ns.length)
+                for match in regex.matches(in: html, range: range).prefix(50) {
+                    guard match.numberOfRanges >= 2 else { continue }
+                    let block = ns.substring(with: match.range(at: 1))
+                    
+                    let href = firstMatch44hhqq(in: block, patterns: [#"href="([^"]*(?:/video/|/v/|/play/)[^"]*)""#]) ?? ""
+                    let title = firstMatch44hhqq(in: block, patterns: [#"title=["']([^"']+)["']"#, #"alt=["']([^"']+)["']"#]) ?? ""
+                    let image = firstMatch44hhqq(in: block, patterns: [
+                        #"data-src=["']([^"']+)["']"#,
+                        #"src=["']([^"']+)["']"#,
+                        #"data-original=["']([^"']+)["']"#,
+                    ]) ?? ""
+                    
+                    guard !title.isEmpty else { continue }
+                    let base = WelfareCrawlerConfig.config(for: "44hhqq")?.effectiveBaseURL ?? "https://www.99ggdd.com"
+                    let detailURL = href.hasPrefix("http") ? href : (href.hasPrefix("/") ? base + href : base + "/" + href)
+                    guard !seen.contains(detailURL) else { continue }
+                    seen.insert(detailURL)
+                    
+                    let vodId = detailURL.components(separatedBy: "/").last ?? UUID().uuidString
+                    items.append(VodItem(
+                        vodId: vodId, vodName: title, vodPic: image,
+                        vodRemarks: "[福利]", vodArea: "44hhqq",
+                        vodContent: title, vodPlayFrom: "44hhqq", vodPlayUrl: detailURL
+                    ))
+                    if items.count >= 40 { return items }
+                }
+            }
+        }
+        
+        print("[WelfareCrawler] 44hhqq解析: \(items.count)条")
+        return items
+    }
+
+    private func firstMatch44hhqq(in text: String, patterns: [String]) -> String? {
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let ns = text as NSString
+                if let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) {
+                    if match.numberOfRanges >= 2 {
+                        return ns.substring(with: match.range(at: 1))
+                    }
+                    return ns.substring(with: match.range)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func stripHTML(_ text: String) -> String {
+        text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
 
     // MARK: - 获取平台分类列表（CMS API）
