@@ -51,7 +51,6 @@ struct MissAVVideoListView: View {
     let menuItem: MissAVMenuItem
     @StateObject private var service = MissAVService.shared
     @State private var videos: [VodItem] = []
-    @State private var loading = true
     @State private var loadCount = 0
 
     private let columns = [
@@ -61,9 +60,32 @@ struct MissAVVideoListView: View {
 
     var body: some View {
         Group {
-            if loading {
+            if service.isLoading {
                 ProgressView("正在加载 \(menuItem.title)...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = service.errorMessage {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 48))
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.system(size: 14))
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                    Button("重试") {
+                        loadVideos()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else if videos.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "film")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray)
+                    Text("暂无视频内容")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
             } else {
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 14) {
@@ -89,13 +111,11 @@ struct MissAVVideoListView: View {
     }
 
     private func loadVideos() {
-        loading = true
         loadCount += 1
         Task {
             let loaded = await service.loadVideos(for: menuItem)
             await MainActor.run {
                 videos = loaded
-                loading = false
             }
         }
     }

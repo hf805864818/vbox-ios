@@ -210,6 +210,14 @@ final class MissAVService: ObservableObject {
             return nil
         }
         for urlString in candidates {
+            // 优先使用 WKWebView 导航加载（绕过 Cloudflare XHR 检测）
+            if let html = await fetchHTMLViaWebViewNavigation(urlString: urlString) {
+                if !html.isEmpty {
+                    print("[MissAVService] WebView导航获取成功: \(urlString) (\(html.count)字节)")
+                    return html
+                }
+            }
+            // 回退到原有的 XHR 方式
             do {
                 let result = try await BaiduWebViewBridge.shared.request(
                     url: urlString,
@@ -223,15 +231,66 @@ final class MissAVService: ObservableObject {
                 )
                 let html = String(data: result.data, encoding: .utf8) ?? ""
                 if !html.isEmpty {
-                    print("[MissAVService] WebView获取成功: \(urlString) (\(html.count)字节)")
+                    print("[MissAVService] WebView(XHR)获取成功: \(urlString) (\(html.count)字节)")
                     return html
                 }
             } catch {
-                print("[MissAVService] WebView请求失败: \(urlString) \(error.localizedDescription)")
+                print("[MissAVService] WebView(XHR)请求失败: \(urlString) \(error.localizedDescription)")
             }
         }
         return nil
     }
+
+    /// 通过 WKWebView 导航加载页面获取 HTML（绕过 Cloudflare XHR 检测）
+    private func fetchHTMLViaWebViewNavigation(urlString: String) async -> String? {
+        print("[MissAVService] WebView导航请求: \(urlString)")
+        let result = await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                let config = WKWebViewConfiguration()
+                config.websiteDataStore = .nonPersistent()
+                config.preferences.javaScriptEnabled = true
+                config.preferences.javaScriptCanOpenWindowsAutomatically = true
+                
+                let webView = WKWebView(frame: .zero, configuration: config)
+                webView.customUserAgent = Self.mobileUserAgent
+                webView.navigationDelegate = self
+                
+                var request = URLRequest(url: URL(string: urlString)!)
+                request.timeoutInterval = 20
+                request.setValue(Self.mobileUserAgent, forHTTPHeaderField: "User-Agent")
+                request.setValue("https://missav.ws/", forHTTPHeaderField: "Referer")
+                
+                print("[MissAVService] WebView开始加载: \(urlString)")
+                webView.load(request)
+                
+                // 超时兜底
+                let timeoutTask = Task {
+                    try await Task.sleep(nanoseconds: UInt64(25 * Double(NSEC_PER_SEC)))
+                    if !continuation.isFinished {
+                        print("[MissAVService] WebView导航超时: \(urlString)")
+                        continuation.resume(returning: nil)
+                        webView.stopLoading()
+                        webView.removeFromSuperview()
+                    }
+                }
+                
+                // 保存 webView 引用供 delegate 使用
+                self._missavWebView = webView
+                self._missavContinuation = continuation
+                self._missavTimeoutTask = timeoutTask
+            }
+        }
+        if let html = result, !html.isEmpty {
+            print("[MissAVService] WebView导航获取成功: \(urlString) (\(html.count)字节)")
+        } else {
+            print("[MissAVService] WebView导航获取失败或为空: \(urlString)")
+        }
+        return result
+    }
+    
+    private var _missavWebView: WKWebView?
+    private var _missavContinuation: CheckedContinuation<String?, Never>?
+    private var _missavTimeoutTask: Task<Void, Never>?
 
     // MARK: - HTML 解析
 
@@ -475,4 +534,53 @@ final class MissAVService: ObservableObject {
     }
 
     static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+}
+
+// MARK: - WKNavigationDelegate for MissAV
+extension MissAVService: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
+        
+        webView.evaluateJavaScript("""
+            (function() {
+                return document.documentElement ? document.documentElement.outerHTML : (document.body ? document.body.innerHTML : '');
+            })();
+        """) { [weak self] result, error in
+            if let error = error {
+                print("[MissAVService] WebView导航获取HTML失败: \(error.localizedDescription)")
+                continuation.resume(returning: nil)
+            } else if let html = result as? String, !html.isEmpty {
+                continuation.resume(returning: html)
+            } else {
+                continuation.resume(returning: nil)
+            }
+            
+            self?.cleanupMissAVWebView()
+        }
+    }
+    
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
+        print("[MissAVService] WebView导航加载失败: \(error.localizedDescription)")
+        continuation.resume(returning: nil)
+        cleanupMissAVWebView()
+    }
+    
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard let continuation = _missavContinuation, !continuation.isFinished else { return }
+        print("[MissAVService] WebView导航预加载失败: \(error.localizedDescription)")
+        continuation.resume(returning: nil)
+        cleanupMissAVWebView()
+    }
+    
+    private func cleanupMissAVWebView() {
+        _missavTimeoutTask?.cancel()
+        _missavTimeoutTask = nil
+        if let webView = _missavWebView {
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            _missavWebView = nil
+        }
+        _missavContinuation = nil
+    }
 }

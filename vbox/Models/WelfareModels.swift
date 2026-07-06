@@ -93,7 +93,7 @@ extension WelfarePlatform {
             ("mw","mw","mw"), ("wwmh","wwmh","wwmh"),
             // 演员/AV信息 (7)
             ("avin","insav","insav"), ("javdb","javdb","javdb"), ("djr","djr","djr"),
-            ("lxs","lxs","lxs"), ("missav","missav","missav"), ("mmav","mmav","mmav"),
+            ("lxs","lxs","lxs"), ("44hhqq","44hhqq","44hhqq"), ("missav","missav","missav"), ("mmav","mmav","mmav"),
             ("oksp","oksp","oksp"),
             // 分类/频道类 (6)
             ("pron91","91pron","91pron"), ("tv91","91tv","91tv"), ("mdtv","mdtv","mdtv"),
