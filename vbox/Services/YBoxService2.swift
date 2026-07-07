@@ -78,16 +78,24 @@ struct YBoxBananaMiniVideo: Identifiable {
     var playPath: String { "/minivod/reqplay/\(vodId)" }
 }
 
-/// 专题（来自 /special/listing-0-0-{page}）
+/// 专题/演员条目（来自 /special/listing-0-0-{page}，统一模型）
+/// zfvwi8 网关返回的 rows 和 actorrows 共用此结构
+/// sptype: "1"=专题(频道), "2"=演员(人物)
 struct YBoxBananaSpecial: Identifiable {
     var id: String { spId }
     let spId: String
+    let sptype: String     // "1"=专题, "2"=演员
     let spName: String
     let spCover: String
+    let avatar: String?
+    let intro: String
+    let cup: String        // 罩杯/权重
+    let age: String        // 年龄/权重
+    let upnum: Int
     let itemCount: Int
 }
 
-/// 专题内视频
+/// 专题/演员内视频（来自 /special/detail/{spid}-{page} → data.vodrows）
 struct YBoxBananaSpecialVideo: Identifiable {
     var id: String { vodId }
     let vodId: String
@@ -95,16 +103,11 @@ struct YBoxBananaSpecialVideo: Identifiable {
     let cover: String
     let duration: String
     let score: String?
+    let upnum: Int
+    let downnum: Int
+    let playCount: Int
+    let tags: [String]
     var playPath: String { "/vod/reqplay/\(vodId)" }
-}
-
-/// 演员条目（暂用，后续可通过 /index 的 actor 导航获取完整列表）
-struct YBoxBananaActor: Identifiable {
-    var id: String { actorId }
-    let actorId: String
-    let name: String
-    let avatar: String?
-    let videoCount: Int
 }
 
 // MARK: - 直播/漫画模型（保留）
@@ -369,8 +372,8 @@ class YBoxService2: ObservableObject {
     // 基于 ybox App 抓包还原的真实 API：
     //   GET /vod/listing-0-0-0-0-0-0-0-0-0-1           → 拉取在线分类（12类）
     //   GET /vod/listing-{cateid}-0-0-0-0-0-0-0-0-{page}  → 分类视频列表（16条/页）
-    //   GET /special/listing-0-0-{page}                     → 专题列表（16条/页）
-    //   GET /special/vodlist-{spid}-0-0-{page}              → 专题内视频
+    //   GET /special/listing-0-0-{page}                     → 专题列表（rows 16条/页 + actorrows 全量导航）
+    //   GET /special/detail/{spid}-{page}                   → 专题/演员内视频列表（vodrows）
     //   GET /minivod/reqlist?page={page}                    → 短视频列表（10条/页）
     //   GET /vod/reqplay/{vodid}                             → 获取长视频播放 m3u8 地址
     //   GET /minivod/reqplay/{vodid}                        → 获取短视频播放 m3u8 地址
@@ -430,47 +433,73 @@ class YBoxService2: ObservableObject {
         }
     }
 
-    /// 获取专题列表（GET /special/listing-0-0-{page}）
-    func fetchBananaSpecials(page: Int = 1) async -> [YBoxBananaSpecial] {
+    /// 获取专题/演员导航列表
+    /// GET /special/listing-0-0-{page}
+    /// 返回 rows（分页列表）和 actorrows（全量导航栏数据）
+    func fetchBananaSpecials(page: Int = 1) async -> (rows: [YBoxBananaSpecial], actorrows: [YBoxBananaSpecial], totalPage: Int, total: Int) {
         let path = "/special/listing-0-0-\(page)"
         do {
             let json = try await fetchJSON(path: path)
-            guard let data = json["data"] as? [String: Any],
-                  let rows = data["rows"] as? [[String: Any]] else { return [] }
-            return rows.compactMap { sp in
-                guard let spId = (sp["spid"] as? String) ?? (sp["id"] as? String),
-                      let spName = sp["spname"] as? String ?? sp["title"] as? String else {
-                    return nil
-                }
-                return YBoxBananaSpecial(
-                    spId: spId,
-                    spName: spName,
-                    spCover: sp["spcover"] as? String ?? sp["coverpic"] as? String ?? "",
-                    itemCount: sp["itemcount"] as? Int ?? sp["vod_count"] as? Int ?? 0
-                )
-            }
+            guard let data = json["data"] as? [String: Any] else { return ([], [], 0, 0) }
+            let rows = (data["rows"] as? [[String: Any]] ?? []).compactMap { parseSpecial($0) }
+            let actorrows = (data["actorrows"] as? [[String: Any]] ?? []).compactMap { parseSpecial($0) }
+            let pageInfo = data["pageinfo"] as? [String: Any]
+            let total = pageInfo?["total"] as? Int ?? 0
+            let totalPage = pageInfo?["totalpage"] as? Int ?? 0
+            return (rows, actorrows, totalPage, total)
         } catch {
             print("[YBox] fetchBananaSpecials error: \(error)")
-            return []
+            return ([], [], 0, 0)
         }
     }
 
+    /// 解析单条专题/演员条目
+    private func parseSpecial(_ sp: [String: Any]) -> YBoxBananaSpecial? {
+        guard let spId = (sp["spid"] as? String) ?? (sp["id"] as? String),
+              let spName = sp["spname"] as? String ?? sp["title"] as? String else {
+            return nil
+        }
+        return YBoxBananaSpecial(
+            spId: spId,
+            sptype: sp["sptype"] as? String ?? "1",
+            spName: spName,
+            spCover: sp["coverpic"] as? String ?? sp["spcover"] as? String ?? "",
+            avatar: sp["avatar"] as? String,
+            intro: sp["intro"] as? String ?? "",
+            cup: sp["cup"] as? String ?? "0",
+            age: sp["age"] as? String ?? "0",
+            upnum: (sp["upnum"] as? NSString)?.integerValue ?? sp["upnum"] as? Int ?? 0,
+            itemCount: (sp["itemcount"] as? NSString)?.integerValue ?? sp["itemcount"] as? Int ?? 0
+        )
+    }
+
     /// 获取专题/演员内视频列表
-    /// 注意：zfvwi8 网关无按 spId 筛视频的端点，暂时使用全局视频列表
+    /// GET /special/detail/{spId}-{page}  → data.vodrows（完整视频列表）
     func fetchBananaSpecialVideos(spId: String, page: Int = 1) async -> [YBoxBananaSpecialVideo] {
-        // zfvwi8 不支持按 spId 筛选，降级为全量视频列表
-        let path = "/vod/listing-0-0-0-0-0-0-0-0-0-\(page)"
+        let path = "/special/detail/\(spId)-\(page)"
         do {
             let json = try await fetchJSON(path: path)
-            guard let data = json["data"] as? [String: Any],
-                  let vodrows = data["vodrows"] as? [[String: Any]] else { return [] }
+            guard let retcode = json["retcode"] as? Int, retcode == 0,
+                  let data = json["data"] as? [String: Any],
+                  let vodrows = data["vodrows"] as? [[String: Any]] else {
+                let msg = json["errmsg"] as? String ?? "未知错误"
+                print("[YBox] fetchBananaSpecialVideos(\(spId), p\(page)) retcode!=0: \(msg)")
+                return []
+            }
             return vodrows.map { row in
-                YBoxBananaSpecialVideo(
+                let tags = (row["tags"] as? [[String: Any]] ?? []).compactMap {
+                    $0["tagname"] as? String
+                }
+                return YBoxBananaSpecialVideo(
                     vodId: (row["vodid"] as? String) ?? String(row["vodid"] as? Int ?? 0),
                     title: row["title"] as? String ?? "",
                     cover: row["coverpic"] as? String ?? "",
                     duration: row["duration"] as? String ?? "00:00",
-                    score: row["scorenum"] as? String
+                    score: row["scorenum"] as? String,
+                    upnum: (row["upnum"] as? NSString)?.integerValue ?? row["upnum"] as? Int ?? 0,
+                    downnum: (row["downnum"] as? NSString)?.integerValue ?? row["downnum"] as? Int ?? 0,
+                    playCount: row["playcount_total"] as? Int ?? 0,
+                    tags: tags
                 )
             }
         } catch {
