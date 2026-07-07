@@ -729,9 +729,18 @@ struct YBoxBananaPlayerView: View {
     let cover: String
     let duration: String
     let platform: YBoxPlatform2
-    @State private var isLongVideo: Bool = true
+    @State private var isLongVideo: Bool
 
     @StateObject private var svc = YBoxService2.shared
+
+    init(vodId: String, title: String, cover: String, duration: String, platform: YBoxPlatform2, isLongVideo: Bool = true) {
+        self.vodId = vodId
+        self.title = title
+        self.cover = cover
+        self.duration = duration
+        self.platform = platform
+        self._isLongVideo = State(initialValue: isLongVideo)
+    }
     @State private var playURL: String?
     @State private var isLoading = true
     @State private var errorMsg: String?
