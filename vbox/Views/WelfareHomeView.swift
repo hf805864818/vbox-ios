@@ -5,6 +5,9 @@ struct WelfareHomeView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var ybox = YBoxService2.shared
     @State private var selectedTab: WelfareTab = .video
+    @State private var isEditMode = false
+    @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
+    @State private var navigatePlatformID: String?
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -71,6 +74,20 @@ struct WelfareHomeView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
 
+                // 编辑模式提示
+                if isEditMode {
+                    HStack {
+                        Text("长按进入排序模式").font(.system(size: 12)).foregroundColor(.secondary)
+                        Spacer()
+                        Button("完成") { withAnimation { isEditMode = false; saveOrder() } }
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(selectedTab == .video ? Color(hex: "E11D48") :
+                                selectedTab == .live ? Color(hex: "7C3AED") : Color(hex: "059669"))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 6)
+                }
+
                 // 内容区域
                 TabView(selection: $selectedTab) {
                     platformGrid(for: .video).tag(WelfareTab.video)
@@ -81,12 +98,13 @@ struct WelfareHomeView: View {
             }
             .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
+            .onAppear { loadOrder() }
         }
     }
 
-    // MARK: - 平台网格（仅保留 MissAV 和 香蕉秀）
+    // MARK: - 平台网格（长按进入排序）
     private func platformGrid(for tab: WelfareTab) -> some View {
-        let platforms = filteredPlatforms(for: tab)
+        let platforms = currentOrderedPlatforms(for: tab)
 
         return ScrollView(showsIndicators: false) {
             if platforms.isEmpty {
@@ -105,26 +123,31 @@ struct WelfareHomeView: View {
                     columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
                     spacing: 16
                 ) {
-                    ForEach(platforms) { platform in
-                        NavigationLink(destination: destinationView(for: platform)) {
-                            VStack(spacing: 6) {
-                                ZStack {
-                                    Circle()
-                                        .fill(LinearGradient(colors: platformGradient(platform.name), startPoint: .topLeading, endPoint: .bottomTrailing))
-                                        .frame(width: 52, height: 52)
-                                    Image(systemName: platform.icon)
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundColor(.white)
-                                }
-                                Text(platform.name)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
+                    ForEach(Array(platforms.enumerated()), id: \.element.id) { index, platform in
+                        if isEditMode {
+                            PlatformSortableCard(
+                                platform: platform, index: index, gradient: platformGradient(platform.name),
+                                onMove: { fromIdx, toIdx in movePlatform(from: fromIdx, to: toIdx, tab: tab) },
+                                onEnterEditMode: { withAnimation { isEditMode = true } }
+                            )
+                        } else {
+                            NavigationLink(
+                                destination: destinationView(for: platform),
+                                tag: platform.id,
+                                selection: $navigatePlatformID
+                            ) {
+                                PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
-                            .frame(width: 72, height: 86)
+                            .buttonStyle(.plain)
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                                    navigatePlatformID = nil
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        withAnimation { isEditMode = true }
+                                    }
+                                }
+                            )
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -139,7 +162,6 @@ struct WelfareHomeView: View {
         if platform.name == "MissAV" {
             return AnyView(MissAVHomeView().environmentObject(settings))
         } else {
-            // 香蕉秀/幻想次元/午夜寻欢/绿帽淫妻 都走香蕉秀API视图
             return AnyView(YBoxXjspMainView(platform: platform))
         }
     }
@@ -152,11 +174,8 @@ struct WelfareHomeView: View {
             }
             return []
         }()
-        // 仅保留 MissAV 和 香蕉秀系列
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀"
-            || $0.name == "幻想次元" || $0.name == "午夜寻欢"
-            || $0.name == "绿帽淫妻" || $0.name == "1080视频"
-        }
+        // 仅保留 MissAV 和 香蕉秀
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" }
     }
 
     // MARK: - 颜色工具
@@ -186,11 +205,122 @@ struct WelfareHomeView: View {
         let colorMap: [String: [Color]] = [
             "MissAV":       [Color(hex: "FD79A8"), Color(hex: "E84393")],
             "香蕉秀":        [Color(hex: "FFEAA7"), Color(hex: "FDCB6E")],
-            "幻想次元":      [Color(hex: "A29BFE"), Color(hex: "6C5CE7")],
-            "午夜寻欢":      [Color(hex: "FDCB6E"), Color(hex: "E17055")],
-            "绿帽淫妻":      [Color(hex: "00B894"), Color(hex: "00CEC9")],
-            "1080视频":      [Color(hex: "0984E3"), Color(hex: "74B9FF")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
+    }
+
+    // MARK: - 排序逻辑
+
+    private func currentOrderedPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
+        orderedPlatforms[tab] ?? filteredPlatforms(for: tab)
+    }
+
+    private func filteredPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
+        let all: [YBoxPlatform2] = {
+            for c in ybox.categories {
+                if c.name == tab.rawValue { return c.platforms }
+            }
+            return []
+        }()
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" }
+    }
+
+    private func movePlatform(from source: Int, to destination: Int, tab: WelfareTab) {
+        var list = currentOrderedPlatforms(for: tab)
+        guard source >= 0, source < list.count, destination >= 0, destination < list.count else { return }
+        let item = list.remove(at: source)
+        list.insert(item, at: destination)
+        orderedPlatforms[tab] = list
+    }
+
+    private func saveOrder() {
+        var dict: [String: [String]] = [:]
+        for tab in WelfareTab.allCases {
+            let list = orderedPlatforms[tab] ?? filteredPlatforms(for: tab)
+            dict[tab.rawValue] = list.map { $0.id }
+        }
+        if let data = try? JSONEncoder().encode(dict) {
+            UserDefaults.standard.set(data, forKey: "welfare_platform_order")
+        }
+    }
+
+    private func loadOrder() {
+        if let data = UserDefaults.standard.data(forKey: "welfare_platform_order"),
+           let dict = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            for tab in WelfareTab.allCases {
+                let saved = dict[tab.rawValue] ?? []
+                if !saved.isEmpty {
+                    let all = filteredPlatforms(for: tab)
+                    let ordered = all.sorted { a, b in
+                        let ai = saved.firstIndex(of: a.id) ?? Int.max
+                        let bi = saved.firstIndex(of: b.id) ?? Int.max
+                        return ai < bi
+                    }
+                    if ordered.count == all.count { orderedPlatforms[tab] = ordered }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 平台入口图标卡片（正常模式）
+struct PlatformIconCard: View {
+    let platform: YBoxPlatform2
+    let gradient: [Color]
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 52, height: 52)
+                Image(systemName: platform.icon).font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+            }
+            Text(platform.name).font(.system(size: 11, weight: .medium)).foregroundColor(.primary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(width: 72, height: 86)
+    }
+}
+
+// MARK: - 可拖动排序卡片
+struct PlatformSortableCard: View {
+    let platform: YBoxPlatform2
+    let index: Int
+    let gradient: [Color]
+    let onMove: (Int, Int) -> Void
+    let onEnterEditMode: () -> Void
+
+    @State private var offset = CGSize.zero
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 52, height: 52)
+                Image(systemName: platform.icon).font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+            }.overlay(Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 2))
+            Text(platform.name).font(.system(size: 11, weight: .medium)).foregroundColor(.primary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(width: 72, height: 86)
+        .scaleEffect(offset != .zero ? 1.1 : 1.0)
+        .offset(offset)
+        .zIndex(offset != .zero ? 999 : 0)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if offset == .zero { onEnterEditMode() }
+                    offset = value.translation
+                }
+                .onEnded { value in
+                    let cols = 4
+                    let currentRow = index / cols; let currentCol = index % cols
+                    let newRow = currentRow + Int(round(value.translation.height / 102))
+                    let newCol = min(max(currentCol + Int(round(value.translation.width / 88)), 0), cols - 1)
+                    let newIndex = newRow * cols + newCol
+                    if newIndex >= 0, newIndex < 100, newIndex != index { onMove(index, newIndex) }
+                    withAnimation(.spring()) { offset = .zero }
+                }
+        )
     }
 }
