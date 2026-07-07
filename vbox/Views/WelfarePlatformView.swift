@@ -97,10 +97,26 @@ struct WelfarePlatformView: View {
     private var sectionGrid: some View {
         let sections = currentPage.sections
 
-        // 单分区或零分区：直接进入内容，跳过分区选择步骤
-        if sections.count <= 1 {
-            let autoSection = sections.first
-                ?? WelfareSection(id: currentPage.id, name: currentPage.name, keyword: "")
+        // 零分区且配置不存在：直接显示加载错误，不展示假分类
+        if sections.isEmpty {
+            return AnyView(
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("该平台暂无有效数据配置")
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            )
+        }
+
+        // 单分区：直接进入内容，跳过分区选择步骤
+        if sections.count == 1 {
+            let autoSection = sections.first!
             return AnyView(
                 contentSection(section: autoSection)
                     .onAppear {

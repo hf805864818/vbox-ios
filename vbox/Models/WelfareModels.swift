@@ -61,18 +61,9 @@ private func sectionsFor(kind: WelfarePageKind, prefix: String, config: WelfareC
 }
 
 /// 默认分区（当配置未指定 pageSections 时使用）
+/// 返回空数组=不展示假分类，无数据时直接显示加载失败
 private func defaultSections(for kind: WelfarePageKind, prefix: String) -> [WelfareSection] {
-    switch kind {
-    case .home:
-        return [.init(id: "recommend", name: "推荐", keyword: ""),
-                .init(id: "latest", name: "最新", keyword: "最新"),
-                .init(id: "hot", name: "热门", keyword: "热门")]
-    case .search:
-        return [.init(id: "search", name: "搜索", keyword: "")]
-    default:
-        // 非首页/搜索页面：用页面类型名称作为唯一分区，关键字留空显示全部
-        return [.init(id: kind.rawValue, name: kind.displayName, keyword: "")]
-    }
+    []
 }
 
 // MARK: - 62 个平台自适应定义
