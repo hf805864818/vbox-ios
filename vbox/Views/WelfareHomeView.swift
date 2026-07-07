@@ -185,9 +185,9 @@ struct WelfareCategorySection: View {
         else if platform.name == "更多漫画" {
             YBoxComicListView()
         }
-        // YBox 自有平台：香蕉秀系列
-        else if platform.baseURL.contains("zfvwi8") {
-            YBoxBananaListView(platform: platform)
+        // YBox 自有平台：香蕉秀系列（已重写为 XJSP 架构，by QClaw 2026-07-07）
+        else if platform.name == "香蕉秀" {
+            YBoxXjspMainView(platform: platform)
         }
         // YBox 自有平台：1080视频
         else if platform.baseURL.contains("1080") {
@@ -197,7 +197,8 @@ struct WelfareCategorySection: View {
         else {
             switch platform.type {
             case .video:
-                YBoxBananaListView(platform: platform)
+                // 非香蕉秀平台：使用通用爬虫内容视图
+                YBoxCrawlerContentView(platform: platform)
             case .live:
                 YBoxLiveSourceListView()
             case .comic:

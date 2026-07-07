@@ -83,8 +83,10 @@ struct ProfileView: View {
             .onChange(of: selectedPhotoItem) { _ in
                 handlePhotoSelection()
             }
-            .onChange(of: settings.welfareEnabled) { _ in
+            .onChange(of: settings.welfareEnabled) { newValue in
                 reloadHistory()
+                // 关闭福利时重置解锁状态，下次打开需要重新输入密码
+                if !newValue { settings.welfareUnlocked = false }
             }
 
             // 右上角设置入口

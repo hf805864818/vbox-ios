@@ -1,248 +1,203 @@
 import SwiftUI
 
-// MARK: - 香蕉秀视频列表页（分类浏览模式）
-struct YBoxBananaListView: View {
-    let platform: YBoxPlatform2
-    @StateObject private var ybox = YBoxService2.shared
-    @State private var categories: [YBoxBananaCategory] = []
-    @State private var isLoading = true
-    @State private var errorMsg: String?
-    @EnvironmentObject private var settings: AppSettings
+// MARK: - 香蕉秀主页面（基于 zfvwi8.ipajx0.cc 真实 API，by QClaw 2026-07-07）
+//
+// 页面架构：
+//   首页Tab → 分类列表 → 视频网格 → 播放
+//   短视频Tab → /minivod/reqlist → 竖屏滑动播放
+//   专题Tab → /special/listing → 专题列表 → 专题视频 → 播放
+//
+// API 来源：ybox App HTTPS 抓包还原
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
+struct YBoxXjspMainView: View {
+    let platform: YBoxPlatform2
+    @State private var selectedTab = 0
+    private let tabs = ["首页", "短视频", "专题"]
 
     var body: some View {
-        Group {
-            if isLoading {
-                VStack(spacing: 16) {
-                    ProgressView().scaleEffect(1.5)
-                    Text("加载分类中...").font(.system(size: 14)).foregroundColor(.secondary)
-                }
-            } else if let e = errorMsg {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundColor(.orange)
-                    Text(e).foregroundColor(.secondary)
-                    Button("重试") { loadCategories() }
-                }
-            } else if categories.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "tray").font(.system(size: 40)).foregroundColor(.secondary)
-                    Text("暂无分类")
-                }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("全部分类")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 4)
-
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            // 全部视频入口
-                            NavigationLink(destination: YBoxBananaCategoryView(
-                                platform: platform,
-                                categoryName: "全部视频",
-                                spid: nil
-                            )) {
-                                BananaCategoryCard(
-                                    title: "全部视频",
-                                    cover: nil,
-                                    icon: "square.grid.2x2.fill",
-                                    isAll: true
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-
-                            // 各分类入口
-                            ForEach(categories) { cat in
-                                NavigationLink(destination: YBoxBananaCategoryView(
-                                    platform: platform,
-                                    categoryName: cat.name,
-                                    spid: cat.spid
-                                )) {
-                                    BananaCategoryCard(
-                                        title: cat.name,
-                                        cover: cat.cover.isEmpty ? nil : cat.cover,
-                                        icon: iconForCategory(cat.name),
-                                        isAll: false
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
+        VStack(spacing: 0) {
+            // 顶部Tab
+            HStack(spacing: 0) {
+                ForEach(0..<tabs.count, id: \.self) { i in
+                    Button(action: { withAnimation { selectedTab = i } }) {
+                        VStack(spacing: 6) {
+                            Text(tabs[i])
+                                .font(.system(size: 15, weight: selectedTab == i ? .bold : .regular))
+                                .foregroundColor(selectedTab == i ? .primary : .secondary)
+                            if selectedTab == i {
+                                Capsule().fill(Color.accentColor).frame(width: 24, height: 3)
+                            } else {
+                                Capsule().fill(Color.clear).frame(width: 24, height: 3)
                             }
                         }
-                        .padding(.horizontal, 12)
                     }
-                    .padding(.bottom, 30)
+                    .frame(maxWidth: .infinity)
                 }
             }
+            .padding(.top, 8).padding(.horizontal, 8)
+
+            Divider()
+
+            TabView(selection: $selectedTab) {
+                YBoxBananaHomeTab(platform: platform).tag(0)
+                YBoxBananaShortVideoTab(platform: platform).tag(1)
+                YBoxBananaSpecialTab(platform: platform).tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle(platform.name)
         .navigationBarTitleDisplayMode(.large)
-        .onAppear { loadCategories() }
-    }
-
-    private func loadCategories() {
-        isLoading = true; errorMsg = nil
-        Task {
-            let result = await ybox.fetchBananaCategories()
-            await MainActor.run {
-                categories = result
-                isLoading = false
-                if result.isEmpty { errorMsg = "加载分类失败，请检查域名配置" }
-            }
-        }
-    }
-
-    private func iconForCategory(_ name: String) -> String {
-        let icons: [String: String] = [
-            "幻想次元": "sparkles", "午夜寻欢": "moon.stars.fill",
-            "绿帽淫妻": "heart.slash.fill", "反差婊": "arrow.left.arrow.right",
-            "乱蕉淫啪": "rectangle.3.group.fill", "另类蕉合": "exclamationmark.triangle.fill",
-            "新片速递": "bolt.fill", "中字无码": "captions.bubble.fill",
-            "香蕉新干线": "tram.fill", "猎奇": "eye.fill",
-        ]
-        return icons[name] ?? "play.rectangle.fill"
     }
 }
 
-// MARK: - 分类卡片（带背景图的卡片样式）
-struct BananaCategoryCard: View {
-    let title: String
-    let cover: String?
-    let icon: String
-    let isAll: Bool
+// MARK: - 首页Tab：分类列表 → 视频网格
 
-    private let gradientColors: [[Color]] = [
-        [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-        [Color(hex: "7C3AED"), Color(hex: "A855F7")],
-        [Color(hex: "059669"), Color(hex: "34D399")],
-        [Color(hex: "D97706"), Color(hex: "F59E0B")],
-        [Color(hex: "2563EB"), Color(hex: "60A5FA")],
-        [Color(hex: "DC2626"), Color(hex: "F87171")],
-        [Color(hex: "0891B2"), Color(hex: "22D3EE")],
-        [Color(hex: "9333EA"), Color(hex: "C084FC")],
-    ]
-
-    var body: some View {
-        let colors = gradientColors[abs(title.hashValue) % gradientColors.count]
-
-        ZStack {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(LinearGradient(
-                    colors: colors.map { $0.opacity(0.85) },
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-                .frame(height: 90)
-
-            // 背景封面图（如果有）
-            if let c = cover, !c.isEmpty {
-                AsyncImage(url: URL(string: c)) { phase in
-                    if let img = phase.image {
-                        img.resizable().aspectRatio(contentMode: .fill)
-                            .opacity(0.3)
-                    }
-                }
-                .frame(height: 90)
-                .cornerRadius(14)
-            }
-
-            // 文字内容
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white)
-                Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-            }
-        }
-    }
-}
-
-// MARK: - 香蕉秀分类视频列表页（支持分页）
-struct YBoxBananaCategoryView: View {
+struct YBoxBananaHomeTab: View {
     let platform: YBoxPlatform2
-    let categoryName: String
-    let spid: String?
-
-    @StateObject private var ybox = YBoxService2.shared
-    @State private var items: [YBoxVideoItem2] = []
-    @State private var currentPage = 1
+    @StateObject private var svc = YBoxService2.shared
+    @State private var categories: [YBoxBananaCategory] = []
+    @State private var selectedCateIdx = 0
+    @State private var videos: [YBoxBananaVideo] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
+    @State private var currentPage = 1
     @State private var hasMore = true
-    @State private var errorMsg: String?
-    @EnvironmentObject private var settings: AppSettings
+    @State private var loadError: String?
 
     var body: some View {
-        Group {
-            if isLoading && items.isEmpty {
+        VStack(spacing: 0) {
+            if categories.isEmpty && isLoading {
+                Spacer()
+                ProgressView().scaleEffect(1.5)
+                Spacer()
+            } else if let err = loadError, videos.isEmpty {
+                // 错误重试
                 VStack(spacing: 16) {
-                    ProgressView().scaleEffect(1.5)
-                    Text("加载视频中...").font(.system(size: 14)).foregroundColor(.secondary)
+                    Spacer()
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 50)).foregroundColor(.secondary)
+                    Text(err).font(.system(size: 15, weight: .medium)).multilineTextAlignment(.center)
+                    Button(action: { loadError = nil; refreshVideos() }) {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 14))
+                            .padding(.horizontal, 20).padding(.vertical, 8)
+                            .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                    }
+                    Spacer()
                 }
-            } else if let e = errorMsg, items.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundColor(.orange)
-                    Text(e).foregroundColor(.secondary)
-                    Button("重试") { loadVideos() }
-                }
-            } else if items.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "tray").font(.system(size: 40)).foregroundColor(.secondary)
-                    Text("暂无视频")
-                }
+                .padding(20)
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
-                        ForEach(items) { item in
-                            NavigationLink(destination: YBoxBananaPlayerView(item: item)) {
-                                YBoxVideoCard2(item: item)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .onAppear {
-                                // 滚动到倒数第4个时预加载下一页
-                                if item.vodId == items[max(0, items.count - 4)].vodId {
-                                    loadMore()
-                                }
+                // 分类横向滚动
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
+                            Button(action: {
+                                selectedCateIdx = idx; refreshVideos()
+                            }) {
+                                Text(cat.name)
+                                    .font(.system(size: 13, weight: selectedCateIdx == idx ? .semibold : .regular))
+                                    .foregroundColor(selectedCateIdx == idx ? .white : .primary)
+                                    .padding(.horizontal, 14).padding(.vertical, 7)
+                                    .background(selectedCateIdx == idx ? Color.accentColor : Color(UIColor.secondarySystemBackground))
+                                    .cornerRadius(16)
                             }
                         }
                     }
-                    .padding(16)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
 
-                    if isLoadingMore {
-                        ProgressView().padding()
+                // 子分类行（如果有）
+                if !categories.isEmpty {
+                    let subCates = categories[selectedCateIdx].subCates
+                    if !subCates.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(subCates) { sub in
+                                    NavigationLink(destination: YBoxBananaVideoGrid(
+                                        cateId: sub.cateId, title: sub.name, platform: platform
+                                    )) {
+                                        Text(sub.name)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.accentColor)
+                                            .padding(.horizontal, 10).padding(.vertical, 4)
+                                            .background(Color.accentColor.opacity(0.1))
+                                            .cornerRadius(10)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 12).padding(.bottom, 6)
+                        }
+                    }
+                }
+
+                Divider()
+
+                // 视频网格
+                if videos.isEmpty && isLoading {
+                    Spacer(); ProgressView(); Spacer()
+                } else {
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                            spacing: 14
+                        ) {
+                            ForEach(videos) { video in
+                                NavigationLink(destination: YBoxBananaPlayerView(
+                                    vodId: video.vodId, title: video.title,
+                                    cover: video.cover, duration: video.duration,
+                                    platform: platform
+                                )) {
+                                    BananaVideoCard(
+                                        cover: video.cover, title: video.title,
+                                        duration: video.duration, score: video.score,
+                                        areaName: video.areaName
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .onAppear {
+                                    if video.vodId == videos[max(0, videos.count - 4)].vodId { loadMore() }
+                                }
+                            }
+                        }
+                        .padding(12)
+
+                        if isLoadingMore { ProgressView().padding() }
+                        if !hasMore && !videos.isEmpty {
+                            Text("已加载全部")
+                                .font(.system(size: 12)).foregroundColor(.secondary)
+                                .padding(.bottom, 20)
+                        }
                     }
                 }
             }
         }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle(categoryName)
-        .navigationBarTitleDisplayMode(.large)
-        .onAppear { loadVideos() }
+        .onAppear {
+            if categories.isEmpty { loadCategories() }
+        }
     }
 
-    private func loadVideos() {
-        isLoading = true; errorMsg = nil; currentPage = 1; hasMore = true
+    private func loadCategories() {
         Task {
-            let result: [YBoxVideoItem2]
-            if let sid = spid {
-                result = await ybox.fetchBananaCategoryVideos(spid: sid, page: 1)
-            } else {
-                result = await ybox.fetchBananaAllVideos(page: 1)
-            }
+            let result = await svc.fetchBananaCategories()
             await MainActor.run {
-                items = result
-                isLoading = false
-                hasMore = result.count >= 10
-                if result.isEmpty { errorMsg = "暂无视频数据" }
+                categories = result; isLoading = false
+                if !result.isEmpty { refreshVideos() }
+                else { loadError = "暂时无法连接服务器" }
+            }
+        }
+    }
+
+    private func refreshVideos() {
+        guard !categories.isEmpty else { return }
+        currentPage = 1; hasMore = true; isLoading = true; loadError = nil
+        let cateId = categories[selectedCateIdx].cateId
+        Task {
+            let result = await svc.fetchBananaVideos(cateId: cateId, page: 1)
+            await MainActor.run {
+                videos = result; isLoading = false
+                hasMore = result.count >= 16
+                if result.isEmpty { loadError = "暂无内容" }
             }
         }
     }
@@ -250,77 +205,440 @@ struct YBoxBananaCategoryView: View {
     private func loadMore() {
         guard !isLoadingMore, hasMore else { return }
         isLoadingMore = true
-        let nextPage = currentPage + 1
+        let next = currentPage + 1
+        let cateId = categories[selectedCateIdx].cateId
         Task {
-            let result: [YBoxVideoItem2]
-            if let sid = spid {
-                result = await ybox.fetchBananaCategoryVideos(spid: sid, page: nextPage)
-            } else {
-                result = await ybox.fetchBananaAllVideos(page: nextPage)
-            }
+            let result = await svc.fetchBananaVideos(cateId: cateId, page: next)
             await MainActor.run {
-                if !result.isEmpty {
-                    items.append(contentsOf: result)
-                    currentPage = nextPage
-                    hasMore = result.count >= 10
-                } else {
-                    hasMore = false
-                }
+                if !result.isEmpty { videos.append(contentsOf: result); currentPage = next; hasMore = result.count >= 16 }
+                else { hasMore = false }
                 isLoadingMore = false
             }
         }
     }
 }
 
-// MARK: - 视频卡片
-struct YBoxVideoCard2: View {
-    let item: YBoxVideoItem2
+// MARK: - 分类视频网格（从子分类进入）
+
+struct YBoxBananaVideoGrid: View {
+    let cateId: String
+    let title: String
+    let platform: YBoxPlatform2
+    @StateObject private var svc = YBoxService2.shared
+    @State private var videos: [YBoxBananaVideo] = []
+    @State private var isLoading = true
+    @State private var currentPage = 1
+    @State private var hasMore = true
+    @State private var isLoadingMore = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack {
-                AsyncImage(url: URL(string: item.cover)) { p in
-                    switch p {
-                    case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
-                    case .failure(_): ZStack { Color.gray.opacity(0.2); Image(systemName: "play.slash").foregroundColor(.gray) }
-                    case .empty: ZStack { Color.gray.opacity(0.2); ProgressView() }
-                    @unknown default: Color.gray.opacity(0.2)
+        Group {
+            if videos.isEmpty && isLoading {
+                VStack { Spacer(); ProgressView(); Spacer() }
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                        spacing: 14
+                    ) {
+                        ForEach(videos) { video in
+                            NavigationLink(destination: YBoxBananaPlayerView(
+                                vodId: video.vodId, title: video.title,
+                                cover: video.cover, duration: video.duration,
+                                platform: platform
+                            )) {
+                                BananaVideoCard(
+                                    cover: video.cover, title: video.title,
+                                    duration: video.duration, score: video.score,
+                                    areaName: video.areaName
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onAppear {
+                                if video.vodId == videos[max(0, videos.count - 4)].vodId { loadMore() }
+                            }
+                        }
                     }
+                    .padding(12)
+                    if isLoadingMore { ProgressView().padding() }
                 }
             }
-            .frame(height: 160).cornerRadius(12)
-            .overlay(alignment: .topLeading) {
-                HStack {
-                    if let s = item.score { Text(s).font(.system(size: 11, weight: .bold)).foregroundColor(.white).padding(.horizontal, 6).padding(.vertical, 2).background(Color.orange.opacity(0.8)).cornerRadius(4) }
-                    Spacer()
-                    if let d = item.duration { Text(d).font(.system(size: 10)).foregroundColor(.white).padding(.horizontal, 4).padding(.vertical, 2).background(Color.black.opacity(0.5)).cornerRadius(3) }
-                }.padding(6)
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { loadVideos() }
+    }
+
+    private func loadVideos() {
+        Task {
+            let result = await svc.fetchBananaVideos(cateId: cateId, page: 1)
+            await MainActor.run { videos = result; isLoading = false; hasMore = result.count >= 16 }
+        }
+    }
+
+    private func loadMore() {
+        guard !isLoadingMore, hasMore else { return }
+        isLoadingMore = true
+        let next = currentPage + 1
+        Task {
+            let result = await svc.fetchBananaVideos(cateId: cateId, page: next)
+            await MainActor.run {
+                if !result.isEmpty { videos.append(contentsOf: result); currentPage = next; hasMore = result.count >= 16 }
+                else { hasMore = false }
+                isLoadingMore = false
             }
-            Text(item.title).font(.system(size: 13, weight: .medium)).lineLimit(2).frame(height: 36, alignment: .topLeading)
-            if let c = item.category { Text(c).font(.system(size: 11)).foregroundColor(.secondary) }
         }
     }
 }
 
-// MARK: - 播放页（对接vbox已有播放器 VideoDetailView）
+// MARK: - 短视频Tab（/minivod/reqlist）
+
+struct YBoxBananaShortVideoTab: View {
+    let platform: YBoxPlatform2
+    @StateObject private var svc = YBoxService2.shared
+    @State private var videos: [YBoxBananaMiniVideo] = []
+    @State private var currentIndex = 0
+    @State private var isLoading = true
+    @State private var currentPage = 1
+    @State private var showPlayer = false
+    @State private var selectedVideo: YBoxBananaMiniVideo?
+
+    var body: some View {
+        GeometryReader { geo in
+            if videos.isEmpty {
+                VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
+            } else {
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
+                        ZStack {
+                            // 模糊背景
+                            AsyncImage(url: URL(string: video.cover)) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFill()
+                                        .frame(width: geo.size.width, height: geo.size.height)
+                                        .clipped().blur(radius: 20).overlay(Color.black.opacity(0.3))
+                                } else {
+                                    Color.black.opacity(0.8)
+                                }
+                            }
+
+                            VStack(spacing: 20) {
+                                Spacer()
+                                // 封面
+                                AsyncImage(url: URL(string: video.cover)) { phase in
+                                    if let img = phase.image {
+                                        img.resizable().scaledToFit()
+                                            .frame(maxHeight: geo.size.height * 0.55)
+                                            .cornerRadius(16)
+                                    }
+                                }
+
+                                // 播放按钮
+                                Button(action: { selectedVideo = video; showPlayer = true }) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 65)).foregroundColor(.white.opacity(0.9))
+                                }
+
+                                // 标题 & 用户
+                                VStack(spacing: 4) {
+                                    Text(video.title)
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(.white).lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                    if !video.userName.isEmpty {
+                                        HStack(spacing: 4) {
+                                            if !video.userAvatar.isEmpty {
+                                                AsyncImage(url: URL(string: video.userAvatar)) { phase in
+                                                    if let img = phase.image {
+                                                        img.resizable().scaledToFill()
+                                                            .frame(width: 20, height: 20).clipShape(Circle())
+                                                    }
+                                                }
+                                            }
+                                            Text("@\(video.userName)")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.white.opacity(0.7))
+                                        }
+                                    }
+                                    Text("时长: \(video.duration)")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white.opacity(0.5))
+                                }
+                                .padding(.horizontal, 30)
+                                Spacer()
+                            }
+                        }
+                        .tag(idx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .onChange(of: currentIndex) { newIdx in
+                    if newIdx >= videos.count - 3 { loadMore() }
+                }
+            }
+        }
+        .onAppear { loadVideos() }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let sv = selectedVideo {
+                YBoxBananaPlayerView(
+                    vodId: sv.vodId, title: sv.title, cover: sv.cover,
+                    duration: sv.duration, platform: platform,
+                    isLongVideo: false
+                )
+            }
+        }
+    }
+
+    private func loadVideos() {
+        Task {
+            let result = await svc.fetchBananaMiniVideos(page: 1)
+            await MainActor.run { videos = result; isLoading = false }
+        }
+    }
+
+    private func loadMore() {
+        let next = currentPage + 1
+        Task {
+            let result = await svc.fetchBananaMiniVideos(page: next)
+            await MainActor.run {
+                if !result.isEmpty { videos.append(contentsOf: result); currentPage = next }
+            }
+        }
+    }
+}
+
+// MARK: - 专题Tab（/special/listing）
+
+struct YBoxBananaSpecialTab: View {
+    let platform: YBoxPlatform2
+    @StateObject private var svc = YBoxService2.shared
+    @State private var specials: [YBoxBananaSpecial] = []
+    @State private var isLoading = true
+    @State private var currentPage = 1
+    @State private var hasMore = true
+
+    var body: some View {
+        Group {
+            if specials.isEmpty && isLoading {
+                VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
+            } else if specials.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "square.stack").font(.system(size: 40)).foregroundColor(.secondary)
+                    Text("暂无专题").foregroundColor(.secondary)
+                }
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                        spacing: 14
+                    ) {
+                        ForEach(specials) { sp in
+                            NavigationLink(destination: YBoxBananaSpecialVideoList(
+                                special: sp, platform: platform
+                            )) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ZStack(alignment: .bottomTrailing) {
+                                        AsyncImage(url: URL(string: sp.spCover)) { phase in
+                                            switch phase {
+                                            case .success(let img):
+                                                img.resizable().aspectRatio(contentMode: .fill)
+                                            default:
+                                                ZStack {
+                                                    Color.gray.opacity(0.2)
+                                                    Image(systemName: "photo").foregroundColor(.gray)
+                                                }
+                                            }
+                                        }
+                                        .frame(height: 120).cornerRadius(12).clipped()
+
+                                        Text("\(sp.itemCount)部")
+                                            .font(.system(size: 10)).foregroundColor(.white)
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(Color.black.opacity(0.5)).cornerRadius(4)
+                                            .padding(6)
+                                    }
+                                    Text(sp.spName)
+                                        .font(.system(size: 13, weight: .medium)).lineLimit(2)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .onAppear { loadSpecials() }
+    }
+
+    private func loadSpecials() {
+        Task {
+            let result = await svc.fetchBananaSpecials(page: 1)
+            await MainActor.run { specials = result; isLoading = false }
+        }
+    }
+}
+
+// MARK: - 专题视频列表
+
+struct YBoxBananaSpecialVideoList: View {
+    let special: YBoxBananaSpecial
+    let platform: YBoxPlatform2
+    @StateObject private var svc = YBoxService2.shared
+    @State private var videos: [YBoxBananaSpecialVideo] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if videos.isEmpty && isLoading {
+                VStack { Spacer(); ProgressView(); Spacer() }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        // 专题头信息
+                        HStack {
+                            AsyncImage(url: URL(string: special.spCover)) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFill()
+                                        .frame(width: 80, height: 50).cornerRadius(8)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(special.spName).font(.system(size: 18, weight: .bold))
+                                Text("共 \(special.itemCount) 部").font(.system(size: 13)).foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 12).padding(.top, 8)
+
+                        Divider()
+
+                        LazyVGrid(
+                            columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                            spacing: 14
+                        ) {
+                            ForEach(videos) { video in
+                                NavigationLink(destination: YBoxBananaPlayerView(
+                                    vodId: video.vodId, title: video.title,
+                                    cover: video.cover, duration: video.duration,
+                                    platform: platform
+                                )) {
+                                    BananaVideoCard(
+                                        cover: video.cover, title: video.title,
+                                        duration: video.duration, score: video.score,
+                                        areaName: nil
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
+            }
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+        .navigationTitle(special.spName)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            Task {
+                let result = await svc.fetchBananaSpecialVideos(spId: special.spId, page: 1)
+                await MainActor.run { videos = result; isLoading = false }
+            }
+        }
+    }
+}
+
+// MARK: - 视频卡片组件
+
+// MARK: - 香蕉秀视频卡片（MissAV 样式：小长方形封面，by QClaw 2026-07-07）
+struct BananaVideoCard: View {
+    let cover: String
+    let title: String
+    let duration: String
+    let score: String?
+    let areaName: String?
+
+    private var bottomLabel: String {
+        var parts: [String] = []
+        if let s = score, !s.isEmpty { parts.append(s) }
+        if let a = areaName, !a.isEmpty { parts.append(a) }
+        if !duration.isEmpty { parts.append(duration) }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: URL(string: cover)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    default:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.18))
+                            .overlay(Image(systemName: "play.rectangle.fill").foregroundColor(.white.opacity(0.5)))
+                    }
+                }
+                .frame(height: 88)
+                .frame(maxWidth: .infinity)
+                .clipped()
+
+                LinearGradient(
+                    colors: [Color.black.opacity(0.0), Color.black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 88)
+
+                if !bottomLabel.isEmpty {
+                    Text(bottomLabel)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.45))
+                        .clipShape(Capsule())
+                        .padding(6)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - 播放页
+
 struct YBoxBananaPlayerView: View {
-    let item: YBoxVideoItem2
-    @StateObject private var ybox = YBoxService2.shared
+    let vodId: String
+    let title: String
+    let cover: String
+    let duration: String
+    let platform: YBoxPlatform2
+    var isLongVideo: Bool = true
+
+    @StateObject private var svc = YBoxService2.shared
     @State private var playURL: String?
     @State private var isLoading = true
     @State private var errorMsg: String?
     @State private var showPlayer = false
     @State private var vodItem: VodItem?
-    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         VStack(spacing: 12) {
-            // 封面预览
-            AsyncImage(url: URL(string: item.cover)) { phase in
-                switch phase {
-                case .success(let img):
+            AsyncImage(url: URL(string: cover)) { phase in
+                if let img = phase.image {
                     img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                default:
-                    Rectangle().fill(Color.gray.opacity(0.2)).aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
+                } else {
+                    Rectangle().fill(Color.gray.opacity(0.2))
+                        .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -329,56 +647,57 @@ struct YBoxBananaPlayerView: View {
                     ProgressView().scaleEffect(2).tint(.white)
                 } else if let _ = playURL {
                     Button(action: { showPlayer = true }) {
-                        Image(systemName: "play.fill").font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
                     }
                 } else if let e = errorMsg {
                     VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle").font(.system(size: 30)).foregroundColor(.orange)
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 30)).foregroundColor(.orange)
                         Text(e).font(.system(size: 12)).foregroundColor(.white)
+                        Button(action: { loadPlayURL() }) {
+                            Label("重试", systemImage: "arrow.clockwise")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                        }
                     }
                 }
             }
 
-            Text(item.title).font(.system(size: 18, weight: .bold)).padding(.horizontal, 16)
-
-            if let d = item.duration {
-                Label("时长: \(d)", systemImage: "clock").font(.system(size: 13)).foregroundColor(.secondary)
-            }
-
+            Text(title)
+                .font(.system(size: 18, weight: .bold)).padding(.horizontal, 16)
+            Label("时长: \(duration)", systemImage: "clock")
+                .font(.system(size: 13)).foregroundColor(.secondary)
             Spacer()
         }
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle("播放").navigationBarTitleDisplayMode(.inline)
         .onAppear { loadPlayURL() }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem {
-                VideoDetailView(video: vod)
-            }
+            if let vod = vodItem { VideoDetailView(video: vod) }
         }
     }
 
     private func loadPlayURL() {
-        guard let path = item.playUrl else { errorMsg = "无播放地址"; isLoading = false; return }
+        isLoading = true; errorMsg = nil
         Task {
-            if let url = await ybox.fetchBananaPlayURL(playPath: path) {
+            if let url = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: isLongVideo) {
                 await MainActor.run {
-                    playURL = url
-                    isLoading = false
-                    // 构造成VodItem传给现有播放器
+                    playURL = url; isLoading = false
                     vodItem = VodItem(
-                        vodId: item.vodId,
-                        vodName: item.title,
-                        vodPic: item.cover,
-                        vodRemarks: item.category ?? "福利",
-                        vodPlayUrl: url
+                        vodId: vodId, vodName: title, vodPic: cover,
+                        vodRemarks: "[福利]\(platform.name)", vodPlayUrl: url
                     )
                 }
             } else {
-                await MainActor.run { errorMsg = "获取播放地址失败"; isLoading = false }
+                await MainActor.run {
+                    errorMsg = "获取播放地址失败，请检查网络"; isLoading = false
+                }
             }
         }
     }
 }
+
 
 // MARK: - 1080视频/通用网页源（占位）
 struct YBoxWebSourceListView: View {
@@ -436,7 +755,7 @@ struct YBoxLiveSourceListView: View {
     }
 }
 
-// MARK: - 通用爬虫平台内容视图（对接 WelfareCrawlerService + WelfarePlatformView）
+// MARK: - 通用爬虫平台内容视图
 struct YBoxCrawlerContentView: View {
     let platform: YBoxPlatform2
     @State private var welfarePlatform: WelfarePlatform?
@@ -448,9 +767,7 @@ struct YBoxCrawlerContentView: View {
             } else {
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("加载平台配置...")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
+                    Text("加载平台配置...").font(.system(size: 13)).foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -459,9 +776,7 @@ struct YBoxCrawlerContentView: View {
             guard let pid = platform.crawlerPlatformId,
                   let cfg = WelfareCrawlerConfig.config(for: pid) else { return }
             welfarePlatform = WelfarePlatform.adaptive(
-                id: cfg.platformId,
-                name: cfg.platformName,
-                searchPrefix: cfg.searchPrefix
+                id: cfg.platformId, name: cfg.platformName, searchPrefix: cfg.searchPrefix
             )
         }
     }
@@ -488,10 +803,7 @@ struct YBoxLiveChannelListView: View {
                 ProgressView("加载频道...")
             } else {
                 List(channels) { ch in
-                    Button(action: {
-                        selectedChannelURL = ch.address
-                        showPlayer = true
-                    }) {
+                    Button(action: { selectedChannelURL = ch.address; showPlayer = true }) {
                         HStack {
                             Image(systemName: "play.circle").foregroundColor(Color(hex: "E11D48"))
                             VStack(alignment: .leading) {
@@ -511,11 +823,8 @@ struct YBoxLiveChannelListView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             if let url = selectedChannelURL {
                 VideoDetailView(video: VodItem(
-                    vodId: url,
-                    vodName: item.title,
-                    vodPic: item.img,
-                    vodRemarks: "直播",
-                    vodPlayUrl: url
+                    vodId: url, vodName: item.title, vodPic: item.img,
+                    vodRemarks: "[福利]直播", vodPlayUrl: url
                 ))
             }
         }
@@ -551,26 +860,33 @@ struct YBoxComicListView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ], spacing: 16) {
                         ForEach(comics) { comic in
                             Button(action: {
                                 selectedComic = VodItem(
                                     vodId: comic.href ?? comic.title,
-                                    vodName: comic.title,
-                                    vodPic: comic.cover,
-                                    vodRemarks: "漫画"
+                                    vodName: comic.title, vodPic: comic.cover,
+                                    vodRemarks: "[福利]漫画"
                                 )
                                 showPlayer = true
                             }) {
                                 VStack(spacing: 4) {
                                     AsyncImage(url: URL(string: comic.cover)) { p in
-                                        if let img = p.image { img.resizable().aspectRatio(contentMode: .fill).frame(height: 140).cornerRadius(8) }
-                                        else { RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2)).frame(height: 140) }
+                                        if let img = p.image {
+                                            img.resizable().aspectRatio(contentMode: .fill)
+                                                .frame(height: 140).cornerRadius(8)
+                                        } else {
+                                            RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2)).frame(height: 140)
+                                        }
                                     }
                                     Text(comic.title).font(.system(size: 11)).lineLimit(1)
                                 }
                             }
-                            .buttonStyle(PlainButtonStyle())
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(12)
@@ -580,9 +896,7 @@ struct YBoxComicListView: View {
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle("漫画")
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = selectedComic {
-                VideoDetailView(video: vod)
-            }
+            if let vod = selectedComic { VideoDetailView(video: vod) }
         }
         .onAppear {
             Task {
