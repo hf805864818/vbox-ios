@@ -1,0 +1,25 @@
+﻿2026-06-18T22:17:13.7708240Z ##[group]Run sudo gem install cocoapods --no-document
+2026-06-18T22:17:13.7708580Z [36;1msudo gem install cocoapods --no-document[0m
+2026-06-18T22:17:13.7708870Z [36;1mpod install --repo-update[0m
+2026-06-18T22:17:13.7741740Z shell: /bin/bash -e {0}
+2026-06-18T22:17:13.7741990Z ##[endgroup]
+2026-06-18T22:17:14.6980360Z Successfully installed cocoapods-1.16.2
+2026-06-18T22:17:14.6980970Z 1 gem installed
+2026-06-18T22:17:16.5929570Z Updating local specs repositories
+2026-06-18T22:17:16.5930150Z Adding spec repo `trunk` with CDN `https://cdn.cocoapods.org/`
+2026-06-18T22:17:21.2573520Z Analyzing dependencies
+2026-06-18T22:17:21.2585010Z Downloading dependencies
+2026-06-18T22:17:21.2585830Z Installing MobileVLCKit (3.6.0b12)
+2026-06-18T22:17:52.5260680Z 
+2026-06-18T22:17:52.5263400Z [!] The `vbox [Debug]` target overrides the `OTHER_LDFLAGS` build setting defined in `Pods/Target Support Files/Pods-vbox/Pods-vbox.debug.xcconfig'. This can lead to problems with the CocoaPods installation
+2026-06-18T22:17:52.5273530Z 
+2026-06-18T22:17:52.5274620Z [!] The `vbox [Release]` target overrides the `OTHER_LDFLAGS` build setting defined in `Pods/Target Support Files/Pods-vbox/Pods-vbox.release.xcconfig'. This can lead to problems with the CocoaPods installation
+2026-06-18T22:17:52.5276150Z Generating Pods project
+2026-06-18T22:17:52.5277560Z Integrating client project
+2026-06-18T22:17:52.5278580Z 
+2026-06-18T22:17:52.5278880Z [!] Please close any current Xcode sessions and use `vbox.xcworkspace` for this project from now on.
+2026-06-18T22:17:52.5280950Z Pod installation complete! There is 1 dependency from the Podfile and 1 total pod installed.
+2026-06-18T22:17:52.5405780Z     - Use the `$(inherited)` flag, or
+2026-06-18T22:17:52.5406330Z     - Remove the build settings from the target.
+2026-06-18T22:17:52.5406630Z     - Use the `$(inherited)` flag, or
+2026-06-18T22:17:52.5406980Z     - Remove the build settings from the target.

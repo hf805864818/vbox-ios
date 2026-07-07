@@ -1,0 +1,53 @@
+﻿2026-06-18T22:17:12.6398170Z ##[group]Run gem install xcodeproj --no-document
+2026-06-18T22:17:12.6398730Z [36;1mgem install xcodeproj --no-document[0m
+2026-06-18T22:17:12.6399060Z [36;1mruby scripts/configure_mpvkit_link.rb[0m
+2026-06-18T22:17:12.6441540Z shell: /bin/bash -e {0}
+2026-06-18T22:17:12.6441800Z ##[endgroup]
+2026-06-18T22:17:13.5593880Z Successfully installed xcodeproj-1.27.0
+2026-06-18T22:17:13.5594300Z 1 gem installed
+2026-06-18T22:17:13.7085120Z 已注入 Link + Embed:
+2026-06-18T22:17:13.7085600Z   - MPVKit.xcframework
+2026-06-18T22:17:13.7085890Z   - Libmpv.xcframework
+2026-06-18T22:17:13.7086130Z   - Libavcodec.xcframework
+2026-06-18T22:17:13.7087600Z   - Libavdevice.xcframework
+2026-06-18T22:17:13.7087950Z   - Libavfilter.xcframework
+2026-06-18T22:17:13.7088160Z   - Libavformat.xcframework
+2026-06-18T22:17:13.7088390Z   - Libavutil.xcframework
+2026-06-18T22:17:13.7088600Z   - Libswresample.xcframework
+2026-06-18T22:17:13.7088830Z   - Libswscale.xcframework
+2026-06-18T22:17:13.7089040Z   - Libass.xcframework
+2026-06-18T22:17:13.7089300Z   - Libbluray.xcframework
+2026-06-18T22:17:13.7089480Z   - Libuavs3d.xcframework
+2026-06-18T22:17:13.7089700Z   - Libdovi.xcframework
+2026-06-18T22:17:13.7089880Z   - Libdav1d.xcframework
+2026-06-18T22:17:13.7090050Z   - Libuchardet.xcframework
+2026-06-18T22:17:13.7090900Z   - Libplacebo.xcframework
+2026-06-18T22:17:13.7091150Z   - Libsmbclient.xcframework
+2026-06-18T22:17:13.7091410Z   - gnutls.xcframework
+2026-06-18T22:17:13.7091590Z   - Libssl.xcframework
+2026-06-18T22:17:13.7091790Z   - Libunibreak.xcframework
+2026-06-18T22:17:13.7091990Z   - Libharfbuzz.xcframework
+2026-06-18T22:17:13.7092690Z   - Libfribidi.xcframework
+2026-06-18T22:17:13.7092950Z   - Libfreetype.xcframework
+2026-06-18T22:17:13.7093150Z   - Libshaderc_combined.xcframework
+2026-06-18T22:17:13.7093380Z   - MoltenVK.xcframework
+2026-06-18T22:17:13.7093610Z   - lcms2.xcframework
+2026-06-18T22:17:13.7093820Z   - Libcrypto.xcframework
+2026-06-18T22:17:13.7094010Z   - hogweed.xcframework
+2026-06-18T22:17:13.7094210Z   - nettle.xcframework
+2026-06-18T22:17:13.7094380Z   - gmp.xcframework
+2026-06-18T22:17:13.7094590Z   - VideoToolbox.framework
+2026-06-18T22:17:13.7094780Z   - CoreMedia.framework
+2026-06-18T22:17:13.7094960Z   - CoreVideo.framework
+2026-06-18T22:17:13.7095160Z   - AudioToolbox.framework
+2026-06-18T22:17:13.7095380Z   - AVFoundation.framework
+2026-06-18T22:17:13.7095550Z   - Metal.framework
+2026-06-18T22:17:13.7095730Z   - QuartzCore.framework
+2026-06-18T22:17:13.7095890Z   - UIKit.framework
+2026-06-18T22:17:13.7096060Z   - IOSurface.framework
+2026-06-18T22:17:13.7096230Z   - Security.framework
+2026-06-18T22:17:13.7096740Z   - libz.tbd
+2026-06-18T22:17:13.7096900Z   - libbz2.tbd
+2026-06-18T22:17:13.7097040Z   - libiconv.tbd
+2026-06-18T22:17:13.7097190Z   - libc++.tbd
+2026-06-18T22:17:13.7097520Z 注意：该脚本只在 CI / 验证分支临时使用，不应把改动后的 pbxproj 合回 main。

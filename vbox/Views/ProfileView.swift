@@ -1,0 +1,1116 @@
+import SwiftUI
+import PhotosUI
+
+// MARK: - ProfileView
+
+struct ProfileView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @State private var isLoggedIn: Bool = false
+    @State private var username: String = ""
+    @State private var avatarImage: Image? = nil
+    @State private var showLoginSheet: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var showPhotoPicker: Bool = false
+    @State private var historyRecords: [HistoryRecord] = []
+    @State private var showWatchHistory: Bool = false
+    @State private var showFavorites: Bool = false
+    @State private var showDownloads: Bool = false
+    @State private var showSettingsSheet: Bool = false
+    @State private var selectedVideoItem: VodItem? = nil
+    @State private var showWelfareSheet: Bool = false
+    @State private var welfarePasswordInput: String = ""
+    @State private var welfarePasswordError: Bool = false
+
+    var accentColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color(hex: "E11D48")
+    }
+
+    var textColor: Color {
+        if settings.usesVisualSkin { return .white }
+        return Color(uiColor: .label)
+    }
+
+    var backgroundColor: Color {
+        return Color.clear
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // MARK: 头部登录区
+                    loginSection
+
+                    // MARK: 观看记录模块
+                    watchHistorySection
+
+                    // MARK: 三大功能入口
+                    featureEntriesSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 40)
+            }
+            .background(backgroundColor)
+            .onAppear {
+                loadInitialState()
+                reloadHistory()
+            }
+            .sheet(isPresented: $showLoginSheet) {
+                LoginSheetView(
+                    isLoggedIn: $isLoggedIn,
+                    username: $username,
+                    isPresented: $showLoginSheet
+                )
+            }
+            .sheet(isPresented: $showWatchHistory) {
+                NavigationView {
+                    WatchHistoryView()
+                }
+            }
+            .sheet(isPresented: $showFavorites) {
+                NavigationView {
+                    FavoriteView()
+                }
+            }
+            .sheet(isPresented: $showDownloads) {
+                NavigationView {
+                    DownloadView()
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _ in
+                handlePhotoSelection()
+            }
+            .onChange(of: settings.welfareEnabled) { newValue in
+                reloadHistory()
+                // 关闭福利时重置解锁状态，下次打开需要重新输入密码
+                if !newValue { settings.welfareUnlocked = false }
+            }
+
+            // 右上角设置入口
+            Button(action: {
+                showSettingsSheet = true
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(accentColor)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 16)
+            .padding(.top, 8)
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            NavigationView {
+                SettingsView()
+            }
+        }
+        .sheet(isPresented: $showWelfareSheet) {
+            welfareUnlockSheet
+        }
+        .fullScreenCover(item: $selectedVideoItem) { video in
+            VideoDetailView(video: video)
+        }
+    }
+
+    // MARK: - 头部登录区
+
+    private var loginSection: some View {
+        VStack(spacing: 12) {
+            // 头像
+            Button(action: {
+                showPhotoPicker = true
+            }) {
+                ZStack {
+                    if let avatarImage = avatarImage {
+                        avatarImage
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 80, height: 80)
+                            .clipShape(Circle())
+                    } else if isLoggedIn && !username.isEmpty {
+                        ZStack {
+                            Circle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 80, height: 80)
+                            Text(String(username.prefix(1)))
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.gray)
+                        }
+                    } else {
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.gray.opacity(0.4))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            // 用户名
+            Text(isLoggedIn ? username : "未登录")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(textColor)
+
+            // 登录按钮
+            if !isLoggedIn {
+                Button(action: {
+                    showLoginSheet = true
+                }) {
+                    Text("点击登录")
+                        .font(.system(size: 15))
+                        .foregroundColor(accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+    }
+
+    // MARK: - 观看记录模块
+
+    private var watchHistorySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // 标题行
+            HStack {
+                HStack(spacing: 6) {
+                    Rectangle()
+                        .fill(accentColor)
+                        .frame(width: 3, height: 16)
+                        .cornerRadius(2)
+                    Text("观看记录")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(textColor)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    showWatchHistory = true
+                }) {
+                    Text("查看更多 >")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // 横向滚动封面列表
+            if historyRecords.isEmpty {
+                Text("暂无观看记录")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(historyRecords) { record in
+                            VStack(spacing: 4) {
+                                coverImage(urlString: record.imgurl)
+                                    .frame(width: 100, height: 140)
+                                    .cornerRadius(8)
+                                    .clipped()
+
+                                Text(record.name)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(textColor)
+                                    .lineLimit(1)
+                                    .frame(width: 100, alignment: .leading)
+                            }
+                            .onTapGesture { selectedVideoItem = makeVodItem(from: record) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 功能入口
+
+    private var featureEntriesSection: some View {
+        HStack(spacing: 12) {
+            // 福利专区
+            Button(action: {
+                welfarePasswordInput = ""
+                welfarePasswordError = false
+                showWelfareSheet = true
+            }) {
+                VStack(spacing: 8) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(accentColor)
+                    Text("福利专区")
+                        .font(.system(size: 12))
+                        .foregroundColor(textColor)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+            }
+            .buttonStyle(.plain)
+
+            // 我的收藏
+            Button(action: {
+                showFavorites = true
+            }) {
+                VStack(spacing: 8) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(accentColor)
+                    Text("我的收藏")
+                        .font(.system(size: 12))
+                        .foregroundColor(textColor)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+            }
+            .buttonStyle(.plain)
+
+            // 分享免广告
+            Button(action: {
+                print("[ProfileView] 分享免广告功能暂未开放")
+            }) {
+                VStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 24))
+                        .foregroundColor(accentColor)
+                    Text("分享免广告")
+                        .font(.system(size: 12))
+                        .foregroundColor(textColor)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+            }
+            .buttonStyle(.plain)
+
+            // 下载管理
+            Button(action: {
+                showDownloads = true
+            }) {
+                VStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(accentColor)
+                    Text("下载管理")
+                        .font(.system(size: 12))
+                        .foregroundColor(textColor)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - 福利解锁弹窗（含功能开关）
+
+    private var welfareUnlockSheet: some View {
+        VStack(spacing: 24) {
+            // 标题
+            VStack(spacing: 8) {
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(accentColor)
+                Text("福利专区")
+                    .font(.system(size: 22, weight: .bold))
+                Text(settings.welfareUnlocked ? "管理福利功能" : "输入密码解锁福利内容")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 30)
+
+            if !settings.welfareUnlocked {
+                // === 阶段一：密码输入 ===
+                SecureField("请输入解锁密码", text: $welfarePasswordInput)
+                    .font(.system(size: 18))
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 30)
+                    .keyboardType(.numberPad)
+
+                if welfarePasswordError {
+                    Text("密码错误，请重试")
+                        .font(.system(size: 13))
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                }
+
+                Button {
+                    if welfarePasswordInput == settings.welfarePassword {
+                        settings.welfareUnlocked = true
+                    } else {
+                        welfarePasswordError = true
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                    }
+                } label: {
+                    Text("确认解锁")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 30)
+            } else {
+                // === 阶段二：功能开关 ===
+                VStack(spacing: 16) {
+                    // 福利Tab开关
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("启用福利专区")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("关闭后福利Tab和播放记录将隐藏")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.welfareEnabled)
+                            .labelsHidden()
+                            .tint(accentColor)
+                    }
+                    .padding(.horizontal, 30)
+
+                    Divider()
+                        .padding(.horizontal, 30)
+
+                    // 修改密码（后续可用）
+                    HStack {
+                        Text("密码")
+                            .font(.system(size: 16, weight: .medium))
+                        Spacer()
+                        Text("******")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 30)
+                }
+                .padding(.vertical, 8)
+
+                // 完成按钮
+                Button {
+                    showWelfareSheet = false
+                } label: {
+                    Text("完成")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 30)
+            }
+
+            Spacer()
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - Helper Methods
+
+    private func coverImage(urlString: String) -> some View {
+        Group {
+            if urlString.isEmpty {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+            } else {
+                AsyncImage(url: URL(string: urlString)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    @unknown default:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadInitialState() {
+        if let savedUsername = DatabaseManager.shared.getSetting(key: "username"),
+           !savedUsername.isEmpty {
+            username = savedUsername
+        }
+        if let savedLoggedIn = DatabaseManager.shared.getSetting(key: "isLoggedIn"),
+           savedLoggedIn == "true" {
+            isLoggedIn = true
+        }
+        // 恢复已保存的头像
+        if let base64 = DatabaseManager.shared.getSetting(key: "avatar_image"),
+           let data = Data(base64Encoded: base64),
+           let uiImage = UIImage(data: data) {
+            avatarImage = Image(uiImage: uiImage)
+        }
+    }
+
+    private func reloadHistory() {
+        var allHistory = DatabaseManager.shared.queryHistory()
+        if !settings.welfareEnabled {
+            allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+        }
+        historyRecords = Array(allHistory.prefix(20))
+    }
+
+    private func handlePhotoSelection() {
+        guard let item = selectedPhotoItem else { return }
+        item.loadTransferable(type: Data.self) { result in
+            DispatchQueue.main.async {
+                if case .success(let data) = result, let data = data, let uiImage = UIImage(data: data) {
+                    // 压缩并持久化头像
+                    let resized = Self.resizeImage(uiImage, maxSide: 200)
+                    avatarImage = Image(uiImage: resized)
+                    if let pngData = resized.pngData() {
+                        let base64 = pngData.base64EncodedString()
+                        DatabaseManager.shared.setSetting(key: "avatar_image", value: base64)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func resizeImage(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let size = image.size
+        let maxDim = max(size.width, size.height)
+        guard maxDim > maxSide else { return image }
+        let scale = maxSide / maxDim
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let result = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return result ?? image
+    }
+
+    private func makeVodItem(from record: HistoryRecord) -> VodItem {
+        VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+    }
+
+    private func makeVodItem(from record: FavoriteRecord) -> VodItem {
+        VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+    }
+}
+
+// MARK: - LoginSheetView
+
+struct LoginSheetView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Binding var isLoggedIn: Bool
+    @Binding var username: String
+    @Binding var isPresented: Bool
+    @State private var inputUsername: String = ""
+    @State private var inputPassword: String = ""
+    @State private var showPassword: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var loginError: String? = nil
+
+    private let gradientColors: [Color] = [Color(hex: "3B82F6"), Color(hex: "2563EB"), Color(hex: "1D4ED8")]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer().frame(height: 12)
+
+                // App 图标
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 72, height: 72)
+                        .shadow(color: Color(hex: "3B82F6").opacity(0.4), radius: 16, y: 6)
+
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.white)
+                }
+                .padding(.bottom, 20)
+
+                // 标题
+                Text("欢迎回来")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.primary)
+
+                Text("登录你的账号继续使用")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 6)
+
+                Spacer().frame(height: 28)
+
+                // 登录卡片
+                VStack(spacing: 16) {
+                    // 用户名输入框
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "3B82F6"))
+                            .frame(width: 22)
+
+                        TextField("用户名", text: $inputUsername)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(12)
+
+                    // 密码输入框
+                    HStack(spacing: 10) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "3B82F6"))
+                            .frame(width: 22)
+
+                        if showPassword {
+                            TextField("密码", text: $inputPassword)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                        } else {
+                            SecureField("密码", text: $inputPassword)
+                        }
+
+                        Button(action: { showPassword.toggle() }) {
+                            Image(systemName: showPassword ? "eye.fill" : "eye.slash.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.gray)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(12)
+
+                    // 错误提示
+                    if let error = loginError {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+
+                    // 登录/注册按钮
+                    Button(action: { performLogin() }) {
+                        Group {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text(isRegistered ? "登录" : "登录 / 注册")
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            LinearGradient(colors: gradientColors, startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(14)
+                        .shadow(color: Color(hex: "3B82F6").opacity(0.35), radius: 10, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(inputUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                    .opacity(inputUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+
+                    // 上级用户
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("上级用户：没有上级用户")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 14)
+                    .background(Color(uiColor: .systemGray6).opacity(0.6))
+                    .cornerRadius(20)
+                    .padding(.top, 6)
+
+                    // 取消按钮
+                    Button(action: { isPresented = false }) {
+                        Text("取消")
+                            .font(.system(size: 15))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                }
+                .padding(24)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(uiColor: .systemBackground))
+                        .shadow(color: Color.black.opacity(0.08), radius: 20, y: 4)
+                )
+                .padding(.horizontal, 24)
+
+                Spacer().frame(height: 20)
+            }
+        }
+        .background(
+            Color(uiColor: .systemGroupedBackground).opacity(0.5).ignoresSafeArea()
+        )
+    }
+
+    private var isRegistered: Bool {
+        let trimmed = inputUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let savedPassword = DatabaseManager.shared.getSetting(key: "password_\(trimmed)")
+        return savedPassword != nil && !savedPassword!.isEmpty
+    }
+
+    private func performLogin() {
+        let trimmed = inputUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPassword = inputPassword.trimmingCharacters(in: .whitespaces)
+
+        guard !trimmed.isEmpty else {
+            loginError = "请输入用户名"
+            return
+        }
+
+        guard !trimmedPassword.isEmpty else {
+            loginError = "请输入密码"
+            return
+        }
+
+        isLoading = true
+        loginError = nil
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let savedPassword = DatabaseManager.shared.getSetting(key: "password_\(trimmed)")
+
+            if let saved = savedPassword, !saved.isEmpty {
+                // 已注册，验证密码
+                if saved == trimmedPassword {
+                    loginSuccess(name: trimmed)
+                } else {
+                    loginError = "密码错误，请重试"
+                    isLoading = false
+                }
+            } else {
+                // 未注册，直接注册
+                DatabaseManager.shared.setSetting(key: "password_\(trimmed)", value: trimmedPassword)
+                loginSuccess(name: trimmed)
+            }
+        }
+    }
+
+    private func loginSuccess(name: String) {
+        username = name
+        isLoggedIn = true
+        DatabaseManager.shared.setSetting(key: "username", value: name)
+        DatabaseManager.shared.setSetting(key: "isLoggedIn", value: "true")
+        isLoading = false
+        isPresented = false
+    }
+}
+
+// MARK: - WatchHistoryView
+
+struct WatchHistoryView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.presentationMode) private var presentationMode
+    @State private var historyRecords: [HistoryRecord] = []
+    @State private var selectedVideo: VodItem? = nil
+
+    var accentColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color(hex: "E11D48")
+    }
+
+    var textColor: Color {
+        if settings.usesVisualSkin { return .white }
+        return Color(uiColor: .label)
+    }
+
+    var body: some View {
+        List {
+            if historyRecords.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Text("暂无观看记录")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(historyRecords) { record in
+                    HStack(spacing: 12) {
+                        coverThumbnail(urlString: record.imgurl)
+                            .frame(width: 60, height: 80)
+                            .cornerRadius(6)
+                            .clipped()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(record.name)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(textColor)
+                                .lineLimit(1)
+
+                            if !record.laiyuan.isEmpty {
+                                Text(record.laiyuan)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                                    .lineLimit(1)
+                            }
+
+                            Text(formatDate(record.lastPlayedAt))
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                    }
+                    .padding(.vertical, 4)
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+        .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle("观看记录")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    presentationMode.wrappedValue.dismiss()
+                }) {
+                    Image(systemName: "xmark")
+                        .foregroundColor(textColor)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !historyRecords.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        DatabaseManager.shared.clearHistory()
+                        historyRecords = []
+                    }) {
+                        Text("清空")
+                            .foregroundColor(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .onAppear {
+            var allHistory = DatabaseManager.shared.queryHistory()
+            if !settings.welfareEnabled {
+                allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+            }
+            historyRecords = allHistory
+        }
+        .onChange(of: settings.welfareEnabled) { _ in
+            var allHistory = DatabaseManager.shared.queryHistory()
+            if !settings.welfareEnabled {
+                allHistory = allHistory.filter { !($0.laiyuan.hasPrefix("[福利]")) }
+            }
+            historyRecords = allHistory
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
+        }
+    }
+
+    private func coverThumbnail(urlString: String) -> some View {
+        Group {
+            if urlString.isEmpty {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+            } else {
+                AsyncImage(url: URL(string: urlString)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    @unknown default:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    }
+                }
+            }
+        }
+    }
+
+    private func formatDate(_ timestamp: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - FavoriteView
+
+struct FavoriteView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.presentationMode) private var presentationMode
+    @State private var favorites: [FavoriteRecord] = []
+    @State private var selectedVideo: VodItem? = nil
+
+    var accentColor: Color {
+        if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
+        if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
+        return Color(hex: "E11D48")
+    }
+
+    var textColor: Color {
+        if settings.usesVisualSkin { return .white }
+        return Color(uiColor: .label)
+    }
+
+    var body: some View {
+        List {
+            if favorites.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Text("暂无收藏")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(favorites) { record in
+                    HStack(spacing: 12) {
+                        coverThumbnail(urlString: record.imgurl)
+                            .frame(width: 60, height: 80)
+                            .cornerRadius(6)
+                            .clipped()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(record.name)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(textColor)
+                                .lineLimit(1)
+
+                            if !record.laiyuan.isEmpty {
+                                Text(record.laiyuan)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                    }
+                    .padding(.vertical, 4)
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+        .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle("我的收藏")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    presentationMode.wrappedValue.dismiss()
+                }) {
+                    Image(systemName: "xmark")
+                        .foregroundColor(textColor)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !favorites.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        for record in favorites {
+                            if let id = record.id {
+                                DatabaseManager.shared.removeFavorite(id: id)
+                            }
+                        }
+                        favorites = []
+                    }) {
+                        Text("清空")
+                            .foregroundColor(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .onAppear {
+            favorites = DatabaseManager.shared.queryFavorites()
+        }
+        .fullScreenCover(item: $selectedVideo) { video in
+            VideoDetailView(video: video)
+        }
+    }
+
+    private func coverThumbnail(urlString: String) -> some View {
+        Group {
+            if urlString.isEmpty {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+            } else {
+                AsyncImage(url: URL(string: urlString)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    @unknown default:
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - DownloadView
+
+struct DownloadView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.presentationMode) private var presentationMode
+    @State private var downloadRecords: [DownloadRecord] = []
+
+    var textColor: Color {
+        if settings.usesVisualSkin { return .white }
+        return Color(uiColor: .label)
+    }
+
+    var body: some View {
+        List {
+            if downloadRecords.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer().frame(height: 100)
+                    Text("暂无下载内容")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(downloadRecords) { record in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(record.name)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(textColor)
+                                .lineLimit(1)
+                            Text(record.laiyuan)
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            if record.status == "downloading" {
+                                ProgressView(value: record.progress)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                                    .frame(height: 3)
+                            }
+                            Text(statusText(record.status))
+                                .font(.system(size: 10))
+                                .foregroundColor(statusColor(record.status))
+                        }
+                        Spacer()
+                        if record.status == "completed" {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 20))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let record = downloadRecords[index]
+                        DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
+                    }
+                    reloadDownloads()
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .navigationTitle("下载管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(settings.usesVisualSkin ? .dark : nil, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    presentationMode.wrappedValue.dismiss()
+                }) {
+                    Image(systemName: "xmark")
+                        .foregroundColor(textColor)
+                }
+                .buttonStyle(.plain)
+            }
+            if !downloadRecords.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("清空") {
+                        DatabaseManager.shared.clearDownloads()
+                        reloadDownloads()
+                    }
+                    .font(.system(size: 14))
+                    .foregroundColor(.red)
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .onAppear {
+            reloadDownloads()
+        }
+    }
+
+    private func reloadDownloads() {
+        downloadRecords = DatabaseManager.shared.queryDownloads()
+    }
+
+    private func statusText(_ status: String) -> String {
+        switch status {
+        case "pending": return "等待下载"
+        case "downloading": return "下载中..."
+        case "completed": return "已完成"
+        case "failed": return "下载失败"
+        default: return status
+        }
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "pending": return .gray
+        case "downloading": return .blue
+        case "completed": return .green
+        case "failed": return .red
+        default: return .gray
+        }
+    }
+}

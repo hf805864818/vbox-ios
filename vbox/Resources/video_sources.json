@@ -1,0 +1,188 @@
+{
+  "dyname": "网盘资源聚合",
+  "dyzuozhe": "vbox-ios",
+  "cloudSites": [
+    {
+      "name": "盘Ta资源",
+      "type": "forum",
+      "searchurl": "https://www.91panta.cn/search?keyword=",
+      "detailBase": "https://www.91panta.cn"
+    },
+    {
+      "name": "玩偶资源",
+      "type": "cms",
+      "searchurl": "https://wogg.xxooo.cf/index.php/vod/search.html?wd=",
+      "detailBase": "https://wogg.xxooo.cf",
+      "ua": "pc"
+    },
+    {
+      "name": "木偶资源",
+      "type": "cms",
+      "searchurl": "https://666.666291.xyz/index.php/vod/search.html?wd=",
+      "detailBase": "https://666.666291.xyz"
+    },
+    {
+      "name": "多多资源",
+      "type": "cms",
+      "searchurl": "https://tv.yydsys.top/index.php/vod/search.html?wd=",
+      "detailBase": "https://tv.yydsys.top",
+      "ua": "pc"
+    },
+    {
+      "name": "闪电资源",
+      "type": "cms",
+      "searchurl": "https://sd.sduc.site/index.php/vod/search.html?wd=",
+      "detailBase": "https://sd.sduc.site"
+    },
+    {
+      "name": "欧歌资源",
+      "type": "cms",
+      "searchurl": "https://woog.nxog.eu.org/index.php/vod/search.html?wd=",
+      "detailBase": "https://woog.nxog.eu.org",
+      "ua": "pc"
+    },
+    {
+      "name": "二小盘",
+      "type": "cms",
+      "searchurl": "http://2xiaopan.fun/index.php/vod/search.html?wd=",
+      "detailBase": "http://2xiaopan.fun"
+    },
+    {
+      "name": "至臻影视",
+      "type": "cms",
+      "searchurl": "http://www.miqk.cc/index.php/vod/search.html?wd=",
+      "detailBase": "http://www.miqk.cc"
+    },
+    {
+      "name": "虎斑资源",
+      "type": "forum",
+      "searchurl": "http://103.45.162.207:20720/index.php/vod/search.html?wd=",
+      "detailBase": "http://103.45.162.207:20720"
+    },
+    {
+      "name": "小斑资源",
+      "type": "forum",
+      "searchurl": "http://xsayang.fun:12512/index.php/vod/search.html?wd=",
+      "detailBase": "http://xsayang.fun:12512"
+    },
+    {
+      "name": "雷鲸资源",
+      "type": "cms",
+      "searchurl": "https://www.leijing.xyz/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.leijing.xyz",
+      "ua": "pc"
+    },
+    {
+      "name": "南风资源",
+      "type": "cms",
+      "searchurl": "https://www.nanf.cc/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.nanf.cc",
+      "ua": "pc"
+    },
+    {
+      "name": "音海搜索",
+      "type": "spa",
+      "searchurl": "https://sou.makifx.com",
+      "detailBase": "https://sou.makifx.com",
+      "apiSearch": "https://sou.makifx.com/api/search?kw={kw}",
+      "resultField": "data.list",
+      "titleField": "title",
+      "urlField": "url"
+    },
+    {
+      "name": "PanSou盘搜",
+      "type": "spa",
+      "searchurl": "https://so.252035.xyz",
+      "detailBase": "https://so.252035.xyz",
+      "apiSearch": "https://so.252035.xyz/api/search?kw={kw}",
+      "resultField": "data.merged_by_type",
+      "titleField": "note",
+      "urlField": "url"
+    },
+    {
+      "name": "奕搜资源",
+      "type": "spa",
+      "searchurl": "https://ysso.cc",
+      "detailBase": "https://ysso.cc",
+      "apiSearch": "https://ysso.cc/api/search?kw={kw}",
+      "resultField": "data.list",
+      "titleField": "title",
+      "urlField": "url"
+    },
+    {
+      "name": "123分享",
+      "type": "forum",
+      "searchurl": "https://pan1.me/?search.htm&keyword=",
+      "detailBase": "https://pan1.me",
+      "threadPattern": "\\?thread-(\\d+)\\.htm",
+      "threadURL": "https://pan1.me/?thread-{id}.htm"
+    },
+    {
+      "name": "清影资源",
+      "type": "cms",
+      "searchurl": "http://www.revohd.com/index.php/vod/search.html?wd=",
+      "detailBase": "http://www.revohd.com"
+    },
+    {
+      "name": "319影社",
+      "type": "cms",
+      "searchurl": "https://www.319312.com/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.319312.com"
+    },
+    {
+      "name": "人人电影",
+      "type": "cms",
+      "searchurl": "https://www.rrdynb.com/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.rrdynb.com",
+      "ua": "pc"
+    },
+    {
+      "name": "飞猫影视",
+      "type": "cms",
+      "searchurl": "http://feimo.fun/index.php/vod/search.html?wd=",
+      "detailBase": "http://feimo.fun"
+    },
+    {
+      "name": "2小盘",
+      "type": "cms",
+      "searchurl": "https://www.2xiaopan.top/index.php/vod/search.html?wd=",
+      "detailBase": "https://www.2xiaopan.top"
+    },
+    {
+      "name": "430520",
+      "type": "cms",
+      "searchurl": "https://by1.430520.xyz/index.php/vod/search.html?wd=",
+      "detailBase": "https://by1.430520.xyz"
+    },
+    {
+      "name": "92CJ云盘",
+      "type": "cms",
+      "searchurl": "https://yun.92cj.com/yunbox/index.php/vod/search.html?wd=",
+      "detailBase": "https://yun.92cj.com/yunbox"
+    },
+    {
+      "name": "蜡笔网盘",
+      "type": "cms",
+      "searchurl": "http://feimao888.fun/index.php/vod/search.html?wd=",
+      "detailBase": "http://feimao888.fun"
+    },
+    {
+      "name": "趣盘资源",
+      "type": "cms",
+      "searchurl": "https://pan.funletu.com/index.php/vod/search.html?wd=",
+      "detailBase": "https://pan.funletu.com"
+    }
+  ],
+  "parses": [
+    {
+      "name": "通用解析",
+      "url": "https://jx.xmflv.com/?url=",
+      "type": 0
+    },
+    {
+      "name": "备用解析",
+      "url": "https://jx.aidouer.net/?url=",
+      "type": 0
+    }
+  ]
+}

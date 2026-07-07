@@ -1,0 +1,107 @@
+name: Build IPA (Debug)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/mpvkit-link-validation
+    paths:
+      - '.github/workflows/build-ipa-debug.yml'
+      - 'scripts/fetch_mpv_dependencies.sh'
+      - 'scripts/install_mpv_dependencies.sh'
+      - 'scripts/check_mpv_installed_dependencies.py'
+      - 'scripts/fetch_mpv_external_dependencies.py'
+      - 'scripts/mpvkit_external_dependencies.json'
+      - 'scripts/configure_mpvkit_link.rb'
+      - 'vbox.xcodeproj/project.pbxproj'
+      - 'vbox/PlayerCore/**'
+      - 'vbox/Libraries/MPV/**'
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 🔧 Select Xcode
+        run: |
+          set -euo pipefail
+          ls -1 /Applications | grep '^Xcode' || true
+          for xcode in Xcode_16.4.app Xcode_16.3.app Xcode_16.2.app Xcode.app; do
+            if [ -d "/Applications/${xcode}/Contents/Developer" ]; then
+              sudo xcode-select -s "/Applications/${xcode}/Contents/Developer"
+              break
+            fi
+          done
+          xcodebuild -version
+          xcrun simctl list runtimes || true
+
+      - name: 🎬 Fetch MPVKit dependencies
+        run: |
+          bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
+          python3 scripts/fetch_mpv_external_dependencies.py --all --cache-dir .mpv-cache/external
+          python3 scripts/check_mpv_installed_dependencies.py
+
+      - name: 🔗 Inject MPVKit Link & Embed (validation only)
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/configure_mpvkit_link.rb
+
+      - name: 📦 Install CocoaPods dependencies
+        run: |
+          sudo gem install cocoapods --no-document
+          pod install --repo-update
+
+      - name: 🏗️ Build with Verbose Output
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace vbox.xcworkspace \
+            -scheme vbox \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
+            ENABLE_BITCODE=NO \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            ONLY_ACTIVE_ARCH=NO \
+            VALIDATE_PRODUCT=false \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            GCC_PREPROCESSOR_DEFINITIONS='$(inherited)' \
+            OTHER_SWIFT_FLAGS='-v' \
+            clean archive \
+            2>&1 | tee build.log
+
+      - name: 📋 Show Build Log
+        if: failure()
+        run: |
+          echo "=== 完整的编译日志 ==="
+          cat build.log
+          
+          echo -e "\n=== 搜索错误信息 ==="
+          grep -i "error:" build.log | head -50
+          grep -i "fatal error" build.log | head -20
+
+      - name: 📦 Export IPA
+        if: success()
+        run: |
+          if [ ! -f exportOptions.plist ]; then
+            echo "未找到 exportOptions.plist，跳过 IPA 导出。MPVKit Link/Embed 验证只要求 archive 成功。"
+            exit 0
+          fi
+          xcodebuild -exportArchive \
+            -archivePath ${{ github.workspace }}/build/vbox.xcarchive \
+            -exportPath ${{ github.workspace }}/build/ \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: 📤 Upload IPA
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: vbox-ipa-debug
+          path: build/*.ipa

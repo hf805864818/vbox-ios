@@ -1,0 +1,9 @@
+﻿2026-06-18T23:24:50.9412460Z ##[group]Run MARKETING_VERSION=$(plutil -extract CFBundleShortVersionString raw vbox/Info.plist)
+2026-06-18T23:24:50.9413140Z [36;1mMARKETING_VERSION=$(plutil -extract CFBundleShortVersionString raw vbox/Info.plist)[0m
+2026-06-18T23:24:50.9413600Z [36;1mBUILD_NUM=$(plutil -extract CFBundleVersion raw vbox/Info.plist)[0m
+2026-06-18T23:24:50.9414000Z [36;1mecho "MARKETING_VERSION=$MARKETING_VERSION" >> $GITHUB_OUTPUT[0m
+2026-06-18T23:24:50.9414360Z [36;1mecho "BUILD_NUM=$BUILD_NUM" >> $GITHUB_OUTPUT[0m
+2026-06-18T23:24:50.9414700Z [36;1mecho "Version: $MARKETING_VERSION Build: $BUILD_NUM"[0m
+2026-06-18T23:24:50.9444580Z shell: /bin/bash -e {0}
+2026-06-18T23:24:50.9444770Z ##[endgroup]
+2026-06-18T23:24:50.9897740Z Version: 3.332 Build: 332

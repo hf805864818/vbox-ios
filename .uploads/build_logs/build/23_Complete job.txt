@@ -1,0 +1,7 @@
+﻿2026-06-18T22:18:43.0850450Z Evaluate and set job outputs
+2026-06-18T22:18:43.0856810Z Set output 'MARKETING_VERSION'
+2026-06-18T22:18:43.0858080Z Set output 'BUILD_NUM'
+2026-06-18T22:18:43.0858670Z Cleaning up orphan processes
+2026-06-18T22:18:43.5477680Z Terminate orphan process: pid (5021) (ibtoold)
+2026-06-18T22:18:43.8453690Z Terminate orphan process: pid (4320) (ibtoold)
+2026-06-18T22:18:44.1381680Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
