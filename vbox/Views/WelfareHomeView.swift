@@ -385,19 +385,4 @@ struct YBoxPlatformDetailView: View {
     }
 }
 
-// MARK: - 爬虫内容视图（通用平台浏览页）
-
-struct YBoxCrawlerContentView: View {
-    let platform: YBoxPlatform2
-    @EnvironmentObject private var settings: AppSettings
-
-    var body: some View {
-        WelfarePlatformView(
-            platform: WelfarePlatform.adaptive(
-                id: platform.crawlerPlatformId ?? platform.name,
-                name: platform.name,
-                searchPrefix: platform.name
-            )
-        )
-    }
-}
+ 
