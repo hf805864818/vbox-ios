@@ -578,13 +578,15 @@ class YBoxService2: ObservableObject {
             }
             guard let data = json["data"] as? [String: Any] else { return (nil, retcode, msg) }
 
-            // 优先取 httpurl 字段
-            if let url = data["httpurl"] as? String, !url.isEmpty { return (url, 0, msg) }
+            // 优先取 httpurl 字段（自动 HTTP→HTTPS 升级以兼容 iOS ATS）
+            if let url = data["httpurl"] as? String, !url.isEmpty {
+                return (sanitizePlayURL(url), 0, msg)
+            }
 
             // 备选：从 httpurls 数组取第一个
             if let urls = data["httpurls"] as? [[String: Any]], let first = urls.first,
                let url = first["httpurl"] as? String {
-                return (url, 0, msg)
+                return (sanitizePlayURL(url), 0, msg)
             }
 
             return (nil, -1, "无可用播放地址")
@@ -592,6 +594,14 @@ class YBoxService2: ObservableObject {
             print("[YBox] fetchBananaPlayURL(\(vodId)) error: \(error)")
             return (nil, -2, error.localizedDescription)
         }
+    }
+
+    /// 将 HTTP URL 升级为 HTTPS（兼容 iOS ATS）
+    private func sanitizePlayURL(_ raw: String) -> String {
+        guard raw.hasPrefix("http://") else { return raw }
+        let https = raw.replacingOccurrences(of: "http://", with: "https://")
+        print("[YBox] sanitizePlayURL: \(raw.prefix(60))... → \(https.prefix(60))...")
+        return https
     }
 
     /// 从预览 m3u8 重建完整 m3u8 地址（VIP 视频绕过限制）

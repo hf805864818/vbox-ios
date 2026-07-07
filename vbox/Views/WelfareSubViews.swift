@@ -294,7 +294,7 @@ struct YBoxBananaVideoGrid: View {
     }
 }
 
-// MARK: - 短视频Tab（/minivod/reqlist，抖音式竖屏滑动播放）
+// MARK: - 短视频Tab（/minivod/reqlist，抖音式竖屏滑动播放，支持无限加载，by QClaw 2026-07-07）
 
 struct YBoxBananaShortVideoTab: View {
     let platform: YBoxPlatform2
@@ -330,7 +330,7 @@ struct YBoxBananaShortVideoTab: View {
         }
         .onAppear { loadVideos() }
         .fullScreenCover(isPresented: $showPlayer) {
-            YBoxBananaShortPlayerView(videos: videos, platform: platform)
+            YBoxBananaShortPlayerView(initialVideos: videos, platform: platform)
         }
     }
 
@@ -347,13 +347,14 @@ struct YBoxBananaShortVideoTab: View {
     }
 }
 
-// MARK: - 抖音式竖屏短视频播放器
+// MARK: - 抖音式竖屏短视频播放器（支持无限下拉 + 播放失败自动跳过，by QClaw 2026-07-07）
 
 struct YBoxBananaShortPlayerView: View {
-    let videos: [YBoxBananaMiniVideo]
+    let initialVideos: [YBoxBananaMiniVideo]
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
-    @State private var currentIndex: Int
+    @State private var videos: [YBoxBananaMiniVideo] = []
+    @State private var currentIndex: Int = 0
     @State private var playURLs: [Int: String] = [:]
     @State private var player: AVPlayer?
     @State private var currentTime: Double = 0
@@ -361,12 +362,15 @@ struct YBoxBananaShortPlayerView: View {
     @State private var rate: Float = 1.0
     @State private var dragOffset: CGSize = .zero
     @State private var isPlayerReady = false
+    @State private var currentPage = 1
+    @State private var hasMore = true
+    @State private var isLoadingMore = false
+    @State private var videoError: String?
     @Environment(\.dismiss) var dismiss
 
-    init(videos: [YBoxBananaMiniVideo], platform: YBoxPlatform2) {
-        self.videos = videos
+    init(initialVideos: [YBoxBananaMiniVideo], platform: YBoxPlatform2) {
+        self.initialVideos = initialVideos
         self.platform = platform
-        self._currentIndex = State(initialValue: 0)
     }
 
     var body: some View {
@@ -397,7 +401,30 @@ struct YBoxBananaShortPlayerView: View {
                                     }
                                 }
                                 .overlay(Color.black.opacity(0.25))
-                                ProgressView().tint(.white).scaleEffect(2)
+
+                                VStack(spacing: 12) {
+                                    if let err = videoError {
+                                        Image(systemName: "play.slash")
+                                            .font(.system(size: 40))
+                                            .foregroundColor(.white.opacity(0.6))
+                                        Text(err)
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.white.opacity(0.7))
+                                        Button(action: {
+                                            videoError = nil
+                                            loadAndPlay(at: currentIndex)
+                                        }) {
+                                            Label("重试", systemImage: "arrow.clockwise")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 16).padding(.vertical, 6)
+                                                .background(Color.white.opacity(0.2))
+                                                .cornerRadius(14)
+                                        }
+                                    } else {
+                                        ProgressView().tint(.white).scaleEffect(2)
+                                    }
+                                }
                             }
                         }
                     }
@@ -409,7 +436,6 @@ struct YBoxBananaShortPlayerView: View {
                             }
                             .onEnded { value in
                                 let threshold = cellHeight * 0.2
-                                let velocity = abs(value.predictedEndTranslation.height - value.translation.height)
 
                                 if value.translation.height < -threshold && currentIndex < videos.count - 1 {
                                     withAnimation(.easeOut(duration: 0.25)) {
@@ -418,6 +444,7 @@ struct YBoxBananaShortPlayerView: View {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                                         currentIndex += 1
                                         dragOffset = .zero
+                                        videoError = nil
                                         switchToVideo(at: currentIndex)
                                     }
                                 } else if value.translation.height > threshold && currentIndex > 0 {
@@ -427,6 +454,7 @@ struct YBoxBananaShortPlayerView: View {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                                         currentIndex -= 1
                                         dragOffset = .zero
+                                        videoError = nil
                                         switchToVideo(at: currentIndex)
                                     }
                                 } else {
@@ -434,6 +462,14 @@ struct YBoxBananaShortPlayerView: View {
                                 }
                             }
                     )
+                }
+
+                // 加载更多指示器
+                VStack {
+                    Spacer()
+                    if isLoadingMore {
+                        ProgressView().tint(.white).scaleEffect(1.2).padding(.bottom, 120)
+                    }
                 }
 
                 // 底部信息覆盖层
@@ -463,11 +499,11 @@ struct YBoxBananaShortPlayerView: View {
                                         .lineLimit(2)
                                 }
                                 Spacer()
-                                // 上/下一个视频提示
+                                // 上/下一个视频提示 + 无限加载标识
                                 VStack(spacing: 2) {
                                     Image(systemName: currentIndex > 0 ? "chevron.up" : "chevron.up")
                                         .font(.system(size: 12)).foregroundColor(.white.opacity(0.3))
-                                    Text("\(currentIndex + 1)/\(videos.count)")
+                                    Text("\(currentIndex + 1)/\(videos.count)\(hasMore ? "+" : "")")
                                         .font(.system(size: 10)).foregroundColor(.white.opacity(0.4))
                                     Image(systemName: "chevron.down")
                                         .font(.system(size: 12)).foregroundColor(.white.opacity(0.3))
@@ -544,12 +580,22 @@ struct YBoxBananaShortPlayerView: View {
             }
         }
         .onAppear {
+            videos = initialVideos
+            currentPage = 1
+            hasMore = initialVideos.count >= 10
             switchToVideo(at: 0)
-            preloadPlayURL(at: 1)
-            preloadPlayURL(at: 2)
+            // 预加载前 6 个视频
+            for i in 1...min(6, videos.count - 1) {
+                preloadPlayURL(at: i)
+            }
+            // 首批视频少则立即加载更多
+            if initialVideos.count < 20 && hasMore {
+                Task { await loadMoreVideos() }
+            }
         }
         .onDisappear {
             player?.pause(); player = nil
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player?.currentItem)
         }
     }
 
@@ -560,6 +606,7 @@ struct YBoxBananaShortPlayerView: View {
         player?.pause(); player = nil
         isPlayerReady = false
         currentTime = 0; duration = 1
+        videoError = nil
 
         if let url = playURLs[index], let playerURL = URL(string: url) {
             startPlayer(url: playerURL)
@@ -567,9 +614,18 @@ struct YBoxBananaShortPlayerView: View {
             loadAndPlay(at: index)
         }
 
-        preloadPlayURL(at: index + 1)
-        preloadPlayURL(at: index + 2)
-        if index > 0 { preloadPlayURL(at: index - 1) }
+        // 预加载前后 3 个
+        for offset in [-2, -1, 1, 2, 3] {
+            let target = index + offset
+            if target >= 0 && target < videos.count {
+                preloadPlayURL(at: target)
+            }
+        }
+
+        // 接近末尾时触发加载更多
+        if index >= videos.count - 4 && hasMore && !isLoadingMore {
+            Task { await loadMoreVideos() }
+        }
     }
 
     private func loadAndPlay(at index: Int) {
@@ -581,6 +637,23 @@ struct YBoxBananaShortPlayerView: View {
                     playURLs[index] = url
                     if index == currentIndex, let playerURL = URL(string: url) {
                         startPlayer(url: playerURL)
+                    }
+                } else {
+                    // 播放失败 → 1.5 秒后自动跳到下一个
+                    if index == currentIndex {
+                        if index < videos.count - 1 {
+                            print("[ShortVideo] idx=\(index) 播放失败，自动跳过")
+                            videoError = "加载失败，即将跳过"
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
+                                if currentIndex == index {
+                                    videoError = nil
+                                    currentIndex += 1
+                                    switchToVideo(at: currentIndex)
+                                }
+                            }
+                        } else {
+                            videoError = "播放失败，上滑重试"
+                        }
                     }
                 }
             }
@@ -595,7 +668,32 @@ struct YBoxBananaShortPlayerView: View {
         }
     }
 
+    private func loadMoreVideos() async {
+        guard !isLoadingMore, hasMore else { return }
+        isLoadingMore = true
+        let next = currentPage + 1
+        let result = await svc.fetchBananaMiniVideos(page: next)
+        await MainActor.run {
+            if !result.isEmpty {
+                let oldCount = videos.count
+                videos.append(contentsOf: result)
+                currentPage = next
+                hasMore = result.count >= 10
+                // 预加载新视频播放地址
+                for i in oldCount..<min(oldCount + 5, videos.count) {
+                    preloadPlayURL(at: i)
+                }
+            } else {
+                hasMore = false
+            }
+            isLoadingMore = false
+        }
+    }
+
     private func startPlayer(url: URL) {
+        // 清理旧 observer（防止内存泄漏）
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player?.currentItem)
+
         let p = AVPlayer(url: url)
         p.rate = rate
         p.play()
@@ -619,6 +717,17 @@ struct YBoxBananaShortPlayerView: View {
                 currentIndex += 1
                 dragOffset = .zero
                 switchToVideo(at: currentIndex)
+            } else if hasMore {
+                // 到末尾但还有更多 → 加载后继续
+                Task {
+                    await loadMoreVideos()
+                    await MainActor.run {
+                        if currentIndex < videos.count - 1 {
+                            currentIndex += 1
+                            switchToVideo(at: currentIndex)
+                        }
+                    }
+                }
             }
         }
     }
@@ -630,6 +739,7 @@ struct YBoxBananaShortPlayerView: View {
         return String(format: "%d:%02d", m, s)
     }
 }
+
 
 // MARK: - 演员Tab（zfvwi8 无演员 API，暂用专题列表；yBox 原生有演员导航）
 
@@ -921,10 +1031,23 @@ struct YBoxBananaPlayerView: View {
             .overlay(alignment: .center) {
                 if isLoading {
                     ProgressView().scaleEffect(2).tint(.white)
-                } else if let _ = playURL {
-                    Button(action: { showPlayer = true }) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                } else if let url = playURL {
+                    VStack(spacing: 16) {
+                        Button(action: { showPlayer = true }) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                        }
+                        // 备用：Safari 直接打开 m3u8 流
+                        Button(action: {
+                            if let safariURL = URL(string: url) {
+                                UIApplication.shared.open(safariURL)
+                            }
+                        }) {
+                            Text("在浏览器打开")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.5))
+                                .underline()
+                        }
                     }
                 } else if let e = errorMsg {
                     VStack(spacing: 12) {
@@ -973,6 +1096,7 @@ struct YBoxBananaPlayerView: View {
             if let url = url {
                 await MainActor.run {
                     playURL = url; isLoading = false
+                    print("[YBox] 长视频播放地址: \(url.prefix(120))...")
                     vodItem = VodItem(
                         vodId: vodId, vodName: title, vodPic: cover,
                         vodRemarks: "[福利]\(platform.name)", vodPlayUrl: url
@@ -985,6 +1109,7 @@ struct YBoxBananaPlayerView: View {
                 if let altUrl = altUrl {
                     await MainActor.run {
                         playURL = altUrl; isLoading = false; isLongVideo = altIsLong
+                        print("[YBox] 长视频播放地址(备用): \(altUrl.prefix(120))...")
                         vodItem = VodItem(
                             vodId: vodId, vodName: title, vodPic: cover,
                             vodRemarks: "[福利]\(platform.name)", vodPlayUrl: altUrl
@@ -994,11 +1119,12 @@ struct YBoxBananaPlayerView: View {
                     await MainActor.run {
                         let err: String
                         switch retcode {
-                        case 1: err = "该资源暂无播放地址"
-                        case 5: err = "VIP内容，需升级会员观看"
-                        default: err = "获取播放地址失败，请检查网络"
+                        case 1: err = "该资源暂无播放地址\(altRetcode == 1 ? "" : "(code:\(altRetcode))")"
+                        case 5: err = "VIP内容，当前源暂不支持播放\(previewURL == nil ? "" : "(已尝试VIP跳过)")"
+                        default: err = "获取播放地址失败(retcode=\(retcode),alt=\(altRetcode))，请切换线路或检查网络"
                         }
                         errorMsg = err; isLoading = false
+                        print("[YBox] 长视频播放失败: \(err) rawRetcode=\(retcode) altRetcode=\(altRetcode)")
                     }
                 }
             }
