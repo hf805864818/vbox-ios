@@ -1233,15 +1233,31 @@ struct YBoxWebSourceListView: View {
 
 // MARK: - 直播源列表页
 struct YBoxLiveSourceListView: View {
-    @StateObject private var ybox = YBoxService2.shared
     @State private var sources: [YBoxLiveItem2] = []
     @State private var isLoading = true
+    @State private var errorMsg: String?
     @EnvironmentObject private var settings: AppSettings
+
+    private let liveURL = "http://api.hclyz.com:81/mf"
 
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("加载直播源...")
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("加载直播源...").font(.system(size: 13)).foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let err = errorMsg {
+                VStack(spacing: 12) {
+                    Image(systemName: "wifi.slash").font(.system(size: 40)).foregroundColor(.secondary)
+                    Text(err).font(.system(size: 14)).foregroundColor(.secondary)
+                    Button("重试") {
+                        Task { await loadData() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(sources) { item in
                     NavigationLink(destination: YBoxLiveChannelListView(item: item)) {
@@ -1261,11 +1277,47 @@ struct YBoxLiveSourceListView: View {
             }
         }
         .navigationTitle("直播源")
-        .onAppear {
-            Task { await ybox.loadLiveSources()
-                await MainActor.run { sources = ybox.liveSources; isLoading = false }
+        .task { await loadData() }
+    }
+
+    private func loadData() async {
+        isLoading = true; errorMsg = nil
+        do {
+            guard let url = URL(string: "\(liveURL)/json.txt") else {
+                errorMsg = "直播源地址配置错误"; isLoading = false; return
             }
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let pt = json["pingtai"] as? [[String: Any]] else {
+                errorMsg = "直播数据格式异常"; isLoading = false; return
+            }
+            var list: [YBoxLiveItem2] = []
+            for item in pt {
+                let addr = item["address"] as? String ?? ""
+                let channels = await fetchChannels(address: addr)
+                list.append(YBoxLiveItem2(
+                    title: item["title"] as? String ?? "",
+                    img: item["xinimg"] as? String ?? "",
+                    number: item["Number"] as? String ?? "0",
+                    channels: channels
+                ))
+            }
+            await MainActor.run { sources = list; isLoading = false }
+        } catch {
+            await MainActor.run { errorMsg = "加载失败: \(error.localizedDescription)"; isLoading = false }
         }
+    }
+
+    private func fetchChannels(address: String) async -> [YBoxLiveChannel2] {
+        guard let url = URL(string: "\(liveURL)/" + address) else { return [] }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let zhubo = json["zhubo"] as? [[String: Any]] {
+                return zhubo.map { YBoxLiveChannel2(title: $0["title"] as? String ?? "", address: $0["address"] as? String ?? "", img: $0["img"] as? String ?? "") }
+            }
+        } catch {}
+        return []
     }
 }
 

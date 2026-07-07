@@ -143,11 +143,19 @@ struct WelfareHomeView: View {
                                 gradient: platformGradient(platform.name),
                                 onMove: { fromIndex, toIndex in
                                     movePlatform(from: fromIndex, to: toIndex, tab: tab)
+                                },
+                                onEnterEditMode: {
+                                    withAnimation { isEditMode = true }
                                 }
                             )
                         } else {
                             // 正常模式：导航卡片
-                            NavigationLink(destination: YBoxCrawlerContentView(platform: platform)) {
+                            let isSebo = platform.name == "色播聚合"
+                            let isPanda = platform.name == "Pandalive"
+                            let destination: AnyView = isSebo ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
+                                : isPanda ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
+                                : AnyView(YBoxCrawlerContentView(platform: platform))
+                            NavigationLink(destination: destination) {
                                 PlatformIconCard(
                                     platform: platform,
                                     isEditMode: false,
@@ -302,10 +310,9 @@ struct PlatformSortableCard: View {
     let isEditMode: Bool
     let gradient: [Color]
     let onMove: (Int, Int) -> Void
+    let onEnterEditMode: () -> Void
 
     @State private var offset = CGSize.zero
-    @State private var dragStartIndex: Int = 0
-    @State private var isDragging = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -329,42 +336,29 @@ struct PlatformSortableCard: View {
                 .minimumScaleFactor(0.7)
         }
         .frame(width: 72, height: 86)
-        .scaleEffect(isDragging ? 1.1 : 1.0)
+        .scaleEffect(offset != .zero ? 1.1 : 1.0)
         .offset(offset)
-        .zIndex(isDragging ? 999 : 0)
+        .zIndex(offset != .zero ? 999 : 0)
         .animation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true).delay(Double(index).truncatingRemainder(dividingBy: 4) * 0.04), value: isEditMode)
         .gesture(
-            LongPressGesture(minimumDuration: 0.3)
-                .sequenced(before: DragGesture())
+            DragGesture()
                 .onChanged { value in
-                    switch value {
-                    case .second(true, let drag):
-                        if let drag = drag {
-                            if !isDragging {
-                                isDragging = true
-                                dragStartIndex = index
-                            }
-                            let rowHeight: CGFloat = 102 // 86 + 16 spacing
-                            let colWidth: CGFloat = 88   // 72 + 16 spacing
-                            let cols = 4
-                            let currentRow = index / cols
-                            let currentCol = index % cols
-                            let newRow = currentRow + Int(round(drag.translation.height / rowHeight))
-                            let newCol = min(max(currentCol + Int(round(drag.translation.width / colWidth)), 0), cols - 1)
-                            let newIndex = newRow * cols + newCol
-                            if newIndex >= 0, newIndex != index {
-                                onMove(index, newIndex)
-                                // 这里直接操作会导致UI闪烁，通过父视图重新渲染
-                            }
-                            offset = drag.translation
-                        }
-                    default:
-                        break
-                    }
+                    if offset == .zero { onEnterEditMode() }
+                    offset = value.translation
                 }
-                .onEnded { _ in
-                    isDragging = false
-                    offset = .zero
+                .onEnded { value in
+                    let rowHeight: CGFloat = 102
+                    let colWidth: CGFloat = 88
+                    let cols = 4
+                    let currentRow = index / cols
+                    let currentCol = index % cols
+                    let newRow = currentRow + Int(round(value.translation.height / rowHeight))
+                    let newCol = min(max(currentCol + Int(round(value.translation.width / colWidth)), 0), cols - 1)
+                    let newIndex = newRow * cols + newCol
+                    if newIndex >= 0, newIndex < 100, newIndex != index {
+                        onMove(index, newIndex)
+                    }
+                    withAnimation(.spring()) { offset = .zero }
                 }
         )
     }
