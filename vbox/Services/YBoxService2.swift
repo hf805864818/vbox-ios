@@ -435,7 +435,7 @@ class YBoxService2: ObservableObject {
     }
 
     private var liveBaseURL: String {
-        baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
+        liveURL
     }
     private var comic18BaseURL: String {
         baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")

@@ -156,6 +156,156 @@ extension WelfareCrawlerConfig {
               htmlTemplate: .generic),
 
         // ═══════════════════════════════════════════════════════════
+        // MARK: 22个Python爬虫视频平台（由YBoxService2自动注册）
+        // ═══════════════════════════════════════════════════════════
+        .make("pigav", "PigAV", "PigAV", "https://pigav.ws",
+              .apiJson, .video,
+              [.home, .video, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"]],
+              apiMode: .open),
+
+        .make("jav36", "JAV36", "JAV36", "https://jav36.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["有码", "无码", "欧美"]],
+              apiMode: .open),
+
+        .make("vhub", "VHUB", "VHUB", "https://newxvideos.pages.dev",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"], "classify": ["38种分类"]],
+              apiMode: .open),
+
+        .make("toptv", "TOPTV", "TOPTV", "https://toptv15.cyou",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["12分类"]],
+              apiMode: .open),
+
+        .make("sihu", "四虎视频", "四虎", "https://www.sihuhu.xyz",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"], "classify": ["39组分类"]],
+              apiMode: .open),
+
+        .make("xiangchang", "香肠派对", "香肠", "https://xiang512.xiang.party",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["四类精选"]],
+              apiMode: .open),
+
+        .make("xiangjiao", "香蕉视频", "香蕉", "https://618013.xyz",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["20分类"]],
+              apiMode: .open),
+
+        .make("shenmi", "神秘电影", "神秘", "https://h4ivs.sm431.vip",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["6类分区"]],
+              apiMode: .open),
+
+        .make("luoliav", "萝莉AV", "萝莉", "https://212602.luoliav.cc",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["6类精选"]],
+              apiMode: .open),
+
+        .make("daji", "妲己", "妲己", "https://3642.7rnr.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["16类分区"]],
+              apiMode: .open),
+
+        .make("xiongmao", "熊猫视频", "熊猫", "https://ee55ff.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["动态分类"]],
+              apiMode: .open),
+
+        .make("fullhd", "FullHD", "FullHD", "https://www.fullhd.xxx",
+              .apiJson, .video,
+              [.home, .video, .search],
+              ["home": ["推荐", "最新", "高清"], "video": ["全部视频"]],
+              apiMode: .open),
+
+        .make("jiujiu", "久久視頻", "久久", "https://ww.jiujiu.one",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["23种分类"]],
+              apiMode: .open),
+
+        .make("xiaoyazi", "小鸭子看看", "小鸭子", "https://xiaoyakankan.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["5大类"]],
+              apiMode: .open),
+
+        .make("meiriDaluan", "每日大乱斗", "每日大乱斗", "https://border.bshzjjgq.cc",
+              .apiJson, .video,
+              [.home, .video, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"]],
+              apiMode: .open),
+
+        .make("meiriDasai", "每日大赛", "每日大赛", "https://www.mrds66.com",
+              .apiJson, .video,
+              [.home, .video, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"]],
+              apiMode: .open),
+
+        .make("heiliao", "黑料不打烊", "黑料", "https://heiliao.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["19类黑料"]],
+              apiMode: .open),
+
+        .make("jinri", "今日看料", "今日看料", "https://today",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["11类热门"]],
+              apiMode: .open),
+
+        .make("hanguo", "韩国色情电影", "韩国", "https://koreanpornmovie.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新", "韩国"], "video": ["全部视频"], "classify": ["韩国/最新"]],
+              apiMode: .open),
+
+        .make("pornhub", "Pornhub", "Pornhub", "https://www.pornhub.com",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"], "classify": ["全球最大"]],
+              apiMode: .open),
+
+        .make("xvideos", "Xvideos", "Xvideos", "https://www.xvideos.com",
+              .apiJson, .video,
+              [.home, .video, .tag, .search],
+              ["home": ["推荐", "最新", "热门"], "video": ["全部视频"], "tag": ["标签分类"]],
+              apiMode: .open),
+
+        .make("xiangjiaoDecrypt", "香蕉视频解密", "香蕉解密", "https://c-you.hair",
+              .apiJson, .video,
+              [.home, .video, .classify, .search],
+              ["home": ["推荐", "最新"], "video": ["全部视频"], "classify": ["8类精品"]],
+              apiMode: .open),
+
+        // ═══════════════════════════════════════════════════════════
+        // MARK: 2个Python爬虫直播平台
+        // ═══════════════════════════════════════════════════════════
+        .make("sebo", "色播聚合", "色播", "http://api.hclyz.com:81/mf",
+              .apiJson, .live,
+              [.home, .channel],
+              ["home": ["聚合直播源"], "channel": ["全部频道"]],
+              apiMode: .open),
+
+        .make("pandalive", "Pandalive", "Pandalive", "https://5721004.xyz",
+              .apiJson, .live,
+              [.home, .channel],
+              ["home": ["韩国直播"], "channel": ["全部频道"]],
+              apiMode: .open),
+
+        // ═══════════════════════════════════════════════════════════
         // MARK: 视频聚合类 (15个) - 有加密API的平台，优先走YBox代理
         // ═══════════════════════════════════════════════════════════
         .make("91av", "91av", "91av", "https://api1.i91avapi2.com",
