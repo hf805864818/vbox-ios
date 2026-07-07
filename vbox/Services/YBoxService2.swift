@@ -40,6 +40,15 @@ struct YBoxVideoItem2: Identifiable {
     let category: String?
 }
 
+/// 香蕉视频分类模型
+struct YBoxBananaCategory: Identifiable {
+    var id: String { spid }
+    let spid: String
+    let name: String
+    let intro: String
+    let cover: String
+}
+
 struct YBoxLiveItem2: Identifiable {
     var id: String { title }
     let title: String
@@ -253,17 +262,68 @@ class YBoxService2: ObservableObject {
         baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
     }
 
-    // MARK: - 香蕉秀
+    // MARK: - 香蕉秀（重写：分类浏览 + 分类视频 + 全部视频 + 播放）
+
+    /// 获取香蕉视频所有分类
+    func fetchBananaCategories() async -> [YBoxBananaCategory] {
+        guard let url = URL(string: "\(bananaBaseURL)/special/listing-0-0-1") else { return [] }
+        do {
+            let (data, _) = try await session.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
+            return rows.compactMap { row in
+                guard let spid = row["spid"] as? String ?? (row["spid"] as? Int).map(String.init),
+                      let name = row["spname"] as? String else { return nil }
+                return YBoxBananaCategory(
+                    spid: spid,
+                    name: name,
+                    intro: row["intro"] as? String ?? "",
+                    cover: row["coverpic"] as? String ?? ""
+                )
+            }
+        } catch { return [] }
+    }
+
+    /// 获取分类下的视频列表（分页）
+    func fetchBananaCategoryVideos(spid: String, page: Int = 1) async -> [YBoxVideoItem2] {
+        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)&spid=\(spid)") else { return [] }
+        return await fetchBananaVodList(url: url)
+    }
+
+    /// 获取全部视频列表（分页，无分类过滤）
+    func fetchBananaAllVideos(page: Int = 1) async -> [YBoxVideoItem2] {
+        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)") else { return [] }
+        return await fetchBananaVodList(url: url)
+    }
+
+    /// 获取分类下的精选视频（special 接口，每分类4个）
     func fetchBananaSpecials() async -> [YBoxVideoItem2] {
         guard let url = URL(string: "\(bananaBaseURL)/special/listing-0-0-1") else { return [] }
-        return await fetchBananaData(url: url, isSpecial: true)
+        do {
+            let (data, _) = try await session.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
+            var items: [YBoxVideoItem2] = []
+            for row in rows {
+                for vod in (row["vodrows"] as? [[String: Any]] ?? []) {
+                    items.append(YBoxVideoItem2(
+                        vodId: String(vod["vodid"] as? Int ?? 0),
+                        title: vod["title"] as? String ?? "",
+                        cover: vod["coverpic"] as? String ?? "",
+                        duration: vod["duration"] as? String,
+                        score: vod["scorenum"] as? String,
+                        playUrl: vod["play_url"] as? String,
+                        category: row["spname"] as? String
+                    ))
+                }
+            }
+            return items
+        } catch { return [] }
     }
 
-    func fetchBananaMiniVods(page: Int = 1) async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)") else { return [] }
-        return await fetchBananaData(url: url, isSpecial: false)
-    }
-
+    /// 获取播放地址
     func fetchBananaPlayURL(playPath: String) async -> String? {
         guard let url = URL(string: bananaBaseURL + playPath) else { return nil }
         do {
@@ -275,43 +335,25 @@ class YBoxService2: ObservableObject {
         return nil
     }
 
-    private func fetchBananaData(url: URL, isSpecial: Bool) async -> [YBoxVideoItem2] {
+    /// 通用 minivod 列表解析
+    private func fetchBananaVodList(url: URL) async -> [YBoxVideoItem2] {
         do {
             let (data, _) = try await session.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any] else { return [] }
-            var items: [YBoxVideoItem2] = []
-
-            if isSpecial {
-                let rows = dataObj["rows"] as? [[String: Any]] ?? []
-                for row in rows {
-                    for vod in (row["vodrows"] as? [[String: Any]] ?? []) {
-                        items.append(YBoxVideoItem2(
-                            vodId: String(vod["vodid"] as? Int ?? 0),
-                            title: vod["title"] as? String ?? "",
-                            cover: vod["coverpic"] as? String ?? "",
-                            duration: vod["duration"] as? String,
-                            score: vod["scorenum"] as? String,
-                            playUrl: vod["play_url"] as? String,
-                            category: row["spname"] as? String
-                        ))
-                    }
-                }
-            } else {
-                for row in (dataObj["rows"] as? [[String: Any]] ?? []) {
-                    let vod = row["vodrow"] as? [String: Any] ?? row
-                    items.append(YBoxVideoItem2(
-                        vodId: String(vod["vodid"] as? Int ?? 0),
-                        title: vod["title"] as? String ?? "",
-                        cover: vod["coverpic"] as? String ?? "",
-                        duration: vod["duration"] as? String,
-                        score: vod["scorenum"] as? String,
-                        playUrl: vod["play_url"] as? String,
-                        category: nil
-                    ))
-                }
+                  let dataObj = json["data"] as? [String: Any],
+                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
+            return rows.map { row in
+                let vod = row["vodrow"] as? [String: Any] ?? row
+                return YBoxVideoItem2(
+                    vodId: String(vod["vodid"] as? Int ?? 0),
+                    title: vod["title"] as? String ?? "",
+                    cover: vod["coverpic"] as? String ?? "",
+                    duration: vod["duration"] as? String,
+                    score: vod["scorenum"] as? String,
+                    playUrl: vod["play_url"] as? String,
+                    category: nil
+                )
             }
-            return items
         } catch { return [] }
     }
 

@@ -1,28 +1,203 @@
 import SwiftUI
 
-// MARK: - 香蕉秀视频列表页
+// MARK: - 香蕉秀视频列表页（分类浏览模式）
 struct YBoxBananaListView: View {
     let platform: YBoxPlatform2
     @StateObject private var ybox = YBoxService2.shared
-    @State private var items: [YBoxVideoItem2] = []
+    @State private var categories: [YBoxBananaCategory] = []
     @State private var isLoading = true
+    @State private var errorMsg: String?
+    @EnvironmentObject private var settings: AppSettings
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+
+    var body: some View {
+        Group {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView().scaleEffect(1.5)
+                    Text("加载分类中...").font(.system(size: 14)).foregroundColor(.secondary)
+                }
+            } else if let e = errorMsg {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundColor(.orange)
+                    Text(e).foregroundColor(.secondary)
+                    Button("重试") { loadCategories() }
+                }
+            } else if categories.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "tray").font(.system(size: 40)).foregroundColor(.secondary)
+                    Text("暂无分类")
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("全部分类")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            // 全部视频入口
+                            NavigationLink(destination: YBoxBananaCategoryView(
+                                platform: platform,
+                                categoryName: "全部视频",
+                                spid: nil
+                            )) {
+                                BananaCategoryCard(
+                                    title: "全部视频",
+                                    cover: nil,
+                                    icon: "square.grid.2x2.fill",
+                                    isAll: true
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+
+                            // 各分类入口
+                            ForEach(categories) { cat in
+                                NavigationLink(destination: YBoxBananaCategoryView(
+                                    platform: platform,
+                                    categoryName: cat.name,
+                                    spid: cat.spid
+                                )) {
+                                    BananaCategoryCard(
+                                        title: cat.name,
+                                        cover: cat.cover.isEmpty ? nil : cat.cover,
+                                        icon: iconForCategory(cat.name),
+                                        isAll: false
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                    }
+                    .padding(.bottom, 30)
+                }
+            }
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+        .navigationTitle(platform.name)
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear { loadCategories() }
+    }
+
+    private func loadCategories() {
+        isLoading = true; errorMsg = nil
+        Task {
+            let result = await ybox.fetchBananaCategories()
+            await MainActor.run {
+                categories = result
+                isLoading = false
+                if result.isEmpty { errorMsg = "加载分类失败，请检查域名配置" }
+            }
+        }
+    }
+
+    private func iconForCategory(_ name: String) -> String {
+        let icons: [String: String] = [
+            "幻想次元": "sparkles", "午夜寻欢": "moon.stars.fill",
+            "绿帽淫妻": "heart.slash.fill", "反差婊": "arrow.left.arrow.right",
+            "乱蕉淫啪": "rectangle.3.group.fill", "另类蕉合": "exclamationmark.triangle.fill",
+            "新片速递": "bolt.fill", "中字无码": "captions.bubble.fill",
+            "香蕉新干线": "tram.fill", "猎奇": "eye.fill",
+        ]
+        return icons[name] ?? "play.rectangle.fill"
+    }
+}
+
+// MARK: - 分类卡片（带背景图的卡片样式）
+struct BananaCategoryCard: View {
+    let title: String
+    let cover: String?
+    let icon: String
+    let isAll: Bool
+
+    private let gradientColors: [[Color]] = [
+        [Color(hex: "E11D48"), Color(hex: "F43F5E")],
+        [Color(hex: "7C3AED"), Color(hex: "A855F7")],
+        [Color(hex: "059669"), Color(hex: "34D399")],
+        [Color(hex: "D97706"), Color(hex: "F59E0B")],
+        [Color(hex: "2563EB"), Color(hex: "60A5FA")],
+        [Color(hex: "DC2626"), Color(hex: "F87171")],
+        [Color(hex: "0891B2"), Color(hex: "22D3EE")],
+        [Color(hex: "9333EA"), Color(hex: "C084FC")],
+    ]
+
+    var body: some View {
+        let colors = gradientColors[abs(title.hashValue) % gradientColors.count]
+
+        ZStack {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(LinearGradient(
+                    colors: colors.map { $0.opacity(0.85) },
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(height: 90)
+
+            // 背景封面图（如果有）
+            if let c = cover, !c.isEmpty {
+                AsyncImage(url: URL(string: c)) { phase in
+                    if let img = phase.image {
+                        img.resizable().aspectRatio(contentMode: .fill)
+                            .opacity(0.3)
+                    }
+                }
+                .frame(height: 90)
+                .cornerRadius(14)
+            }
+
+            // 文字内容
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+// MARK: - 香蕉秀分类视频列表页（支持分页）
+struct YBoxBananaCategoryView: View {
+    let platform: YBoxPlatform2
+    let categoryName: String
+    let spid: String?
+
+    @StateObject private var ybox = YBoxService2.shared
+    @State private var items: [YBoxVideoItem2] = []
+    @State private var currentPage = 1
+    @State private var isLoading = true
+    @State private var isLoadingMore = false
+    @State private var hasMore = true
     @State private var errorMsg: String?
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         Group {
-            if isLoading {
-                ProgressView("加载中...").scaleEffect(1.2)
-            } else if let e = errorMsg {
+            if isLoading && items.isEmpty {
+                VStack(spacing: 16) {
+                    ProgressView().scaleEffect(1.5)
+                    Text("加载视频中...").font(.system(size: 14)).foregroundColor(.secondary)
+                }
+            } else if let e = errorMsg, items.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundColor(.orange)
                     Text(e).foregroundColor(.secondary)
-                    Button("重试") { loadData() }
+                    Button("重试") { loadVideos() }
                 }
             } else if items.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "tray").font(.system(size: 40)).foregroundColor(.secondary)
-                    Text("暂无内容")
+                    Text("暂无视频")
                 }
             } else {
                 ScrollView {
@@ -32,24 +207,67 @@ struct YBoxBananaListView: View {
                                 YBoxVideoCard2(item: item)
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .onAppear {
+                                // 滚动到倒数第4个时预加载下一页
+                                if item.vodId == items[max(0, items.count - 4)].vodId {
+                                    loadMore()
+                                }
+                            }
                         }
                     }
                     .padding(16)
+
+                    if isLoadingMore {
+                        ProgressView().padding()
+                    }
                 }
             }
         }
         .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle(platform.name)
+        .navigationTitle(categoryName)
         .navigationBarTitleDisplayMode(.large)
-        .onAppear { loadData() }
+        .onAppear { loadVideos() }
     }
 
-    private func loadData() {
-        isLoading = true; errorMsg = nil
+    private func loadVideos() {
+        isLoading = true; errorMsg = nil; currentPage = 1; hasMore = true
         Task {
-            var result = await ybox.fetchBananaSpecials()
-            if result.isEmpty { result = await ybox.fetchBananaMiniVods() }
-            await MainActor.run { items = result; isLoading = false; if result.isEmpty { errorMsg = "暂无数据" } }
+            let result: [YBoxVideoItem2]
+            if let sid = spid {
+                result = await ybox.fetchBananaCategoryVideos(spid: sid, page: 1)
+            } else {
+                result = await ybox.fetchBananaAllVideos(page: 1)
+            }
+            await MainActor.run {
+                items = result
+                isLoading = false
+                hasMore = result.count >= 10
+                if result.isEmpty { errorMsg = "暂无视频数据" }
+            }
+        }
+    }
+
+    private func loadMore() {
+        guard !isLoadingMore, hasMore else { return }
+        isLoadingMore = true
+        let nextPage = currentPage + 1
+        Task {
+            let result: [YBoxVideoItem2]
+            if let sid = spid {
+                result = await ybox.fetchBananaCategoryVideos(spid: sid, page: nextPage)
+            } else {
+                result = await ybox.fetchBananaAllVideos(page: nextPage)
+            }
+            await MainActor.run {
+                if !result.isEmpty {
+                    items.append(contentsOf: result)
+                    currentPage = nextPage
+                    hasMore = result.count >= 10
+                } else {
+                    hasMore = false
+                }
+                isLoadingMore = false
+            }
         }
     }
 }
