@@ -31,14 +31,14 @@ struct WelfareHomeView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("福利")
                             .font(.system(size: 30, weight: .bold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(settings.usesVisualSkin ? .white : .primary)
                     }
                     Spacer()
                     NavigationLink(destination: WelfareDomainSettingsView()
                         .environmentObject(settings)) {
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(settings.usesVisualSkin ? .white.opacity(0.8) : .secondary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -62,14 +62,17 @@ struct WelfareHomeView: View {
                                     Text(tab.rawValue)
                                         .font(.system(size: 15, weight: selectedTab == tab ? .bold : .regular))
                                 }
-                                .foregroundColor(selectedTab == tab ? .white : .white.opacity(0.45))
+                                .foregroundColor(selectedTab == tab ?
+                                    (settings.usesVisualSkin ? .white : .white) :
+                                    (settings.usesVisualSkin ? .white.opacity(0.6) : .white.opacity(0.45))
+                                )
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                                     .fill(selectedTab == tab ?
-                                          LinearGradient(colors: tabGradient(tab), startPoint: .leading, endPoint: .trailing)
+                                          themeGradient(for: tab)
                                           : LinearGradient(colors: [Color.clear], startPoint: .leading, endPoint: .trailing))
                             )
                         }
@@ -91,7 +94,7 @@ struct WelfareHomeView: View {
                             saveOrder()
                         }
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(tabGradient(selectedTab)[0])
+                        .foregroundColor(themeGradient(for: selectedTab).accessibilityEnabled ? tabGradient(selectedTab)[0] : tabGradient(selectedTab)[0])
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 6)
@@ -105,7 +108,7 @@ struct WelfareHomeView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+            .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear { loadOrder() }
         }
@@ -152,8 +155,10 @@ struct WelfareHomeView: View {
                             // 正常模式：导航卡片
                             let isSebo = platform.name == "色播聚合"
                             let isPanda = platform.name == "Pandalive"
+                            let isBanana = platform.name == "香蕉秀" || platform.name == "幻想次元" || platform.name == "午夜寻欢" || platform.name == "绿帽淫妻"
                             let destination: AnyView = isSebo ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
                                 : isPanda ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
+                                : isBanana ? AnyView(YBoxXjspMainView(platform: platform))
                                 : AnyView(YBoxCrawlerContentView(platform: platform))
                             NavigationLink(destination: destination) {
                                 PlatformIconCard(
@@ -240,6 +245,21 @@ struct WelfareHomeView: View {
         case .live: return [Color(hex: "7C3AED"), Color(hex: "A855F7")]
         case .comic: return [Color(hex: "059669"), Color(hex: "34D399")]
         }
+    }
+
+    /// 根据当前皮肤返回主题渐变色（液态水/毛玻璃/暗黑模式自适应）
+    private func themeGradient(for tab: WelfareTab) -> LinearGradient {
+        let colors: [Color]
+        if settings.usesLiquidSkin {
+            colors = [Color(hex: "38BDF8"), Color(hex: "0EA5E9")]
+        } else if settings.usesFrostedSkin {
+            colors = [Color(hex: "7C3AED"), Color(hex: "A855F7")]
+        } else if settings.usesVisualSkin {
+            colors = [Color(hex: "6366F1"), Color(hex: "818CF8")]
+        } else {
+            colors = tabGradient(tab)
+        }
+        return LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
     }
 
     private func platformGradient(_ name: String) -> [Color] {

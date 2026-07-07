@@ -1241,9 +1241,10 @@ struct YBoxLiveSourceListView: View {
     private let liveURL = "http://api.hclyz.com:81/mf"
 
     /// 获取直播数据的实际URL（优先使用代理）
+    /// 代理地址一般格式如: https://vbox.ltd/?token=xxx&url=
+    /// 频道列表数据本身不需要走代理，只有m3u8播放地址才需要
     private var effectiveLiveURL: String {
-        let proxy = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
-        if !proxy.isEmpty { return proxy } else { return liveURL }
+        liveURL
     }
 
     var body: some View {
@@ -1345,11 +1346,18 @@ struct YBoxCrawlerContentView: View {
             }
         }
         .onAppear {
-            guard let pid = platform.crawlerPlatformId,
-                  let cfg = WelfareCrawlerConfig.config(for: pid) else { return }
-            welfarePlatform = WelfarePlatform.adaptive(
-                id: cfg.platformId, name: cfg.platformName, searchPrefix: cfg.searchPrefix
-            )
+            guard let pid = platform.crawlerPlatformId else { return }
+            let cfg = WelfareCrawlerConfig.config(for: pid)
+            if cfg != nil {
+                welfarePlatform = WelfarePlatform.adaptive(
+                    id: cfg!.platformId, name: cfg!.platformName, searchPrefix: cfg!.searchPrefix
+                )
+            } else {
+                // 没有配置时，用平台名作为搜索前缀自动生成
+                welfarePlatform = WelfarePlatform.adaptive(
+                    id: pid, name: platform.name, searchPrefix: platform.name
+                )
+            }
         }
     }
 }
@@ -1377,7 +1385,9 @@ struct YBoxLiveChannelListView: View {
                 List(channels) { ch in
                     Button(action: {
                         let proxyBase = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
-                        if !proxyBase.isEmpty, let encoded = ch.address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                        if !proxyBase.isEmpty {
+                            // 代理格式：https://vbox.ltd/?token=xxx&url=原地址
+                            let encoded = ch.address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ch.address
                             selectedChannelURL = proxyBase + encoded
                         } else {
                             selectedChannelURL = ch.address
