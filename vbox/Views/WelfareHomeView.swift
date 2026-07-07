@@ -23,7 +23,7 @@ struct WelfareHomeView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 顶部导航栏（仅保留设置图标，无跳转）
+                // 顶部标题栏
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("福利")
@@ -31,9 +31,6 @@ struct WelfareHomeView: View {
                             .foregroundColor(settings.usesVisualSkin ? .white : .primary)
                     }
                     Spacer()
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(settings.usesVisualSkin ? .white.opacity(0.8) : .secondary)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
