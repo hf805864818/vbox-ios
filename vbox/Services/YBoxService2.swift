@@ -135,13 +135,8 @@ class YBoxService2: ObservableObject {
     static let shared = YBoxService2()
 
     @Published var categories: [YBoxCategory2] = []
-    @Published var liveSources: [YBoxLiveItem2] = []
-    @Published var isLiveLoaded = false
 
     // MARK: - API 网关（从 ybox 抓包确认，by QClaw 2026-07-07）
-    private let apiGateway = "https://zfvwi8.ipajx0.cc"
-    /// 直播源基础接口（色播聚合数据源）
-    private let liveURL = "http://api.hclyz.com:81/mf"
 
     /// 生成设备认证 token（32位 hex 字符串）
     private var cookieAuth: String {
@@ -242,61 +237,9 @@ class YBoxService2: ObservableObject {
     init() { buildCategories() }
 
     private func buildCategories() {
-        let bananaURL = baseURL(for: "banana", defaultURL: apiGateway)
-        let liveURL = baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
-        let comic18URL = baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
-        let kmURL = baseURL(for: "km", defaultURL: "https://1080.hlkjsm.com")
-        let byfmURL = baseURL(for: "byfm", defaultURL: "https://api.byfm2.app")
+        let bananaURL = apiGateway
 
-        // 24个Python脚本平台前置（视频）
-        let pythonVideo: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "PigAV", icon: "play.circle.fill", type: .video,
-                         baseURL: "https://pigav.ws", desc: "REST API，稳定高清", crawlerPlatformId: "pigav"),
-            YBoxPlatform2(name: "JAV36", icon: "play.square.fill", type: .video,
-                         baseURL: "https://jav36.com", desc: "精简解析", crawlerPlatformId: "jav36"),
-            YBoxPlatform2(name: "VHUB", icon: "square.grid.2x2.fill", type: .video,
-                         baseURL: "https://newxvideos.pages.dev", desc: "38种分类", crawlerPlatformId: "vhub"),
-            YBoxPlatform2(name: "TOPTV", icon: "tv.fill", type: .video,
-                         baseURL: "https://toptv15.cyou", desc: "12分类", crawlerPlatformId: "toptv"),
-            YBoxPlatform2(name: "四虎视频", icon: "flame.fill", type: .video,
-                         baseURL: "https://www.sihuhu.xyz", desc: "39组分类", crawlerPlatformId: "sihu"),
-            YBoxPlatform2(name: "香肠派对", icon: "rectangle.stack.fill", type: .video,
-                         baseURL: "https://xiang512.xiang.party", desc: "四类精选", crawlerPlatformId: "xiangchang"),
-            YBoxPlatform2(name: "香蕉视频", icon: "leaf.fill", type: .video,
-                         baseURL: "https://618013.xyz", desc: "20分类", crawlerPlatformId: "xiangjiao"),
-            YBoxPlatform2(name: "神秘电影", icon: "eye.fill", type: .video,
-                         baseURL: "https://h4ivs.sm431.vip", desc: "6类分区", crawlerPlatformId: "shenmi"),
-            YBoxPlatform2(name: "萝莉AV", icon: "heart.fill", type: .video,
-                         baseURL: "https://212602.luoliav.cc", desc: "6类精选", crawlerPlatformId: "luoliav"),
-            YBoxPlatform2(name: "妲己", icon: "star.fill", type: .video,
-                         baseURL: "https://3642.7rnr.com", desc: "16类分区", crawlerPlatformId: "daji"),
-            YBoxPlatform2(name: "熊猫视频", icon: "film.fill", type: .video,
-                         baseURL: "https://ee55ff.com", desc: "动态分类", crawlerPlatformId: "xiongmao"),
-            YBoxPlatform2(name: "FullHD", icon: "4k.tv.fill", type: .video,
-                         baseURL: "https://www.fullhd.xxx", desc: "高清观影", crawlerPlatformId: "fullhd"),
-            YBoxPlatform2(name: "久久視頻", icon: "play.tv.fill", type: .video,
-                         baseURL: "https://ww.jiujiu.one", desc: "23种分类", crawlerPlatformId: "jiujiu"),
-            YBoxPlatform2(name: "小鸭子看看", icon: "rectangle.3.group.fill", type: .video,
-                         baseURL: "https://xiaoyakankan.com", desc: "5大类·含筛选", crawlerPlatformId: "xiaoyazi"),
-            YBoxPlatform2(name: "每日大乱斗", icon: "sparkles.tv.fill", type: .video,
-                         baseURL: "https://border.bshzjjgq.cc", desc: "最新/热门", crawlerPlatformId: "meiriDaluan"),
-            YBoxPlatform2(name: "每日大赛", icon: "rosette.fill", type: .video,
-                         baseURL: "https://www.mrds66.com", desc: "每日大赛", crawlerPlatformId: "meiriDasai"),
-            YBoxPlatform2(name: "黑料不打烊", icon: "newspaper.fill", type: .video,
-                         baseURL: "https://heiliao.com", desc: "19类黑料", crawlerPlatformId: "heiliao"),
-            YBoxPlatform2(name: "今日看料", icon: "flame.fill", type: .video,
-                         baseURL: "https://today", desc: "11类热门", crawlerPlatformId: "jinri"),
-            YBoxPlatform2(name: "韩国色情电影", icon: "film.stack.fill", type: .video,
-                         baseURL: "https://koreanpornmovie.com", desc: "韩国/最新", crawlerPlatformId: "hanguo"),
-            YBoxPlatform2(name: "Pornhub", icon: "play.slash.fill", type: .video,
-                         baseURL: "https://www.pornhub.com", desc: "全球最大", crawlerPlatformId: "pornhub"),
-            YBoxPlatform2(name: "Xvideos", icon: "xmark.circle.fill", type: .video,
-                         baseURL: "https://www.xvideos.com", desc: "标签分类", crawlerPlatformId: "xvideos"),
-            YBoxPlatform2(name: "香蕉视频解密", icon: "magnifyingglass.circle.fill", type: .video,
-                         baseURL: "https://c-you.hair", desc: "8类精品", crawlerPlatformId: "xiangjiaoDecrypt"),
-        ]
-
-        let yboxVideo: [YBoxPlatform2] = pythonVideo + [
+        let yboxVideo: [YBoxPlatform2] = [
             YBoxPlatform2(name: "MissAV", icon: "star.fill", type: .video,
                          baseURL: "https://missav.ws", desc: "高清无码"),
             YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
@@ -308,141 +251,14 @@ class YBoxService2: ObservableObject {
             YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
                          baseURL: bananaURL, desc: "专题视频"),
             YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
-                         baseURL: kmURL, desc: "综合视频站", crawlerPlatformId: "km"),
-            YBoxPlatform2(name: "BYFM有声", icon: "headphones", type: .audio,
-                         baseURL: byfmURL, desc: "有声小说50类"),
+                         baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
         ]
-
-        // 24个Python脚本直播前置
-        let pythonLive: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "色播聚合", icon: "dot.radiowaves.left.and.right", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "聚合直播源", crawlerPlatformId: "sebo"),
-            YBoxPlatform2(name: "Pandalive", icon: "tv.and.mediabox.fill", type: .live,
-                         baseURL: "https://5721004.xyz", desc: "韩国直播", crawlerPlatformId: "pandalive"),
-        ]
-
-        let yboxLive: [YBoxPlatform2] = pythonLive + [
-            YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live, baseURL: liveURL, desc: "CCTV/卫视/广播"),
-            YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live, baseURL: liveURL, desc: "娱乐直播"),
-            YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live, baseURL: liveURL, desc: "才艺互动"),
-            YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live, baseURL: liveURL, desc: "社区直播"),
-        ]
-
-        let yboxComic: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic, baseURL: comic18URL, desc: "日漫/韩漫/同人"),
-            YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic, baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
-        ]
-
-        // 从 WelfareCrawlerConfig 导入所有爬虫平台
-        let allCrawlerConfigs = WelfareCrawlerConfig.all
-        let yboxReservedIds: Set<String> = ["banana", "huanxiang", "km", "live_hclyz", "comic18"]
-
-        var crawlerVideo: [YBoxPlatform2] = []
-        var crawlerLive: [YBoxPlatform2] = []
-        var crawlerComic: [YBoxPlatform2] = []
-
-        for cfg in allCrawlerConfigs {
-            guard !yboxReservedIds.contains(cfg.platformId) else { continue }
-            let platform = YBoxPlatform2(
-                name: cfg.platformName, icon: iconForPlatform(cfg.platformId),
-                type: platformTypeForContentType(cfg.contentType),
-                baseURL: cfg.effectiveBaseURL, desc: descForPlatform(cfg.platformId),
-                crawlerPlatformId: cfg.platformId
-            )
-            switch cfg.contentType {
-            case .comic: crawlerComic.append(platform)
-            case .live: crawlerLive.append(platform)
-            case .video, .mixed, .audio: crawlerVideo.append(platform)
-            }
-        }
 
         categories = [
-            YBoxCategory2(name: "视频", platforms: yboxVideo + crawlerVideo),
-            YBoxCategory2(name: "直播", platforms: yboxLive + crawlerLive),
-            YBoxCategory2(name: "漫画", platforms: yboxComic + crawlerComic),
+            YBoxCategory2(name: "视频", platforms: yboxVideo),
+            YBoxCategory2(name: "直播", platforms: []),
+            YBoxCategory2(name: "漫画", platforms: []),
         ]
-    }
-
-    private func platformTypeForContentType(_ ct: WelfareContentType) -> YBoxPlatform2.PlatformType2 {
-        switch ct {
-        case .video, .mixed, .audio: return .video
-        case .live: return .live
-        case .comic: return .comic
-        }
-    }
-
-    // MARK: - 平台图标/描述
-
-    private func iconForPlatform(_ id: String) -> String {
-        let icons: [String: String] = [
-            "91av": "play.circle.fill", "hgsp": "play.rectangle.fill", "hsxs": "sparkles.tv.fill",
-            "hxsp": "film.fill", "ll51": "play.square.stack.fill", "lld": "play.tv.fill",
-            "mtyx": "tv.music.note.fill", "one": "1.circle.fill", "pfdsp": "photo.tv",
-            "txvlog": "camera.fill", "wmq": "play.display", "xbk": "rectangle.stack.fill",
-            "zlt": "square.grid.3x3.fill", "lls": "square.on.square", "hhlz": "globe",
-            "mimei": "heart.circle.fill", "avin": "person.fill.viewfinder", "javdb": "film.stack.fill",
-            "djr": "star.bubble.fill", "lxs": "person.2.fill", "44hhqq": "play.circle.fill",
-            "missav": "play.slash.fill", "mmav": "moon.circle.fill", "oksp": "eye.fill",
-            "pron91": "rectangle.3.group.fill", "tv91": "tv.fill", "mdtv": "tv.and.mediabox",
-            "pdl": "list.bullet.rectangle.fill", "qp": "tag.fill", "zpc91": "square.grid.2x2.fill",
-            "dsp91": "sparkle.magnifyingglass", "sp91": "magnifyingglass.circle.fill",
-            "ttav": "play.circle", "xjsp": "theatermasks.fill", "fl2": "flame.fill",
-            "byfm": "headphones.circle.fill", "yxfm": "music.note.list",
-            "hu4": "photo.on.rectangle.fill", "awjd": "newspaper.fill", "cgw": "doc.text.fill",
-            "cg51": "person.3.fill", "ttt": "bubble.left.and.bubble.right.fill",
-            "sgp": "camera.aperture", "dm51": "arrow.down.to.line", "awjm": "icloud.and.arrow.down.fill",
-            "qysq": "eye.slash.fill", "kpsp": "tv.badge.wifi",
-            "dh50": "50.square.fill", "hjsq": "antenna.radiowaves.left.and.right",
-            "yfg": "gift.fill", "gdcm": "lightbulb.fill",
-            "wwsq": "globe.asia.australia.fill", "rryy": "r.square.fill", "xvideos": "x.square.fill",
-            "gsjh": "building.columns.fill", "hhl": "h.square.fill",
-            "hjll": "j.square.fill", "hsck": "shippingbox.fill",
-            "jmbox": "tray.full.fill", "mmmh": "books.vertical.fill",
-            "akmh": "book.pages.fill", "jmtt": "books.vertical.fill",
-            "nc": "book.closed.fill", "mw": "text.book.closed.fill", "wwmh": "character.book.closed.fill",
-        ]
-        return icons[id] ?? "app.fill"
-    }
-
-    private func descForPlatform(_ id: String) -> String {
-        let descs: [String: String] = [
-            "91av": "视频聚合", "hgsp": "视频聚合", "hsxs": "多类型综合",
-            "hxsp": "视频聚合", "ll51": "短视频/暗网", "lld": "视频聚合",
-            "mtyx": "话题/短视频", "one": "电影/发现", "pfdsp": "视频聚合",
-            "txvlog": "短视频", "wmq": "标签/用户", "xbk": "短视频",
-            "zlt": "演员/视频", "lls": "电影/动漫/漫画/小说", "hhlz": "电影/漫画/小说",
-            "mimei": "动漫/漫画/小说", "avin": "演员信息", "javdb": "演员/分类",
-            "djr": "演员/标签", "lxs": "演员信息", "44hhqq": "视频聚合",
-            "missav": "演员/分类", "mmav": "话题/视频", "oksp": "电影/演员",
-            "pron91": "分类/排行", "tv91": "频道/标签", "mdtv": "频道/标签",
-            "pdl": "频道/排行", "qp": "频道/标签", "zpc91": "分类",
-            "dsp91": "发现/用户", "sp91": "电影/演员", "ttav": "发现/暗网",
-            "xjsp": "分类/演员", "fl2": "演员/发现", "byfm": "演员/音频",
-            "yxfm": "演员/音频", "hu4": "图片/小说/剧照", "awjd": "文章/视频",
-            "cgw": "文章/视频", "cg51": "社区/话题", "ttt": "短视频/用户",
-            "sgp": "演员/文章", "dm51": "动漫/暗网", "awjm": "暗网",
-            "qysq": "暗网", "kpsp": "暗网", "dh50": "分类/用户",
-            "hjsq": "短视频/用户", "yfg": "用户", "gdcm": "视频聚合",
-            "wwsq": "视频聚合", "rryy": "知名平台", "xvideos": "知名平台",
-            "gsjh": "黄色仓库", "hhl": "视频聚合", "hjll": "视频聚合",
-            "hsck": "黄色仓库", "jmbox": "综合站",
-            "akmh": "爱看漫画", "jmtt": "漫画天堂", "nc": "漫画阅读",
-            "mw": "漫画/小说", "wwmh": "漫画阅读", "mmmh": "漫画阅读",
-        ]
-        return descs[id] ?? "资源平台"
-    }
-
-    private func baseURL(for platformId: String, defaultURL: String) -> String {
-        WelfareCrawlerConfig.config(for: platformId)?.effectiveBaseURL ?? defaultURL
-    }
-
-    /// 直播基础URL（优先使用代理）
-    private var liveBaseURL: String {
-        let proxy = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
-        if !proxy.isEmpty { return proxy } else { return liveURL }
-    }
-    private var comic18BaseURL: String {
-        baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -736,75 +552,6 @@ class YBoxService2: ObservableObject {
         )
     }
 
-    // MARK: - 直播
-
-    func loadLiveSources() async {
-        guard !isLiveLoaded else { return }
-        do {
-            guard let url = URL(string: "\(liveBaseURL)/json.txt") else { return }
-            let (data, _) = try await session.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let pt = json["pingtai"] as? [[String: Any]] else { return }
-            var sources: [YBoxLiveItem2] = []
-            for item in pt {
-                let addr = item["address"] as? String ?? ""
-                let channels = await fetchLiveChannels(address: addr)
-                sources.append(YBoxLiveItem2(
-                    title: item["title"] as? String ?? "",
-                    img: item["xinimg"] as? String ?? "",
-                    number: item["Number"] as? String ?? "0",
-                    channels: channels
-                ))
-            }
-            await MainActor.run { self.liveSources = sources; self.isLiveLoaded = true }
-        } catch { print("[YBox] 直播加载失败: \(error)") }
-    }
-
-    func fetchLiveChannels(address: String) async -> [YBoxLiveChannel2] {
-        guard let url = URL(string: "\(liveBaseURL)/" + address) else { return [] }
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
-            if let zhubo = json["zhubo"] as? [[String: Any]] {
-                return zhubo.map { YBoxLiveChannel2(title: $0["title"] as? String ?? "",
-                                                      address: $0["address"] as? String ?? "",
-                                                      img: $0["img"] as? String ?? "") }
-            }
-            var chs: [YBoxLiveChannel2] = []
-            for (k, v) in json {
-                if let s = v as? String, s.hasPrefix("http") {
-                    chs.append(YBoxLiveChannel2(title: k, address: s, img: ""))
-                }
-            }
-            return chs
-        } catch { return [] }
-    }
-
-    // MARK: - 漫画
-
-    func fetch18Comics() async -> [YBoxComicItem2] {
-        guard let url = URL(string: comic18BaseURL) else { return [] }
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
-            var items: [YBoxComicItem2] = []
-            let pattern = ##"<a[^>]*href="([^"]*)"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"##
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) {
-                let nsRange = NSRange(html.startIndex..., in: html)
-                let matches = regex.matches(in: html, range: nsRange)
-                for m in matches.prefix(50) {
-                    let href = Range(m.range(at: 1), in: html).map { String(html[$0]) } ?? ""
-                    let src = Range(m.range(at: 2), in: html).map { String(html[$0]) } ?? ""
-                    let alt = Range(m.range(at: 3), in: html).map { String(html[$0]) } ?? ""
-                    if !alt.isEmpty {
-                        let cover = src.hasPrefix("http") ? src : "https://www.18akmanhua.com" + src
-                        items.append(YBoxComicItem2(title: alt, cover: cover, href: href))
-                    }
-                }
-            }
-            return items
-        } catch { return [] }
-    }
 }
 
 // MARK: - 视频筛选参数
