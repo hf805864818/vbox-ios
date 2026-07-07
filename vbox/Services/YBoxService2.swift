@@ -540,31 +540,33 @@ class YBoxService2: ObservableObject {
 
     /// 获取播放地址。长视频用 /vod/reqplay，短视频用 /minivod/reqplay
     /// 返回 m3u8 播放链接
-    func fetchBananaPlayURL(vodId: String, isLongVideo: Bool = true) async -> String? {
+    /// 获取播放地址，返回 (url, retcode, errmsg)
+    func fetchBananaPlayURL(vodId: String, isLongVideo: Bool = true) async -> (url: String?, retcode: Int, errmsg: String) {
         let path = isLongVideo ? "/vod/reqplay/\(vodId)" : "/minivod/reqplay/\(vodId)"
         do {
             let json = try await fetchJSON(path: path)
-            // 先检查 retcode
-            guard let retcode = json["retcode"] as? Int, retcode == 0 else {
-                let msg = json["errmsg"] as? String ?? "未知错误"
-                print("[YBox] fetchBananaPlayURL(\(vodId)) retcode!=0, errmsg: \(msg)")
-                return nil
+            let retcode = json["retcode"] as? Int ?? -1
+            let msg = json["errmsg"] as? String ?? "未知错误"
+            
+            guard retcode == 0 else {
+                print("[YBox] fetchBananaPlayURL(\(vodId)) retcode=\(retcode), errmsg: \(msg)")
+                return (nil, retcode, msg)
             }
-            guard let data = json["data"] as? [String: Any] else { return nil }
+            guard let data = json["data"] as? [String: Any] else { return (nil, retcode, msg) }
 
             // 优先取 httpurl 字段
-            if let url = data["httpurl"] as? String, !url.isEmpty { return url }
+            if let url = data["httpurl"] as? String, !url.isEmpty { return (url, 0, msg) }
 
             // 备选：从 httpurls 数组取第一个
             if let urls = data["httpurls"] as? [[String: Any]], let first = urls.first,
                let url = first["httpurl"] as? String {
-                return url
+                return (url, 0, msg)
             }
 
-            return nil
+            return (nil, -1, "无可用播放地址")
         } catch {
             print("[YBox] fetchBananaPlayURL(\(vodId)) error: \(error)")
-            return nil
+            return (nil, -2, error.localizedDescription)
         }
     }
 

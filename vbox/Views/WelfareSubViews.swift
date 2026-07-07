@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 // MARK: - 香蕉秀主页面（基于 zfvwi8.ipajx0.cc 真实 API，by QClaw 2026-07-07）
 //
@@ -48,9 +49,8 @@ struct YBoxXjspMainView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle(platform.name)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -267,7 +267,6 @@ struct YBoxBananaVideoGrid: View {
                 }
             }
         }
-        .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadVideos() }
@@ -302,15 +301,17 @@ struct YBoxBananaShortVideoTab: View {
     @StateObject private var svc = YBoxService2.shared
     @State private var videos: [YBoxBananaMiniVideo] = []
     @State private var isLoading = true
-    @State private var currentPage = 1
     @State private var loadError: String?
-    @State private var activeIndex: Int = 0
+    @State private var showPlayer = false
 
     var body: some View {
-        GeometryReader { geo in
+        ZStack {
+            Color.black.ignoresSafeArea()
             if isLoading && videos.isEmpty {
-                VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
-                    .frame(width: geo.size.width, height: geo.size.height)
+                VStack(spacing: 16) {
+                    ProgressView().tint(.white).scaleEffect(1.5)
+                    Text("加载中...").foregroundColor(.white.opacity(0.7))
+                }
             } else if let err = loadError, videos.isEmpty {
                 VStack(spacing: 16) {
                     Spacer()
@@ -320,27 +321,17 @@ struct YBoxBananaShortVideoTab: View {
                     Button(action: { loadError = nil; loadVideos() }) {
                         Label("重试", systemImage: "arrow.clockwise")
                             .font(.system(size: 14))
-                            .padding(.horizontal,20).padding(.vertical,8)
+                            .padding(.horizontal, 20).padding(.vertical, 8)
                             .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
                     }
                     Spacer()
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
-            } else {
-                if #available(iOS 17.0, *) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        shortVideoGrid(geo: geo)
-                            .scrollTargetLayout()
-                    }
-                    .scrollTargetBehavior(.paging)
-                } else {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        shortVideoGrid(geo: geo)
-                    }
-                }
             }
         }
         .onAppear { loadVideos() }
+        .fullScreenCover(isPresented: $showPlayer) {
+            YBoxBananaShortPlayerView(videos: videos, platform: platform)
+        }
     }
 
     private func loadVideos() {
@@ -350,123 +341,293 @@ struct YBoxBananaShortVideoTab: View {
             await MainActor.run {
                 videos = result; isLoading = false
                 if result.isEmpty { loadError = "暂无短视频数据" }
-            }
-        }
-    }
-
-    private func loadMore() {
-        let next = currentPage + 1
-        Task {
-            let result = await svc.fetchBananaMiniVideos(page: next)
-            await MainActor.run {
-                if !result.isEmpty { videos.append(contentsOf: result); currentPage = next }
-            }
-        }
-    }
-
-    private func shortVideoGrid(geo: GeometryProxy) -> some View {
-        LazyVStack(spacing: 0) {
-            ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
-                BananaShortVideoCell(
-                    video: video, platform: platform,
-                    cellHeight: geo.size.height, cellWidth: geo.size.width,
-                    isActive: idx == activeIndex
-                )
-                .frame(width: geo.size.width, height: geo.size.height)
-                .id(idx)
-                .onAppear {
-                    activeIndex = idx
-                    if idx >= videos.count - 3 { loadMore() }
-                }
+                else { showPlayer = true }
             }
         }
     }
 }
 
-// MARK: - 短视频竖屏 Cell（封面+点击播放）
+// MARK: - 抖音式竖屏短视频播放器
 
-struct BananaShortVideoCell: View {
-    let video: YBoxBananaMiniVideo
+struct YBoxBananaShortPlayerView: View {
+    let videos: [YBoxBananaMiniVideo]
     let platform: YBoxPlatform2
-    let cellHeight: CGFloat
-    let cellWidth: CGFloat
-    var isActive: Bool = false
-    @State private var showPlayer = false
+    @StateObject private var svc = YBoxService2.shared
+    @State private var currentIndex: Int
+    @State private var playURLs: [Int: String] = [:]
+    @State private var player: AVPlayer?
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 1
+    @State private var rate: Float = 1.0
+    @State private var dragOffset: CGSize = .zero
+    @State private var isPlayerReady = false
+    @Environment(\.dismiss) var dismiss
+
+    init(videos: [YBoxBananaMiniVideo], platform: YBoxPlatform2) {
+        self.videos = videos
+        self.platform = platform
+        self._currentIndex = State(initialValue: 0)
+    }
 
     var body: some View {
-        ZStack {
-            // 模糊背景
-            AsyncImage(url: URL(string: video.cover)) { phase in
-                if let img = phase.image {
-                    img.resizable().scaledToFill()
-                        .frame(width: cellWidth, height: cellHeight)
-                        .clipped().blur(radius: 25).overlay(Color.black.opacity(0.35))
-                } else {
-                    Color.black.opacity(0.85)
-                }
-            }
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            let cellHeight = geo.size.height
 
-            VStack(spacing: 16) {
-                Spacer()
-                // 封面大图
-                AsyncImage(url: URL(string: video.cover)) { phase in
-                    if let img = phase.image {
-                        img.resizable().aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: cellHeight * 0.55)
-                            .cornerRadius(16)
-                    } else {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(height: cellHeight * 0.4)
-                            .cornerRadius(16)
-                    }
-                }
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-                // 播放按钮
-                Button(action: { showPlayer = true }) {
+                // 当前视频
+                if currentIndex < videos.count {
                     ZStack {
-                        Circle().fill(Color.white.opacity(0.2)).frame(width: 80, height: 80)
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 36)).foregroundColor(.white)
-                    }
-                }
-
-                // 标题
-                VStack(spacing: 6) {
-                    Text(video.title)
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(.white)
-                        .lineLimit(2).multilineTextAlignment(.center)
-
-                    HStack(spacing: 6) {
-                        if !video.userAvatar.isEmpty {
-                            AsyncImage(url: URL(string: video.userAvatar)) { phase in
-                                if let img = phase.image {
-                                    img.resizable().scaledToFill()
-                                        .frame(width: 22, height: 22).clipShape(Circle())
+                        if let url = playURLs[currentIndex], let playerURL = URL(string: url), isPlayerReady {
+                            VideoPlayer(player: player)
+                                .frame(width: geo.size.width, height: cellHeight)
+                                .clipped()
+                                .allowsHitTesting(false)
+                        } else {
+                            // 加载中 — 封面背景
+                            ZStack {
+                                AsyncImage(url: URL(string: videos[currentIndex].cover)) { phase in
+                                    if let img = phase.image {
+                                        img.resizable().scaledToFill()
+                                            .frame(width: geo.size.width, height: cellHeight)
+                                            .clipped().blur(radius: 20)
+                                    } else {
+                                        Color.black
+                                    }
                                 }
+                                .overlay(Color.black.opacity(0.25))
+                                ProgressView().tint(.white).scaleEffect(2)
                             }
                         }
-                        if !video.userName.isEmpty {
-                            Text("@\(video.userName)")
-                                .font(.system(size: 13)).foregroundColor(.white.opacity(0.75))
-                        }
                     }
-                    Text(video.duration)
-                        .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+                    .offset(y: dragOffset.height)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                dragOffset = value.translation
+                            }
+                            .onEnded { value in
+                                let threshold = cellHeight * 0.2
+                                let velocity = abs(value.predictedEndTranslation.height - value.translation.height)
+
+                                if value.translation.height < -threshold && currentIndex < videos.count - 1 {
+                                    withAnimation(.easeOut(duration: 0.25)) {
+                                        dragOffset = CGSize(width: 0, height: -cellHeight)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                        currentIndex += 1
+                                        dragOffset = .zero
+                                        switchToVideo(at: currentIndex)
+                                    }
+                                } else if value.translation.height > threshold && currentIndex > 0 {
+                                    withAnimation(.easeOut(duration: 0.25)) {
+                                        dragOffset = CGSize(width: 0, height: cellHeight)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                        currentIndex -= 1
+                                        dragOffset = .zero
+                                        switchToVideo(at: currentIndex)
+                                    }
+                                } else {
+                                    withAnimation(.spring()) { dragOffset = .zero }
+                                }
+                            }
+                    )
                 }
-                .padding(.horizontal, 32)
-                Spacer()
+
+                // 底部信息覆盖层
+                VStack {
+                    Spacer()
+                    if currentIndex < videos.count {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 用户信息 + 标题
+                            HStack(alignment: .bottom, spacing: 10) {
+                                if !videos[currentIndex].userAvatar.isEmpty {
+                                    AsyncImage(url: URL(string: videos[currentIndex].userAvatar)) { phase in
+                                        if let img = phase.image {
+                                            img.resizable().scaledToFill()
+                                                .frame(width: 44, height: 44)
+                                                .clipShape(Circle())
+                                                .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                        }
+                                    }
+                                }
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(videos[currentIndex].userName)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text(videos[currentIndex].title)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.white.opacity(0.85))
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                // 上/下一个视频提示
+                                VStack(spacing: 2) {
+                                    Image(systemName: currentIndex > 0 ? "chevron.up" : "chevron.up")
+                                        .font(.system(size: 12)).foregroundColor(.white.opacity(0.3))
+                                    Text("\(currentIndex + 1)/\(videos.count)")
+                                        .font(.system(size: 10)).foregroundColor(.white.opacity(0.4))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 12)).foregroundColor(.white.opacity(0.3))
+                                }
+                            }
+
+                            // 进度条
+                            GeometryReader { progGeo in
+                                ZStack(alignment: .leading) {
+                                    Rectangle()
+                                        .fill(Color.white.opacity(0.25))
+                                        .frame(height: 3).cornerRadius(1.5)
+                                    Rectangle()
+                                        .fill(Color.white)
+                                        .frame(width: duration > 0 ? max(0, min(1, currentTime / duration)) * progGeo.size.width : 0, height: 3)
+                                        .cornerRadius(1.5)
+                                }
+                            }
+                            .frame(height: 3)
+
+                            // 时间 + 倍速
+                            HStack {
+                                Text(formatTime(currentTime))
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.5))
+                                Spacer()
+                                ForEach([1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                                    Button(action: {
+                                        rate = Float(speed)
+                                        player?.rate = Float(speed)
+                                    }) {
+                                        Text(String(format: "%.2fx", speed))
+                                            .font(.system(size: 11, weight: rate == Float(speed) ? .bold : .regular))
+                                            .foregroundColor(rate == Float(speed) ? .white : .white.opacity(0.45))
+                                            .padding(.horizontal, 3)
+                                    }
+                                }
+                                Spacer()
+                                Text(formatTime(duration))
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 40)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.clear, Color.black.opacity(0.75)]),
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                    }
+                }
+
+                // 顶部返回按钮
+                VStack {
+                    HStack {
+                        Button(action: {
+                            player?.pause(); player = nil
+                            dismiss()
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Circle().fill(Color.black.opacity(0.4)))
+                        }
+                        .padding(.leading, 16)
+                        .padding(.top, 50)
+                        Spacer()
+                    }
+                    Spacer()
+                }
             }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
-            YBoxBananaPlayerView(
-                vodId: video.vodId, title: video.title, cover: video.cover,
-                duration: video.duration, platform: platform,
-                isLongVideo: false
-            )
+        .onAppear {
+            switchToVideo(at: 0)
+            preloadPlayURL(at: 1)
+            preloadPlayURL(at: 2)
         }
+        .onDisappear {
+            player?.pause(); player = nil
+        }
+    }
+
+    // MARK: - 播放逻辑
+
+    private func switchToVideo(at index: Int) {
+        guard index < videos.count else { return }
+        player?.pause(); player = nil
+        isPlayerReady = false
+        currentTime = 0; duration = 1
+
+        if let url = playURLs[index], let playerURL = URL(string: url) {
+            startPlayer(url: playerURL)
+        } else {
+            loadAndPlay(at: index)
+        }
+
+        preloadPlayURL(at: index + 1)
+        preloadPlayURL(at: index + 2)
+        if index > 0 { preloadPlayURL(at: index - 1) }
+    }
+
+    private func loadAndPlay(at index: Int) {
+        guard index < videos.count else { return }
+        Task {
+            let (url, _, _) = await svc.fetchBananaPlayURL(vodId: videos[index].vodId, isLongVideo: false)
+            await MainActor.run {
+                if let url = url {
+                    playURLs[index] = url
+                    if index == currentIndex, let playerURL = URL(string: url) {
+                        startPlayer(url: playerURL)
+                    }
+                }
+            }
+        }
+    }
+
+    private func preloadPlayURL(at index: Int) {
+        guard index >= 0, index < videos.count, playURLs[index] == nil else { return }
+        Task {
+            let (url, _, _) = await svc.fetchBananaPlayURL(vodId: videos[index].vodId, isLongVideo: false)
+            await MainActor.run { if let url = url { playURLs[index] = url } }
+        }
+    }
+
+    private func startPlayer(url: URL) {
+        let p = AVPlayer(url: url)
+        p.rate = rate
+        p.play()
+        player = p
+        isPlayerReady = true
+
+        p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.3, preferredTimescale: 600), queue: .main) { time in
+            currentTime = time.seconds
+            if let d = p.currentItem?.duration.seconds, d.isFinite && d > 0 {
+                duration = d
+            }
+        }
+
+        // 播放结束自动下一个
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: p.currentItem,
+            queue: .main
+        ) { [self] _ in
+            if currentIndex < videos.count - 1 {
+                currentIndex += 1
+                dragOffset = .zero
+                switchToVideo(at: currentIndex)
+            }
+        }
+    }
+
+    private func formatTime(_ sec: Double) -> String {
+        guard sec.isFinite else { return "0:00" }
+        let m = Int(sec) / 60
+        let s = Int(sec) % 60
+        return String(format: "%d:%02d", m, s)
     }
 }
 
@@ -561,8 +722,6 @@ struct YBoxBananaActorTab: View {
     }
 }
 
-// MARK: - 专题视频列表
-
 // MARK: - 演员/专题视频列表页（GET /special/detail/{spId}-{page} → vodrows）
 struct YBoxBananaSpecialVideoList: View {
     let special: YBoxBananaSpecial
@@ -638,7 +797,6 @@ struct YBoxBananaSpecialVideoList: View {
                 }
             }
         }
-        .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle(special.spName)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadVideos() }
@@ -799,8 +957,7 @@ struct YBoxBananaPlayerView: View {
                 .font(.system(size: 13)).foregroundColor(.secondary)
             Spacer()
         }
-        .background(Color(UIColor.systemGroupedBackground))
-        .navigationTitle("播放").navigationBarTitleDisplayMode(.inline)
+                .navigationTitle("播放").navigationBarTitleDisplayMode(.inline)
         .onAppear { loadPlayURL() }
         .fullScreenCover(isPresented: $showPlayer) {
             if let vod = vodItem { VideoDetailView(video: vod) }
@@ -810,7 +967,8 @@ struct YBoxBananaPlayerView: View {
     private func loadPlayURL() {
         isLoading = true; errorMsg = nil
         Task {
-            if let url = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: isLongVideo) {
+            let (url, retcode, msg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: isLongVideo)
+            if let url = url {
                 await MainActor.run {
                     playURL = url; isLoading = false
                     vodItem = VodItem(
@@ -819,8 +977,27 @@ struct YBoxBananaPlayerView: View {
                     )
                 }
             } else {
-                await MainActor.run {
-                    errorMsg = "获取播放地址失败，请检查网络"; isLoading = false
+                // 主端点失败，尝试切换
+                let altIsLong = !isLongVideo
+                let (altUrl, altRetcode, altMsg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: altIsLong)
+                if let altUrl = altUrl {
+                    await MainActor.run {
+                        playURL = altUrl; isLoading = false; isLongVideo = altIsLong
+                        vodItem = VodItem(
+                            vodId: vodId, vodName: title, vodPic: cover,
+                            vodRemarks: "[福利]\(platform.name)", vodPlayUrl: altUrl
+                        )
+                    }
+                } else {
+                    await MainActor.run {
+                        let err: String
+                        switch retcode {
+                        case 1: err = "该资源暂无播放地址"
+                        case 5: err = "VIP内容，需升级会员观看"
+                        default: err = "获取播放地址失败，请检查网络"
+                        }
+                        errorMsg = err; isLoading = false
+                    }
                 }
             }
         }
