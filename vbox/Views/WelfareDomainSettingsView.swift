@@ -20,8 +20,38 @@ struct WelfareDomainSettingsView: View {
         return dict.sorted { $0.key < $1.key }
     }
 
+    @AppStorage("live_proxy_url") private var liveProxyURL: String = ""
+    @State private var proxyInputText: String = ""
+
     var body: some View {
         List {
+            // 直播代理设置（置顶）
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .foregroundColor(.purple)
+                        Text("直播代理地址")
+                            .font(.system(size: 15, weight: .medium))
+                    }
+
+                    TextField("如 https://vbox.ltd/?token=xxx&url=", text: $proxyInputText)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .keyboardType(.URL)
+                        .font(.system(size: 13))
+                        .onAppear { proxyInputText = liveProxyURL }
+                        .onChange(of: proxyInputText) { newValue in
+                            liveProxyURL = newValue
+                        }
+
+                    Text("填上代理地址后，直播频道的播放地址会通过此代理转发，解决部分直播源无法直连的问题。留空则不使用代理。")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
             // 说明
             Section {
                 HStack(spacing: 8) {
