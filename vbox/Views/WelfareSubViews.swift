@@ -2,17 +2,18 @@ import SwiftUI
 
 // MARK: - 香蕉秀主页面（基于 zfvwi8.ipajx0.cc 真实 API，by QClaw 2026-07-07）
 //
-// 页面架构：
-//   首页Tab → 分类列表 → 视频网格 → 播放
-//   短视频Tab → /minivod/reqlist → 竖屏滑动播放
-//   专题Tab → /special/listing → 专题列表 → 专题视频 → 播放
+// 页面架构（对标 yBox 原生）：
+//   首页Tab → 分类列表(12类) → 视频网格(2列) → 播放
+//   短视频Tab → /minivod/reqlist → 抖音式竖屏滑动 + 点击进入播放
+//   演员Tab   → /special/listing  → 演员/专题列表 → 视频列表 → 播放
+//   注：zfvwi8 网关无独立演员 API，暂用专题列表模拟
 //
 // API 来源：ybox App HTTPS 抓包还原
 
 struct YBoxXjspMainView: View {
     let platform: YBoxPlatform2
     @State private var selectedTab = 0
-    private let tabs = ["首页", "短视频", "专题"]
+    private let tabs = ["首页", "短视频", "演员"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,7 @@ struct YBoxXjspMainView: View {
             TabView(selection: $selectedTab) {
                 YBoxBananaHomeTab(platform: platform).tag(0)
                 YBoxBananaShortVideoTab(platform: platform).tag(1)
-                YBoxBananaSpecialTab(platform: platform).tag(2)
+                YBoxBananaActorTab(platform: platform).tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
@@ -292,108 +293,70 @@ struct YBoxBananaVideoGrid: View {
     }
 }
 
-// MARK: - 短视频Tab（/minivod/reqlist）
+// MARK: - 短视频Tab（/minivod/reqlist，抖音式竖屏滑动播放）
 
 struct YBoxBananaShortVideoTab: View {
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
     @State private var videos: [YBoxBananaMiniVideo] = []
-    @State private var currentIndex = 0
     @State private var isLoading = true
     @State private var currentPage = 1
-    @State private var showPlayer = false
-    @State private var selectedVideo: YBoxBananaMiniVideo?
+    @State private var loadError: String?
+    @State private var activeIndex: Int = 0
 
     var body: some View {
         GeometryReader { geo in
-            if videos.isEmpty {
+            if isLoading && videos.isEmpty {
                 VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
+                    .frame(width: geo.size.width, height: geo.size.height)
+            } else if let err = loadError, videos.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 50)).foregroundColor(.secondary)
+                    Text(err).font(.system(size: 15)).multilineTextAlignment(.center)
+                    Button(action: { loadError = nil; loadVideos() }) {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 14))
+                            .padding(.horizontal,20).padding(.vertical,8)
+                            .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                    }
+                    Spacer()
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             } else {
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
-                        ZStack {
-                            // 模糊背景
-                            AsyncImage(url: URL(string: video.cover)) { phase in
-                                if let img = phase.image {
-                                    img.resizable().scaledToFill()
-                                        .frame(width: geo.size.width, height: geo.size.height)
-                                        .clipped().blur(radius: 20).overlay(Color.black.opacity(0.3))
-                                } else {
-                                    Color.black.opacity(0.8)
-                                }
-                            }
-
-                            VStack(spacing: 20) {
-                                Spacer()
-                                // 封面
-                                AsyncImage(url: URL(string: video.cover)) { phase in
-                                    if let img = phase.image {
-                                        img.resizable().scaledToFit()
-                                            .frame(maxHeight: geo.size.height * 0.55)
-                                            .cornerRadius(16)
-                                    }
-                                }
-
-                                // 播放按钮
-                                Button(action: { selectedVideo = video; showPlayer = true }) {
-                                    Image(systemName: "play.circle.fill")
-                                        .font(.system(size: 65)).foregroundColor(.white.opacity(0.9))
-                                }
-
-                                // 标题 & 用户
-                                VStack(spacing: 4) {
-                                    Text(video.title)
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white).lineLimit(2)
-                                        .multilineTextAlignment(.center)
-                                    if !video.userName.isEmpty {
-                                        HStack(spacing: 4) {
-                                            if !video.userAvatar.isEmpty {
-                                                AsyncImage(url: URL(string: video.userAvatar)) { phase in
-                                                    if let img = phase.image {
-                                                        img.resizable().scaledToFill()
-                                                            .frame(width: 20, height: 20).clipShape(Circle())
-                                                    }
-                                                }
-                                            }
-                                            Text("@\(video.userName)")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.white.opacity(0.7))
-                                        }
-                                    }
-                                    Text("时长: \(video.duration)")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.white.opacity(0.5))
-                                }
-                                .padding(.horizontal, 30)
-                                Spacer()
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
+                            BananaShortVideoCell(
+                                video: video, platform: platform,
+                                cellHeight: geo.size.height, cellWidth: geo.size.width,
+                                isActive: idx == activeIndex
+                            )
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .id(idx)
+                            .onAppear {
+                                activeIndex = idx
+                                if idx >= videos.count - 3 { loadMore() }
                             }
                         }
-                        .tag(idx)
                     }
+                    .scrollTargetLayout()
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .onChange(of: currentIndex) { newIdx in
-                    if newIdx >= videos.count - 3 { loadMore() }
-                }
+                .scrollTargetBehavior(.paging)
             }
         }
         .onAppear { loadVideos() }
-        .fullScreenCover(isPresented: $showPlayer) {
-            if let sv = selectedVideo {
-                YBoxBananaPlayerView(
-                    vodId: sv.vodId, title: sv.title, cover: sv.cover,
-                    duration: sv.duration, platform: platform,
-                    isLongVideo: false
-                )
-            }
-        }
     }
 
     private func loadVideos() {
+        isLoading = true; loadError = nil
         Task {
             let result = await svc.fetchBananaMiniVideos(page: 1)
-            await MainActor.run { videos = result; isLoading = false }
+            await MainActor.run {
+                videos = result; isLoading = false
+                if result.isEmpty { loadError = "暂无短视频数据" }
+            }
         }
     }
 
@@ -408,24 +371,125 @@ struct YBoxBananaShortVideoTab: View {
     }
 }
 
-// MARK: - 专题Tab（/special/listing）
+// MARK: - 短视频竖屏 Cell（封面+点击播放）
 
-struct YBoxBananaSpecialTab: View {
+struct BananaShortVideoCell: View {
+    let video: YBoxBananaMiniVideo
+    let platform: YBoxPlatform2
+    let cellHeight: CGFloat
+    let cellWidth: CGFloat
+    var isActive: Bool = false
+    @State private var showPlayer = false
+
+    var body: some View {
+        ZStack {
+            // 模糊背景
+            AsyncImage(url: URL(string: video.cover)) { phase in
+                if let img = phase.image {
+                    img.resizable().scaledToFill()
+                        .frame(width: cellWidth, height: cellHeight)
+                        .clipped().blur(radius: 25).overlay(Color.black.opacity(0.35))
+                } else {
+                    Color.black.opacity(0.85)
+                }
+            }
+            .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Spacer()
+                // 封面大图
+                AsyncImage(url: URL(string: video.cover)) { phase in
+                    if let img = phase.image {
+                        img.resizable().aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: cellHeight * 0.55)
+                            .cornerRadius(16)
+                    } else {
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: cellHeight * 0.4)
+                            .cornerRadius(16)
+                    }
+                }
+
+                // 播放按钮
+                Button(action: { showPlayer = true }) {
+                    ZStack {
+                        Circle().fill(Color.white.opacity(0.2)).frame(width: 80, height: 80)
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 36)).foregroundColor(.white)
+                    }
+                }
+
+                // 标题
+                VStack(spacing: 6) {
+                    Text(video.title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(2).multilineTextAlignment(.center)
+
+                    HStack(spacing: 6) {
+                        if !video.userAvatar.isEmpty {
+                            AsyncImage(url: URL(string: video.userAvatar)) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFill()
+                                        .frame(width: 22, height: 22).clipShape(Circle())
+                                }
+                            }
+                        }
+                        if !video.userName.isEmpty {
+                            Text("@\(video.userName)")
+                                .font(.system(size: 13)).foregroundColor(.white.opacity(0.75))
+                        }
+                    }
+                    Text(video.duration)
+                        .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 32)
+                Spacer()
+            }
+        }
+        .fullScreenCover(isPresented: $showPlayer) {
+            YBoxBananaPlayerView(
+                vodId: video.vodId, title: video.title, cover: video.cover,
+                duration: video.duration, platform: platform,
+                isLongVideo: false
+            )
+        }
+    }
+}
+
+// MARK: - 演员Tab（zfvwi8 无演员 API，暂用专题列表；yBox 原生有演员导航）
+
+struct YBoxBananaActorTab: View {
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
-    @State private var specials: [YBoxBananaSpecial] = []
+    @State private var actors: [YBoxBananaSpecial] = []
     @State private var isLoading = true
+    @State private var loadError: String?
     @State private var currentPage = 1
-    @State private var hasMore = true
 
     var body: some View {
         Group {
-            if specials.isEmpty && isLoading {
+            if isLoading && actors.isEmpty {
                 VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
-            } else if specials.isEmpty {
+            } else if let err = loadError, actors.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 50)).foregroundColor(.secondary)
+                    Text(err).font(.system(size: 15))
+                    Button(action: { loadError = nil; loadSpecials() }) {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 14))
+                            .padding(.horizontal,20).padding(.vertical,8)
+                            .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                    }
+                    Spacer()
+                }
+            } else if actors.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "square.stack").font(.system(size: 40)).foregroundColor(.secondary)
-                    Text("暂无专题").foregroundColor(.secondary)
+                    Image(systemName: "person.2.slash").font(.system(size: 40)).foregroundColor(.secondary)
+                    Text("暂无演员数据").foregroundColor(.secondary)
                 }
             } else {
                 ScrollView {
@@ -433,7 +497,7 @@ struct YBoxBananaSpecialTab: View {
                         columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                         spacing: 14
                     ) {
-                        ForEach(specials) { sp in
+                        ForEach(actors) { sp in
                             NavigationLink(destination: YBoxBananaSpecialVideoList(
                                 special: sp, platform: platform
                             )) {
@@ -473,66 +537,90 @@ struct YBoxBananaSpecialTab: View {
     }
 
     private func loadSpecials() {
+        isLoading = true; loadError = nil
         Task {
             let result = await svc.fetchBananaSpecials(page: 1)
-            await MainActor.run { specials = result; isLoading = false }
+            await MainActor.run {
+                actors = result; isLoading = false
+                if result.isEmpty { loadError = "暂时无法连接服务器" }
+            }
         }
     }
 }
 
 // MARK: - 专题视频列表
 
+// MARK: - 演员/专题详情页（zfvwi8 无 session 级视频过滤，兜底全列表）
 struct YBoxBananaSpecialVideoList: View {
     let special: YBoxBananaSpecial
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
     @State private var videos: [YBoxBananaSpecialVideo] = []
     @State private var isLoading = true
+    @State private var loadError: String?
 
     var body: some View {
         Group {
             if videos.isEmpty && isLoading {
-                VStack { Spacer(); ProgressView(); Spacer() }
+                VStack { Spacer(); ProgressView().scaleEffect(1.5); Spacer() }
+            } else if let err = loadError, videos.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "film.slash").font(.system(size: 50)).foregroundColor(.secondary)
+                    Text(err).font(.system(size: 15))
+                    Button(action: { loadError = nil; loadVideos() }) {
+                        Label("重试", systemImage: "arrow.clockwise").font(.system(size: 14))
+                            .padding(.horizontal,20).padding(.vertical,8)
+                            .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                    }
+                    Spacer()
+                }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        // 专题头信息
-                        HStack {
+                        // 头信息
+                        HStack(spacing: 12) {
                             AsyncImage(url: URL(string: special.spCover)) { phase in
                                 if let img = phase.image {
-                                    img.resizable().scaledToFill()
-                                        .frame(width: 80, height: 50).cornerRadius(8)
+                                    img.resizable().aspectRatio(contentMode: .fill)
+                                        .frame(width: 70, height: 90).cornerRadius(10).clipped()
                                 }
                             }
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(special.spName).font(.system(size: 18, weight: .bold))
-                                Text("共 \(special.itemCount) 部").font(.system(size: 13)).foregroundColor(.secondary)
+                                Text("共 \(special.itemCount) 部作品").font(.system(size: 13)).foregroundColor(.secondary)
+                                if videos.isEmpty {
+                                    Text("视频列表加载中...").font(.system(size: 12)).foregroundColor(.secondary)
+                                }
                             }
+                            Spacer()
                         }
                         .padding(.horizontal, 12).padding(.top, 8)
 
                         Divider()
 
-                        LazyVGrid(
-                            columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                            spacing: 14
-                        ) {
-                            ForEach(videos) { video in
-                                NavigationLink(destination: YBoxBananaPlayerView(
-                                    vodId: video.vodId, title: video.title,
-                                    cover: video.cover, duration: video.duration,
-                                    platform: platform
-                                )) {
-                                    BananaVideoCard(
-                                        cover: video.cover, title: video.title,
-                                        duration: video.duration, score: video.score,
-                                        areaName: nil
-                                    )
+                        if !videos.isEmpty {
+                            LazyVGrid(
+                                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                                spacing: 14
+                            ) {
+                                ForEach(videos) { video in
+                                    NavigationLink(destination: YBoxBananaPlayerView(
+                                        vodId: video.vodId, title: video.title,
+                                        cover: video.cover, duration: video.duration,
+                                        platform: platform
+                                    )) {
+                                        BananaVideoCard(
+                                            cover: video.cover, title: video.title,
+                                            duration: video.duration, score: video.score,
+                                            areaName: nil
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .padding(12)
                         }
-                        .padding(12)
                     }
                 }
             }
@@ -540,10 +628,16 @@ struct YBoxBananaSpecialVideoList: View {
         .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle(special.spName)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            Task {
-                let result = await svc.fetchBananaSpecialVideos(spId: special.spId, page: 1)
-                await MainActor.run { videos = result; isLoading = false }
+        .onAppear { loadVideos() }
+    }
+
+    private func loadVideos() {
+        isLoading = true; loadError = nil
+        Task {
+            let result = await svc.fetchBananaSpecialVideos(spId: special.spId, page: 1)
+            await MainActor.run {
+                videos = result; isLoading = false
+                if result.isEmpty { loadError = "暂无相关视频" }
             }
         }
     }
@@ -651,14 +745,27 @@ struct YBoxBananaPlayerView: View {
                             .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
                     }
                 } else if let e = errorMsg {
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 30)).foregroundColor(.orange)
-                        Text(e).font(.system(size: 12)).foregroundColor(.white)
-                        Button(action: { loadPlayURL() }) {
-                            Label("重试", systemImage: "arrow.clockwise")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white)
+                    VStack(spacing: 12) {
+                        Image(systemName: "play.slash")
+                            .font(.system(size: 40)).foregroundColor(.white.opacity(0.8))
+                        Text(e).font(.system(size: 14)).foregroundColor(.white.opacity(0.9))
+                        HStack(spacing: 16) {
+                            Button(action: { loadPlayURL() }) {
+                                Label("重试", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 13)).foregroundColor(.white)
+                                    .padding(.horizontal, 16).padding(.vertical, 8)
+                                    .background(Color.accentColor).cornerRadius(8)
+                            }
+                            Button(action: {
+                                // 尝试切换长短视频端点
+                                isLongVideo.toggle()
+                                loadPlayURL()
+                            }) {
+                                Label("切换线路", systemImage: "arrow.triangle.swap")
+                                    .font(.system(size: 13)).foregroundColor(.white)
+                                    .padding(.horizontal, 16).padding(.vertical, 8)
+                                    .background(Color.white.opacity(0.2)).cornerRadius(8)
+                            }
                         }
                     }
                 }

@@ -455,13 +455,15 @@ class YBoxService2: ObservableObject {
         }
     }
 
-    /// 获取专题内视频列表（GET /special/vodlist-{spId}-0-0-{page}）
+    /// 获取专题/演员内视频列表
+    /// 注意：zfvwi8 网关无按 spId 筛视频的端点，暂时使用全局视频列表
     func fetchBananaSpecialVideos(spId: String, page: Int = 1) async -> [YBoxBananaSpecialVideo] {
-        let path = "/special/vodlist-\(spId)-0-0-\(page)"
+        // zfvwi8 不支持按 spId 筛选，降级为全量视频列表
+        let path = "/vod/listing-0-0-0-0-0-0-0-0-0-\(page)"
         do {
             let json = try await fetchJSON(path: path)
             guard let data = json["data"] as? [String: Any],
-                  let vodrows = data["vodrows"] as? [[String: Any]] ?? data["rows"] as? [[String: Any]] else { return [] }
+                  let vodrows = data["vodrows"] as? [[String: Any]] else { return [] }
             return vodrows.map { row in
                 YBoxBananaSpecialVideo(
                     vodId: (row["vodid"] as? String) ?? String(row["vodid"] as? Int ?? 0),
@@ -472,7 +474,7 @@ class YBoxService2: ObservableObject {
                 )
             }
         } catch {
-            print("[YBox] fetchBananaSpecialVideos error: \(error)")
+            print("[YBox] fetchBananaSpecialVideos(\(spId)) error: \(error)")
             return []
         }
     }
@@ -486,8 +488,11 @@ class YBoxService2: ObservableObject {
                   let rows = data["rows"] as? [[String: Any]] else { return [] }
             return rows.map { row in
                 let vod = row["vodrow"] as? [String: Any] ?? row
-                let user = row["userinfo"] as? [String: Any] ?? [:]
-                let playUrl: String? = (vod["play_url"] as? String) ?? (vod["vodPlayUrl"] as? String)
+                // 字段名是 "user" 不是 "userinfo"
+                let user = row["user"] as? [String: Any] ?? [:]
+                // play_url 是相对路径，需补全
+                let rawPlayUrl: String? = (vod["play_url"] as? String) ?? (vod["vodPlayUrl"] as? String)
+                let playUrl: String? = rawPlayUrl.map { $0.hasPrefix("/") ? "\(apiGateway)\($0)" : $0 }
                 return YBoxBananaMiniVideo(
                     vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
                     title: vod["title"] as? String ?? vod["vodname"] as? String ?? "",
@@ -510,6 +515,12 @@ class YBoxService2: ObservableObject {
         let path = isLongVideo ? "/vod/reqplay/\(vodId)" : "/minivod/reqplay/\(vodId)"
         do {
             let json = try await fetchJSON(path: path)
+            // 先检查 retcode
+            guard let retcode = json["retcode"] as? Int, retcode == 0 else {
+                let msg = json["errmsg"] as? String ?? "未知错误"
+                print("[YBox] fetchBananaPlayURL(\(vodId)) retcode!=0, errmsg: \(msg)")
+                return nil
+            }
             guard let data = json["data"] as? [String: Any] else { return nil }
 
             // 优先取 httpurl 字段
