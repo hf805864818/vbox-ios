@@ -327,25 +327,17 @@ struct YBoxBananaShortVideoTab: View {
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
-                            BananaShortVideoCell(
-                                video: video, platform: platform,
-                                cellHeight: geo.size.height, cellWidth: geo.size.width,
-                                isActive: idx == activeIndex
-                            )
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .id(idx)
-                            .onAppear {
-                                activeIndex = idx
-                                if idx >= videos.count - 3 { loadMore() }
-                            }
-                        }
+                if #available(iOS 17.0, *) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        shortVideoGrid(geo: geo)
+                            .scrollTargetLayout()
                     }
-                    .scrollTargetLayout()
+                    .scrollTargetBehavior(.paging)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        shortVideoGrid(geo: geo)
+                    }
                 }
-                .scrollTargetBehavior(.paging)
             }
         }
         .onAppear { loadVideos() }
@@ -368,6 +360,24 @@ struct YBoxBananaShortVideoTab: View {
             let result = await svc.fetchBananaMiniVideos(page: next)
             await MainActor.run {
                 if !result.isEmpty { videos.append(contentsOf: result); currentPage = next }
+            }
+        }
+    }
+
+    private func shortVideoGrid(geo: GeometryProxy) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(videos.enumerated()), id: \.offset) { idx, video in
+                BananaShortVideoCell(
+                    video: video, platform: platform,
+                    cellHeight: geo.size.height, cellWidth: geo.size.width,
+                    isActive: idx == activeIndex
+                )
+                .frame(width: geo.size.width, height: geo.size.height)
+                .id(idx)
+                .onAppear {
+                    activeIndex = idx
+                    if idx >= videos.count - 3 { loadMore() }
+                }
             }
         }
     }
@@ -719,7 +729,7 @@ struct YBoxBananaPlayerView: View {
     let cover: String
     let duration: String
     let platform: YBoxPlatform2
-    var isLongVideo: Bool = true
+    @State private var isLongVideo: Bool = true
 
     @StateObject private var svc = YBoxService2.shared
     @State private var playURL: String?
