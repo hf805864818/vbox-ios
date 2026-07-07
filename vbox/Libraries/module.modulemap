@@ -1,0 +1,5 @@
+module QuickJS {
+    header "quickjs.h"
+    header "quickjs-libc.h"
+    export *
+}
