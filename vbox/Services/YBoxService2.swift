@@ -61,6 +61,7 @@ struct YBoxBananaVideo: Identifiable {
     let tags: [String]
     let playCount: Int
     let commentCount: Int
+    let previewURL: String?  // 预览 m3u8，VIP 视频可由此重建完整播放地址
     // 播放路径：/vod/reqplay/{vodId}
     var playPath: String { "/vod/reqplay/\(vodId)" }
 }
@@ -107,6 +108,7 @@ struct YBoxBananaSpecialVideo: Identifiable {
     let downnum: Int
     let playCount: Int
     let tags: [String]
+    let previewURL: String?  // 预览 m3u8，VIP 视频可由此重建完整播放地址
     var playPath: String { "/vod/reqplay/\(vodId)" }
 }
 
@@ -195,6 +197,21 @@ class YBoxService2: ObservableObject {
             throw URLError(.cannotParseResponse)
         }
         return json
+    }
+
+    /// 直接获取原始二进制数据（无 JSON 解析，用于 m3u8 等非 JSON 资源）
+    private func fetchRaw(url urlString: String) async throws -> Data {
+        guard let url = URL(string: urlString) else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        let (data, response) = try await session.data(for: req)
+        guard let httpResp = response as? HTTPURLResponse,
+              (200...299).contains(httpResp.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return data
     }
 
     /// 解析标准 ybox 响应：{"retcode": 0, "data": {...}}
@@ -499,7 +516,8 @@ class YBoxService2: ObservableObject {
                     upnum: (row["upnum"] as? NSString)?.integerValue ?? row["upnum"] as? Int ?? 0,
                     downnum: (row["downnum"] as? NSString)?.integerValue ?? row["downnum"] as? Int ?? 0,
                     playCount: row["playcount_total"] as? Int ?? 0,
-                    tags: tags
+                    tags: tags,
+                    previewURL: row["preview_url"] as? String
                 )
             }
         } catch {
@@ -541,7 +559,8 @@ class YBoxService2: ObservableObject {
     /// 获取播放地址。长视频用 /vod/reqplay，短视频用 /minivod/reqplay
     /// 返回 m3u8 播放链接
     /// 获取播放地址，返回 (url, retcode, errmsg)
-    func fetchBananaPlayURL(vodId: String, isLongVideo: Bool = true) async -> (url: String?, retcode: Int, errmsg: String) {
+    /// - Parameter previewURL: 视频预览 m3u8 地址（VIP 视频回退用）
+    func fetchBananaPlayURL(vodId: String, isLongVideo: Bool = true, previewURL: String? = nil) async -> (url: String?, retcode: Int, errmsg: String) {
         let path = isLongVideo ? "/vod/reqplay/\(vodId)" : "/minivod/reqplay/\(vodId)"
         do {
             let json = try await fetchJSON(path: path)
@@ -549,6 +568,11 @@ class YBoxService2: ObservableObject {
             let msg = json["errmsg"] as? String ?? "未知错误"
             
             guard retcode == 0 else {
+                // VIP 视频 (retcode==5)：尝试从 previewURL 重建完整 m3u8
+                if retcode == 5, let pvUrl = previewURL, let rebuilt = await rebuildFullM3U8(from: pvUrl) {
+                    print("[YBox] fetchBananaPlayURL(\(vodId)) VIP fallback → \(rebuilt.prefix(80))...")
+                    return (rebuilt, 0, "VIP 跳过成功")
+                }
                 print("[YBox] fetchBananaPlayURL(\(vodId)) retcode=\(retcode), errmsg: \(msg)")
                 return (nil, retcode, msg)
             }
@@ -570,6 +594,55 @@ class YBoxService2: ObservableObject {
         }
     }
 
+    /// 从预览 m3u8 重建完整 m3u8 地址（VIP 视频绕过限制）
+    /// 算法：获取预览 m3u8 → 提取 KEY_CDN host + TS 路径 → 拼接 https://{KEY_CDN}/{TS_PATH}/index.m3u8
+    private func rebuildFullM3U8(from previewURL: String) async -> String? {
+        guard let previewData = try? await fetchRaw(url: previewURL),
+              let previewText = String(data: previewData, encoding: .utf8) else {
+            print("[YBox] rebuildFullM3U8: failed to fetch preview m3u8")
+            return nil
+        }
+
+        // 提取 KEY URI
+        let keyPattern = try? NSRegularExpression(pattern: ##"URI="([^"]+)""##)
+        let keyRange = NSRange(previewText.startIndex..., in: previewText)
+        var keyURI: String?
+        if let match = keyPattern?.firstMatch(in: previewText, range: keyRange),
+           let range = Range(match.range(at: 1), in: previewText) {
+            keyURI = String(previewText[range])
+        }
+
+        // 提取第一个 TS 段 URL
+        let tsPattern = try? NSRegularExpression(pattern: #"^https://[^\s]+\.ts"#, options: .anchorsMatchLines)
+        var tsURL: String?
+        if let match = tsPattern?.firstMatch(in: previewText, range: keyRange),
+           let range = Range(match.range, in: previewText) {
+            tsURL = String(previewText[range])
+        }
+
+        guard let key = keyURI, let ts = tsURL else {
+            print("[YBox] rebuildFullM3U8: failed to parse key/ts from preview")
+            return nil
+        }
+
+        // 提取 KEY CDN host
+        let keyHost: String
+        if key.hasPrefix("https://") {
+            keyHost = URL(string: key)?.host ?? ""
+        } else {
+            // 相对路径，使用与 preview URL 相同的 host
+            keyHost = URL(string: previewURL)?.host ?? ""
+        }
+
+        // 提取 TS 目录路径（去掉 host 和文件名）
+        guard let tsUrlObj = URL(string: ts) else { return nil }
+        let tsDir = tsUrlObj.deletingLastPathComponent().path
+
+        let fullURL = "https://\(keyHost)\(tsDir)/index.m3u8"
+        print("[YBox] rebuildFullM3U8: \(fullURL)")
+        return fullURL
+    }
+
     // MARK: - 视频解析工具
 
     private func parseVideo(_ row: [String: Any]) -> YBoxBananaVideo {
@@ -586,7 +659,8 @@ class YBoxService2: ObservableObject {
             year: row["year"] as? String ?? "",
             tags: (row["tags"] as? [String]) ?? [],
             playCount: row["playcount_total"] as? Int ?? (row["playcount"] as? Int ?? 0),
-            commentCount: row["commentcount"] as? Int ?? 0
+            commentCount: row["commentcount"] as? Int ?? 0,
+            previewURL: row["preview_url"] as? String
         )
     }
 

@@ -149,7 +149,7 @@ struct YBoxBananaHomeTab: View {
                                 NavigationLink(destination: YBoxBananaPlayerView(
                                     vodId: video.vodId, title: video.title,
                                     cover: video.cover, duration: video.duration,
-                                    platform: platform
+                                    platform: platform, previewURL: video.previewURL
                                 )) {
                                     BananaVideoCard(
                                         cover: video.cover, title: video.title,
@@ -248,7 +248,7 @@ struct YBoxBananaVideoGrid: View {
                             NavigationLink(destination: YBoxBananaPlayerView(
                                 vodId: video.vodId, title: video.title,
                                 cover: video.cover, duration: video.duration,
-                                platform: platform
+                                platform: platform, previewURL: video.previewURL
                             )) {
                                 BananaVideoCard(
                                     cover: video.cover, title: video.title,
@@ -780,7 +780,7 @@ struct YBoxBananaSpecialVideoList: View {
                                     NavigationLink(destination: YBoxBananaPlayerView(
                                         vodId: video.vodId, title: video.title,
                                         cover: video.cover, duration: video.duration,
-                                        platform: platform
+                                        platform: platform, previewURL: video.previewURL
                                     )) {
                                         BananaVideoCard(
                                             cover: video.cover, title: video.title,
@@ -887,16 +887,18 @@ struct YBoxBananaPlayerView: View {
     let cover: String
     let duration: String
     let platform: YBoxPlatform2
+    let previewURL: String?  // VIP 视频回退用
     @State private var isLongVideo: Bool
 
     @StateObject private var svc = YBoxService2.shared
 
-    init(vodId: String, title: String, cover: String, duration: String, platform: YBoxPlatform2, isLongVideo: Bool = true) {
+    init(vodId: String, title: String, cover: String, duration: String, platform: YBoxPlatform2, isLongVideo: Bool = true, previewURL: String? = nil) {
         self.vodId = vodId
         self.title = title
         self.cover = cover
         self.duration = duration
         self.platform = platform
+        self.previewURL = previewURL
         self._isLongVideo = State(initialValue: isLongVideo)
     }
     @State private var playURL: String?
@@ -967,7 +969,7 @@ struct YBoxBananaPlayerView: View {
     private func loadPlayURL() {
         isLoading = true; errorMsg = nil
         Task {
-            let (url, retcode, msg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: isLongVideo)
+            let (url, retcode, msg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: isLongVideo, previewURL: previewURL)
             if let url = url {
                 await MainActor.run {
                     playURL = url; isLoading = false
@@ -979,7 +981,7 @@ struct YBoxBananaPlayerView: View {
             } else {
                 // 主端点失败，尝试切换
                 let altIsLong = !isLongVideo
-                let (altUrl, altRetcode, altMsg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: altIsLong)
+                let (altUrl, altRetcode, altMsg) = await svc.fetchBananaPlayURL(vodId: vodId, isLongVideo: altIsLong, previewURL: previewURL)
                 if let altUrl = altUrl {
                     await MainActor.run {
                         playURL = altUrl; isLoading = false; isLongVideo = altIsLong
