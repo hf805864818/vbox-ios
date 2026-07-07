@@ -1240,6 +1240,12 @@ struct YBoxLiveSourceListView: View {
 
     private let liveURL = "http://api.hclyz.com:81/mf"
 
+    /// 获取直播数据的实际URL（优先使用代理）
+    private var effectiveLiveURL: String {
+        let proxy = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
+        if !proxy.isEmpty { return proxy } else { return liveURL }
+    }
+
     var body: some View {
         Group {
             if isLoading {
@@ -1283,7 +1289,7 @@ struct YBoxLiveSourceListView: View {
     private func loadData() async {
         isLoading = true; errorMsg = nil
         do {
-            guard let url = URL(string: "\(liveURL)/json.txt") else {
+            guard let url = URL(string: "\(effectiveLiveURL)/json.txt") else {
                 errorMsg = "直播源地址配置错误"; isLoading = false; return
             }
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -1309,7 +1315,7 @@ struct YBoxLiveSourceListView: View {
     }
 
     private func fetchChannels(address: String) async -> [YBoxLiveChannel2] {
-        guard let url = URL(string: "\(liveURL)/" + address) else { return [] }
+        guard let url = URL(string: "\(effectiveLiveURL)/" + address) else { return [] }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1369,7 +1375,15 @@ struct YBoxLiveChannelListView: View {
                 ProgressView("加载频道...")
             } else {
                 List(channels) { ch in
-                    Button(action: { selectedChannelURL = ch.address; showPlayer = true }) {
+                    Button(action: {
+                        let proxyBase = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
+                        if !proxyBase.isEmpty, let encoded = ch.address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                            selectedChannelURL = proxyBase + encoded
+                        } else {
+                            selectedChannelURL = ch.address
+                        }
+                        showPlayer = true
+                    }) {
                         HStack {
                             Image(systemName: "play.circle").foregroundColor(Color(hex: "E11D48"))
                             VStack(alignment: .leading) {
