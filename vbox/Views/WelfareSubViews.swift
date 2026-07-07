@@ -635,6 +635,9 @@ struct YBoxBananaShortPlayerView: View {
 
     private func switchToVideo(at index: Int) {
         guard index < videos.count else { return }
+        // 清理旧播放器的所有 observer
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player?.currentItem)
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: player?.currentItem)
         player?.pause(); player = nil
         isPlayerReady = false
         currentTime = 0; duration = 1
@@ -725,24 +728,69 @@ struct YBoxBananaShortPlayerView: View {
     private func startPlayer(url: URL) {
         // 清理旧 observer（防止内存泄漏）
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player?.currentItem)
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: player?.currentItem)
 
-        let p = AVPlayer(url: url)
+        print("[ShortPlayer] 初始化播放器 URL=\(url.absoluteString.prefix(120))")
+
+        // 使用 AVURLAsset + 自定义 HTTP Headers（对齐长视频播放器，避免 CDN 因缺 Referer/UA 拒绝）
+        var headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9"
+        ]
+        if let host = url.host {
+            headers["Referer"] = "https://\(host)/"
+        }
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let playerItem = AVPlayerItem(asset: asset)
+
+        let p = AVPlayer(playerItem: playerItem)
         p.rate = rate
         p.play()
         player = p
         isPlayerReady = true
+
+        // 错误监听：播放中断（AVPlayer 遇到不可恢复错误时触发）
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [self] notif in
+            let err = notif.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            let code = (err as? NSError)?.code ?? -1
+            print("[ShortPlayer] ❌ 播放中断 code=\(code): \(err?.localizedDescription ?? "未知")")
+            videoError = "播放中断" + (code != -1 ? " (\(code))" : "")
+            isPlayerReady = false
+        }
 
         p.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.3, preferredTimescale: 600), queue: .main) { time in
             currentTime = time.seconds
             if let d = p.currentItem?.duration.seconds, d.isFinite && d > 0 {
                 duration = d
             }
+            // 轮询检测播放器失败状态（兜底，AVPlayer HLS 加载失败有时不触发 FailedToPlayToEndTime）
+            if let item = p.currentItem {
+                switch item.status {
+                case .failed:
+                    let e = item.error
+                    let c = (e as? NSError)?.code ?? -1
+                    print("[ShortPlayer] ❌ status=failed code=\(c): \(e?.localizedDescription ?? "未知")")
+                    videoError = "播放加载失败" + (c != -1 ? " (\(c))" : "")
+                    isPlayerReady = false
+                case .readyToPlay:
+                    break
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
         }
 
         // 播放结束自动下一个
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: p.currentItem,
+            object: playerItem,
             queue: .main
         ) { [self] _ in
             if currentIndex < videos.count - 1 {
