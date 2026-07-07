@@ -5,10 +5,12 @@ import SwiftUI
 // 页面架构（对标 yBox 原生）：
 //   首页Tab → 分类列表(12类) → 视频网格(2列) → 播放
 //   短视频Tab → /minivod/reqlist → 抖音式竖屏滑动 + 点击进入播放
-//   演员Tab   → /special/listing  → 演员/专题列表 → 视频列表 → 播放
-//   注：zfvwi8 网关无独立演员 API，暂用专题列表模拟
+//   演员Tab   → /special/listing-0-0-1(actorrows导航) → /special/detail/{spId}-{page}(视频列表) → 播放
 //
 // API 来源：ybox App HTTPS 抓包还原
+//   抓包确认端点：
+//     GET /special/listing-0-0-{page}  → data.rows(分页专题) + data.actorrows(100条全量导航)
+//     GET /special/detail/{spId}-{page} → data.vodrows(专题/演员内完整视频列表)
 
 struct YBoxXjspMainView: View {
     let platform: YBoxPlatform2
@@ -541,8 +543,9 @@ struct YBoxBananaActorTab: View {
         Task {
             let result = await svc.fetchBananaSpecials(page: 1)
             await MainActor.run {
-                actors = result; isLoading = false
-                if result.isEmpty { loadError = "暂时无法连接服务器" }
+                // 演员Tab用 actorrows（全量导航），专题Tab用 rows（分页列表）
+                actors = result.actorrows; isLoading = false
+                if result.actorrows.isEmpty { loadError = "暂时无法连接服务器" }
             }
         }
     }
@@ -550,7 +553,7 @@ struct YBoxBananaActorTab: View {
 
 // MARK: - 专题视频列表
 
-// MARK: - 演员/专题详情页（zfvwi8 无 session 级视频过滤，兜底全列表）
+// MARK: - 演员/专题视频列表页（GET /special/detail/{spId}-{page} → vodrows）
 struct YBoxBananaSpecialVideoList: View {
     let special: YBoxBananaSpecial
     let platform: YBoxPlatform2
