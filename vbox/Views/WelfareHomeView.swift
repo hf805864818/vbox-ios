@@ -7,7 +7,7 @@ struct WelfareHomeView: View {
     @StateObject private var ybox = YBoxService2.shared
     @State private var selectedTab: WelfareTab = .video
     @State private var isEditMode = false
-    @State private var platformOrder: [String: [String]] = [:] // 缓存排序
+    @State private var platformOrder: [String: [String]] = [:]
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -31,6 +31,7 @@ struct WelfareHomeView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("福利")
                             .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.primary)
                     }
                     Spacer()
                     NavigationLink(destination: WelfareDomainSettingsView()
@@ -83,7 +84,7 @@ struct WelfareHomeView: View {
                     HStack {
                         Text("长按拖动可排序")
                             .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.6))
+                            .foregroundColor(.secondary)
                         Spacer()
                         Button("完成") {
                             withAnimation { isEditMode = false }
@@ -104,7 +105,7 @@ struct WelfareHomeView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .background(backgroundColor)
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear { loadOrder() }
         }
@@ -122,7 +123,7 @@ struct WelfareHomeView: View {
                 spacing: 16
             ) {
                 ForEach(ordered) { platform in
-                    NavigationLink(destination: platformDestination(platform)) {
+                    NavigationLink(destination: YBoxCrawlerContentView(platform: platform)) {
                         PlatformIconCard(
                             platform: platform,
                             isEditMode: isEditMode,
@@ -161,14 +162,14 @@ struct WelfareHomeView: View {
                     Group {
                         if isEditMode {
                             Circle()
-                                .stroke(Color.white.opacity(0.3), lineWidth: 2)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 2)
                         }
                     }
                 )
 
                 Text(platform.name)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -204,7 +205,6 @@ struct WelfareHomeView: View {
         ]
         guard let pt = typeMap[tab] else { return [] }
 
-        // 收集 24个Python平台 + MissAV
         let all: [YBoxPlatform2] = {
             let cats = ybox.categories
             for c in cats {
@@ -235,28 +235,6 @@ struct WelfareHomeView: View {
     private func saveOrder() {
         if let data = try? JSONEncoder().encode(platformOrder) {
             UserDefaults.standard.set(data, forKey: "welfare_platform_order")
-        }
-    }
-
-    // MARK: - 目的地路由
-
-    @ViewBuilder
-    private func platformDestination(_ platform: YBoxPlatform2) -> some View {
-        switch platform.name {
-        case "MissAV":
-            MissAVHomeView()
-        case "香蕉秀":
-            YBoxXjspMainView(platform: platform)
-        case "色播聚合":
-            YBoxLiveSourceListView()
-        case "Pandalive":
-            YBoxLiveSourceListView()
-        default:
-            if let pid = platform.crawlerPlatformId, !pid.isEmpty {
-                YBoxCrawlerContentView(platform: platform)
-            } else {
-                YBoxPlatformDetailView(platform: platform)
-            }
         }
     }
 
@@ -301,88 +279,4 @@ struct WelfareHomeView: View {
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
     }
-
-    private var backgroundColor: some View {
-        Color(uiColor: .systemBackground).ignoresSafeArea()
-    }
 }
-
-// MARK: - 占位详情页（未对接的Python平台）
-
-struct YBoxPlatformDetailView: View {
-    let platform: YBoxPlatform2
-    @EnvironmentObject private var settings: AppSettings
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 16) {
-                // 平台信息头部
-                VStack(spacing: 12) {
-                    Circle()
-                        .fill(LinearGradient(
-                            colors: [Color(hex: "E11D48"), Color(hex: "F43F5E")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 72, height: 72)
-                        .overlay(
-                            Image(systemName: platform.icon)
-                                .font(.system(size: 32))
-                                .foregroundColor(.white)
-                        )
-
-                    Text(platform.name)
-                        .font(.system(size: 22, weight: .bold))
-
-                    Text(platform.desc)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
-                }
-                .padding(.top, 40)
-
-                // 占位提示
-                VStack(spacing: 8) {
-                    Image(systemName: "hammer.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.yellow)
-                    Text("对接开发中")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("该平台正在按优先级逐步对接\n请稍候")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 40)
-
-                // 分类预览（模拟）
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("分类预览")
-                        .font(.system(size: 16, weight: .bold))
-                        .padding(.horizontal, 20)
-
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
-                        ForEach(0..<6, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(.secondarySystemBackground))
-                                .frame(height: 88)
-                                .overlay(
-                                    Text("分类 \(i+1)")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.secondary)
-                                )
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .padding(.top, 20)
-            }
-            .padding(.bottom, 40)
-        }
-        .navigationTitle(platform.name)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
- 
