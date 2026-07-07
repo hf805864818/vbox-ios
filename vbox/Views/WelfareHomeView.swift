@@ -7,7 +7,7 @@ struct WelfareHomeView: View {
     @StateObject private var ybox = YBoxService2.shared
     @State private var selectedTab: WelfareTab = .video
     @State private var isEditMode = false
-    @State private var platformOrder: [String: [String]] = [:]
+    @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -82,7 +82,7 @@ struct WelfareHomeView: View {
                 // 编辑模式提示
                 if isEditMode {
                     HStack {
-                        Text("长按拖动可排序")
+                        Text("拖动卡片交换位置")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                         Spacer()
@@ -114,100 +114,70 @@ struct WelfareHomeView: View {
     // MARK: - 平台网格（4列App图标风格）
 
     private func platformGrid(for tab: WelfareTab) -> some View {
-        let platforms = filteredPlatforms(for: tab)
-        let ordered = applyOrder(platforms, for: tab)
+        let platforms = currentOrderedPlatforms(for: tab)
 
         return ScrollView(showsIndicators: false) {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
-                spacing: 16
-            ) {
-                ForEach(ordered) { platform in
-                    NavigationLink(destination: YBoxCrawlerContentView(platform: platform)) {
-                        PlatformIconCard(
-                            platform: platform,
-                            isEditMode: isEditMode,
-                            gradient: platformGradient(platform.name)
-                        )
-                    }
-                    .buttonStyle(.plain)
+            if platforms.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer().frame(height: 60)
+                    Image(systemName: "square.grid.3x3")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("暂无平台")
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 100)
-        }
-    }
-
-    // MARK: - 平台入口图标卡片（App图标风格）
-
-    struct PlatformIconCard: View {
-        let platform: YBoxPlatform2
-        let isEditMode: Bool
-        let gradient: [Color]
-        @State private var offset = CGSize.zero
-
-        var body: some View {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 52, height: 52)
-
-                    Image(systemName: platform.icon)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .overlay(
-                    Group {
+                .frame(maxWidth: .infinity)
+            } else {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
+                    spacing: 16
+                ) {
+                    ForEach(Array(platforms.enumerated()), id: \.element.id) { index, platform in
                         if isEditMode {
-                            Circle()
-                                .stroke(Color.secondary.opacity(0.3), lineWidth: 2)
+                            // 编辑模式：可拖动排序的卡片
+                            PlatformSortableCard(
+                                platform: platform,
+                                index: index,
+                                isEditMode: isEditMode,
+                                gradient: platformGradient(platform.name),
+                                onMove: { fromIndex, toIndex in
+                                    movePlatform(from: fromIndex, to: toIndex, tab: tab)
+                                }
+                            )
+                        } else {
+                            // 正常模式：导航卡片
+                            NavigationLink(destination: YBoxCrawlerContentView(platform: platform)) {
+                                PlatformIconCard(
+                                    platform: platform,
+                                    isEditMode: false,
+                                    gradient: platformGradient(platform.name)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                )
-
-                Text(platform.name)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 100)
             }
-            .frame(width: 72, height: 86)
-            .offset(isEditMode ? CGSize(width: 0, height: -3) : .zero)
-            .animation(
-                isEditMode ?
-                Animation.easeInOut(duration: 0.12).repeatForever(autoreverses: true).delay(Double.random(in: 0...0.15))
-                : .default,
-                value: isEditMode
-            )
-            .gesture(isEditMode ? dragGesture : nil)
-        }
-
-        private var dragGesture: some Gesture {
-            DragGesture()
-                .onChanged { value in
-                    offset = value.translation
-                }
-                .onEnded { _ in
-                    withAnimation(.spring()) { offset = .zero }
-                }
         }
     }
 
-    // MARK: - 平台列表过滤 + 排序
+    // MARK: - 排序逻辑
+
+    private func currentOrderedPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
+        orderedPlatforms[tab] ?? filteredPlatforms(for: tab)
+    }
 
     private func filteredPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
         let typeMap: [WelfareTab: YBoxPlatform2.PlatformType2] = [
-            .video: .video,
-            .live: .live,
-            .comic: .comic
+            .video: .video, .live: .live, .comic: .comic
         ]
         guard let pt = typeMap[tab] else { return [] }
-
         let all: [YBoxPlatform2] = {
-            let cats = ybox.categories
-            for c in cats {
+            for c in ybox.categories {
                 if c.name == tab.rawValue { return c.platforms }
             }
             return []
@@ -215,25 +185,41 @@ struct WelfareHomeView: View {
         return all.filter { $0.type == pt || pt == .video }
     }
 
-    private func applyOrder(_ platforms: [YBoxPlatform2], for tab: WelfareTab) -> [YBoxPlatform2] {
-        let saved = platformOrder[tab.rawValue] ?? []
-        if saved.isEmpty { return platforms }
-        return platforms.sorted { a, b in
-            let ai = saved.firstIndex(of: a.id) ?? Int.max
-            let bi = saved.firstIndex(of: b.id) ?? Int.max
-            return ai < bi
-        }
+    private func movePlatform(from source: Int, to destination: Int, tab: WelfareTab) {
+        var list = currentOrderedPlatforms(for: tab)
+        guard source >= 0, source < list.count, destination >= 0, destination < list.count else { return }
+        let item = list.remove(at: source)
+        list.insert(item, at: destination)
+        orderedPlatforms[tab] = list
     }
 
     private func loadOrder() {
         if let data = UserDefaults.standard.data(forKey: "welfare_platform_order"),
            let dict = try? JSONDecoder().decode([String: [String]].self, from: data) {
-            platformOrder = dict
+            for tab in WelfareTab.allCases {
+                let saved = dict[tab.rawValue] ?? []
+                if !saved.isEmpty {
+                    let all = filteredPlatforms(for: tab)
+                    let ordered = all.sorted { a, b in
+                        let ai = saved.firstIndex(of: a.id) ?? Int.max
+                        let bi = saved.firstIndex(of: b.id) ?? Int.max
+                        return ai < bi
+                    }
+                    if ordered.count == all.count {
+                        orderedPlatforms[tab] = ordered
+                    }
+                }
+            }
         }
     }
 
     private func saveOrder() {
-        if let data = try? JSONEncoder().encode(platformOrder) {
+        var dict: [String: [String]] = [:]
+        for tab in WelfareTab.allCases {
+            let list = orderedPlatforms[tab] ?? filteredPlatforms(for: tab)
+            dict[tab.rawValue] = list.map { $0.id }
+        }
+        if let data = try? JSONEncoder().encode(dict) {
             UserDefaults.standard.set(data, forKey: "welfare_platform_order")
         }
     }
@@ -278,5 +264,108 @@ struct WelfareHomeView: View {
             "1080视频":      [Color(hex: "0984E3"), Color(hex: "74B9FF")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
+    }
+}
+
+// MARK: - 平台入口图标卡片（正常模式）
+
+struct PlatformIconCard: View {
+    let platform: YBoxPlatform2
+    let isEditMode: Bool
+    let gradient: [Color]
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 52, height: 52)
+                Image(systemName: platform.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            Text(platform.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: 72, height: 86)
+    }
+}
+
+// MARK: - 可拖动排序卡片
+
+struct PlatformSortableCard: View {
+    let platform: YBoxPlatform2
+    let index: Int
+    let isEditMode: Bool
+    let gradient: [Color]
+    let onMove: (Int, Int) -> Void
+
+    @State private var offset = CGSize.zero
+    @State private var dragStartIndex: Int = 0
+    @State private var isDragging = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 52, height: 52)
+                Image(systemName: platform.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .overlay(
+                Circle()
+                    .stroke(Color.secondary.opacity(0.3), lineWidth: 2)
+            )
+
+            Text(platform.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: 72, height: 86)
+        .scaleEffect(isDragging ? 1.1 : 1.0)
+        .offset(offset)
+        .zIndex(isDragging ? 999 : 0)
+        .animation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true).delay(Double(index).truncatingRemainder(dividingBy: 4) * 0.04), value: isEditMode)
+        .gesture(
+            LongPressGesture(minimumDuration: 0.3)
+                .sequenced(before: DragGesture())
+                .onChanged { value in
+                    switch value {
+                    case .second(true, let drag):
+                        if let drag = drag {
+                            if !isDragging {
+                                isDragging = true
+                                dragStartIndex = index
+                            }
+                            let rowHeight: CGFloat = 102 // 86 + 16 spacing
+                            let colWidth: CGFloat = 88   // 72 + 16 spacing
+                            let cols = 4
+                            let currentRow = index / cols
+                            let currentCol = index % cols
+                            let newRow = currentRow + Int(round(drag.translation.height / rowHeight))
+                            let newCol = min(max(currentCol + Int(round(drag.translation.width / colWidth)), 0), cols - 1)
+                            let newIndex = newRow * cols + newCol
+                            if newIndex >= 0, newIndex != index {
+                                onMove(index, newIndex)
+                                // 这里直接操作会导致UI闪烁，通过父视图重新渲染
+                            }
+                            offset = drag.translation
+                        }
+                    default:
+                        break
+                    }
+                }
+                .onEnded { _ in
+                    isDragging = false
+                    offset = .zero
+                }
+        )
     }
 }
