@@ -338,7 +338,7 @@ final class MissAVService: ObservableObject {
                 let vodId = detailURL.components(separatedBy: "/").last?.replacingOccurrences(of: "-", with: "_") ?? UUID().uuidString
                 items.append(VodItem(
                     vodId: vodId, vodName: finalTitle, vodPic: normalizeImageURL(image),
-                    vodRemarks: vodId.uppercased(), vodArea: "MissAV",
+                    vodRemarks: "[福利]\(vodId.uppercased())", vodArea: "MissAV",
                     vodContent: finalTitle, vodPlayFrom: "missav", vodPlayUrl: detailURL
                 ))
                 if items.count >= 40 { return items }
@@ -382,7 +382,7 @@ final class MissAVService: ObservableObject {
                     let vodId = detail.components(separatedBy: "/").last?.replacingOccurrences(of: "-", with: "_") ?? UUID().uuidString
                     items.append(VodItem(
                         vodId: vodId, vodName: finalTitle, vodPic: normalizeImageURL(image),
-                        vodRemarks: vodId.uppercased(), vodArea: "MissAV",
+                        vodRemarks: "[福利]\(vodId.uppercased())", vodArea: "MissAV",
                         vodContent: finalTitle, vodPlayFrom: "missav", vodPlayUrl: detail
                     ))
                     if items.count >= 40 { break }
@@ -410,7 +410,7 @@ final class MissAVService: ObservableObject {
                     guard !seen.contains(detail), !title.isEmpty else { continue }
                     seen.insert(detail)
                     let vodId = detail.components(separatedBy: "/").last ?? UUID().uuidString
-                    items.append(VodItem(vodId: vodId, vodName: title, vodPic: normalizeImageURL(image), vodRemarks: vodId.uppercased(), vodArea: "MissAV", vodContent: title, vodPlayFrom: "missav", vodPlayUrl: detail))
+                    items.append(VodItem(vodId: vodId, vodName: title, vodPic: normalizeImageURL(image), vodRemarks: "[福利]\(vodId.uppercased())", vodArea: "MissAV", vodContent: title, vodPlayFrom: "missav", vodPlayUrl: detail))
                     if items.count >= 40 { break }
                 }
                 if !items.isEmpty { break }

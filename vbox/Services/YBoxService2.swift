@@ -1,6 +1,7 @@
 import Foundation
 
-// MARK: - 数据模型（保留原名避免冲突）
+// MARK: - YBox 分类/平台模型
+
 struct YBoxCategory2: Identifiable {
     var id: String { name }
     let name: String
@@ -14,7 +15,6 @@ struct YBoxPlatform2: Identifiable {
     let type: PlatformType2
     let baseURL: String
     let desc: String
-    /// 对应 WelfareCrawlerConfig 中的 platformId，nil 表示使用 YBox 自有 API
     let crawlerPlatformId: String?
 
     init(name: String, icon: String, type: PlatformType2,
@@ -24,54 +24,108 @@ struct YBoxPlatform2: Identifiable {
         self.crawlerPlatformId = crawlerPlatformId
     }
 
-    enum PlatformType2: String {
-        case video, live, comic, audio
-    }
+    enum PlatformType2: String { case video, live, comic, audio }
 }
 
-struct YBoxVideoItem2: Identifiable {
+// MARK: - 香蕉秀数据模型（zfvwi8 API 返回格式，by QClaw 2026-07-07）
+
+/// 首页分类（来自 /index → data.v2cats 或 data.v2navs）
+struct YBoxBananaCategory: Identifiable {
+    var id: String { cateId }
+    let cateId: String
+    let name: String
+    let type: String  // "vod"/"special"/"actor"
+    /// 子分类列表（二级分类，来自 listing 子项）
+    let subCates: [YBoxBananaSubCategory]
+}
+
+struct YBoxBananaSubCategory: Identifiable {
+    var id: String { cateId }
+    let cateId: String
+    let name: String
+}
+
+/// 视频条目（来自 /vod/listing-{cateid}-x-x-x-x-x-x-x-x-{page}）
+struct YBoxBananaVideo: Identifiable {
+    var id: String { vodId }
+    let vodId: String
+    let title: String
+    let cover: String          // coverpic
+    let duration: String
+    let score: String?         // scorenum
+    let mosaic: String         // "1"=有码 "2"=无码 "0"=未知
+    let cateId: String
+    let cateName: String?
+    let areaName: String?
+    let year: String
+    let tags: [String]
+    let playCount: Int
+    let commentCount: Int
+    // 播放路径：/vod/reqplay/{vodId}
+    var playPath: String { "/vod/reqplay/\(vodId)" }
+}
+
+/// 短视频条目（来自 /minivod/reqlist?page={page}）
+struct YBoxBananaMiniVideo: Identifiable {
     var id: String { vodId }
     let vodId: String
     let title: String
     let cover: String
-    let duration: String?
-    let score: String?
-    let playUrl: String?
-    let category: String?
+    let videoUrl: String?
+    let duration: String
+    let userName: String
+    let userAvatar: String
+    var playPath: String { "/minivod/reqplay/\(vodId)" }
 }
 
-/// 香蕉视频分类模型
-struct YBoxBananaCategory: Identifiable {
-    var id: String { spid }
-    let spid: String
-    let name: String
-    let intro: String
-    let cover: String
+/// 专题（来自 /special/listing-0-0-{page}）
+struct YBoxBananaSpecial: Identifiable {
+    var id: String { spId }
+    let spId: String
+    let spName: String
+    let spCover: String
+    let itemCount: Int
 }
+
+/// 专题内视频
+struct YBoxBananaSpecialVideo: Identifiable {
+    var id: String { vodId }
+    let vodId: String
+    let title: String
+    let cover: String
+    let duration: String
+    let score: String?
+    var playPath: String { "/vod/reqplay/\(vodId)" }
+}
+
+/// 演员条目（暂用，后续可通过 /index 的 actor 导航获取完整列表）
+struct YBoxBananaActor: Identifiable {
+    var id: String { actorId }
+    let actorId: String
+    let name: String
+    let avatar: String?
+    let videoCount: Int
+}
+
+// MARK: - 直播/漫画模型（保留）
 
 struct YBoxLiveItem2: Identifiable {
     var id: String { title }
-    let title: String
-    let img: String
-    let number: String
+    let title: String; let img: String; let number: String
     let channels: [YBoxLiveChannel2]
 }
 
 struct YBoxLiveChannel2: Identifiable {
     var id: String { title }
-    let title: String
-    let address: String
-    let img: String
+    let title: String; let address: String; let img: String
 }
 
 struct YBoxComicItem2: Identifiable {
     var id: String { title }
-    let title: String
-    let cover: String
-    let href: String?
+    let title: String; let cover: String; let href: String?
 }
 
-// MARK: - YBox 服务 (2)
+// MARK: - YBox 服务
 class YBoxService2: ObservableObject {
     static let shared = YBoxService2()
 
@@ -79,23 +133,99 @@ class YBoxService2: ObservableObject {
     @Published var liveSources: [YBoxLiveItem2] = []
     @Published var isLiveLoaded = false
 
+    // MARK: - API 网关（从 ybox 抓包确认，by QClaw 2026-07-07）
+    private let apiGateway = "https://zfvwi8.ipajx0.cc"
+
+    /// 生成设备认证 token（32位 hex 字符串）
+    private var cookieAuth: String {
+        // 使用固定的设备标识生成；可替换为用户自定义 token
+        let deviceId = Bundle.main.bundleIdentifier ?? "avbox.ios.client"
+        let hash = deviceId.data(using: .utf8)!.map { String(format: "%02x", $0) }.joined()
+        // 补足到 32 位
+        let padding = "a1b2c3d4e5f60708"
+        let token = (hash + padding).prefix(32)
+        return String(token)
+    }
+
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 15
+        c.timeoutIntervalForRequest = 20
+        c.httpAdditionalHeaders = [
+            "User-Agent": "Dart/3.4 (dart:io)",
+            "Accept-Encoding": "gzip",
+        ]
         return URLSession(configuration: c)
     }()
+
+    // MARK: - 请求封装
+
+    /// 通用 GET 请求，支持 gzip 解压，返回解析后的 JSON 字典
+    private func fetchJSON(path: String, query: [String: String] = [:]) async throws -> [String: Any] {
+        var components = URLComponents(string: "\(apiGateway)\(path)")
+        if !query.isEmpty {
+            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components?.url else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.setValue("5.2.0", forHTTPHeaderField: "x-version")
+        req.setValue("xj2", forHTTPHeaderField: "x-channel")
+        req.setValue(cookieAuth, forHTTPHeaderField: "x-cookie-auth")
+        req.setValue("gzip", forHTTPHeaderField: "accept-encoding")
+
+        let (data, response) = try await session.data(for: req)
+        guard let httpResp = response as? HTTPURLResponse,
+              (200...299).contains(httpResp.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        // 处理 gzip 解压（URLSession 默认自动解压，但显式检查）
+        var body = data
+        if let contentEncoding = (httpResp.allHeaderFields["Content-Encoding"] as? String)?.lowercased(),
+           contentEncoding == "gzip" {
+            // URLSession 已自动解压，无需手动处理
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            throw URLError(.cannotParseResponse)
+        }
+        return json
+    }
+
+    /// 解析标准 ybox 响应：{"retcode": 0, "data": {...}}
+    private func parseData(from json: [String: Any]) -> [String: Any]? {
+        guard let retcode = json["retcode"] as? Int, retcode == 0,
+              let data = json["data"] as? [String: Any] else {
+            return nil
+        }
+        return data
+    }
+
+    /// 解析 data 中的数组字段
+    private func parseDataArray(from json: [String: Any], key: String? = nil) -> [[String: Any]]? {
+        guard let data = json["data"] as? [String: Any] else { return nil }
+        if let k = key {
+            return data[k] as? [[String: Any]]
+        }
+        // 尝试常见键名
+        return (data["rows"] as? [[String: Any]]) ??
+               (data["vodrows"] as? [[String: Any]]) ??
+               (data["list"] as? [[String: Any]])
+    }
+
+    // MARK: - 分类构建
 
     init() { buildCategories() }
 
     private func buildCategories() {
-        // 从 WelfareCrawlerConfig 获取各平台有效域名（支持用户自定义覆盖）
-        let bananaURL = baseURL(for: "banana", defaultURL: "https://zfvwi8.ipajx0.cc")
+        let bananaURL = baseURL(for: "banana", defaultURL: apiGateway)
         let liveURL = baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
         let comic18URL = baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
         let kmURL = baseURL(for: "km", defaultURL: "https://1080.hlkjsm.com")
         let byfmURL = baseURL(for: "byfm", defaultURL: "https://api.byfm2.app")
 
-        // ═══ YBox 原始平台（保留自有API，不通过爬虫） ═══
         let yboxVideo: [YBoxPlatform2] = [
             YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
                          baseURL: bananaURL, desc: "短视频/长视频"),
@@ -106,34 +236,25 @@ class YBoxService2: ObservableObject {
             YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
                          baseURL: bananaURL, desc: "专题视频"),
             YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
-                         baseURL: kmURL, desc: "综合视频站",
-                         crawlerPlatformId: "km"),
+                         baseURL: kmURL, desc: "综合视频站", crawlerPlatformId: "km"),
             YBoxPlatform2(name: "BYFM有声", icon: "headphones", type: .audio,
                          baseURL: byfmURL, desc: "有声小说50类"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live,
-                         baseURL: liveURL, desc: "CCTV/卫视/广播"),
-            YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live,
-                         baseURL: liveURL, desc: "娱乐直播"),
-            YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live,
-                         baseURL: liveURL, desc: "才艺互动"),
-            YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live,
-                         baseURL: liveURL, desc: "社区直播"),
+            YBoxPlatform2(name: "卫视直播", icon: "tv.fill", type: .live, baseURL: liveURL, desc: "CCTV/卫视/广播"),
+            YBoxPlatform2(name: "蜜桃直播", icon: "flame.fill", type: .live, baseURL: liveURL, desc: "娱乐直播"),
+            YBoxPlatform2(name: "卡哇伊", icon: "suit.heart.fill", type: .live, baseURL: liveURL, desc: "才艺互动"),
+            YBoxPlatform2(name: "番茄社区", icon: "person.2.fill", type: .live, baseURL: liveURL, desc: "社区直播"),
         ]
 
         let yboxComic: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic,
-                         baseURL: comic18URL, desc: "日漫/韩漫/同人"),
-            YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic,
-                         baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
+            YBoxPlatform2(name: "18禁漫画", icon: "book.fill", type: .comic, baseURL: comic18URL, desc: "日漫/韩漫/同人"),
+            YBoxPlatform2(name: "ComicBox", icon: "books.vertical.fill", type: .comic, baseURL: "https://www.comicbox.xyz", desc: "综合漫画站"),
         ]
 
-        // ═══ 从 WelfareCrawlerConfig 导入所有平台，按 contentType 分类 ═══
+        // 从 WelfareCrawlerConfig 导入所有爬虫平台
         let allCrawlerConfigs = WelfareCrawlerConfig.all
-
-        // 已存在于 YBox 原始列表中的 platformId
         let yboxReservedIds: Set<String> = ["banana", "huanxiang", "km", "live_hclyz", "comic18"]
 
         var crawlerVideo: [YBoxPlatform2] = []
@@ -142,35 +263,23 @@ class YBoxService2: ObservableObject {
 
         for cfg in allCrawlerConfigs {
             guard !yboxReservedIds.contains(cfg.platformId) else { continue }
-
-            let icon = iconForPlatform(cfg.platformId)
-            let desc = descForPlatform(cfg.platformId)
-
             let platform = YBoxPlatform2(
-                name: cfg.platformName,
-                icon: icon,
+                name: cfg.platformName, icon: iconForPlatform(cfg.platformId),
                 type: platformTypeForContentType(cfg.contentType),
-                baseURL: cfg.effectiveBaseURL,
-                desc: desc,
+                baseURL: cfg.effectiveBaseURL, desc: descForPlatform(cfg.platformId),
                 crawlerPlatformId: cfg.platformId
             )
-
             switch cfg.contentType {
             case .comic: crawlerComic.append(platform)
-            case .live:  crawlerLive.append(platform)
+            case .live: crawlerLive.append(platform)
             case .video, .mixed, .audio: crawlerVideo.append(platform)
             }
         }
 
-        // ═══ 组装最终分类（移除数量限制，全部展示） ═══
-        let allVideo = yboxVideo + crawlerVideo
-        let allLive = yboxLive + crawlerLive
-        let allComic = yboxComic + crawlerComic
-
         categories = [
-            YBoxCategory2(name: "视频", platforms: allVideo),
-            YBoxCategory2(name: "直播", platforms: allLive),
-            YBoxCategory2(name: "漫画", platforms: allComic),
+            YBoxCategory2(name: "视频", platforms: yboxVideo + crawlerVideo),
+            YBoxCategory2(name: "直播", platforms: yboxLive + crawlerLive),
+            YBoxCategory2(name: "漫画", platforms: yboxComic + crawlerComic),
         ]
     }
 
@@ -182,7 +291,8 @@ class YBoxService2: ObservableObject {
         }
     }
 
-    // MARK: - 平台图标
+    // MARK: - 平台图标/描述
+
     private func iconForPlatform(_ id: String) -> String {
         let icons: [String: String] = [
             "91av": "play.circle.fill", "hgsp": "play.rectangle.fill", "hsxs": "sparkles.tv.fill",
@@ -191,17 +301,16 @@ class YBoxService2: ObservableObject {
             "txvlog": "camera.fill", "wmq": "play.display", "xbk": "rectangle.stack.fill",
             "zlt": "square.grid.3x3.fill", "lls": "square.on.square", "hhlz": "globe",
             "mimei": "heart.circle.fill", "avin": "person.fill.viewfinder", "javdb": "film.stack.fill",
-            "djr": "star.bubble.fill", "lxs": "person.2.fill", "44hhqq": "play.circle.fill", "missav": "play.slash.fill",
-            "mmav": "moon.circle.fill", "oksp": "eye.fill", "pron91": "rectangle.3.group.fill",
-            "tv91": "tv.fill", "mdtv": "tv.and.mediabox", "pdl": "list.bullet.rectangle.fill",
-            "qp": "tag.fill", "zpc91": "square.grid.2x2.fill",
+            "djr": "star.bubble.fill", "lxs": "person.2.fill", "44hhqq": "play.circle.fill",
+            "missav": "play.slash.fill", "mmav": "moon.circle.fill", "oksp": "eye.fill",
+            "pron91": "rectangle.3.group.fill", "tv91": "tv.fill", "mdtv": "tv.and.mediabox",
+            "pdl": "list.bullet.rectangle.fill", "qp": "tag.fill", "zpc91": "square.grid.2x2.fill",
             "dsp91": "sparkle.magnifyingglass", "sp91": "magnifyingglass.circle.fill",
-            "ttav": "play.circle", "xjsp": "theatermasks.fill",
-            "fl2": "flame.fill", "byfm": "headphones.circle.fill", "yxfm": "music.note.list",
+            "ttav": "play.circle", "xjsp": "theatermasks.fill", "fl2": "flame.fill",
+            "byfm": "headphones.circle.fill", "yxfm": "music.note.list",
             "hu4": "photo.on.rectangle.fill", "awjd": "newspaper.fill", "cgw": "doc.text.fill",
             "cg51": "person.3.fill", "ttt": "bubble.left.and.bubble.right.fill",
-            "sgp": "camera.aperture",
-            "dm51": "arrow.down.to.line", "awjm": "icloud.and.arrow.down.fill",
+            "sgp": "camera.aperture", "dm51": "arrow.down.to.line", "awjm": "icloud.and.arrow.down.fill",
             "qysq": "eye.slash.fill", "kpsp": "tv.badge.wifi",
             "dh50": "50.square.fill", "hjsq": "antenna.radiowaves.left.and.right",
             "yfg": "gift.fill", "gdcm": "lightbulb.fill",
@@ -215,7 +324,6 @@ class YBoxService2: ObservableObject {
         return icons[id] ?? "app.fill"
     }
 
-    // MARK: - 平台描述
     private func descForPlatform(_ id: String) -> String {
         let descs: [String: String] = [
             "91av": "视频聚合", "hgsp": "视频聚合", "hsxs": "多类型综合",
@@ -224,18 +332,17 @@ class YBoxService2: ObservableObject {
             "txvlog": "短视频", "wmq": "标签/用户", "xbk": "短视频",
             "zlt": "演员/视频", "lls": "电影/动漫/漫画/小说", "hhlz": "电影/漫画/小说",
             "mimei": "动漫/漫画/小说", "avin": "演员信息", "javdb": "演员/分类",
-            "djr": "演员/标签", "lxs": "演员信息", "44hhqq": "视频聚合", "missav": "演员/分类",
-            "mmav": "话题/视频", "oksp": "电影/演员",
+            "djr": "演员/标签", "lxs": "演员信息", "44hhqq": "视频聚合",
+            "missav": "演员/分类", "mmav": "话题/视频", "oksp": "电影/演员",
             "pron91": "分类/排行", "tv91": "频道/标签", "mdtv": "频道/标签",
             "pdl": "频道/排行", "qp": "频道/标签", "zpc91": "分类",
             "dsp91": "发现/用户", "sp91": "电影/演员", "ttav": "发现/暗网",
             "xjsp": "分类/演员", "fl2": "演员/发现", "byfm": "演员/音频",
-            "yxfm": "演员/音频",
-            "hu4": "图片/小说/剧照", "awjd": "文章/视频", "cgw": "文章/视频",
-            "cg51": "社区/话题", "ttt": "短视频/用户", "sgp": "演员/文章",
-            "dm51": "动漫/暗网", "awjm": "暗网", "qysq": "暗网",
-            "kpsp": "暗网", "dh50": "分类/用户", "hjsq": "短视频/用户",
-            "yfg": "用户", "gdcm": "视频聚合",
+            "yxfm": "演员/音频", "hu4": "图片/小说/剧照", "awjd": "文章/视频",
+            "cgw": "文章/视频", "cg51": "社区/话题", "ttt": "短视频/用户",
+            "sgp": "演员/文章", "dm51": "动漫/暗网", "awjm": "暗网",
+            "qysq": "暗网", "kpsp": "暗网", "dh50": "分类/用户",
+            "hjsq": "短视频/用户", "yfg": "用户", "gdcm": "视频聚合",
             "wwsq": "视频聚合", "rryy": "知名平台", "xvideos": "知名平台",
             "gsjh": "黄色仓库", "hhl": "视频聚合", "hjll": "视频聚合",
             "hsck": "黄色仓库", "jmbox": "综合站",
@@ -245,16 +352,10 @@ class YBoxService2: ObservableObject {
         return descs[id] ?? "资源平台"
     }
 
-    // MARK: - 自定义域名支持
-    /// 获取平台的有效 baseURL（优先用户自定义，其次默认）
     private func baseURL(for platformId: String, defaultURL: String) -> String {
         WelfareCrawlerConfig.config(for: platformId)?.effectiveBaseURL ?? defaultURL
     }
 
-    // 常用平台域名快捷访问
-    private var bananaBaseURL: String {
-        baseURL(for: "banana", defaultURL: "https://zfvwi8.ipajx0.cc")
-    }
     private var liveBaseURL: String {
         baseURL(for: "live_hclyz", defaultURL: "http://api.hclyz.com:81/mf")
     }
@@ -262,102 +363,193 @@ class YBoxService2: ObservableObject {
         baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
     }
 
-    // MARK: - 香蕉秀（重写：分类浏览 + 分类视频 + 全部视频 + 播放）
+    // ═══════════════════════════════════════════════════════════
+    // MARK: - 香蕉秀 API（zfvwi8.ipajx0.cc，by QClaw 2026-07-07）
+    //
+    // 基于 ybox App 抓包还原的真实 API：
+    //   GET /vod/listing-0-0-0-0-0-0-0-0-0-1           → 拉取在线分类（12类）
+    //   GET /vod/listing-{cateid}-0-0-0-0-0-0-0-0-{page}  → 分类视频列表（16条/页）
+    //   GET /special/listing-0-0-{page}                     → 专题列表（16条/页）
+    //   GET /special/vodlist-{spid}-0-0-{page}              → 专题内视频
+    //   GET /minivod/reqlist?page={page}                    → 短视频列表（10条/页）
+    //   GET /vod/reqplay/{vodid}                             → 获取长视频播放 m3u8 地址
+    //   GET /minivod/reqplay/{vodid}                        → 获取短视频播放 m3u8 地址
+    //
+    // 请求头：x-version:5.2.0, x-channel:xj2, x-cookie-auth:<hex>
+    // 响应格式：{"retcode":0,"errmsg":"...","data":{...}}, gzip 压缩
+    // ═══════════════════════════════════════════════════════════
 
-    /// 获取香蕉视频所有分类
+    /// 获取首页分类导航（从 /vod/listing-0 拉取在线分类；/index 不再含 v2cats）
     func fetchBananaCategories() async -> [YBoxBananaCategory] {
-        guard let url = URL(string: "\(bananaBaseURL)/special/listing-0-0-1") else { return [] }
         do {
-            let (data, _) = try await session.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any],
-                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
-            return rows.compactMap { row in
-                guard let spid = row["spid"] as? String ?? (row["spid"] as? Int).map(String.init),
-                      let name = row["spname"] as? String else { return nil }
-                return YBoxBananaCategory(
-                    spid: spid,
-                    name: name,
-                    intro: row["intro"] as? String ?? "",
-                    cover: row["coverpic"] as? String ?? ""
-                )
-            }
-        } catch { return [] }
-    }
-
-    /// 获取分类下的视频列表（分页）
-    func fetchBananaCategoryVideos(spid: String, page: Int = 1) async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)&spid=\(spid)") else { return [] }
-        return await fetchBananaVodList(url: url)
-    }
-
-    /// 获取全部视频列表（分页，无分类过滤）
-    func fetchBananaAllVideos(page: Int = 1) async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "\(bananaBaseURL)/minivod/reqlist?page=\(page)") else { return [] }
-        return await fetchBananaVodList(url: url)
-    }
-
-    /// 获取分类下的精选视频（special 接口，每分类4个）
-    func fetchBananaSpecials() async -> [YBoxVideoItem2] {
-        guard let url = URL(string: "\(bananaBaseURL)/special/listing-0-0-1") else { return [] }
-        do {
-            let (data, _) = try await session.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any],
-                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
-            var items: [YBoxVideoItem2] = []
-            for row in rows {
-                for vod in (row["vodrows"] as? [[String: Any]] ?? []) {
-                    items.append(YBoxVideoItem2(
-                        vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
-                        title: vod["title"] as? String ?? "",
-                        cover: vod["coverpic"] as? String ?? "",
-                        duration: vod["duration"] as? String ?? "00",
-                        score: vod["scorenum"] as? String ?? (vod["scorenum"] as? NSNumber).map { String(describing: $0) },
-                        playUrl: vod["play_url"] as? String,
-                        category: row["spname"] as? String
-                    ))
+            // 从 listing API 拉取线上分类列表（12类）
+            let listingJson = try await fetchJSON(path: "/vod/listing-0-0-0-0-0-0-0-0-0-1")
+            if let listingData = listingJson["data"] as? [String: Any],
+               let cats = listingData["categories"] as? [[String: Any]], !cats.isEmpty {
+                return cats.compactMap { cat in
+                    guard let cateId = cat["cateid"] as? String,
+                          let name = cat["catename"] as? String else { return nil }
+                    return YBoxBananaCategory(cateId: cateId, name: name, type: "vod", subCates: [])
                 }
             }
-            return items
-        } catch { return [] }
+            return defaultCategories
+        } catch {
+            print("[YBox] fetchBananaCategories error: \(error)")
+            return defaultCategories
+        }
     }
 
-    /// 获取播放地址
-    func fetchBananaPlayURL(playPath: String) async -> String? {
-        guard let url = URL(string: bananaBaseURL + playPath) else { return nil }
-        do {
-            let (data, _) = try await session.data(from: url)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let d = json["data"] as? [String: Any],
-               let u = d["httpurl"] as? String { return u }
-        } catch { print("[YBox] 播放地址失败: \(error)") }
-        return nil
+    /// 默认分类（兜底，与 zfvwi8 线上数据对应）
+    private var defaultCategories: [YBoxBananaCategory] {
+        [
+            YBoxBananaCategory(cateId: "0", name: "推荐", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "9", name: "国产精品", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "7", name: "辣妹大奶", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "8", name: "日本无码", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "6", name: "情欲女同", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "3", name: "日韩专区", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "16", name: "香蕉原创", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "17", name: "中文字幕", type: "vod", subCates: []),
+            YBoxBananaCategory(cateId: "10", name: "动漫专区", type: "vod", subCates: []),
+        ]
     }
 
-    /// 通用 minivod 列表解析
-    private func fetchBananaVodList(url: URL) async -> [YBoxVideoItem2] {
+    /// 获取分类视频列表（GET /vod/listing-{cateId}-0-0-0-0-0-0-0-0-{page}）
+    /// 8 个筛选参数：areaid, yearid, definition, duration, freetype, mosaic, langvoice, orderby
+    func fetchBananaVideos(cateId: String, page: Int = 1,
+                           filters: BananaVideoFilter = BananaVideoFilter()) async -> [YBoxBananaVideo] {
+        let path = "/vod/listing-\(cateId)-\(filters.area)-\(filters.year)-\(filters.definition)-\(filters.duration)-\(filters.freetype)-\(filters.mosaic)-\(filters.langvoice)-\(filters.orderby)-\(page)"
         do {
-            let (data, _) = try await session.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let dataObj = json["data"] as? [String: Any],
-                  let rows = dataObj["rows"] as? [[String: Any]] else { return [] }
-            return rows.map { row in
-                let vod = row["vodrow"] as? [String: Any] ?? row
-                return YBoxVideoItem2(
-                    vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
-                    title: vod["title"] as? String ?? "",
-                    cover: vod["coverpic"] as? String ?? "",
-                    duration: vod["duration"] as? String ?? "00",
-                    score: vod["scorenum"] as? String ?? (vod["scorenum"] as? NSNumber).map { String(describing: $0) },
-                    playUrl: vod["play_url"] as? String,
-                    category: nil
+            let json = try await fetchJSON(path: path)
+            guard let data = json["data"] as? [String: Any],
+                  let vodrows = data["vodrows"] as? [[String: Any]] else { return [] }
+            return vodrows.map { parseVideo($0) }
+        } catch {
+            print("[YBox] fetchBananaVideos(\(cateId), page:\(page)) error: \(error)")
+            return []
+        }
+    }
+
+    /// 获取专题列表（GET /special/listing-0-0-{page}）
+    func fetchBananaSpecials(page: Int = 1) async -> [YBoxBananaSpecial] {
+        let path = "/special/listing-0-0-\(page)"
+        do {
+            let json = try await fetchJSON(path: path)
+            guard let data = json["data"] as? [String: Any],
+                  let rows = data["rows"] as? [[String: Any]] else { return [] }
+            return rows.compactMap { sp in
+                guard let spId = (sp["spid"] as? String) ?? (sp["id"] as? String),
+                      let spName = sp["spname"] as? String ?? sp["title"] as? String else {
+                    return nil
+                }
+                return YBoxBananaSpecial(
+                    spId: spId,
+                    spName: spName,
+                    spCover: sp["spcover"] as? String ?? sp["coverpic"] as? String ?? "",
+                    itemCount: sp["itemcount"] as? Int ?? sp["vod_count"] as? Int ?? 0
                 )
             }
-        } catch { return [] }
+        } catch {
+            print("[YBox] fetchBananaSpecials error: \(error)")
+            return []
+        }
+    }
+
+    /// 获取专题内视频列表（GET /special/vodlist-{spId}-0-0-{page}）
+    func fetchBananaSpecialVideos(spId: String, page: Int = 1) async -> [YBoxBananaSpecialVideo] {
+        let path = "/special/vodlist-\(spId)-0-0-\(page)"
+        do {
+            let json = try await fetchJSON(path: path)
+            guard let data = json["data"] as? [String: Any],
+                  let vodrows = data["vodrows"] as? [[String: Any]] ?? data["rows"] as? [[String: Any]] else { return [] }
+            return vodrows.map { row in
+                YBoxBananaSpecialVideo(
+                    vodId: (row["vodid"] as? String) ?? String(row["vodid"] as? Int ?? 0),
+                    title: row["title"] as? String ?? "",
+                    cover: row["coverpic"] as? String ?? "",
+                    duration: row["duration"] as? String ?? "00:00",
+                    score: row["scorenum"] as? String
+                )
+            }
+        } catch {
+            print("[YBox] fetchBananaSpecialVideos error: \(error)")
+            return []
+        }
+    }
+
+    /// 获取短视频列表（GET /minivod/reqlist?page={page}）
+    func fetchBananaMiniVideos(page: Int = 1) async -> [YBoxBananaMiniVideo] {
+        let path = "/minivod/reqlist"
+        do {
+            let json = try await fetchJSON(path: path, query: ["page": "\(page)"])
+            guard let data = json["data"] as? [String: Any],
+                  let rows = data["rows"] as? [[String: Any]] else { return [] }
+            return rows.map { row in
+                let vod = row["vodrow"] as? [String: Any] ?? row
+                let user = row["userinfo"] as? [String: Any] ?? [:]
+                let playUrl: String? = (vod["play_url"] as? String) ?? (vod["vodPlayUrl"] as? String)
+                return YBoxBananaMiniVideo(
+                    vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
+                    title: vod["title"] as? String ?? vod["vodname"] as? String ?? "",
+                    cover: vod["coverpic"] as? String ?? vod["vodpic"] as? String ?? "",
+                    videoUrl: playUrl,
+                    duration: vod["duration"] as? String ?? "00:00",
+                    userName: user["nickname"] as? String ?? user["name"] as? String ?? "",
+                    userAvatar: user["avatar"] as? String ?? user["headimg"] as? String ?? ""
+                )
+            }
+        } catch {
+            print("[YBox] fetchBananaMiniVideos error: \(error)")
+            return []
+        }
+    }
+
+    /// 获取播放地址。长视频用 /vod/reqplay，短视频用 /minivod/reqplay
+    /// 返回 m3u8 播放链接
+    func fetchBananaPlayURL(vodId: String, isLongVideo: Bool = true) async -> String? {
+        let path = isLongVideo ? "/vod/reqplay/\(vodId)" : "/minivod/reqplay/\(vodId)"
+        do {
+            let json = try await fetchJSON(path: path)
+            guard let data = json["data"] as? [String: Any] else { return nil }
+
+            // 优先取 httpurl 字段
+            if let url = data["httpurl"] as? String, !url.isEmpty { return url }
+
+            // 备选：从 httpurls 数组取第一个
+            if let urls = data["httpurls"] as? [[String: Any]], let first = urls.first,
+               let url = first["httpurl"] as? String {
+                return url
+            }
+
+            return nil
+        } catch {
+            print("[YBox] fetchBananaPlayURL(\(vodId)) error: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - 视频解析工具
+
+    private func parseVideo(_ row: [String: Any]) -> YBoxBananaVideo {
+        YBoxBananaVideo(
+            vodId: (row["vodid"] as? String) ?? String(row["vodid"] as? Int ?? 0),
+            title: row["title"] as? String ?? "",
+            cover: row["coverpic"] as? String ?? "",
+            duration: row["duration"] as? String ?? "00:00",
+            score: row["scorenum"] as? String,
+            mosaic: row["mosaic"] as? String ?? "0",
+            cateId: row["cateid"] as? String ?? "0",
+            cateName: row["catename"] as? String,
+            areaName: row["areaname"] as? String,
+            year: row["year"] as? String ?? "",
+            tags: (row["tags"] as? [String]) ?? [],
+            playCount: row["playcount_total"] as? Int ?? (row["playcount"] as? Int ?? 0),
+            commentCount: row["commentcount"] as? Int ?? 0
+        )
     }
 
     // MARK: - 直播
+
     func loadLiveSources() async {
         guard !isLiveLoaded else { return }
         do {
@@ -400,7 +592,8 @@ class YBoxService2: ObservableObject {
         } catch { return [] }
     }
 
-    // MARK: - 18禁漫画
+    // MARK: - 漫画
+
     func fetch18Comics() async -> [YBoxComicItem2] {
         guard let url = URL(string: comic18BaseURL) else { return [] }
         do {
@@ -424,4 +617,26 @@ class YBoxService2: ObservableObject {
             return items
         } catch { return [] }
     }
+}
+
+// MARK: - 视频筛选参数
+
+struct BananaVideoFilter {
+    var area: String = "0"        // 地区筛选（cateid 编码）
+    var year: String = "0"        // 年份筛选
+    var definition: String = "0"  // 清晰度
+    var duration: String = "0"    // 时长
+    var freetype: String = "0"    // 免费/付费
+    var mosaic: String = "0"      // 有码/无码（1=有码 2=无码）
+    var langvoice: String = "0"   // 语言/配音
+    var orderby: String = "0"     // 排序（0=默认 1=最新 2=最热）
+
+    /// 预设：香蕉原创 (cateid=16)
+    static let bananaOriginal = BananaVideoFilter()
+
+    /// 预设：无码专区
+    static let uncensored = BananaVideoFilter(mosaic: "2")
+
+    /// 预设：中文字幕
+    static let chineseSub = BananaVideoFilter(langvoice: "1")
 }
