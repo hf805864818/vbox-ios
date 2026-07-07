@@ -299,26 +299,25 @@ struct YBoxBananaVideoGrid: View {
 struct YBoxBananaShortVideoTab: View {
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
-    @State private var videos: [YBoxBananaMiniVideo] = []
-    @State private var isLoading = true
-    @State private var loadError: String?
+    @State private var isChecking = true
+    @State private var apiError: String?
     @State private var showPlayer = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if isLoading && videos.isEmpty {
+            if isChecking {
                 VStack(spacing: 16) {
                     ProgressView().tint(.white).scaleEffect(1.5)
                     Text("加载中...").foregroundColor(.white.opacity(0.7))
                 }
-            } else if let err = loadError, videos.isEmpty {
+            } else if let err = apiError {
                 VStack(spacing: 16) {
                     Spacer()
                     Image(systemName: "antenna.radiowaves.left.and.right.slash")
                         .font(.system(size: 50)).foregroundColor(.secondary)
                     Text(err).font(.system(size: 15)).multilineTextAlignment(.center)
-                    Button(action: { loadError = nil; loadVideos() }) {
+                    Button(action: { apiError = nil; isChecking = true; checkAPI() }) {
                         Label("重试", systemImage: "arrow.clockwise")
                             .font(.system(size: 14))
                             .padding(.horizontal, 20).padding(.vertical, 8)
@@ -326,22 +325,39 @@ struct YBoxBananaShortVideoTab: View {
                     }
                     Spacer()
                 }
+            } else {
+                // API 正常 → 显示入口
+                VStack(spacing: 20) {
+                    Spacer()
+                    Image(systemName: "play.rectangle.on.rectangle")
+                        .font(.system(size: 50)).foregroundColor(.white.opacity(0.6))
+                    Text("短视频")
+                        .font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+                    Button(action: { showPlayer = true }) {
+                        Label("开始浏览", systemImage: "play.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 40).padding(.vertical, 12)
+                            .background(Color.accentColor)
+                            .cornerRadius(25)
+                    }
+                    Spacer()
+                }
             }
         }
-        .onAppear { loadVideos() }
+        .onAppear { checkAPI() }
         .fullScreenCover(isPresented: $showPlayer) {
-            YBoxBananaShortPlayerView(initialVideos: videos, platform: platform)
+            YBoxBananaShortPlayerView(platform: platform)
         }
     }
 
-    private func loadVideos() {
-        isLoading = true; loadError = nil
+    private func checkAPI() {
+        isChecking = true; apiError = nil
         Task {
             let result = await svc.fetchBananaMiniVideos(page: 1)
             await MainActor.run {
-                videos = result; isLoading = false
-                if result.isEmpty { loadError = "暂无短视频数据" }
-                else { showPlayer = true }
+                isChecking = false
+                if result.isEmpty { apiError = "暂无短视频数据" }
             }
         }
     }
@@ -350,7 +366,6 @@ struct YBoxBananaShortVideoTab: View {
 // MARK: - 抖音式竖屏短视频播放器（支持无限下拉 + 播放失败自动跳过，by QClaw 2026-07-07）
 
 struct YBoxBananaShortPlayerView: View {
-    let initialVideos: [YBoxBananaMiniVideo]
     let platform: YBoxPlatform2
     @StateObject private var svc = YBoxService2.shared
     @State private var videos: [YBoxBananaMiniVideo] = []
@@ -366,12 +381,8 @@ struct YBoxBananaShortPlayerView: View {
     @State private var hasMore = true
     @State private var isLoadingMore = false
     @State private var videoError: String?
+    @State private var initialLoading = true
     @Environment(\.dismiss) var dismiss
-
-    init(initialVideos: [YBoxBananaMiniVideo], platform: YBoxPlatform2) {
-        self.initialVideos = initialVideos
-        self.platform = platform
-    }
 
     var body: some View {
         GeometryReader { geo in
@@ -379,6 +390,16 @@ struct YBoxBananaShortPlayerView: View {
 
             ZStack {
                 Color.black.ignoresSafeArea()
+
+                // 初始加载中
+                if initialLoading {
+                    VStack(spacing: 16) {
+                        ProgressView().tint(.white).scaleEffect(2)
+                        Text("准备中...")
+                            .font(.system(size: 15))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                }
 
                 // 当前视频
                 if currentIndex < videos.count {
@@ -580,18 +601,7 @@ struct YBoxBananaShortPlayerView: View {
             }
         }
         .onAppear {
-            videos = initialVideos
-            currentPage = 1
-            hasMore = initialVideos.count >= 10
-            switchToVideo(at: 0)
-            // 预加载前 6 个视频
-            for i in 1...min(6, videos.count - 1) {
-                preloadPlayURL(at: i)
-            }
-            // 首批视频少则立即加载更多
-            if initialVideos.count < 20 && hasMore {
-                Task { await loadMoreVideos() }
-            }
+            loadInitialVideos()
         }
         .onDisappear {
             player?.pause(); player = nil
@@ -600,6 +610,28 @@ struct YBoxBananaShortPlayerView: View {
     }
 
     // MARK: - 播放逻辑
+
+    private func loadInitialVideos() {
+        initialLoading = true
+        Task {
+            let result = await svc.fetchBananaMiniVideos(page: 1)
+            await MainActor.run {
+                videos = result
+                currentPage = 1
+                hasMore = result.count >= 10
+                initialLoading = false
+                if !result.isEmpty {
+                    switchToVideo(at: 0)
+                    for i in 1...min(6, videos.count - 1) {
+                        preloadPlayURL(at: i)
+                    }
+                    if result.count < 20 && hasMore {
+                        Task { await loadMoreVideos() }
+                    }
+                }
+            }
+        }
+    }
 
     private func switchToVideo(at index: Int) {
         guard index < videos.count else { return }
