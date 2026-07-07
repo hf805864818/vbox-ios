@@ -1240,11 +1240,10 @@ struct YBoxLiveSourceListView: View {
 
     private let liveURL = "http://api.hclyz.com:81/mf"
 
-    /// 获取直播数据的实际URL（优先使用代理）
-    /// 代理地址一般格式如: https://vbox.ltd/?token=xxx&url=
-    /// 频道列表数据本身不需要走代理，只有m3u8播放地址才需要
+    /// 获取直播数据的实际URL（优先使用代理，因为live.264788.xyz直连不通）
     private var effectiveLiveURL: String {
-        liveURL
+        let proxy = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
+        if !proxy.isEmpty { return proxy } else { return liveURL }
     }
 
     var body: some View {

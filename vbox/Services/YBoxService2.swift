@@ -140,6 +140,8 @@ class YBoxService2: ObservableObject {
 
     // MARK: - API 网关（从 ybox 抓包确认，by QClaw 2026-07-07）
     private let apiGateway = "https://zfvwi8.ipajx0.cc"
+    /// 直播源基础接口（色播聚合数据源）
+    private let liveURL = "http://api.hclyz.com:81/mf"
 
     /// 生成设备认证 token（32位 hex 字符串）
     private var cookieAuth: String {
@@ -434,8 +436,10 @@ class YBoxService2: ObservableObject {
         WelfareCrawlerConfig.config(for: platformId)?.effectiveBaseURL ?? defaultURL
     }
 
+    /// 直播基础URL（优先使用代理）
     private var liveBaseURL: String {
-        liveURL
+        let proxy = UserDefaults.standard.string(forKey: "live_proxy_url") ?? ""
+        if !proxy.isEmpty { return proxy } else { return liveURL }
     }
     private var comic18BaseURL: String {
         baseURL(for: "comic18", defaultURL: "https://www.18akmanhua.com")
