@@ -309,11 +309,11 @@ class YBoxService2: ObservableObject {
             for row in rows {
                 for vod in (row["vodrows"] as? [[String: Any]] ?? []) {
                     items.append(YBoxVideoItem2(
-                        vodId: String(vod["vodid"] as? Int ?? 0),
+                        vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
                         title: vod["title"] as? String ?? "",
                         cover: vod["coverpic"] as? String ?? "",
-                        duration: vod["duration"] as? String,
-                        score: vod["scorenum"] as? String,
+                        duration: vod["duration"] as? String ?? "00",
+                        score: vod["scorenum"] as? String ?? (vod["scorenum"] as? NSNumber).map { String(describing: $0) },
                         playUrl: vod["play_url"] as? String,
                         category: row["spname"] as? String
                     ))
@@ -345,11 +345,11 @@ class YBoxService2: ObservableObject {
             return rows.map { row in
                 let vod = row["vodrow"] as? [String: Any] ?? row
                 return YBoxVideoItem2(
-                    vodId: String(vod["vodid"] as? Int ?? 0),
+                    vodId: (vod["vodid"] as? String) ?? String(vod["vodid"] as? Int ?? 0),
                     title: vod["title"] as? String ?? "",
                     cover: vod["coverpic"] as? String ?? "",
-                    duration: vod["duration"] as? String,
-                    score: vod["scorenum"] as? String,
+                    duration: vod["duration"] as? String ?? "00",
+                    score: vod["scorenum"] as? String ?? (vod["scorenum"] as? NSNumber).map { String(describing: $0) },
                     playUrl: vod["play_url"] as? String,
                     category: nil
                 )
