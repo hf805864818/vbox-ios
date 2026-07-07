@@ -8,6 +8,7 @@ struct WelfareHomeView: View {
     @State private var selectedTab: WelfareTab = .video
     @State private var isEditMode = false
     @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
+    @State private var navigatePlatformID: String?
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -152,15 +153,13 @@ struct WelfareHomeView: View {
                                 }
                             )
                         } else {
-                            // 正常模式：导航卡片
-                            let isSebo = platform.name == "色播聚合"
-                            let isPanda = platform.name == "Pandalive"
-                            let isBanana = platform.name == "香蕉秀" || platform.name == "幻想次元" || platform.name == "午夜寻欢" || platform.name == "绿帽淫妻"
-                            let destination: AnyView = isSebo ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
-                                : isPanda ? AnyView(YBoxLiveSourceListView().environmentObject(settings))
-                                : isBanana ? AnyView(YBoxXjspMainView(platform: platform))
-                                : AnyView(YBoxCrawlerContentView(platform: platform))
-                            NavigationLink(destination: destination) {
+                            // 正常模式：点击进平台，长按进入编辑排序模式
+                            let edge = destinationView(for: platform)
+                            NavigationLink(
+                                destination: edge,
+                                tag: platform.id,
+                                selection: $navigatePlatformID
+                            ) {
                                 PlatformIconCard(
                                     platform: platform,
                                     isEditMode: false,
@@ -168,6 +167,15 @@ struct WelfareHomeView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5)
+                                    .onEnded { _ in
+                                        navigatePlatformID = nil
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                            withAnimation { isEditMode = true }
+                                        }
+                                    }
+                            )
                         }
                     }
                 }
@@ -175,6 +183,23 @@ struct WelfareHomeView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 100)
             }
+        }
+    }
+
+    // MARK: - 导航目标构建
+
+    /// 根据平台名称返回对应的目标视图
+    private func destinationView(for platform: YBoxPlatform2) -> some View {
+        let isSebo = platform.name == "色播聚合"
+        let isPanda = platform.name == "Pandalive"
+        let isBanana = platform.name == "香蕉秀" || platform.name == "幻想次元"
+            || platform.name == "午夜寻欢" || platform.name == "绿帽淫妻"
+        if isSebo || isPanda {
+            return AnyView(YBoxLiveSourceListView().environmentObject(settings))
+        } else if isBanana {
+            return AnyView(YBoxXjspMainView(platform: platform))
+        } else {
+            return AnyView(YBoxCrawlerContentView(platform: platform))
         }
     }
 
