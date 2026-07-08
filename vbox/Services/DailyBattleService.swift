@@ -80,8 +80,8 @@ class DailyBattleService: ObservableObject {
             var cats: [DailyBattleCategory] = []
             let selectors = ["nav ul li", ".nav-menu li", ".menu li"]
             for sel in selectors {
-                let items = doc.css(sel)
-                if items.count > 0 {
+                let items = Array(doc.css(sel))
+                if !items.isEmpty {
                     for el in items {
                         if let link = el.css("a").first,
                            let href = link["href"], href != "#",
