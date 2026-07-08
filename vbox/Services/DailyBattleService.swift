@@ -78,31 +78,35 @@ class DailyBattleService: ObservableObject {
 
             // 提取分类
             var cats: [DailyBattleCategory] = []
-            let selectors = ["nav ul li", ".nav-menu li", ".menu li"]
-            for sel in selectors {
+            let skipNames = Set(["首页", "更多", "官方QQ群", "商务合作", "求瓜投稿", "往期内容",
+                                 "吃瓜电报群", "官方推特", "常见问题", "世界杯直播", "吃瓜首页",
+                                 "吃瓜QQ群", "回家的路", "51AV"])
+            let navSelectors = [".mobile-nav-categories a", "nav a", ".nav-categories a"]
+            for sel in navSelectors {
                 let items = Array(doc.css(sel))
                 if !items.isEmpty {
                     for el in items {
-                        if let link = el.css("a").first,
-                           let href = link["href"], href != "#",
-                           let name = link.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
-                            let u = href.hasPrefix("/") ? href : "/\(href)"
-                            cats.append(DailyBattleCategory(id: u, name: name, url: u))
-                        }
+                        guard let href = el["href"], href != "#",
+                              let name = el.text?.trimmingCharacters(in: CharacterSet.whitespaces),
+                              !name.isEmpty, !skipNames.contains(name),
+                              name.count <= 8 else { continue }
+                        if cats.contains(where: { $0.url == href }) { continue }
+                        let u = href.hasPrefix("/") ? href : "/\(href)"
+                        cats.append(DailyBattleCategory(id: u, name: name, url: u))
                     }
                     break
                 }
             }
             if cats.isEmpty {
                 cats = [
-                    DailyBattleCategory(id: "/latest/", name: "最新", url: "/latest/"),
-                    DailyBattleCategory(id: "/hot/", name: "热门", url: "/hot/")
+                    DailyBattleCategory(id: "/category/mrld/", name: "今日乱斗", url: "/category/mrld/"),
+                    DailyBattleCategory(id: "/category/bkdg/", name: "必看大瓜", url: "/category/bkdg/")
                 ]
             }
 
-            // 提取推荐视频
-            let articles = doc.css("#index article, article")
-            let videos = parseVideos(articles)
+            // 提取推荐视频（过滤广告外链）
+            let rawArticles = doc.css("article")
+            let videos = parseVideos(rawArticles)
 
             return (cats, videos)
         } catch {
@@ -301,6 +305,8 @@ class DailyBattleService: ObservableObject {
                 anchor = article.css("a").first
             }
             guard let href = anchor?["href"], !href.isEmpty else { continue }
+            // 跳过广告外链（非 / 开头且非本站域名的 URL）
+            if href.hasPrefix("http") && !href.contains("bshzjjgq.cc") && !href.contains("mrdld.com") { continue }
 
             // 提取封面
             let cover = extractCover(from: article)
