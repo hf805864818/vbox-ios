@@ -163,7 +163,7 @@ struct SangeCategoryView: View {
                 }
             }
         }
-        .background(backgroundColor)
+        .background(Color.clear)
         .navigationTitle("三更")
         .navigationBarTitleDisplayMode(.large)
         .onAppear { viewModel.load() }
@@ -202,7 +202,7 @@ struct SangeCategoryView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .background(backgroundColor)
+        .background(Color.clear)
     }
 
     // MARK: 推荐加载占位
@@ -390,7 +390,7 @@ struct SangeCategoryView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 90)
-        .background(accentColor.opacity(0.08))
+        .background(Color.clear)
         .cornerRadius(12)
     }
 

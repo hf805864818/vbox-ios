@@ -446,39 +446,6 @@ struct YBoxBananaShortPlayerView: View {
                         }
                     }
                     .offset(y: dragOffset.height)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { value in
-                                dragOffset = value.translation
-                            }
-                            .onEnded { value in
-                                let threshold = cellHeight * 0.2
-
-                                if value.translation.height < -threshold && currentIndex < videos.count - 1 {
-                                    withAnimation(.easeOut(duration: 0.25)) {
-                                        dragOffset = CGSize(width: 0, height: -cellHeight)
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                        currentIndex += 1
-                                        dragOffset = .zero
-                                        videoError = nil
-                                        switchToVideo(at: currentIndex)
-                                    }
-                                } else if value.translation.height > threshold && currentIndex > 0 {
-                                    withAnimation(.easeOut(duration: 0.25)) {
-                                        dragOffset = CGSize(width: 0, height: cellHeight)
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                        currentIndex -= 1
-                                        dragOffset = .zero
-                                        videoError = nil
-                                        switchToVideo(at: currentIndex)
-                                    }
-                                } else {
-                                    withAnimation(.spring()) { dragOffset = .zero }
-                                }
-                            }
-                    )
                 }
 
                 // 加载更多指示器
@@ -586,7 +553,6 @@ struct YBoxBananaShortPlayerView: View {
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
                                 .padding(10)
-                                .background(Circle().fill(Color.black.opacity(0.4)))
                         }
                         .padding(.leading, 16)
                         .padding(.top, 50)
@@ -595,6 +561,38 @@ struct YBoxBananaShortPlayerView: View {
                     Spacer()
                 }
             }
+            .simultaneousGesture(
+                DragGesture()
+                    .onChanged { value in
+                        dragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        let threshold = cellHeight * 0.2
+                        if value.translation.height < -threshold && currentIndex < videos.count - 1 {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                dragOffset = CGSize(width: 0, height: -cellHeight)
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                currentIndex += 1
+                                dragOffset = .zero
+                                videoError = nil
+                                switchToVideo(at: currentIndex)
+                            }
+                        } else if value.translation.height > threshold && currentIndex > 0 {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                dragOffset = CGSize(width: 0, height: cellHeight)
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                currentIndex -= 1
+                                dragOffset = .zero
+                                videoError = nil
+                                switchToVideo(at: currentIndex)
+                            }
+                        } else {
+                            withAnimation(.spring()) { dragOffset = .zero }
+                        }
+                    }
+            )
         }
         .onAppear {
             loadInitialVideos()
