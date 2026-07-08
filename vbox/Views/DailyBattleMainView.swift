@@ -46,6 +46,7 @@ struct DailyBattleMainView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .background(Color.clear)
+    }
 }
 
 // MARK: - 首页Tab：分类 → 视频网格
