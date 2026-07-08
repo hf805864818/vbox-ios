@@ -26,19 +26,6 @@ struct WelfareHomeView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 顶部标题栏
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("福利")
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundColor(settings.usesVisualSkin ? .white : .primary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-
                 // Tab切换栏
                 HStack(spacing: 0) {
                     ForEach(WelfareTab.allCases, id: \.self) { tab in
@@ -54,9 +41,9 @@ struct WelfareHomeView: View {
                                     Text(tab.rawValue)
                                         .font(.system(size: 15, weight: selectedTab == tab ? .bold : .regular))
                                 }
-                                .foregroundColor(selectedTab == tab ?
-                                    (settings.usesVisualSkin ? .white : .white) :
-                                    (settings.usesVisualSkin ? .white.opacity(0.6) : .white.opacity(0.45))
+                                .foregroundColor(selectedTab == tab
+                                    ? .white
+                                    : (settings.usesVisualSkin ? .white.opacity(0.6) : .primary.opacity(0.5))
                                 )
                             }
                             .frame(maxWidth: .infinity)
@@ -72,6 +59,7 @@ struct WelfareHomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
+                .padding(.top, 12)
                 .padding(.bottom, 8)
 
                 // 编辑模式提示
