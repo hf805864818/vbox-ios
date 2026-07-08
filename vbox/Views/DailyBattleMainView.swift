@@ -351,123 +351,12 @@ struct DailyBattlePlayerView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                // 封面
-                ZStack {
-                    AsyncImage(url: URL(string: cover)) { phase in
-                        if let img = phase.image {
-                            img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                        } else {
-                            Rectangle().fill(Color.gray.opacity(0.2))
-                                .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    if isLoading {
-                        ProgressView().scaleEffect(2).tint(.white)
-                    } else if let e = errorMsg {
-                        VStack(spacing: 12) {
-                            Image(systemName: "play.slash")
-                                .font(.system(size: 40)).foregroundColor(.white.opacity(0.8))
-                            Text(e).font(.system(size: 14)).foregroundColor(.white.opacity(0.9))
-                            Button(action: { loadDetail() }) {
-                                Label("重试", systemImage: "arrow.clockwise")
-                                    .font(.system(size: 13)).foregroundColor(.white)
-                                    .padding(.horizontal, 16).padding(.vertical, 8)
-                                    .background(Color.accentColor).cornerRadius(8)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-
-                // 标题
-                Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .padding(.horizontal, 16)
-
-                if !remarks.isEmpty {
-                    Text(remarks)
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 16)
-                }
-
-                // 播放按钮（对接香蕉秀统一播放器 fullScreenCover）
-                if let vod = vodItem {
-                    Button(action: { showPlayer = true }) {
-                        Label("播放", systemImage: "play.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.accentColor)
-                            .cornerRadius(12)
-                            .padding(.horizontal, 16)
-                    }
-                }
-
-                // 多集选集（按钮更新 vodItem → 触发同一播放器）
-                if episodes.count > 1 {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("选集")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 16)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(0..<episodes.count, id: \.self) { i in
-                                    Button(action: {
-                                        let newItem = VodItem(
-                                            vodId: vodId, vodName: "\(title) · \(episodes[i].name)",
-                                            vodPic: cover, vodRemarks: "[福利]每日大乱斗",
-                                            vodPlayUrl: episodes[i].url
-                                        )
-                                        vodItem = newItem
-                                        showPlayer = true
-                                    }) {
-                                        Text(episodes[i].name)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(.primary)
-                                            .padding(.horizontal, 12).padding(.vertical, 6)
-                                            .background(Color(UIColor.secondarySystemBackground))
-                                            .cornerRadius(12)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                    }
-                }
-
-                // 关键词标签（可点击跳转搜索）
-                if !keywordItems.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("相关标签")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 16)
-                        FlowLayout(spacing: 6) {
-                            ForEach(keywordItems, id: \.self) { kw in
-                                NavigationLink(
-                                    destination: DailyBattleSearchTab(platform: YBoxPlatform2(
-                                        id: "mrdld", name: "每日大乱斗",
-                                        icon: "play.tv", apiPath: ""
-                                    ), presetKeyword: kw)
-                                ) {
-                                    Text(kw)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.accentColor)
-                                        .padding(.horizontal, 10).padding(.vertical, 5)
-                                        .background(Color.accentColor.opacity(0.1))
-                                        .cornerRadius(10)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-                }
-
+                coverSection
+                titleSection
+                if !remarks.isEmpty { remarksSection }
+                if vodItem != nil { playButton }
+                if episodes.count > 1 { episodesSection }
+                if !keywordItems.isEmpty { keywordsSection }
                 Spacer().frame(height: 40)
             }
         }
@@ -476,6 +365,128 @@ struct DailyBattlePlayerView: View {
         .onAppear { loadDetail() }
         .fullScreenCover(isPresented: $showPlayer) {
             if let vod = vodItem { VideoDetailView(video: vod) }
+        }
+    }
+
+    // MARK: - 封面
+    @ViewBuilder private var coverSection: some View {
+        ZStack {
+            AsyncImage(url: URL(string: cover)) { phase in
+                if let img = phase.image {
+                    img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
+                } else {
+                    Rectangle().fill(Color.gray.opacity(0.2))
+                        .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            if isLoading {
+                ProgressView().scaleEffect(2).tint(.white)
+            } else if let e = errorMsg {
+                VStack(spacing: 12) {
+                    Image(systemName: "play.slash")
+                        .font(.system(size: 40)).foregroundColor(.white.opacity(0.8))
+                    Text(e).font(.system(size: 14)).foregroundColor(.white.opacity(0.9))
+                    Button(action: { loadDetail() }) {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 13)).foregroundColor(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(Color.accentColor).cornerRadius(8)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - 标题
+    @ViewBuilder private var titleSection: some View {
+        Text(title)
+            .font(.system(size: 17, weight: .bold))
+            .padding(.horizontal, 16)
+    }
+
+    // MARK: - 备注
+    @ViewBuilder private var remarksSection: some View {
+        Text(remarks)
+            .font(.system(size: 13))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 16)
+    }
+
+    // MARK: - 播放按钮
+    @ViewBuilder private var playButton: some View {
+        Button(action: { showPlayer = true }) {
+            Label("播放", systemImage: "play.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.accentColor)
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: - 选集
+    @ViewBuilder private var episodesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("选集")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.leading, 16)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(0..<episodes.count, id: \.self) { i in
+                        let ep = episodes[i]
+                        Button(action: {
+                            vodItem = VodItem(
+                                vodId: vodId, vodName: "\(title) · \(ep.name)",
+                                vodPic: cover, vodRemarks: "[福利]每日大乱斗",
+                                vodPlayUrl: ep.url
+                            )
+                            showPlayer = true
+                        }) {
+                            Text(ep.name)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .cornerRadius(12)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    // MARK: - 关键词标签
+    @ViewBuilder private var keywordsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("相关标签")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.leading, 16)
+            FlowLayout(spacing: 6) {
+                ForEach(keywordItems, id: \.self) { kw in
+                    NavigationLink(
+                        destination: DailyBattleSearchTab(platform: YBoxPlatform2(
+                            id: "mrdld", name: "每日大乱斗",
+                            icon: "play.tv", apiPath: ""
+                        ), presetKeyword: kw)
+                    ) {
+                        Text(kw)
+                            .font(.system(size: 12))
+                            .foregroundColor(.accentColor)
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Color.accentColor.opacity(0.1))
+                            .cornerRadius(10)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
         }
     }
 
@@ -509,43 +520,4 @@ struct DailyBattlePlayerView: View {
     }
 }
 
-// MARK: - FlowLayout（关键词标签流式布局）
 
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrange(proposal: proposal, subviews: subviews)
-        let height = rows.last.flatMap { $0.max(by: { $0.maxY < $1.maxY })?.maxY } ?? 0
-        return CGSize(width: proposal.width ?? 0, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = arrange(proposal: proposal, subviews: subviews)
-        for row in rows {
-            for frame in row {
-                subviews[frame.index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: .unspecified)
-            }
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> [[(index: Int, minX: CGFloat, maxX: CGFloat, maxY: CGFloat, minY: CGFloat)]] {
-        let maxWidth = proposal.width ?? .infinity
-        var rows: [[(index: Int, minX: CGFloat, maxX: CGFloat, maxY: CGFloat, minY: CGFloat)]] = []
-        var currentRow: [(index: Int, minX: CGFloat, maxX: CGFloat, maxY: CGFloat, minY: CGFloat)] = []
-        var x: CGFloat = 0
-
-        for (idx, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(.unspecified)
-            if !currentRow.isEmpty, x + size.width > maxWidth {
-                rows.append(currentRow)
-                currentRow = []
-                x = 0
-            }
-            currentRow.append((index: idx, minX: x, maxX: x + size.width, maxY: size.height, minY: 0))
-            x += size.width + spacing
-        }
-        if !currentRow.isEmpty { rows.append(currentRow) }
-        return rows
-    }
-}
