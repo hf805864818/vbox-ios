@@ -137,6 +137,7 @@ class YBoxService2: ObservableObject {
     @Published var categories: [YBoxCategory2] = []
 
     // MARK: - API 网关（从 ybox 抓包确认，by QClaw 2026-07-07）
+    private let apiGateway = "https://zfvwi8.ipajx0.cc"
 
     /// 生成设备认证 token（32位 hex 字符串）
     private var cookieAuth: String {
