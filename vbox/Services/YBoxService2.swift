@@ -253,6 +253,8 @@ class YBoxService2: ObservableObject {
                          baseURL: bananaURL, desc: "专题视频"),
             YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
                          baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
+            YBoxPlatform2(name: "每日大乱斗", icon: "flame.fill", type: .video,
+                         baseURL: "https://border.bshzjjgq.cc", desc: "每日更新"),
         ]
 
         categories = [
