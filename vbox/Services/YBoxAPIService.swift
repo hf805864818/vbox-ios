@@ -59,43 +59,9 @@ final class YBoxAPIService {
         "darkWeb":   "",
     ]
 
-    /// 将 WelfarePageKind 映射为 pageTypeMapping 的 key
-    static func proxyPageTypeKey(for kind: WelfarePageKind) -> String {
-        switch kind {
-        case .home:      return "home"
-        case .video:     return "video"
-        case .film:      return "film"
-        case .anime:     return "anime"
-        case .comic:     return "comic"
-        case .novel:     return "novel"
-        case .actor:     return "actor"
-        case .search:    return "search"
-        case .classify:  return "classify"
-        case .find:      return "find"
-        case .topic:     return "topic"
-        case .tiktok:    return "tiktok"
-        case .darkWeb:   return "darkWeb"
-        case .audio:     return "audio"
-        case .article:   return "home"
-        case .community: return "home"
-        case .rank:      return "home"
-        case .channel:   return "channel"
-        case .tag:       return "tag"
-        case .user:      return "user"
-        case .image:     return "image"
-        case .stills:    return "stills"
-        }
-    }
-
     // MARK: - 对外接口：通过 ybox.vip 代理获取带播放链接的 VodItem 列表
 
-    /// 通过 WelfarePageKind 获取内容（供 WelfareCrawlerService 回退调用）
-    func fetchPlatformItems(platformId: String, kind: WelfarePageKind, page: Int = 1) async -> [VodItem] {
-        let typeKey = Self.proxyPageTypeKey(for: kind)
-        return await fetchPlatformContent(platformId: platformId, pageType: typeKey, page: page)
-    }
-
-    /// 通过字符串 pageType 获取内容（原有接口，保留向后兼容）
+    /// 通过字符串 pageType 获取内容
     func fetchPlatformContent(platformId: String, pageType: String, page: Int = 1) async -> [VodItem] {
         let apiPath = pageTypeMapping[pageType] ?? ""
         let urlStr: String

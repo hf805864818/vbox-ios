@@ -96,7 +96,7 @@ struct WelfareHomeView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground).ignoresSafeArea())
+            .background(settings.usesVisualSkin ? Color.clear.ignoresSafeArea() : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear { loadOrder() }
         }
@@ -213,16 +213,6 @@ struct WelfareHomeView: View {
 
     private func currentOrderedPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
         orderedPlatforms[tab] ?? filteredPlatforms(for: tab)
-    }
-
-    private func filteredPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
-        let all: [YBoxPlatform2] = {
-            for c in ybox.categories {
-                if c.name == tab.rawValue { return c.platforms }
-            }
-            return []
-        }()
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" }
     }
 
     private func movePlatform(from source: Int, to destination: Int, tab: WelfareTab) {

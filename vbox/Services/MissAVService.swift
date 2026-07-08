@@ -26,17 +26,8 @@ final class MissAVService: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    /// 动态 baseURL：优先从 WelfareCrawlerConfig 的自定义域名读取
+    /// 动态 baseURL
     private var activeBaseURLs: [String] {
-        if let custom = WelfareCrawlerConfig.config(for: "missav")?.effectiveBaseURL,
-           !custom.isEmpty,
-           custom != "https://missav.ws" {
-            var urls = [custom]
-            for fallback in defaultBaseURLs where fallback != custom {
-                urls.append(fallback)
-            }
-            return urls
-        }
         return defaultBaseURLs
     }
 
@@ -105,35 +96,6 @@ final class MissAVService: ObservableObject {
         return []
     }
 
-    /// 从 WelfareCrawlerService 调用的接口
-    func loadVideosForSection(keyword: String, pageKind: WelfarePageKind, sectionName: String = "") async -> [VodItem] {
-        let effectiveKeyword = keyword.isEmpty ? sectionName : keyword
-        let item: MissAVMenuItem
-        switch pageKind {
-        case .video, .home:
-            item = MissAVMenuItem(id: "latest", title: "最新", path: "/cn")
-        case .actor:
-            item = MissAVMenuItem(id: "actress", title: "女优", path: "/cn/actresses")
-        case .classify:
-            let kw = effectiveKeyword.lowercased()
-            if kw.contains("有码") || kw.contains("censored") {
-                item = MissAVMenuItem(id: "genres", title: "类型", path: "/cn/genres")
-            } else if kw.contains("无码") || kw.contains("uncensored") {
-                item = MissAVMenuItem(id: "uncensored-main", title: "无码影片", path: "/cn/uncensored")
-            } else if kw.contains("欧美") || kw.contains("western") {
-                item = MissAVMenuItem(id: "asia-main", title: "亚洲 AV", path: "/cn/asian")
-            } else if kw.contains("中文") || kw.contains("chinese") {
-                item = MissAVMenuItem(id: "subtitle-main", title: "中文字幕", path: "/cn/chinese-subtitle")
-            } else {
-                item = MissAVMenuItem(id: "genres", title: "类型", path: "/cn/genres")
-            }
-        case .search:
-            return []
-        default:
-            item = MissAVMenuItem(id: "latest", title: "最新", path: "/cn")
-        }
-        return await loadVideos(for: item)
-    }
 
     func resolvePlayableSource(for video: VodItem) async -> MissAVPlayableSource? {
         guard let detailURL = video.vodPlayUrl, !detailURL.isEmpty else { return nil }
