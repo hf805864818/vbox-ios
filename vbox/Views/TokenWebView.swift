@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import UIKit
 
 struct TokenWebView: View {
     let driveType: CloudDriveManager.DriveType
@@ -27,6 +28,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
+        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -37,6 +40,10 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         injectExistingCookies(into: webView) {
             webView.load(URLRequest(url: startURL))
         }
+
+        // 启动定时轮询检测 Cookie（应对 AJAX 登录不刷新页面的情况）
+        context.coordinator.startCookiePolling()
+
         return webView
     }
 
@@ -141,58 +148,124 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var parent: TokenWebViewRepresentable
         weak var webView: WKWebView?
+        private var cookieTimer: Timer?
+        private var hasDetected = false
 
         init(_ parent: TokenWebViewRepresentable) {
             self.parent = parent
         }
 
+        deinit {
+            cookieTimer?.invalidate()
+        }
+
+        // MARK: - Cookie 轮询（应对 AJAX 登录不触发 didFinish 的情况）
+        func startCookiePolling() {
+            cookieTimer?.invalidate()
+            cookieTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+                guard let self = self, !self.hasDetected, let webView = self.webView else {
+                    self?.cookieTimer?.invalidate()
+                    return
+                }
+                self.extractToken(from: webView)
+            }
+        }
+
+        // MARK: - WKNavigationDelegate
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // 页面加载完成后，尝试提取 token
             extractToken(from: webView)
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            // 允许所有导航
             decisionHandler(.allow)
         }
 
+        // MARK: - WKUIDelegate：处理 window.open / alert / confirm / prompt
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            // UC 等网页登录可能通过 window.open 打开新窗口，直接在当前页加载
+            if let url = navigationAction.request.url {
+                webView.load(URLRequest(url: url))
+            }
+            return nil
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            guard let rootVC = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else {
+                completionHandler()
+                return
+            }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in completionHandler() })
+            rootVC.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+            guard let rootVC = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else {
+                completionHandler(false)
+                return
+            }
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in completionHandler(true) })
+            rootVC.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            guard let rootVC = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else {
+                completionHandler(nil)
+                return
+            }
+            let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+            alert.addTextField { $0.text = defaultText }
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in completionHandler(nil) })
+            alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in completionHandler(alert.textFields?.first?.text) })
+            rootVC.present(alert, animated: true)
+        }
+
+        // MARK: - Token / Cookie 提取
         private func extractToken(from webView: WKWebView) {
+            guard !hasDetected else { return }
             let store = webView.configuration.websiteDataStore.httpCookieStore
-            store.getAllCookies { cookies in
+            store.getAllCookies { [weak self] cookies in
+                guard let self = self else { return }
                 var cookieString = ""
                 for cookie in cookies {
                     cookieString += "\(cookie.name)=\(cookie.value); "
                 }
-                
+
                 // 尝试从页面内容提取 token
                 webView.evaluateJavaScript("document.body.innerText") { result, error in
                     if let text = result as? String {
-                        // 尝试匹配各种 token 格式
                         if let token = self.extractTokenFromText(text) {
                             DispatchQueue.main.async {
                                 self.parent.token = token
+                                self.hasDetected = true
+                                self.cookieTimer?.invalidate()
                             }
                         }
                     }
                 }
-                
+
                 // 如果 cookie 足够，也保存 cookie
                 if self.isEnough(cookieString) {
                     DispatchQueue.main.async {
                         self.parent.token = cookieString.trimmingCharacters(in: .whitespaces)
+                        self.hasDetected = true
+                        self.cookieTimer?.invalidate()
                     }
                 }
             }
         }
 
         private func extractTokenFromText(_ text: String) -> String? {
-            // 匹配常见的 token 格式
             let patterns = [
                 "refresh_token[:：]\\s*([a-zA-Z0-9_-]+)",
                 "token[:：]\\s*([a-zA-Z0-9_-]+)",
                 "access_token[:：]\\s*([a-zA-Z0-9_-]+)"
             ]
-            
             for pattern in patterns {
                 guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
                       let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
@@ -212,19 +285,15 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             case .ali:
                 return lower.contains("token") || lower.contains("login") || lower.contains("aliyun")
             case .quark:
-                // 夸克：部分接口（如转存/下载）对 __puus 更敏感；仅有 __pus/__kps 时可能"能建vbox但转存失败"，表现为 vbox 空文件夹。
-                // 因此提高"可用 Cookie"判定门槛：优先要求 __puus；否则至少同时具备 __pus + __kps。
                 return lower.contains("__puus=") || (lower.contains("__pus=") && lower.contains("__kps="))
             case .uc:
                 return lower.contains("__pus=") || lower.contains("__kps=") || lower.contains("__uid=") || (lower.contains("uc") && lower.count > 50)
             case .one15:
-                // 115网盘登录后常见的认证 Cookie 字段
-                return lower.contains("uid=") || lower.contains("cid=") || lower.contains("seid=") || 
+                return lower.contains("uid=") || lower.contains("cid=") || lower.contains("seid=") ||
                        lower.contains("user_id") || lower.contains("115") || lower.contains("passport")
             case .pan123:
-                // 123云盘登录后常见的认证 Cookie 字段
-                return lower.contains("authorization") || lower.contains("token") || lower.contains("auth") || 
-                       lower.contains("session") || lower.contains("login") || lower.contains("userid") || 
+                return lower.contains("authorization") || lower.contains("token") || lower.contains("auth") ||
+                       lower.contains("session") || lower.contains("login") || lower.contains("userid") ||
                        lower.contains("uid=") || lower.contains("passport")
             case .pan139:
                 return lower.contains("ssotoken") || lower.contains("sso_token") || lower.contains("mcloud") || lower.contains("sessionid")
@@ -303,16 +372,21 @@ struct CloudDriveWebAuthView: View {
     @State private var isLoading = true
     @State private var statusText = "请在官方页面完成登录或验证"
     @State private var saved = false
+    @State private var detectedToken: String = ""
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                TokenWebView(driveType: driveType, token: .constant(""))
+                TokenWebView(driveType: driveType, token: $detectedToken)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear { isLoading = false }
+                    .onChange(of: detectedToken) { newToken in
+                        guard !newToken.isEmpty, !saved else { return }
+                        saveDetectedCredential(token: newToken)
+                    }
 
                 VStack(spacing: 8) {
-                    if isLoading {
+                    if isLoading && !saved {
                         ProgressView()
                     }
                     Text(saved ? "授权已保存" : statusText)
@@ -322,7 +396,7 @@ struct CloudDriveWebAuthView: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity)
-                .background(Color.white)
+                .background(Color(UIColor.systemBackground))
             }
             .navigationTitle("\(driveType.displayName) 授权")
             .navigationBarTitleDisplayMode(.inline)
@@ -332,6 +406,32 @@ struct CloudDriveWebAuthView: View {
                         .foregroundColor(Color(hex: "E11D48"))
                 }
             }
+        }
+    }
+
+    private func saveDetectedCredential(token: String) {
+        let credential = CloudDriveCredential(
+            driveType: driveType.rawValue,
+            authType: .webView,
+            accessToken: nil,
+            refreshToken: nil,
+            cookie: token,
+            driveId: nil,
+            userId: nil,
+            userName: nil,
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "WebView 登录成功",
+            extra: [:]
+        )
+        CloudDriveAuthManager.shared.saveCredential(credential)
+        saved = true
+        statusText = "授权已保存"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            dismiss()
         }
     }
 }
