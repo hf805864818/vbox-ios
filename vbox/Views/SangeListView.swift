@@ -211,7 +211,7 @@ struct SangeListView: View {
                 }
             }
         }
-        .background(backgroundColor)
+        .background(Color.clear)
         .navigationTitle(subCategory.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { viewModel.loadInitial() }
