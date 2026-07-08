@@ -94,10 +94,8 @@ struct DailyBattleHomeTab: View {
                             }) {
                                 Text(cat.name)
                                     .font(.system(size: 13, weight: selectedCateIdx == idx ? .semibold : .regular))
-                                    .foregroundColor(selectedCateIdx == idx ? .white : .primary)
+                                    .foregroundColor(selectedCateIdx == idx ? .accentColor : .secondary)
                                     .padding(.horizontal, 14).padding(.vertical, 7)
-                                    .background(selectedCateIdx == idx ? Color.accentColor : Color(UIColor.secondarySystemBackground))
-                                    .cornerRadius(16)
                             }
                         }
                     }
@@ -346,6 +344,7 @@ struct DailyBattlePlayerView: View {
     @State private var episodes: [(name: String, url: String)] = []
     @State private var keywordItems: [String] = []
     @State private var showEpisodePicker = false
+    @State private var showPlayer = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -394,9 +393,9 @@ struct DailyBattlePlayerView: View {
                         .padding(.horizontal, 16)
                 }
 
-                // 播放按钮
+                // 播放按钮（对接香蕉秀统一播放器 fullScreenCover）
                 if let vod = vodItem {
-                    NavigationLink(destination: VideoDetailView(video: vod)) {
+                    Button(action: { showPlayer = true }) {
                         Label("播放", systemImage: "play.fill")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
@@ -408,7 +407,7 @@ struct DailyBattlePlayerView: View {
                     }
                 }
 
-                // 多集选集
+                // 多集选集（按钮更新 vodItem → 触发同一播放器）
                 if episodes.count > 1 {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("选集")
@@ -418,13 +417,15 @@ struct DailyBattlePlayerView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(0..<episodes.count, id: \.self) { i in
-                                    NavigationLink(
-                                        destination: VideoDetailView(video: VodItem(
+                                    Button(action: {
+                                        let newItem = VodItem(
                                             vodId: vodId, vodName: "\(title) · \(episodes[i].name)",
                                             vodPic: cover, vodRemarks: "[福利]每日大乱斗",
                                             vodPlayUrl: episodes[i].url
-                                        ))
-                                    ) {
+                                        )
+                                        vodItem = newItem
+                                        showPlayer = true
+                                    }) {
                                         Text(episodes[i].name)
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundColor(.primary)
@@ -473,6 +474,9 @@ struct DailyBattlePlayerView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadDetail() }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let vod = vodItem { VideoDetailView(video: vod) }
+        }
     }
 
     private func loadDetail() {
