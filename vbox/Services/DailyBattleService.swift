@@ -26,6 +26,7 @@ struct DailyBattleDetail {
     let playFrom: String
     let playUrl: String
     let content: String
+    let keywords: [String]
 }
 
 // MARK: - 服务
@@ -149,7 +150,7 @@ class DailyBattleService: ObservableObject {
             let url = vodId.hasPrefix("http") ? vodId : "\(currentHost)\(vodId.hasPrefix("/") ? "" : "/")\(vodId)"
             let html = try await fetchHTML(url: url)
             guard let doc = try? HTML(html: html, encoding: .utf8) else {
-                return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "解析失败", content: "")
+                return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "解析失败", content: "", keywords: [])
             }
 
             var playUrls: [String] = []
@@ -228,10 +229,19 @@ class DailyBattleService: ObservableObject {
                 ? (doc.css("h1").first?.text ?? doc.css(".post-title").first?.text ?? "每日大乱斗")
                 : tagItems.joined(separator: " · ")
 
-            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: playUrl, content: content)
+            let tagLinks: [String] = []
+            var kwItems: [String] = []
+            var seenKw = Set<String>()
+            for tag in doc.css(".tags a, .keywords a, .post-tags a") {
+                if let name = tag.text?.trimmingCharacters(in: .whitespaces), !name.isEmpty, !seenKw.contains(name) {
+                    seenKw.insert(name)
+                    kwItems.append(name)
+                }
+            }
+            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: playUrl, content: content, keywords: kwItems)
         } catch {
             print("[DailyBattle] fetchDetail(\(vodId)) error: \(error)")
-            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "获取失败", content: "每日大乱斗")
+            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "获取失败", content: "每日大乱斗", keywords: [])
         }
     }
 
@@ -325,38 +335,41 @@ class DailyBattleService: ObservableObject {
         return videos
     }
 
+    /// 图片代理：绕过被墙域名
+    func proxyImageURL(_ url: String) -> String {
+        guard !url.isEmpty, !url.hasPrefix("data:") else { return url }
+        // ybox.vip 图片代理
+        return "https://ybox.vip/image?url=\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
+    }
+
     /// 从 article 元素提取封面图片 URL
     private func extractCover(from article: XMLElement) -> String {
         let rawHTML = article.toHTML ?? ""
+        var raw: String? = nil
 
         // 1. loadBannerDirect('...')
         if let m = firstMatch(pattern: #"loadBannerDirect\('([^']+)'"#, in: rawHTML) {
-            return m
+            raw = m
         }
-
         // 2. data:image
-        if let m = firstMatch(pattern: #"(data:image/[a-zA-Z0-9+/=;,]+)"#, in: rawHTML) {
-            return m
+        else if let m = firstMatch(pattern: #"(data:image/[a-zA-Z0-9+/=;,]+)"#, in: rawHTML) {
+            raw = m
         }
-
         // 3. https?://...jpg|png|jpeg|webp
-        if let m = firstMatch(pattern: #"(https?://[^"'\s)]+\.(?:jpg|png|jpeg|webp))"#, in: rawHTML, caseInsensitive: true) {
-            return m
+        else if let m = firstMatch(pattern: #"(https?://[^"'\s)]+\.(?:jpg|png|jpeg|webp))"#, in: rawHTML, caseInsensitive: true) {
+            raw = m
         }
-
         // 4. url(...)
-        if let m = firstMatch(pattern: #"url\s*\(\s*['"]?([^"'\)]+)['"]?\s*\)"#, in: rawHTML, caseInsensitive: true) {
-            return m
+        else if let m = firstMatch(pattern: #"url\s*\(\s*['"]?([^"'\)]+)['"]?\s*\)"#, in: rawHTML, caseInsensitive: true) {
+            raw = m
         }
-
         // 5. img src / data-src
-        if let img = article.css("img").first {
-            if let src = img["src"], !src.isEmpty { return src }
-            if let ds = img["data-src"], !ds.isEmpty { return ds }
-            if let ds = img["data-original"], !ds.isEmpty { return ds }
+        else if let img = article.css("img").first {
+            raw = img["src"] ?? img["data-src"] ?? img["data-original"]
         }
 
-        return ""
+        guard let cover = raw, !cover.isEmpty else { return "" }
+        return proxyImageURL(cover)
     }
 
     private func firstMatch(pattern: String, in text: String, caseInsensitive: Bool = false) -> String? {
