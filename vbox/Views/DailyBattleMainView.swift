@@ -145,6 +145,7 @@ struct DailyBattleHomeTab: View {
             if categories.isEmpty { loadCategories() }
         }
         .background(Color.clear)
+    }
 
     private func loadCategories() {
         Task {
