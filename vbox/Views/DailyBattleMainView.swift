@@ -45,7 +45,7 @@ struct DailyBattleMainView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-    }
+        .background(Color.clear)
 }
 
 // MARK: - 首页Tab：分类 → 视频网格
@@ -144,7 +144,7 @@ struct DailyBattleHomeTab: View {
         .onAppear {
             if categories.isEmpty { loadCategories() }
         }
-    }
+        .background(Color.clear)
 
     private func loadCategories() {
         Task {
@@ -423,7 +423,7 @@ struct DailyBattlePlayerView: View {
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(Color.accentColor)
+                .background(Color.clear)
                 .cornerRadius(12)
                 .padding(.horizontal, 16)
         }
@@ -452,7 +452,7 @@ struct DailyBattlePlayerView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color(UIColor.secondarySystemBackground))
+                                .background(Color.clear)
                                 .cornerRadius(12)
                         }
                     }
@@ -481,7 +481,7 @@ struct DailyBattlePlayerView: View {
                             .font(.system(size: 12))
                             .foregroundColor(.accentColor)
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Color.accentColor.opacity(0.1))
+                            .background(Color.clear)
                             .cornerRadius(10)
                     }
                 }

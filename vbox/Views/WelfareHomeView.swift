@@ -168,8 +168,12 @@ struct WelfareHomeView: View {
 
     // MARK: - 颜色工具
     private func tabGradient(_ tab: WelfareTab) -> [Color] {
-        // 统一使用应用主题色，避免突兀的红色渐变
-        return [Color.accentColor, Color.accentColor.opacity(0.7)]
+        // 视频→蓝 / 直播→橙 / 漫画→紫，三者选中时颜色各不同
+        switch tab {
+        case .video: return [Color(hex: "3B82F6"), Color(hex: "2563EB")]
+        case .live:  return [Color(hex: "F97316"), Color(hex: "EA580C")]
+        case .comic: return [Color(hex: "8B5CF6"), Color(hex: "7C3AED")]
+        }
     }
 
     private func themeGradient(for tab: WelfareTab) -> LinearGradient {
