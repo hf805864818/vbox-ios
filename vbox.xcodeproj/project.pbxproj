@@ -117,6 +117,8 @@
 		A10153 /* MaShanZheng-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B10153 /* MaShanZheng-Regular.ttf */; };
 		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
+		D2AC0641D1BA4218849EFA47 /* DailyBattleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86829CD08A7449B682FF058E /* DailyBattleService.swift */; };
+		E0A23E9AE3C34739820CF102 /* DailyBattleMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
@@ -333,6 +335,8 @@
 		B10155 /* MissAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVService.swift; sourceTree = "<group>"; };
 		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
+		86829CD08A7449B682FF058E /* DailyBattleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleService.swift; sourceTree = "<group>"; };
+		CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleMainView.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
@@ -588,6 +592,7 @@
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
 				B10126 /* ShortDramaService.swift */,
 				B10200 /* YBoxService2.swift */,
+				86829CD08A7449B682FF058E /* DailyBattleService.swift */,
 				B12031 /* KXSPAPIService.swift */,
 				B10155 /* MissAVService.swift */,
 			);
@@ -619,6 +624,7 @@
 				B10142 /* LiveTVView.swift */,
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
+				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
 				B10128 /* ShortDramaDetailView.swift */,
 				B10203 /* WelfareSubViews.swift */,
@@ -856,8 +862,10 @@
 				A10127 /* ShortDramaView.swift in Sources */,
 				A10128 /* ShortDramaDetailView.swift in Sources */,
 				A10200 /* YBoxService2.swift in Sources */,
+				D2AC0641D1BA4218849EFA47 /* DailyBattleService.swift in Sources */,
 				C0MISSAV001 /* MissAVService.swift in Sources */,
 				A10203 /* WelfareSubViews.swift in Sources */,
+				E0A23E9AE3C34739820CF102 /* DailyBattleMainView.swift in Sources */,
 				A12031 /* KXSPAPIService.swift in Sources */,
 				A12032 /* SangeModels.swift in Sources */,
 				A12033 /* SangeCategoryView.swift in Sources */,
