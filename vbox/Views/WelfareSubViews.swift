@@ -100,10 +100,8 @@ struct YBoxBananaHomeTab: View {
                             }) {
                                 Text(cat.name)
                                     .font(.system(size: 13, weight: selectedCateIdx == idx ? .semibold : .regular))
-                                    .foregroundColor(selectedCateIdx == idx ? .white : .primary)
+                                    .foregroundColor(selectedCateIdx == idx ? .accentColor : .secondary)
                                     .padding(.horizontal, 14).padding(.vertical, 7)
-                                    .background(selectedCateIdx == idx ? Color.accentColor : Color(UIColor.secondarySystemBackground))
-                                    .cornerRadius(16)
                             }
                         }
                     }
@@ -124,8 +122,6 @@ struct YBoxBananaHomeTab: View {
                                             .font(.system(size: 12))
                                             .foregroundColor(.accentColor)
                                             .padding(.horizontal, 10).padding(.vertical, 4)
-                                            .background(Color.accentColor.opacity(0.1))
-                                            .cornerRadius(10)
                                     }
                                 }
                             }
