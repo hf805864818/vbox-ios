@@ -473,8 +473,8 @@ struct DailyBattlePlayerView: View {
                 ForEach(keywordItems, id: \.self) { kw in
                     NavigationLink(
                         destination: DailyBattleSearchTab(platform: YBoxPlatform2(
-                            id: "mrdld", name: "每日大乱斗",
-                            icon: "play.tv", apiPath: ""
+                            name: "每日大乱斗", icon: "flame.fill", type: .video,
+                            baseURL: "https://border.bshzjjgq.cc", desc: "每日更新"
                         ), presetKeyword: kw)
                     ) {
                         Text(kw)
