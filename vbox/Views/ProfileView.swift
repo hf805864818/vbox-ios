@@ -782,6 +782,16 @@ struct WatchHistoryView: View {
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            if let id = record.id {
+                                DatabaseManager.shared.deleteHistory(id: id)
+                                historyRecords.removeAll { $0.id == id }
+                            }
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }
@@ -926,6 +936,16 @@ struct FavoriteView: View {
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            if let id = record.id {
+                                DatabaseManager.shared.removeFavorite(id: id)
+                                favorites.removeAll { $0.id == id }
+                            }
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }
