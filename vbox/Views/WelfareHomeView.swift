@@ -145,10 +145,11 @@ struct WelfareHomeView: View {
         }
     }
 
-    /// 仅保留 MissAV 和 香蕉秀 路由
     private func destinationView(for platform: YBoxPlatform2) -> some View {
         if platform.name == "MissAV" {
             return AnyView(MissAVHomeView().environmentObject(settings))
+        } else if platform.name == "每日大乱斗" {
+            return AnyView(DailyBattleMainView(platform: platform))
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -162,8 +163,8 @@ struct WelfareHomeView: View {
             }
             return []
         }()
-        // 仅保留 MissAV 和 香蕉秀
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" }
+        // 仅保留 MissAV、香蕉秀 和 每日大乱斗
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" }
     }
 
     // MARK: - 颜色工具
@@ -193,6 +194,7 @@ struct WelfareHomeView: View {
         let colorMap: [String: [Color]] = [
             "MissAV":       [Color(hex: "FD79A8"), Color(hex: "E84393")],
             "香蕉秀":        [Color(hex: "FFEAA7"), Color(hex: "FDCB6E")],
+            "每日大乱斗":    [Color(hex: "FF6B35"), Color(hex: "D72638")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
     }
