@@ -69,8 +69,7 @@ struct WelfareHomeView: View {
                         Spacer()
                         Button("完成") { withAnimation { isEditMode = false; saveOrder() } }
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(selectedTab == .video ? Color(hex: "E11D48") :
-                                selectedTab == .live ? Color(hex: "7C3AED") : Color(hex: "059669"))
+                            .foregroundColor(.accentColor)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 6)
@@ -169,11 +168,8 @@ struct WelfareHomeView: View {
 
     // MARK: - 颜色工具
     private func tabGradient(_ tab: WelfareTab) -> [Color] {
-        switch tab {
-        case .video: return [Color(hex: "E11D48"), Color(hex: "F43F5E")]
-        case .live: return [Color(hex: "7C3AED"), Color(hex: "A855F7")]
-        case .comic: return [Color(hex: "059669"), Color(hex: "34D399")]
-        }
+        // 统一使用应用主题色，避免突兀的红色渐变
+        return [Color.accentColor, Color.accentColor.opacity(0.7)]
     }
 
     private func themeGradient(for tab: WelfareTab) -> LinearGradient {
