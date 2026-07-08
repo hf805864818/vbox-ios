@@ -81,7 +81,7 @@ class DailyBattleService: ObservableObject {
             let selectors = ["nav ul li", ".nav-menu li", ".menu li"]
             for sel in selectors {
                 let items = doc.css(sel)
-                if !items.isEmpty {
+                if items.count > 0 {
                     for el in items {
                         if let link = el.css("a").first,
                            let href = link["href"], href != "#",
@@ -162,7 +162,7 @@ class DailyBattleService: ObservableObject {
                     // 尝试获取集数名称 - 查找上一级标题
                     var epName = "视频\(idx + 1)"
                     let headings = dp.xpath("./preceding::h2|./preceding::h3|./preceding::h4")
-                    if let heading = headings.last?.text?.trimmingCharacters(in: .whitespaces), !heading.isEmpty {
+                    if let heading = Array(headings).last?.text?.trimmingCharacters(in: CharacterSet.whitespaces), !heading.isEmpty {
                         epName = heading
                     }
 
