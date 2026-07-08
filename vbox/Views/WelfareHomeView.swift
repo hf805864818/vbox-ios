@@ -42,12 +42,18 @@ struct WelfareHomeView: View {
                                         .font(.system(size: 15, weight: selectedTab == tab ? .bold : .regular))
                                 }
                                 .foregroundColor(selectedTab == tab
-                                    ? .primary
+                                    ? .white
                                     : (settings.usesVisualSkin ? .white.opacity(0.6) : .primary.opacity(0.5))
                                 )
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(selectedTab == tab ?
+                                          themeGradient(for: tab)
+                                          : LinearGradient(colors: [Color.clear], startPoint: .leading, endPoint: .trailing))
+                            )
                         }
                         .buttonStyle(.plain)
                     }
