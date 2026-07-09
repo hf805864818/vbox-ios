@@ -6,7 +6,12 @@ import SwiftUI
 struct DailyBattleMainView: View {
     let platform: YBoxPlatform2
 
-    @StateObject private var svc = DailyBattleService.shared
+    @StateObject private var svc: DailyBattleService
+
+    init(platform: YBoxPlatform2) {
+        self.platform = platform
+        _svc = StateObject(wrappedValue: DailyBattleService.from(platform: platform))
+    }
     @State private var selectedTab = 0
     private let tabs = ["首页", "搜索"]
 
@@ -35,8 +40,8 @@ struct DailyBattleMainView: View {
             Divider()
 
             TabView(selection: $selectedTab) {
-                DailyBattleHomeTab(platform: platform).tag(0)
-                DailyBattleSearchTab(platform: platform).tag(1)
+                DailyBattleHomeTab(platform: platform, svc: svc).tag(0)
+                DailyBattleSearchTab(platform: platform, svc: svc).tag(1)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .onAppear {
@@ -54,7 +59,7 @@ struct DailyBattleMainView: View {
 
 struct DailyBattleHomeTab: View {
     let platform: YBoxPlatform2
-    @StateObject private var svc = DailyBattleService.shared
+    @ObservedObject var svc: DailyBattleService
 
     @State private var categories: [DailyBattleCategory] = []
     @State private var selectedCateIdx = 0
@@ -118,7 +123,8 @@ struct DailyBattleHomeTab: View {
                             ForEach(videos) { video in
                                 NavigationLink(destination: DailyBattlePlayerView(
                                     vodId: video.vodId, title: video.title,
-                                    cover: video.cover, remarks: video.remarks
+                                    cover: video.cover, remarks: video.remarks,
+                                    platform: platform, svc: svc
                                 )) {
                                     DailyBattleVideoCard(
                                         cover: video.cover, title: video.title,
@@ -243,7 +249,7 @@ struct DailyBattleVideoCard: View {
 struct DailyBattleSearchTab: View {
     let platform: YBoxPlatform2
     var presetKeyword: String? = nil
-    @StateObject private var svc = DailyBattleService.shared
+    @ObservedObject var svc: DailyBattleService
 
     @State private var keyword = ""
     @State private var results: [DailyBattleVideo] = []
@@ -255,7 +261,7 @@ struct DailyBattleSearchTab: View {
         VStack(spacing: 0) {
             // 搜索栏
             HStack(spacing: 8) {
-                TextField("搜索每日大乱斗...", text: $keyword)
+                TextField("搜索\(svc.siteName)...", text: $keyword)
                     .textFieldStyle(.plain)
                     .padding(10)
                     .background(Color(UIColor.secondarySystemBackground))
@@ -294,7 +300,8 @@ struct DailyBattleSearchTab: View {
                         ForEach(results) { video in
                             NavigationLink(destination: DailyBattlePlayerView(
                                 vodId: video.vodId, title: video.title,
-                                cover: video.cover, remarks: video.remarks
+                                cover: video.cover, remarks: video.remarks,
+                                platform: platform, svc: svc
                             )) {
                                 DailyBattleVideoCard(
                                     cover: video.cover, title: video.title,
@@ -337,8 +344,8 @@ struct DailyBattlePlayerView: View {
     let title: String
     let cover: String
     let remarks: String
-
-    @StateObject private var svc = DailyBattleService.shared
+    let platform: YBoxPlatform2
+    let svc: DailyBattleService
 
     @State private var isLoading = true
     @State private var errorMsg: String?
@@ -447,7 +454,7 @@ struct DailyBattlePlayerView: View {
                         Button(action: {
                             vodItem = VodItem(
                                 vodId: vodId, vodName: "\(title) · \(ep.name)",
-                                vodPic: cover, vodRemarks: "[福利]每日大乱斗",
+                                vodPic: cover, vodRemarks: "[福利]\(svc.siteName)",
                                 vodPlayUrl: ep.url
                             )
                             showPlayer = true
@@ -476,10 +483,7 @@ struct DailyBattlePlayerView: View {
             FlowLayout(spacing: 6) {
                 ForEach(keywordItems, id: \.self) { kw in
                     NavigationLink(
-                        destination: DailyBattleSearchTab(platform: YBoxPlatform2(
-                            name: "每日大乱斗", icon: "flame.fill", type: .video,
-                            baseURL: "https://border.bshzjjgq.cc", desc: "每日更新"
-                        ), presetKeyword: kw)
+                        destination: DailyBattleSearchTab(platform: platform, svc: svc, presetKeyword: kw)
                     ) {
                         Text(kw)
                             .font(.system(size: 12))
@@ -512,7 +516,7 @@ struct DailyBattlePlayerView: View {
                 if let firstEp = eps.first {
                     vodItem = VodItem(
                         vodId: vodId, vodName: title, vodPic: cover,
-                        vodRemarks: "[福利]每日大乱斗", vodPlayUrl: firstEp.url
+                        vodRemarks: "[福利]\(svc.siteName)", vodPlayUrl: firstEp.url
                     )
                     isLoading = false
                 } else {

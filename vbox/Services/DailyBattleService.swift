@@ -1,9 +1,37 @@
 import Foundation
 import Kanna
 
-// MARK: - 每日大乱斗 HTML 抓取服务
+// MARK: - 每日大乱斗 / 每日大赛 HTML 抓取服务
 // Python Spider → Swift 原生实现，基于 Kanna HTML 解析
-// 数据源: border.bshzjjgq.cc / blood.bshzjjgq.cc
+// 支持多站点配置：每日大乱斗 (bshzjjgq.cc) / 每日大赛 (mrds66.com)
+
+// MARK: - 站点配置
+
+struct DailyBattleSiteConfig {
+    let name: String
+    let hosts: [String]
+    let domainPatterns: [String]  // 外链过滤白名单域名片段
+
+    static let battle = DailyBattleSiteConfig(
+        name: "每日大乱斗",
+        hosts: [
+            "https://border.bshzjjgq.cc",
+            "https://blood.bshzjjgq.cc"
+        ],
+        domainPatterns: ["bshzjjgq.cc", "mrdld.com"]
+    )
+
+    static let dailyContest = DailyBattleSiteConfig(
+        name: "每日大赛",
+        hosts: [
+            "https://www.mrds66.com",
+            "https://mrdsa2.com",
+            "https://mrdsa1.com",
+            "https://mrdsk.com"
+        ],
+        domainPatterns: ["mrds", "mrdsk"]
+    )
+}
 
 // MARK: - 数据模型
 
@@ -33,7 +61,13 @@ struct DailyBattleDetail {
 
 @MainActor
 class DailyBattleService: ObservableObject {
-    static let shared = DailyBattleService()
+    /// 默认实例（每日大乱斗）
+    static let shared = DailyBattleService(config: .battle)
+    /// 每日大赛实例
+    static let contest = DailyBattleService(config: .dailyContest)
+
+    private let config: DailyBattleSiteConfig
+    var siteName: String { config.name }
 
     private let headers: [String: String] = [
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -41,30 +75,34 @@ class DailyBattleService: ObservableObject {
         "Accept-Language": "zh-CN,zh;q=0.9"
     ]
 
-    private let dynamicHosts = [
-        "https://border.bshzjjgq.cc",
-        "https://blood.bshzjjgq.cc"
-    ]
-
     private(set) var currentHost: String = ""
 
-    init() {
-        currentHost = dynamicHosts[0]
+    /// 从平台配置创建服务实例
+    static func from(platform: YBoxPlatform2) -> DailyBattleService {
+        if platform.name == "每日大赛" {
+            return contest
+        }
+        return shared
+    }
+
+    init(config: DailyBattleSiteConfig) {
+        self.config = config
+        currentHost = config.hosts[0]
     }
 
     // MARK: - 站点存活探测
 
     func probeHost() async -> String {
-        for host in dynamicHosts {
+        for host in config.hosts {
             do {
                 let (_, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
                     currentHost = host
-                    print("[DailyBattle] ✅ 使用站点: \(host)")
+                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(host)")
                     return host
                 }
             } catch {
-                print("[DailyBattle] ⚠️ \(host) 不可达: \(error.localizedDescription)")
+                print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")
             }
         }
         return currentHost
@@ -99,10 +137,17 @@ class DailyBattleService: ObservableObject {
                 }
             }
             if cats.isEmpty {
-                cats = [
-                    DailyBattleCategory(id: "/category/mrld/", name: "今日乱斗", url: "/category/mrld/"),
-                    DailyBattleCategory(id: "/category/bkdg/", name: "必看大瓜", url: "/category/bkdg/")
-                ]
+                // 按站点配置提供 fallback 分类
+                if config.name == "每日大赛" {
+                    cats = [
+                        DailyBattleCategory(id: "/category/mrds/", name: "每日大赛", url: "/category/mrds/")
+                    ]
+                } else {
+                    cats = [
+                        DailyBattleCategory(id: "/category/mrld/", name: "今日乱斗", url: "/category/mrld/"),
+                        DailyBattleCategory(id: "/category/bkdg/", name: "必看大瓜", url: "/category/bkdg/")
+                    ]
+                }
             }
 
             // 提取推荐视频（过滤广告外链）
@@ -111,7 +156,7 @@ class DailyBattleService: ObservableObject {
 
             return (cats, videos)
         } catch {
-            print("[DailyBattle] fetchHome error: \(error)")
+            print("[DailyBattle:\(config.name)] fetchHome error: \(error)")
             return ([], [])
         }
     }
@@ -127,7 +172,7 @@ class DailyBattleService: ObservableObject {
             let isFolder = url.contains("/mrdg")
             return parseVideos(articles, tag: isFolder ? "folder" : "")
         } catch {
-            print("[DailyBattle] fetchCategoryList(\(url), p\(page)) error: \(error)")
+            print("[DailyBattle:\(config.name)] fetchCategoryList(\(url), p\(page)) error: \(error)")
             return []
         }
     }
@@ -150,7 +195,7 @@ class DailyBattleService: ObservableObject {
             let url = vodId.hasPrefix("http") ? vodId : "\(currentHost)\(vodId.hasPrefix("/") ? "" : "/")\(vodId)"
             let html = try await fetchHTML(url: url)
             guard let doc = try? HTML(html: html, encoding: .utf8) else {
-                return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "解析失败", content: "", keywords: [])
+                return DailyBattleDetail(playFrom: config.name, playUrl: "解析失败", content: "", keywords: [])
             }
 
             var playUrls: [String] = []
@@ -226,7 +271,7 @@ class DailyBattleService: ObservableObject {
             }
 
             let content = tagItems.isEmpty
-                ? (doc.css("h1").first?.text ?? doc.css(".post-title").first?.text ?? "每日大乱斗")
+                ? (doc.css("h1").first?.text ?? doc.css(".post-title").first?.text ?? config.name)
                 : tagItems.joined(separator: " · ")
 
             let tagLinks: [String] = []
@@ -238,10 +283,10 @@ class DailyBattleService: ObservableObject {
                     kwItems.append(name)
                 }
             }
-            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: playUrl, content: content, keywords: kwItems)
+            return DailyBattleDetail(playFrom: config.name, playUrl: playUrl, content: content, keywords: kwItems)
         } catch {
-            print("[DailyBattle] fetchDetail(\(vodId)) error: \(error)")
-            return DailyBattleDetail(playFrom: "每日大乱斗", playUrl: "获取失败", content: "每日大乱斗", keywords: [])
+            print("[DailyBattle:\(config.name)] fetchDetail(\(vodId)) error: \(error)")
+            return DailyBattleDetail(playFrom: config.name, playUrl: "获取失败", content: config.name, keywords: [])
         }
     }
 
@@ -257,7 +302,7 @@ class DailyBattleService: ObservableObject {
             guard let doc = try? HTML(html: html, encoding: .utf8) else { return [] }
             return parseVideos(doc.css("article"))
         } catch {
-            print("[DailyBattle] search(\(keyword), p\(page)) error: \(error)")
+            print("[DailyBattle:\(config.name)] search(\(keyword), p\(page)) error: \(error)")
             return []
         }
     }
@@ -316,7 +361,7 @@ class DailyBattleService: ObservableObject {
             }
             guard let href = anchor?["href"], !href.isEmpty else { continue }
             // 跳过广告外链（非 / 开头且非本站域名的 URL）
-            if href.hasPrefix("http") && !href.contains("bshzjjgq.cc") && !href.contains("mrdld.com") { continue }
+            if href.hasPrefix("http") && !config.domainPatterns.contains(where: { href.contains($0) }) { continue }
 
             // 提取封面
             let cover = extractCover(from: article)

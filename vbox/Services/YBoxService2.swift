@@ -255,6 +255,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
             YBoxPlatform2(name: "每日大乱斗", icon: "flame.fill", type: .video,
                          baseURL: "https://border.bshzjjgq.cc", desc: "每日更新"),
+            YBoxPlatform2(name: "每日大赛", icon: "trophy.fill", type: .video,
+                         baseURL: "https://www.mrds66.com", desc: "每日精选"),
         ]
 
         categories = [
