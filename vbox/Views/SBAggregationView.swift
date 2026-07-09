@@ -269,7 +269,12 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         if context.coordinator.flvURL != url {
             context.coordinator.flvURL = url
-            let js = "loadFlv('\(url)');"
+            // 转义 URL 中的特殊字符，防止 JS 注入
+            let escaped = url.replacingOccurrences(of: "\\", with: "\\\\")
+                           .replacingOccurrences(of: "'", with: "\\'")
+                           .replacingOccurrences(of: "\n", with: "")
+                           .replacingOccurrences(of: "\r", with: "")
+            let js = "loadFlv('\(escaped)');"
             webView.evaluateJavaScript(js)
         }
     }
@@ -278,7 +283,11 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         var flvURL: String = ""
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            let js = "loadFlv('\(flvURL)');"
+            let escaped = flvURL.replacingOccurrences(of: "\\", with: "\\\\")
+                               .replacingOccurrences(of: "'", with: "\\'")
+                               .replacingOccurrences(of: "\n", with: "")
+                               .replacingOccurrences(of: "\r", with: "")
+            let js = "loadFlv('\(escaped)');"
             webView.evaluateJavaScript(js)
         }
     }
