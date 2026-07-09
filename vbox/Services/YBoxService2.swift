@@ -259,13 +259,16 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://www.mrds66.com", desc: "每日精选"),
             YBoxPlatform2(name: "神秘电影", icon: "theatermasks.fill", type: .video,
                          baseURL: "https://h4ivs.sm431.vip", desc: "加密解密"),
-            YBoxPlatform2(name: "色播聚合", icon: "tv.fill", type: .video,
+        ]
+
+        let yboxLive: [YBoxPlatform2] = [
+            YBoxPlatform2(name: "色播聚合", icon: "tv.fill", type: .live,
                          baseURL: "http://api.hclyz.com:81/mf", desc: "直播聚合"),
         ]
 
         categories = [
             YBoxCategory2(name: "视频", platforms: yboxVideo),
-            YBoxCategory2(name: "直播", platforms: []),
+            YBoxCategory2(name: "直播", platforms: yboxLive),
             YBoxCategory2(name: "漫画", platforms: []),
         ]
     }
