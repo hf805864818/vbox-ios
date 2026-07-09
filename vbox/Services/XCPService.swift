@@ -236,8 +236,8 @@ class XCPService: ObservableObject {
                let range = Range(match.range(at: 1), in: html) {
                 var jsonStr = String(html[range])
                 // 修复 JS 属性名（无引号 key，如 {url:"xxx"} → {"url":"xxx"}）
-                if let regex = try? NSRegularExpression(pattern: "(\\w+):", options: []),
-                   let ns = jsonStr as NSString? {
+                if let regex = try? NSRegularExpression(pattern: "(\\w+):", options: []) {
+                    let ns = jsonStr as NSString
                     let result = regex.stringByReplacingMatches(in: ns, range: NSRange(location: 0, length: ns.length), withTemplate: "\"$1\":")
                     jsonStr = result as String
                 }
