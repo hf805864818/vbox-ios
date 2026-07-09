@@ -28,7 +28,7 @@ struct DailyBattleSiteConfig {
         hosts: [
             "https://www.ercwvciks.cc"
         ],
-        domainPatterns: ["ercwvciks", "mrds", "mrdsk"]
+        domainPatterns: ["nzmknoycm", "tvayhvuab", "miqmpuln", "synvmodz", "ercwvciks", "mrds", "mrdsk"]
     )
 }
 
@@ -89,10 +89,11 @@ class DailyBattleService: ObservableObject {
     private let config: DailyBattleSiteConfig
     var siteName: String { config.name }
 
-    /// 当前生效的 hosts 列表（含自定义域名优先）
+    /// 当前生效的 hosts 列表（自定义域名优先 + 多域名轮询支持）
     private var effectiveHosts: [String] {
-        if let custom = WelfareDomainStore.shared.domain(for: config.name) {
-            return [custom] + config.hosts // 自定义域名优先
+        let customs = WelfareDomainStore.shared.domains(for: config.name)
+        if !customs.isEmpty {
+            return customs + config.hosts
         }
         return config.hosts
     }
@@ -148,19 +149,39 @@ class DailyBattleService: ObservableObject {
         return (html as NSString).substring(with: match.range(at: 1))
     }
 
-    /// 从导航页 JS 中提取线路域名模式（如 miqmpuln.cc, synvmodz.cc）
+    /// 从导航页 HTML 中提取线路域名模式
+    /// 支持 base64 编码的导航页（如 ercwvciks.cc）
     private func extractLineDomains(from html: String) -> [String] {
         var domains: [String] = []
-        // 匹配 JS 中的 .miqmpuln.cc 或 .synvmodz.cc 等线路域名
-        let pattern = "words\\.random\\(\\)\\s*\\+\\s*['\"]\\.([a-z0-9-]+\\.[a-z]{2,})['\"]"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return domains }
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: html.utf16.count))
-        for match in matches {
-            let domain = (html as NSString).substring(with: match.range(at: 1))
-            if !domains.contains(domain) {
-                domains.append(domain)
+        var searchText = html
+
+        // 尝试 base64 解码（导航页可能整体 base64 编码）
+        if let decodedData = Data(base64Encoded: html.replacingOccurrences(of: "\n", with: ""), options: .ignoreUnknownCharacters),
+           let decoded = String(data: decodedData, encoding: .utf8) {
+            print("[DailyBattle:\(config.name)] 📦 导航页 base64 解码成功，长度: \(decoded.count)")
+            searchText = decoded
+        }
+
+        // 方式1: 匹配 words.random() + '.domain.cc' 模式
+        let pattern1 = "words\\.random\\(\\)\\s*\\+\\s*['\"]\\.([a-z0-9-]+\\.[a-z]{2,})['\"]"
+        if let regex = try? NSRegularExpression(pattern: pattern1, options: []) {
+            let matches = regex.matches(in: searchText, range: NSRange(location: 0, length: searchText.utf16.count))
+            for match in matches {
+                let domain = (searchText as NSString).substring(with: match.range(at: 1))
+                if !domains.contains(domain) { domains.append(domain) }
             }
         }
+
+        // 方式2: 匹配单引号中的完整域名模式 '.nzmknoycm.cc' 等
+        let pattern2 = "'\\.([a-z0-9-]+\\.[a-z]{2,})'"
+        if let regex = try? NSRegularExpression(pattern: pattern2, options: []) {
+            let matches = regex.matches(in: searchText, range: NSRange(location: 0, length: searchText.utf16.count))
+            for match in matches {
+                let domain = (searchText as NSString).substring(with: match.range(at: 1))
+                if !domains.contains(domain) { domains.append(domain) }
+            }
+        }
+
         return domains
     }
 
@@ -269,7 +290,7 @@ class DailyBattleService: ObservableObject {
 
     /// 重置域名（清除自定义域名），用于设置页面
     func resetDomain() {
-        WelfareDomainStore.shared.setDomain(for: config.name, nil)
+        WelfareDomainStore.shared.clearDomains(for: config.name)
         currentHost = config.hosts[0]
         isReady = false
     }
