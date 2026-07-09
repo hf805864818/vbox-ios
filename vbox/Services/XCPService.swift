@@ -43,7 +43,7 @@ class XCPService: ObservableObject {
 
     private let defaultHost = "https://xiang512.xiang.party/xcpd"
 
-    private var currentHost: String {
+    var currentHost: String {
         let customs = WelfareDomainStore.shared.domains(for: "香肠派对")
         return customs.first ?? defaultHost
     }
@@ -235,8 +235,12 @@ class XCPService: ObservableObject {
                let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
                let range = Range(match.range(at: 1), in: html) {
                 var jsonStr = String(html[range])
-                // 修复 JS 属性名（无引号 key）
-                jsonStr = jsonStr.replacingOccurrences(of: "(\", with: "\"")
+                // 修复 JS 属性名（无引号 key，如 {url:"xxx"} → {"url":"xxx"}）
+                if let regex = try? NSRegularExpression(pattern: "(\\w+):", options: []),
+                   let ns = jsonStr as NSString? {
+                    let result = regex.stringByReplacingMatches(in: ns, range: NSRange(location: 0, length: ns.length), withTemplate: "\"$1\":")
+                    jsonStr = result as String
+                }
                 if let jsonData = jsonStr.data(using: .utf8),
                    let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                    let videoURL = json["url"] as? String {
