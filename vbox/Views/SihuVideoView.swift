@@ -301,10 +301,22 @@ struct SihuVideoDetailView: View {
             let url = await svc.fetchPlayURL(playPath: episode.playPath)
             await MainActor.run {
                 isLoading = false
-                if let urlStr = url, let url = URL(string: urlStr) {
-                    playURL = urlStr
-                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
+                guard let urlStr = url else { return }
+
+                // 通过本地代理注入 Referer 头（AVPlayer 不支持自定义 Header）
+                let headers = ["Referer": svc.currentBaseURL]
+                if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
+                    for: urlStr, headers: headers, provider: "sihu") {
+                    playURL = localURL.absoluteString
+                    player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
                     isPlaying = true
+                } else {
+                    // 代理不可用时直连
+                    if let url = URL(string: urlStr) {
+                        playURL = urlStr
+                        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+                        isPlaying = true
+                    }
                 }
             }
         }

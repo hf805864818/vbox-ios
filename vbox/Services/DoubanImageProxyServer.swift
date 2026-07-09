@@ -259,7 +259,9 @@ final class DoubanImageProxyServer {
             || pathAndQuery.hasPrefix("/quark-stream")
             || pathAndQuery.hasPrefix("/ali-stream")
             || pathAndQuery.hasPrefix("/uc-stream")
-            || pathAndQuery.hasPrefix("/115-stream") {
+            || pathAndQuery.hasPrefix("/115-stream")
+            || pathAndQuery.hasPrefix("/sihu-stream")
+            || pathAndQuery.hasPrefix("/xcp-stream") {
             routeStream(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }

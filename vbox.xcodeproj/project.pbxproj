@@ -12,6 +12,8 @@
 		03441A3A19D4200B9B0C9F73 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97FF67C178D2D217311C1C6C /* Security.framework */; };
 		04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A80014896281C5C1B943BE /* SihuVideoService.swift */; };
 		04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */; };
+		04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */; };
+		04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */; };
 		0B8A0BC12EB59E31457F7A26 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */; };
 		0C3CE0504210081ED3E2C384 /* Libplacebo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		0D1E865FB508DE73B04C17AC /* PlatformAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */; };
@@ -252,6 +254,8 @@
 		03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libharfbuzz.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libharfbuzz.xcframework; sourceTree = SOURCE_ROOT; };
 		04A80014896281C5C1B943BE /* SihuVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoService.swift; sourceTree = "<group>"; };
 		04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoView.swift; sourceTree = "<group>"; };
+		04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPService.swift; sourceTree = "<group>"; };
+		04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPView.swift; sourceTree = "<group>"; };
 		06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuchardet.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuchardet.xcframework; sourceTree = SOURCE_ROOT; };
 		074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libshaderc_combined.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libshaderc_combined.xcframework; sourceTree = SOURCE_ROOT; };
 		09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libsmbclient.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libsmbclient.xcframework; sourceTree = SOURCE_ROOT; };
@@ -619,6 +623,7 @@
 				5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */,
 				1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */,
 				04A80014896281C5C1B943BE /* SihuVideoService.swift */,
+				04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 			);
 			path = Services;
@@ -660,6 +665,7 @@
 				424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */,
 				5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */,
 				04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */,
+				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
 			);
 			path = Views;
@@ -911,6 +917,8 @@
 				3A0F654B18027EB301542742 /* WelfareSettingsView.swift in Sources */,
 				04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */,
 				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
+				04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */,
+				04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
