@@ -129,7 +129,7 @@ class DailyBattleService: ObservableObject {
 
     // MARK: - 站点存活探测
 
-    /// 判断 HTML 是否为 JS 跳转页（极短且只有跳转代码），用于日志提示
+    /// 判断 HTML 是否为 JS 跳转页
     private func isJSRedirectPage(_ html: String) -> Bool {
         let stripped = html.trimmingCharacters(in: .whitespacesAndNewlines)
         guard stripped.count < 800 else { return false }
@@ -138,27 +138,103 @@ class DailyBattleService: ObservableObject {
             || stripped.contains("_5v9MXQT1Kq.click")
     }
 
+    /// 从 JS 跳转页提取 <a href="..."> 的目标 URL
+    private func extractJSHref(from html: String) -> String? {
+        let pattern = "<a[^>]+href=\"([^\"]+)\""
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
+              let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) else {
+            return nil
+        }
+        return (html as NSString).substring(with: match.range(at: 1))
+    }
+
+    /// 从导航页 JS 中提取线路域名模式（如 miqmpuln.cc, synvmodz.cc）
+    private func extractLineDomains(from html: String) -> [String] {
+        var domains: [String] = []
+        // 匹配 JS 中的 .miqmpuln.cc 或 .synvmodz.cc 等线路域名
+        let pattern = "words\\.random\\(\\)\\s*\\+\\s*['\"]\\.([a-z0-9-]+\\.[a-z]{2,})['\"]"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return domains }
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: html.utf16.count))
+        for match in matches {
+            let domain = (html as NSString).substring(with: match.range(at: 1))
+            if !domains.contains(domain) {
+                domains.append(domain)
+            }
+        }
+        return domains
+    }
+
+    /// 测试某个域名是否能正常返回分类页面
+    private func testCategoryPage(host: String) async -> Bool {
+        do {
+            let testURL = "\(host)/category/mrds/"
+            let (data, response) = try await session.data(for: request(url: testURL))
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
+                // 确认返回的是真实内容（不是跳转页）
+                if let html = String(data: data, encoding: .utf8), html.count > 2000 {
+                    return true
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return false
+    }
+
     /// 站点存活探测，对应 Python get_working_host()
-    /// 关键：不跟踪 JS 跳转！跳转域名上的分类页面可直接访问（Python 同理）
+    /// 关键：处理 mrdsa1.com → JS 跳转 → 导航页 → 线路域名 的链路
     func probeHost() async -> String {
         for host in effectiveHosts {
             do {
                 let (data, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
-                    // 只提取 origin（scheme + host），不包含路径
                     let finalURL = httpResp.url ?? URL(string: host)!
                     let scheme = finalURL.scheme ?? "https"
                     let hostPart = finalURL.host ?? ""
-                    if !hostPart.isEmpty {
-                        currentHost = "\(scheme)://\(hostPart)"
-                        isReady = true
-                        // 检测是否为 JS 跳转页（仅日志提示，不影响后续使用）
-                        if let html = String(data: data, encoding: .utf8), isJSRedirectPage(html) {
-                            print("[DailyBattle:\(config.name)] ⚠️ 站点 \(currentHost) 首页为 JS 跳转页，分类页面仍可正常访问")
+
+                    guard !hostPart.isEmpty else { continue }
+
+                    // 检测是否为 JS 跳转页
+                    if let html = String(data: data, encoding: .utf8), isJSRedirectPage(html) {
+                        print("[DailyBattle:\(config.name)] 🔀 检测到 JS 跳转页，尝试跟进...")
+
+                        // 提取 JS 跳转目标 URL
+                        if let jsTarget = extractJSHref(from: html) {
+                            print("[DailyBattle:\(config.name)] 🔀 JS 跳转目标: \(jsTarget)")
+
+                            // 跟进跳转，获取导航页内容
+                            do {
+                                let (lpData, lpResp) = try await session.data(for: request(url: jsTarget))
+                                if let lpHttp = lpResp as? HTTPURLResponse, (200...299).contains(lpHttp.statusCode),
+                                   let lpHTML = String(data: lpData, encoding: .utf8) {
+
+                                    // 从导航页 JS 提取线路域名
+                                    let lineDomains = extractLineDomains(from: lpHTML)
+                                    print("[DailyBattle:\(config.name)] 🔍 发现线路域名: \(lineDomains)")
+
+                                    // 尝试每个线路域名的 www 子域名
+                                    for domain in lineDomains {
+                                        let testHost = "\(scheme)://www.\(domain)"
+                                        print("[DailyBattle:\(config.name)] 🧪 测试线路: \(testHost)")
+                                        if await testCategoryPage(host: testHost) {
+                                            currentHost = testHost
+                                            isReady = true
+                                            print("[DailyBattle:\(config.name)] ✅ 使用线路站点: \(currentHost)")
+                                            return currentHost
+                                        }
+                                    }
+                                }
+                            } catch {
+                                print("[DailyBattle:\(config.name)] ⚠️ 跳转跟进失败: \(error)")
+                            }
                         }
-                        print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
-                        return currentHost
                     }
+
+                    // 非跳转页，或跳转跟进失败 → 直接使用当前域名
+                    currentHost = "\(scheme)://\(hostPart)"
+                    isReady = true
+                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
+                    return currentHost
                 }
             } catch {
                 print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")

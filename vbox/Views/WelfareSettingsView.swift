@@ -42,6 +42,17 @@ struct WelfareSettingsView: View {
                                     .font(.system(size: 14))
                             }
                         }
+                        // 点击标题行展开编辑
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if editingPlatform == platform.name {
+                                editingPlatform = nil  // 再次点击收起
+                            } else {
+                                editingPlatform = platform.name
+                                newDomain = store.domain(for: platform.name) ?? ""
+                                isFocused = true
+                            }
+                        }
 
                         // 当前域名展示
                         HStack {
@@ -63,33 +74,34 @@ struct WelfareSettingsView: View {
                                     .autocapitalization(.none)
                                     .disableAutocorrection(true)
                                     .focused($isFocused)
+                                    .submitLabel(.done)
+                                    .onSubmit {
+                                        saveDomain(for: platform.name)
+                                    }
 
-                                Button("保存") {
+                                Button(action: {
                                     saveDomain(for: platform.name)
+                                }) {
+                                    Text("保存")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12).padding(.vertical, 6)
+                                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                                 }
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                                 .buttonStyle(.plain)
 
-                                Button("取消") {
+                                Button(action: {
                                     editingPlatform = nil
+                                }) {
+                                    Text("取消")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
                                 }
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
                                 .buttonStyle(.plain)
                             }
                         }
                     }
                     .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if editingPlatform == platform.name { return }
-                        editingPlatform = platform.name
-                        newDomain = store.domain(for: platform.name) ?? ""
-                        isFocused = true
-                    }
                     .swipeActions(edge: .trailing) {
                         Button("编辑") {
                             editingPlatform = platform.name
@@ -101,7 +113,6 @@ struct WelfareSettingsView: View {
                         if store.domain(for: platform.name) != nil {
                             Button("重置", role: .destructive) {
                                 store.setDomain(for: platform.name, nil)
-                                // 通知对应服务重置
                                 resetService(for: platform.name)
                             }
                         }
@@ -137,7 +148,6 @@ struct WelfareSettingsView: View {
             store.setDomain(for: name, trimmed)
         }
         editingPlatform = nil
-        // 通知对应服务重置连接
         resetService(for: name)
     }
 
