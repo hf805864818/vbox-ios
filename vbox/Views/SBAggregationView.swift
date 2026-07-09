@@ -209,24 +209,49 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         </style>
         </head>
         <body>
-        <video id="v" controls autoplay playsinline></video>
+        <video id="v" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;"></video>
         <script src="https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js"></script>
         <script>
+        var currentPlayer = null;
+        var retryCount = 0;
         function loadFlv(url) {
-            console.log('loadFlv: ' + url);
-            try {
-                if (typeof flvjs !== 'undefined' && flvjs.isSupported()) {
-                    var player = flvjs.createPlayer({ type: 'flv', url: url, isLive: true });
-                    player.attachMediaElement(document.getElementById('v'));
-                    player.load();
-                    player.play().catch(function(e) { console.log('play error: ' + e); });
-                } else {
-                    console.log('flvjs not supported, fallback to direct');
+            console.log('loadFlv called: ' + url);
+            retryCount = 0;
+            tryLoad(url);
+        }
+        function tryLoad(url) {
+            if (typeof flvjs !== 'undefined' && flvjs.isSupported()) {
+                console.log('flvjs ready, creating player');
+                if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; }
+                try {
+                    currentPlayer = flvjs.createPlayer({
+                        type: 'flv',
+                        url: url,
+                        isLive: true,
+                        hasAudio: true,
+                        hasVideo: true
+                    });
+                    currentPlayer.attachMediaElement(document.getElementById('v'));
+                    currentPlayer.load();
+                    currentPlayer.play().then(function() {
+                        console.log('play success');
+                    }).catch(function(e) {
+                        console.log('play error: ' + e);
+                        // Try direct fallback
+                        document.getElementById('v').src = url;
+                        document.getElementById('v').play();
+                    });
+                } catch(e) {
+                    console.log('flvjs create error: ' + e);
                     document.getElementById('v').src = url;
                     document.getElementById('v').play();
                 }
-            } catch(e) {
-                console.log('flvjs error: ' + e);
+            } else if (retryCount < 20) {
+                retryCount++;
+                console.log('flvjs not ready, retry ' + retryCount + '/20');
+                setTimeout(function() { tryLoad(url); }, 300);
+            } else {
+                console.log('flvjs timeout, fallback to direct');
                 document.getElementById('v').src = url;
                 document.getElementById('v').play();
             }

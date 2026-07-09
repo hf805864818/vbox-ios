@@ -26,7 +26,8 @@ struct DailyBattleSiteConfig {
     static let dailyContest = DailyBattleSiteConfig(
         name: "每日大赛",
         hosts: [
-            "https://www.ercwvciks.cc"
+            "https://www.ercwvciks.cc",
+            "https://www.nzmknoycm.cc"
         ],
         domainPatterns: ["tvayhvuab", "rvvnvvuk", "nzmknoycm", "miqmpuln", "synvmodz", "ercwvciks", "mrds", "mrdsk"]
     )
@@ -215,13 +216,12 @@ class DailyBattleService: ObservableObject {
         return domains
     }
 
-    /// 测试某个域名是否能正常返回分类页面
+    /// 测试某个域名是否能正常返回分类页面（探测阶段，不带 Origin/Referer）
     private func testCategoryPage(host: String) async -> Bool {
         do {
             let testURL = "\(host)/category/mrds/"
-            let (data, response) = try await session.data(for: request(url: testURL))
+            let (data, response) = try await session.data(for: requestPlain(url: testURL))
             if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                // 确认返回的是真实内容（不是跳转页）
                 if let html = String(data: data, encoding: .utf8), html.count > 2000 {
                     return true
                 }
@@ -238,7 +238,7 @@ class DailyBattleService: ObservableObject {
     func probeHost() async -> String {
         for host in effectiveHosts {
             do {
-                let (data, response) = try await session.data(for: request(url: host))
+                let (data, response) = try await session.data(for: requestPlain(url: host))
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
                     let finalURL = httpResp.url ?? URL(string: host)!
                     let scheme = finalURL.scheme ?? "https"
@@ -296,7 +296,7 @@ class DailyBattleService: ObservableObject {
     /// 从 URL 获取页面并提取线路域名
     private func tryLineDomains(from url: String, scheme: String) async -> String? {
         do {
-            let (lpData, lpResp) = try await session.data(for: request(url: url))
+            let (lpData, lpResp) = try await session.data(for: requestPlain(url: url))
             if let lpHttp = lpResp as? HTTPURLResponse, (200...299).contains(lpHttp.statusCode),
                let lpHTML = String(data: lpData, encoding: .utf8) {
                 let lineDomains = extractLineDomains(from: lpHTML)
@@ -545,6 +545,13 @@ class DailyBattleService: ObservableObject {
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.setValue(currentHost, forHTTPHeaderField: "Origin")
         req.setValue("\(currentHost)/", forHTTPHeaderField: "Referer")
+        return req
+    }
+
+    /// 不带 Origin/Referer 的请求（用于探测阶段，避免跨域问题）
+    private func requestPlain(url: String) -> URLRequest {
+        var req = URLRequest(url: URL(string: url)!)
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         return req
     }
 
