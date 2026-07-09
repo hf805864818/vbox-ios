@@ -483,7 +483,7 @@ struct DailyBattlePlayerView: View {
             FlowLayout(spacing: 6) {
                 ForEach(keywordItems, id: \.self) { kw in
                     NavigationLink(
-                        destination: DailyBattleSearchTab(platform: platform, svc: svc, presetKeyword: kw)
+                        destination: DailyBattleSearchTab(platform: platform, presetKeyword: kw, svc: svc)
                     ) {
                         Text(kw)
                             .font(.system(size: 12))
