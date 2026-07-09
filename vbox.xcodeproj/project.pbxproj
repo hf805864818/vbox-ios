@@ -159,6 +159,7 @@
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		BF1133BC00ADC634CEAEF832 /* Libunibreak.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C0MISSAV001 /* MissAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10155 /* MissAVService.swift */; };
@@ -188,13 +189,12 @@
 		F14D9EBCC712C7189C7054E2 /* Libavformat.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 933905689FCEDA2327DA3D6A /* Libavformat.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F28AA148030E09D03B61DB77 /* Libfreetype.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		F39C53FE3F6B5C2BD96EF8B6 /* gnutls.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5F77356B6F268B826247C658 /* gnutls.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */; };
 		F7481825FDA4FFE67F4F8820 /* Libcrypto.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
-		F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */; };
-		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -251,6 +251,7 @@
 		09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libsmbclient.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libsmbclient.xcframework; sourceTree = SOURCE_ROOT; };
 		0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdovi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdovi.xcframework; sourceTree = SOURCE_ROOT; };
 		0E27763D993B6E8409086841 /* libbz2.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
+		1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Services/SBAggregationService.swift; sourceTree = "<group>"; };
 		118639D4704EF09B475A80B0 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		2298D3101C1AE3DA9002687B /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
@@ -269,6 +270,7 @@
 		5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformImageLoader.swift; sourceTree = "<group>"; };
 		55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavfilter.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavfilter.xcframework; sourceTree = SOURCE_ROOT; };
 		567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdav1d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework; sourceTree = SOURCE_ROOT; };
+		5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Views/SBAggregationView.swift; sourceTree = "<group>"; };
 		5F77356B6F268B826247C658 /* gnutls.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gnutls.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework; sourceTree = SOURCE_ROOT; };
 		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
 		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
@@ -400,8 +402,6 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
-		1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Services/SBAggregationService.swift; sourceTree = "<group>"; };
-		5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Views/SBAggregationView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
