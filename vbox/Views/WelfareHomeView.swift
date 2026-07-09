@@ -151,6 +151,8 @@ struct WelfareHomeView: View {
             return AnyView(DailyBattleMainView(platform: platform))
         } else if platform.name == "神秘电影" {
             return AnyView(MysteryMovieMainView(platform: platform))
+        } else if platform.name == "色播聚合" {
+            return AnyView(SBAggregationView(platform: platform))
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }

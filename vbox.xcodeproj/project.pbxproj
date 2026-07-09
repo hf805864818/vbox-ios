@@ -193,6 +193,8 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */; };
+		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -398,6 +400,8 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Services/SBAggregationService.swift; sourceTree = "<group>"; };
+		5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vbox/Views/SBAggregationView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -605,6 +609,7 @@
 				B12031 /* KXSPAPIService.swift */,
 				B10155 /* MissAVService.swift */,
 				5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */,
+				1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -643,6 +648,7 @@
 				B12034 /* SangeListView.swift */,
 				B10156 /* MissAVViews.swift */,
 				424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */,
+				5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -887,6 +893,8 @@
 				A12035 /* SecureCredentialStore.swift in Sources */,
 				0D1E865FB508DE73B04C17AC /* PlatformAsyncImage.swift in Sources */,
 				1D659AECAD5496C5F3EAC601 /* PlatformImageLoader.swift in Sources */,
+				F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */,
+				B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
