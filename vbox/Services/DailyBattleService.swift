@@ -140,6 +140,20 @@ class DailyBattleService: ObservableObject {
             || stripped.contains("_5v9MXQT1Kq.click")
     }
 
+    /// 判断页面是否为导航页/发布页（非内容页）
+    /// 导航页特征：大页面但无文章结构，或含 base64 编码，或含导航关键词
+    private func isNavigationPage(_ html: String) -> Bool {
+        let hasArticle = html.contains("<article") || html.contains("<main") || html.contains("class=\"post\"")
+        let hasB64 = html.contains("base64") || html.contains("atob") || html.contains("btoa")
+        let hasNavKeywords = html.contains("导航") || html.contains("发布页") || html.contains("回家的路")
+        let isLarge = html.count > 5000
+        // 大页面但没有文章结构 → 很可能是导航页
+        if isLarge && !hasArticle { return true }
+        if hasNavKeywords { return true }
+        if hasB64 && !hasArticle { return true }
+        return false
+    }
+
     /// 从 JS 跳转页提取 <a href="..."> 的目标 URL
     private func extractJSHref(from html: String) -> String? {
         let pattern = "<a[^>]+href=\"([^\"]+)\""
@@ -265,6 +279,9 @@ class DailyBattleService: ObservableObject {
                                 return resultHost
                             }
                         }
+                        // JS 跳转页本身不是内容页，跟进失败则跳过
+                        print("[DailyBattle:\(config.name)] ⚠️ JS 跳转跟进失败，跳过该入口")
+                        continue
                     }
 
                     // 情况 2: 当前页就是导航页 → 直接提取线路域名
@@ -283,6 +300,13 @@ class DailyBattleService: ObservableObject {
                         }
                         // 线路域名全部测试失败，继续尝试下一个有效 host
                         print("[DailyBattle:\(config.name)] ⚠️ 所有线路域名测试失败，尝试下一个入口")
+                        continue
+                    }
+
+                    // 如果线路域名为空，检查是否是导航页/跳转页
+                    // 导航页特征：带 base64 编码 / 无 <article> 标签 / 含导航关键词
+                    if isNavigationPage(html) {
+                        print("[DailyBattle:\(config.name)] ⚠️ 当前页是导航页但未提取到域名，跳过")
                         continue
                     }
 
