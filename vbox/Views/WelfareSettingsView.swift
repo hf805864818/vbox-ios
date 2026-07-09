@@ -4,10 +4,11 @@ import SwiftUI
 
 struct WelfareSettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var store = WelfareDomainStore.shared
+    @ObservedObject private var store = WelfareDomainStore.shared
     @State private var editingPlatform: String? = nil
     @State private var editDomain: String = ""
     @State private var savedToast: String? = nil
+    @State private var refreshID = UUID()
     @FocusState private var isFocused: Bool
 
     private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
@@ -21,95 +22,23 @@ struct WelfareSettingsView: View {
         ZStack {
             List {
                 Section {
-                    Text("添加自定义域名后，系统会按顺序轮询这些域名。第一个可用的域名将被使用。左滑已保存的域名可删除。")
+                    Text("添加自定义域名后，系统会按顺序轮询。第一个可用的域名将被使用。左滑可删除已保存的域名。")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
 
                 Section {
                     ForEach(platforms, id: \.name) { platform in
-                        VStack(alignment: .leading, spacing: 8) {
-                            // 平台名称
-                            HStack {
-                                Image(systemName: platform.icon).foregroundColor(.accentColor)
-                                Text(platform.name).font(.system(size: 15, weight: .medium))
-                                Spacer()
-                                Button(action: {
-                                    editingPlatform = platform.name
-                                    editDomain = ""
-                                    isFocused = true
-                                }) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.borderless)
-                            }
-
-                            // 默认域名
-                            if !platform.defaultHosts.isEmpty {
-                                HStack(spacing: 4) {
-                                    Text("默认：").font(.system(size: 11)).foregroundColor(.secondary)
-                                    Text(platform.defaultHosts[0])
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            // 自定义域名列表
-                            let customs = store.domains(for: platform.name)
-                            if !customs.isEmpty {
-                                VStack(spacing: 4) {
-                                    ForEach(customs, id: \.self) { domain in
-                                        HStack {
-                                            Image(systemName: "link")
-                                                .font(.system(size: 10)).foregroundColor(.accentColor)
-                                            Text(domain)
-                                                .font(.system(size: 12, design: .monospaced))
-                                                .foregroundColor(.accentColor)
-                                                .lineLimit(1)
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 4).padding(.horizontal, 8)
-                                        .background(Color.accentColor.opacity(0.06))
-                                        .cornerRadius(6)
-                                        .swipeActions(edge: .trailing) {
-                                            Button("删除", role: .destructive) {
-                                                store.removeDomain(for: platform.name, domain)
-                                                resetService(for: platform.name)
-                                                showToast("已删除域名")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 提示
-                            let total = customs.count + platform.defaultHosts.count
-                            if total > 0 {
-                                Text("共 \(total) 个域名，按顺序轮询")
-                                    .font(.system(size: 10)).foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .swipeActions(edge: .trailing) {
-                            if !store.domains(for: platform.name).isEmpty {
-                                Button("全部重置", role: .destructive) {
-                                    store.clearDomains(for: platform.name)
-                                    resetService(for: platform.name)
-                                    showToast("已恢复默认域名")
-                                }
-                            }
-                        }
+                        platformRow(platform)
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .id(refreshID)
 
             // 添加域名弹窗
             if let platform = editingPlatform {
-                Color.black.opacity(0.001).ignoresSafeArea()
+                Color.black.opacity(0.3).ignoresSafeArea()
                     .onTapGesture { editingPlatform = nil }
 
                 VStack(spacing: 20) {
@@ -175,6 +104,91 @@ struct WelfareSettingsView: View {
         }
     }
 
+    // MARK: - 平台行
+
+    @ViewBuilder
+    private func platformRow(_ platform: (name: String, icon: String, defaultHosts: [String])) -> some View {
+        let customs = store.domains(for: platform.name)
+
+        VStack(alignment: .leading, spacing: 8) {
+            // 平台名称 + 添加按钮
+            HStack {
+                Image(systemName: platform.icon).foregroundColor(.accentColor)
+                Text(platform.name).font(.system(size: 15, weight: .medium))
+                Spacer()
+                Button(action: {
+                    editingPlatform = platform.name
+                    editDomain = ""
+                    isFocused = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.borderless)
+            }
+
+            // 默认域名
+            if !platform.defaultHosts.isEmpty {
+                HStack(spacing: 4) {
+                    Text("默认：").font(.system(size: 11)).foregroundColor(.secondary)
+                    Text(platform.defaultHosts[0])
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary).lineLimit(1)
+                }
+            }
+
+            // 自定义域名列表（每个单独一行 + 删除按钮）
+            ForEach(customs, id: \.self) { domain in
+                HStack {
+                    Image(systemName: "link").font(.system(size: 10)).foregroundColor(.accentColor)
+                    Text(domain).font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.accentColor).lineLimit(1)
+                    Spacer()
+                    Button(action: {
+                        store.removeDomain(for: platform.name, domain)
+                        resetService(for: platform.name)
+                        refreshID = UUID()
+                        showToast("已删除域名")
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 4).padding(.horizontal, 8)
+                .background(Color.accentColor.opacity(0.06))
+                .cornerRadius(6)
+            }
+
+            // 全部重置按钮
+            if !customs.isEmpty {
+                Button(action: {
+                    store.clearDomains(for: platform.name)
+                    resetService(for: platform.name)
+                    refreshID = UUID()
+                    showToast("已恢复默认域名")
+                }) {
+                    Text("全部重置为默认")
+                        .font(.system(size: 12)).foregroundColor(.red)
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 2)
+            }
+
+            // 统计
+            let total = customs.count + platform.defaultHosts.count
+            if total > 0 {
+                Text("共 \(total) 个域名，按顺序轮询")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - 辅助方法
+
     private func doAdd() {
         guard let platform = editingPlatform else { return }
         let trimmed = editDomain.trimmingCharacters(in: .whitespaces)
@@ -182,6 +196,7 @@ struct WelfareSettingsView: View {
         store.addDomain(for: platform, trimmed)
         showToast("域名已添加")
         editingPlatform = nil
+        refreshID = UUID()
         resetService(for: platform)
     }
 
