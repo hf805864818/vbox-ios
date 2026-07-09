@@ -110,7 +110,7 @@ final class DoubanImageProxyServer {
 
     func proxiedStreamURL(for sourceURL: String, headers: [String: String], provider: String = "baidu") -> URL? {
         guard let targetURL = URL(string: sourceURL),
-              isAllowedStreamURL(sourceURL)
+              isAllowedStreamURL(sourceURL) || provider == "sihu" || provider == "xcp" || provider == "mystery"
         else {
             return URL(string: sourceURL)
         }
@@ -261,7 +261,8 @@ final class DoubanImageProxyServer {
             || pathAndQuery.hasPrefix("/uc-stream")
             || pathAndQuery.hasPrefix("/115-stream")
             || pathAndQuery.hasPrefix("/sihu-stream")
-            || pathAndQuery.hasPrefix("/xcp-stream") {
+            || pathAndQuery.hasPrefix("/xcp-stream")
+            || pathAndQuery.hasPrefix("/mystery-stream") {
             routeStream(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }

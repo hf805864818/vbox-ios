@@ -285,9 +285,10 @@ struct MysteryMoviePlayerView: View {
 
     @State private var isLoading = true
     @State private var errorMsg: String?
-    @State private var vodItem: VodItem?
+    @State private var playURL: String?
     @State private var content: String = ""
     @State private var showPlayer = false
+    @State private var player = AVPlayer()
 
     @Environment(\.dismiss) private var dismiss
 
@@ -296,7 +297,7 @@ struct MysteryMoviePlayerView: View {
             VStack(spacing: 12) {
                 coverSection
                 titleSection
-                if vodItem != nil { playButton }
+                if playURL != nil { playButton }
                 if !content.isEmpty { contentSection }
                 Spacer().frame(height: 40)
             }
@@ -305,24 +306,39 @@ struct MysteryMoviePlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .onAppear { loadDetail() }
+        .onDisappear {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+        }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let url = playURL {
+                    VideoPlayer(player: player)
+                        .onAppear { player.play() }
+                        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                Button(action: { showPlayer = false }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28)).foregroundColor(.white.opacity(0.8))
+                }
+                .padding()
+            }
         }
     }
 
-    // MARK: - 封面
     @ViewBuilder private var coverSection: some View {
         ZStack {
             PlatformAsyncImage(urlString: cover, mode: .mysteryMovie, contentMode: .fit)
                 .cornerRadius(12)
                 .frame(maxWidth: .infinity)
-
             if isLoading {
                 ProgressView().scaleEffect(2).tint(.white)
             } else if let e = errorMsg {
                 VStack(spacing: 12) {
-                    Image(systemName: "play.slash")
-                        .font(.system(size: 40)).foregroundColor(.white.opacity(0.8))
+                    Image(systemName: "play.slash").font(.system(size: 40)).foregroundColor(.white.opacity(0.8))
                     Text(e).font(.system(size: 14)).foregroundColor(.white.opacity(0.9))
                     Button(action: { loadDetail() }) {
                         Label("重试", systemImage: "arrow.clockwise")
@@ -336,30 +352,32 @@ struct MysteryMoviePlayerView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: - 标题
     @ViewBuilder private var titleSection: some View {
-        Text(title)
-            .font(.system(size: 17, weight: .bold))
-            .padding(.horizontal, 16)
+        Text(title).font(.system(size: 17, weight: .bold)).padding(.horizontal, 16)
     }
 
-    // MARK: - 简介
     @ViewBuilder private var contentSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("简介")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.secondary)
-            Text(content)
-                .font(.system(size: 14))
-                .foregroundColor(.primary)
-                .lineLimit(10)
+            Text("简介").font(.system(size: 13, weight: .medium)).foregroundColor(.secondary)
+            Text(content).font(.system(size: 14)).foregroundColor(.primary).lineLimit(10)
         }
         .padding(.horizontal, 16)
     }
 
-    // MARK: - 播放按钮
     @ViewBuilder private var playButton: some View {
-        Button(action: { showPlayer = true }) {
+        Button(action: {
+            // 设置播放器
+            if let urlStr = playURL {
+                let headers = ["Referer": svc.baseURL]
+                if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
+                    for: urlStr, headers: headers, provider: "mystery") {
+                    player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
+                } else if let url = URL(string: urlStr) {
+                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
+                }
+            }
+            showPlayer = true
+        }) {
             Label("播放", systemImage: "play.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
@@ -372,16 +390,13 @@ struct MysteryMoviePlayerView: View {
     }
 
     private func loadDetail() {
-        isLoading = true; errorMsg = nil
+        isLoading = true; errorMsg = nil; playURL = nil
         Task {
             let detail = await svc.fetchDetail(vodId: vodId)
             await MainActor.run {
                 content = detail.content
                 if !detail.playUrl.isEmpty {
-                    vodItem = VodItem(
-                        vodId: vodId, vodName: title, vodPic: cover,
-                        vodRemarks: "[福利]神秘电影", vodPlayUrl: detail.playUrl
-                    )
+                    playURL = detail.playUrl
                     isLoading = false
                 } else {
                     errorMsg = "未找到可播放的视频源"
@@ -391,3 +406,4 @@ struct MysteryMoviePlayerView: View {
         }
     }
 }
+
