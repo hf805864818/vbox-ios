@@ -29,6 +29,7 @@ class WelfareDomainStore: ObservableObject {
         if !list.contains(trimmed) {
             list.append(trimmed)
             customDomains[platformName] = list
+            objectWillChange.send()
             save()
         }
     }
@@ -42,12 +43,14 @@ class WelfareDomainStore: ObservableObject {
         } else {
             customDomains[platformName] = list
         }
+        objectWillChange.send()
         save()
     }
 
     /// 清除某个平台的所有自定义域名
     func clearDomains(for platformName: String) {
         customDomains.removeValue(forKey: platformName)
+        objectWillChange.send()
         save()
     }
 
