@@ -16,7 +16,7 @@ struct SihuCategory: Identifiable {
     let typeId: String
 }
 
-struct SihuVideo: Identifiable {
+struct SihuVideo: Identifiable, Equatable {
     var id: String { vodId }
     let vodId: String
     let title: String

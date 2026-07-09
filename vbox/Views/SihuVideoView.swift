@@ -301,9 +301,9 @@ struct SihuVideoDetailView: View {
             let url = await svc.fetchPlayURL(playPath: episode.playPath)
             await MainActor.run {
                 isLoading = false
-                if let url = url, let playURL = URL(string: url) {
-                    playURL = url
-                    player.replaceCurrentItem(with: AVPlayerItem(url: playURL))
+                if let urlStr = url, let url = URL(string: urlStr) {
+                    playURL = urlStr
+                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
                     isPlaying = true
                 }
             }
