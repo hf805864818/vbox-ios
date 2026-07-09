@@ -201,15 +201,19 @@ class DailyBattleService: ObservableObject {
             }
         }
 
-        // 方式3: 兜底 — 在原始 HTML 中搜索已知域名模式
+        // 方式3: 兜底 — 同时在原始 HTML 和解码后的文本中搜索已知域名模式
         if domains.isEmpty {
-            for pattern in config.domainPatterns {
-                let escaped = NSRegularExpression.escapedPattern(for: pattern)
-                let p = "\\.\(escaped)"
-                if let regex = try? NSRegularExpression(pattern: p, options: []),
-                   regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) != nil {
-                    domains.append("\(pattern)")
+            let searchTexts = [searchText, html]
+            for text in searchTexts {
+                for pattern in config.domainPatterns {
+                    let escaped = NSRegularExpression.escapedPattern(for: pattern)
+                    let p = "https?://[a-zA-Z0-9-]*\\.\(escaped)"
+                    if let regex = try? NSRegularExpression(pattern: p, options: []),
+                       regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)) != nil {
+                        if !domains.contains(pattern) { domains.append(pattern) }
+                    }
                 }
+                if !domains.isEmpty { break }
             }
         }
 
@@ -277,6 +281,9 @@ class DailyBattleService: ObservableObject {
                                 return currentHost
                             }
                         }
+                        // 线路域名全部测试失败，继续尝试下一个有效 host
+                        print("[DailyBattle:\(config.name)] ⚠️ 所有线路域名测试失败，尝试下一个入口")
+                        continue
                     }
 
                     // 情况 3: 普通内容页 → 直接使用
@@ -310,6 +317,9 @@ class DailyBattleService: ObservableObject {
                         print("[DailyBattle:\(config.name)] ✅ 使用线路站点: \(currentHost)")
                         return currentHost
                     }
+                }
+                if !lineDomains.isEmpty {
+                    print("[DailyBattle:\(config.name)] ⚠️ 所有线路域名测试失败，回退")
                 }
             }
         } catch {
