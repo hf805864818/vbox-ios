@@ -110,11 +110,6 @@ struct ProfileView: View {
         .sheet(isPresented: $showWelfareSheet) {
             welfareUnlockSheet
         }
-        .sheet(isPresented: $showWelfareSettings) {
-            NavigationView {
-                WelfareSettingsView()
-            }
-        }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
         }
@@ -429,6 +424,11 @@ struct ProfileView: View {
             Spacer()
         }
         .presentationDetents([.medium])
+        .sheet(isPresented: $showWelfareSettings) {
+            NavigationView {
+                WelfareSettingsView()
+            }
+        }
     }
 
     // MARK: - Helper Methods

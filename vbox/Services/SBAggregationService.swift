@@ -59,11 +59,13 @@ class SBAggregationService: ObservableObject {
             let items = pingtai.dropFirst()
             let videos: [SBAggregationVideo] = items.compactMap { item in
                 guard let title = item["title"] as? String,
-                      let address = item["address"] as? String,
+                      let rawAddress = item["address"] as? String,
                       let cover = item["xinimg"] as? String else {
                     return nil
                 }
                 let number = item["Number"] as? String ?? "0"
+                // 对应 Python: address.split('/')[-1]，提取最后一段作为 vod_id
+                let address = rawAddress.split(separator: "/").last.map(String.init) ?? rawAddress
                 return SBAggregationVideo(
                     title: title,
                     cover: cover,
@@ -88,11 +90,18 @@ class SBAggregationService: ObservableObject {
     /// 获取某个平台的播放地址列表
     func fetchDetail(address: String) async -> [SBAggregationPlayItem] {
         do {
-            let url = URL(string: "\(baseURL)/\(address)")!
+            let urlStr = "\(baseURL)/\(address)"
+            let url = URL(string: urlStr)!
+            print("[SBAggregation] fetchDetail 请求: \(urlStr)")
             let (data, response) = try await session.data(from: url)
             guard let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 else {
                 print("[SBAggregation] fetchDetail HTTP error: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 return []
+            }
+            // 打印原始 JSON 方便调试
+            if let rawJSON = String(data: data, encoding: .utf8) {
+                let preview = String(rawJSON.prefix(200))
+                print("[SBAggregation] fetchDetail 响应: \(preview)...")
             }
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let zhubo = json["zhubo"] as? [[String: Any]] else {
