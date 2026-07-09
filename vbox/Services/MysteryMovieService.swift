@@ -381,11 +381,13 @@ class MysteryMovieService: ObservableObject {
         )
     }
 
-    /// 返回图片代理 URL（用于 AsyncImage 加载，绕过被墙域名）
+    /// 返回图片 URL（去除 ybox.vip 代理, 直接加载）
+    /// 神秘电影封面图从 38.je:36 直接加载, 通过 @UA@Referer 头注入
+    /// 对应 Python 脚本 img_url() 方法: 无代理, 直接返回带头的 URL
     func proxyImageURL(_ url: String) -> String {
-        guard !url.isEmpty, !url.hasPrefix("data:") else { return url }
-        // ybox.vip 图片代理
-        return "https://ybox.vip/image?url=\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
+        // 不再使用 ybox.vip 代理, 直接返回原始 URL (含 @UA@Referer 头后缀)
+        // 图片加载器 PlatformAsyncImage 会解析 @UA@Referer 并注入请求头
+        return url
     }
 
     // MARK: - 正则工具
