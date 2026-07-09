@@ -1,9 +1,11 @@
 import Foundation
 import Kanna
+import Combine
 
 // MARK: - 每日大乱斗 / 每日大赛 HTML 抓取服务
 // Python Spider → Swift 原生实现，基于 Kanna HTML 解析
 // 支持多站点配置：每日大乱斗 (bshzjjgq.cc) / 每日大赛 (mrds66.com)
+// 支持用户自定义域名，通过 WelfareDomainStore
 
 // MARK: - 站点配置
 
@@ -24,10 +26,7 @@ struct DailyBattleSiteConfig {
     static let dailyContest = DailyBattleSiteConfig(
         name: "每日大赛",
         hosts: [
-            "https://www.mrds66.com",
-            "https://mrdsa2.com",
-            "https://mrdsa1.com",
-            "https://mrdsk.com"
+            "https://mrdsa1.com"
         ],
         domainPatterns: ["mrds", "mrdsk"]
     )
@@ -90,6 +89,14 @@ class DailyBattleService: ObservableObject {
     private let config: DailyBattleSiteConfig
     var siteName: String { config.name }
 
+    /// 当前生效的 hosts 列表（含自定义域名优先）
+    private var effectiveHosts: [String] {
+        if let custom = WelfareDomainStore.shared.domain(for: config.name) {
+            return [custom] + config.hosts // 自定义域名优先
+        }
+        return config.hosts
+    }
+
     private let headers: [String: String] = [
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -134,7 +141,7 @@ class DailyBattleService: ObservableObject {
     /// 站点存活探测，对应 Python get_working_host()
     /// 关键：不跟踪 JS 跳转！跳转域名上的分类页面可直接访问（Python 同理）
     func probeHost() async -> String {
-        for host in config.hosts {
+        for host in effectiveHosts {
             do {
                 let (data, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
@@ -159,6 +166,13 @@ class DailyBattleService: ObservableObject {
         }
         isReady = true
         return currentHost
+    }
+
+    /// 重置域名（清除自定义域名），用于设置页面
+    func resetDomain() {
+        WelfareDomainStore.shared.setDomain(for: config.name, nil)
+        currentHost = config.hosts[0]
+        isReady = false
     }
 
     // MARK: - 首页：分类 + 推荐视频
