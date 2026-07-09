@@ -318,9 +318,15 @@ class DailyBattleService: ObservableObject {
         return nil
     }
 
-    /// 重置域名（清除自定义域名），用于设置页面
+    /// 重置域名（清除自定义域名 + 恢复默认），用于"全部重置"按钮
     func resetDomain() {
         WelfareDomainStore.shared.clearDomains(for: config.name)
+        currentHost = config.hosts[0]
+        isReady = false
+    }
+
+    /// 重新探测（不清除自定义域名），用于添加/删除单个域名后
+    func reprobe() {
         currentHost = config.hosts[0]
         isReady = false
     }

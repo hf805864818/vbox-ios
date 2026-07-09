@@ -166,7 +166,7 @@ struct WelfareSettingsView: View {
             if !customs.isEmpty {
                 Button(action: {
                     store.clearDomains(for: platform.name)
-                    resetService(for: platform.name)
+                    clearAndReset(for: platform.name)
                     refreshID = UUID()
                     showToast("已恢复默认域名")
                 }) {
@@ -205,6 +205,16 @@ struct WelfareSettingsView: View {
     }
 
     private func resetService(for name: String) {
+        // 添加/删除域名后只需重新探测，不清除域名
+        switch name {
+        case "每日大乱斗": DailyBattleService.shared.reprobe()
+        case "每日大赛": DailyBattleService.contest.reprobe()
+        default: break
+        }
+    }
+
+    private func clearAndReset(for name: String) {
+        // 全部重置时清除域名并重新探测
         switch name {
         case "每日大乱斗": DailyBattleService.shared.resetDomain()
         case "每日大赛": DailyBattleService.contest.resetDomain()
