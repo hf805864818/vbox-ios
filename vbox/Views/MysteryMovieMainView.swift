@@ -167,7 +167,7 @@ struct MysteryMovieHomeTab: View {
             let result = await svc.fetchCategoryList(tid: tid, page: 1)
             await MainActor.run {
                 videos = result; isLoading = false
-                hasMore = result.count >= 20
+                hasMore = result.count >= 10
                 if result.isEmpty { loadError = "暂无内容" }
             }
         }
@@ -183,7 +183,7 @@ struct MysteryMovieHomeTab: View {
             await MainActor.run {
                 videos.append(contentsOf: result)
                 currentPage = next
-                hasMore = result.count >= 20
+                hasMore = result.count >= 10
                 isLoadingMore = false
             }
         }
@@ -368,7 +368,7 @@ struct MysteryMoviePlayerView: View {
         Button(action: {
             // 设置播放器
             if let urlStr = playURL {
-                let headers = ["Referer": svc.baseURL]
+                let headers = ["Referer": svc.host]
                 if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
                     for: urlStr, headers: headers, provider: "mystery") {
                     player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
