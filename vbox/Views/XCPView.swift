@@ -1,11 +1,11 @@
 import SwiftUI
 import AVKit
 
-// MARK: - 四虎视频主页（分类选择）
+// MARK: - 香肠派对主页（分类选择）
 
-struct SihuVideoHomeView: View {
+struct XCPHomeView: View {
     let platform: YBoxPlatform2
-    @StateObject private var svc = SihuVideoService.shared
+    @StateObject private var svc = XCPService.shared
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -14,7 +14,7 @@ struct SihuVideoHomeView: View {
                 spacing: 12
             ) {
                 ForEach(svc.categories) { cat in
-                    NavigationLink(destination: SihuVideoCategoryView(
+                    NavigationLink(destination: XCPCategoryView(
                         category: cat, platform: platform
                     )) {
                         VStack(spacing: 8) {
@@ -22,7 +22,7 @@ struct SihuVideoHomeView: View {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(Color(UIColor.secondarySystemBackground))
                                     .frame(height: 60)
-                                Image(systemName: "film.fill")
+                                Image(systemName: "party.popper.fill")
                                     .font(.system(size: 24))
                                     .foregroundColor(.accentColor.opacity(0.6))
                             }
@@ -39,46 +39,40 @@ struct SihuVideoHomeView: View {
             .padding(.top, 12)
             .padding(.bottom, 100)
         }
-        .navigationTitle("四虎视频")
+        .navigationTitle("香肠派对")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-// MARK: - 四虎视频分类页（视频列表）
+// MARK: - 香肠派对分类页
 
-struct SihuVideoCategoryView: View {
-    let category: SihuCategory
+struct XCPCategoryView: View {
+    let category: XCPCategory
     let platform: YBoxPlatform2
-    @StateObject private var svc = SihuVideoService.shared
-    @State private var videos: [SihuVideo] = []
+    @StateObject private var svc = XCPService.shared
+    @State private var videos: [XCPVideo] = []
     @State private var page = 1
+    @State private var pageCount = 1
     @State private var isLoading = false
-    @State private var hasMore = true
 
     var body: some View {
         ZStack {
             List {
                 ForEach(videos) { video in
-                    NavigationLink(destination: SihuVideoDetailView(
-                        vodId: video.vodId, title: video.title
-                    )) {
-                        SihuVideoRow(video: video)
+                    NavigationLink(destination: XCPDetailView(vodId: video.vodId)) {
+                        SihuVideoRow(video: SihuVideo(vodId: video.vodId, title: video.title, cover: video.cover, remarks: video.remarks))
                     }
                     .buttonStyle(.plain)
                     .onAppear {
-                        if video == videos.last, hasMore, !isLoading {
+                        if video == videos.last, page < pageCount, !isLoading {
                             loadMore()
                         }
                     }
                 }
 
                 if isLoading && page > 1 {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                    .listRowSeparator(.hidden)
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)
@@ -91,9 +85,7 @@ struct SihuVideoCategoryView: View {
         }
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if videos.isEmpty { load() }
-        }
+        .onAppear { if videos.isEmpty { load() } }
     }
 
     private func load() {
@@ -102,78 +94,32 @@ struct SihuVideoCategoryView: View {
         Task {
             let result = await svc.fetchCategory(typeId: category.typeId, page: page)
             await MainActor.run {
-                videos = result
-                isLoading = false
-                hasMore = result.count >= 20
+                videos = result.videos; pageCount = result.pageCount; isLoading = false
             }
         }
     }
 
     private func loadMore() {
-        guard !isLoading, hasMore else { return }
-        isLoading = true
-        page += 1
+        guard !isLoading, page < pageCount else { return }
+        isLoading = true; page += 1
         Task {
             let result = await svc.fetchCategory(typeId: category.typeId, page: page)
             await MainActor.run {
-                videos.append(contentsOf: result)
-                isLoading = false
-                hasMore = result.count >= 20
+                videos.append(contentsOf: result.videos)
+                pageCount = result.pageCount; isLoading = false
             }
         }
     }
 }
 
-// MARK: - 视频行视图
+// MARK: - 香肠派对详情页（播放器 + 剧集）
 
-struct SihuVideoRow: View {
-    let video: SihuVideo
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImage(url: URL(string: video.cover)) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    Rectangle().fill(Color(UIColor.secondarySystemBackground))
-                        .overlay { ProgressView().scaleEffect(0.6) }
-                }
-            }
-            .frame(width: 100, height: 68)
-            .cornerRadius(8)
-            .clipped()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(video.title)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
-
-                if !video.remarks.isEmpty {
-                    Text(video.remarks)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-// MARK: - 视频详情页（播放源 + 播放器）
-
-struct SihuVideoDetailView: View {
+struct XCPDetailView: View {
     let vodId: String
-    let title: String
-    @StateObject private var svc = SihuVideoService.shared
-    @State private var playSources: [SihuPlaySource] = []
+    @StateObject private var svc = XCPService.shared
+    @State private var title: String = ""
+    @State private var cover: String = ""
+    @State private var playSources: [XCPPlaySource] = []
     @State private var selectedSourceIdx = 0
     @State private var selectedEpIdx = 0
     @State private var isLoading = true
@@ -183,7 +129,6 @@ struct SihuVideoDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 播放器
             ZStack {
                 if let url = playURL, isPlaying {
                     VideoPlayer(player: player)
@@ -205,7 +150,6 @@ struct SihuVideoDetailView: View {
             }
             .background(Color.black)
 
-            // 标题
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.horizontal, 16).padding(.vertical, 10)
@@ -216,11 +160,7 @@ struct SihuVideoDetailView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(playSources.enumerated()), id: \.offset) { idx, source in
-                            Button(action: {
-                                selectedSourceIdx = idx
-                                selectedEpIdx = 0
-                                playEpisode()
-                            }) {
+                            Button(action: { selectedSourceIdx = idx; selectedEpIdx = 0; playEpisode() }) {
                                 Text(source.name)
                                     .font(.system(size: 13))
                                     .foregroundColor(selectedSourceIdx == idx ? .white : .primary)
@@ -236,7 +176,7 @@ struct SihuVideoDetailView: View {
                 .padding(.top, 4)
             }
 
-            // 剧集列表
+            // 剧集
             if !playSources.isEmpty {
                 let episodes = playSources[selectedSourceIdx].episodes
                 Text("选集")
@@ -247,10 +187,7 @@ struct SihuVideoDetailView: View {
                 ScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
                         ForEach(Array(episodes.enumerated()), id: \.offset) { idx, ep in
-                            Button(action: {
-                                selectedEpIdx = idx
-                                playEpisode()
-                            }) {
+                            Button(action: { selectedEpIdx = idx; playEpisode() }) {
                                 Text(ep.name)
                                     .font(.system(size: 13))
                                     .foregroundColor(selectedEpIdx == idx ? .white : .primary)
@@ -269,23 +206,18 @@ struct SihuVideoDetailView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if playSources.isEmpty { loadDetail() }
-        }
-        .onDisappear {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
+        .onAppear { if playSources.isEmpty { loadDetail() } }
+        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
     }
 
     private func loadDetail() {
         isLoading = true
         Task {
-            let sources = await svc.fetchDetail(vodId: vodId)
+            let result = await svc.fetchDetail(vodId: vodId)
             await MainActor.run {
-                playSources = sources
-                isLoading = false
-                if !sources.isEmpty { playEpisode() }
+                title = result.title; cover = result.cover
+                playSources = result.sources; isLoading = false
+                if !result.sources.isEmpty { playEpisode() }
             }
         }
     }
@@ -293,30 +225,25 @@ struct SihuVideoDetailView: View {
     private func playEpisode() {
         guard !playSources.isEmpty else { return }
         let episode = playSources[selectedSourceIdx].episodes[selectedEpIdx]
-        isLoading = true
-        isPlaying = false
-        playURL = nil
+        isLoading = true; isPlaying = false; playURL = nil
 
         Task {
-            let url = await svc.fetchPlayURL(playPath: episode.playPath)
+            let url = await svc.fetchPlayURL(playPageURL: episode.playURL)
             await MainActor.run {
                 isLoading = false
                 guard let urlStr = url else { return }
 
-                // 通过本地代理注入 Referer 头（AVPlayer 不支持自定义 Header）
-                let headers = ["Referer": svc.currentBaseURL]
+                // 通过本地代理注入 Referer
+                let headers = ["Referer": svc.currentHost]
                 if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
-                    for: urlStr, headers: headers, provider: "sihu") {
+                    for: urlStr, headers: headers, provider: "xcp") {
                     playURL = localURL.absoluteString
                     player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
                     isPlaying = true
-                } else {
-                    // 代理不可用时直连
-                    if let url = URL(string: urlStr) {
-                        playURL = urlStr
-                        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                        isPlaying = true
-                    }
+                } else if let url = URL(string: urlStr) {
+                    playURL = urlStr
+                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
+                    isPlaying = true
                 }
             }
         }
