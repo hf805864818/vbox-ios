@@ -43,7 +43,7 @@ class SihuVideoService: ObservableObject {
     private let defaultBaseURL = "https://www.sihuhu.xyz"
 
     /// 当前生效的 baseURL
-    private var currentBaseURL: String {
+    var currentBaseURL: String {
         let customs = WelfareDomainStore.shared.domains(for: "四虎视频")
         return customs.first ?? defaultBaseURL
     }
