@@ -18,6 +18,7 @@ struct ProfileView: View {
     @State private var showSettingsSheet: Bool = false
     @State private var selectedVideoItem: VodItem? = nil
     @State private var showWelfareSheet: Bool = false
+    @State private var showWelfareSettings: Bool = false
     @State private var welfarePasswordInput: String = ""
     @State private var welfarePasswordError: Bool = false
 
@@ -108,6 +109,11 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showWelfareSheet) {
             welfareUnlockSheet
+        }
+        .sheet(isPresented: $showWelfareSettings) {
+            NavigationView {
+                WelfareSettingsView()
+            }
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
@@ -308,16 +314,29 @@ struct ProfileView: View {
 
     private var welfareUnlockSheet: some View {
         VStack(spacing: 24) {
-            // 标题
-            VStack(spacing: 8) {
-                Image(systemName: "gift.fill")
-                    .font(.system(size: 44))
-                    .foregroundColor(accentColor)
-                Text("福利专区")
-                    .font(.system(size: 22, weight: .bold))
-                Text(settings.welfareUnlocked ? "管理福利功能" : "输入密码解锁福利内容")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+            // 标题 + 右上角设置按钮
+            HStack {
+                VStack(spacing: 8) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 44))
+                        .foregroundColor(accentColor)
+                    Text("福利专区")
+                        .font(.system(size: 22, weight: .bold))
+                    Text(settings.welfareUnlocked ? "管理福利功能" : "输入密码解锁福利内容")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+
+                // 右上角域名设置按钮
+                Button(action: { showWelfareSettings = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(accentColor)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
+                .padding(.top, -30)
             }
             .padding(.top, 30)
 
