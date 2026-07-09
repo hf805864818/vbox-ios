@@ -274,7 +274,7 @@ class MysteryMovieService: ObservableObject {
 
         for sel in selectors {
             let items = doc.css(sel)
-            if !items.isEmpty {
+            if items.count > 0 {
                 for el in items {
                     if let video = parseCard(el) {
                         videos.append(video)
