@@ -20,9 +20,9 @@ struct XCPCategory: Identifiable {
 struct XCPVideo: Identifiable, Equatable {
     var id: String { vodId }
     let vodId: String
-    let title: String
+    var title: String
     let cover: String
-    let remarks: String
+    var remarks: String
 }
 
 struct XCPPlaySource {
@@ -106,8 +106,8 @@ class XCPService: ObservableObject {
                 let img = li.xpath(".//img").first
                 let pic = img?["src"] ?? ""
 
-                let title: String
-                let remarks: String
+                var title: String
+                var remarks: String
                 if let info = li.xpath(".//div[@class='video-info']").first {
                     let h5 = info.xpath(".//h5/a").first
                     title = h5?["title"] ?? (h5?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -144,7 +144,7 @@ class XCPService: ObservableObject {
             }
 
             // 标题
-            let title: String
+            var title: String
             if let h1 = doc.xpath("//h1[@class='appel-title']").first, let t = h1.text {
                 title = t.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
