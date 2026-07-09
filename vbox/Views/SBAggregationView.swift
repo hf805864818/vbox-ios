@@ -211,13 +211,28 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         <body>
         <video id="v" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;"></video>
         <script>
-        // flv.js 内联（避免CDN不可达）
+        // flv.js 双CDN容灾
         var flvjsReady = false;
-        var flvjsScript = document.createElement('script');
-        flvjsScript.src = 'https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js';
-        flvjsScript.onload = function() { flvjsReady = true; console.log('flv.js loaded'); };
-        flvjsScript.onerror = function() { console.log('flv.js CDN failed'); };
-        document.head.appendChild(flvjsScript);
+        var flvjsCDNs = [
+            'https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js',
+            'https://unpkg.com/flv.js@1.6.2/dist/flv.min.js'
+        ];
+        var cdnIdx = 0;
+        (function loadFlvJs() {
+            var s = document.createElement('script');
+            s.src = flvjsCDNs[cdnIdx];
+            s.onload = function() { flvjsReady = true; console.log('flv.js loaded from CDN ' + cdnIdx); };
+            s.onerror = function() {
+                cdnIdx++;
+                if (cdnIdx < flvjsCDNs.length) {
+                    console.log('CDN failed, trying next');
+                    loadFlvJs();
+                } else {
+                    console.log('All CDNs failed');
+                }
+            };
+            document.head.appendChild(s);
+        })();
         var currentPlayer = null;
         var retryCount = 0;
         function loadFlv(url) {
