@@ -330,10 +330,10 @@ struct ProfileView: View {
                         .foregroundColor(accentColor)
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, 4)
-                .padding(.top, -30)
+                .padding(.trailing, 12)
+                .padding(.top, -40)
             }
-            .padding(.top, 30)
+            .padding(.top, 26)
 
             if !settings.welfareUnlocked {
                 // === 阶段一：密码输入 ===
