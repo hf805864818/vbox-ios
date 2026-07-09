@@ -125,19 +125,45 @@ class DailyBattleService: ObservableObject {
     func probeHost() async -> String {
         for host in config.hosts {
             do {
-                let (_, response) = try await session.data(for: request(url: host))
-                if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                    // 跟随重定向后的最终 URL，只提取 origin（scheme + host）
-                    // 对应 Python: response.url.rstrip('/')，但只取 origin
-                    if let finalURL = httpResp.url {
-                        let scheme = finalURL.scheme ?? "https"
-                        let hostPart = finalURL.host ?? ""
-                        currentHost = "\(scheme)://\(hostPart)"
-                    } else {
-                        currentHost = host
+                let (data, response) = try await session.data(for: request(url: host))
+                if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
+                    // 跟随重定向并解析 JS 跳转提取最终 URL（对应每日大赛多层 JS 跳转）
+                    var finalURL: URL? = httpResp.url
+                    if let html = String(data: data, encoding: .utf8) {
+                        // 解析 <a href="https://xxx" ...>window.location.replace... 跳转
+                        if let hrefRegex = try? NSRegularExpression(pattern: "<a[^>]+href=\"([^\"]+)\"", options: []),
+                           let firstMatch = hrefRegex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) {
+                            let hrefRange = firstMatch.range(at: 1)
+                            let hrefStr = (html as NSString).substring(with: hrefRange)
+                            if let jsRedirectURL = URL(string: hrefStr, relativeTo: finalURL) {
+                                print("[DailyBattle:\(config.name)] 🔀 JS 跳转 → \(jsRedirectURL.absoluteString)")
+                                // 跟进一次跳转
+                                do {
+                                    let (_, secondResp) = try await session.data(for: request(url: jsRedirectURL.absoluteString))
+                                    if let secondHttp = secondResp as? HTTPURLResponse, (200...299).contains(secondHttp.statusCode) {
+                                        finalURL = secondHttp.url ?? jsRedirectURL
+                                    }
+                                } catch {
+                                    print("[DailyBattle:\(config.name)] ⚠️ 跳转失败: \(error)")
+                                }
+                            }
+                        }
                     }
+                    // 只提取 origin（scheme + host）
+                    if let final = finalURL {
+                        let scheme = final.scheme ?? "https"
+                        let hostPart = final.host ?? ""
+                        if !hostPart.isEmpty {
+                            currentHost = "\(scheme)://\(hostPart)"
+                            isReady = true
+                            print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
+                            return currentHost
+                        }
+                    }
+                    // fallback: 使用原始 host
+                    currentHost = host
                     isReady = true
-                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
+                    print("[DailyBattle:\(config.name)] ✅ 使用原始站点: \(currentHost)")
                     return currentHost
                 }
             } catch {
