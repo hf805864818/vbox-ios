@@ -210,8 +210,14 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         </head>
         <body>
         <video id="v" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;"></video>
-        <script src="https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js"></script>
         <script>
+        // flv.js 内联（避免CDN不可达）
+        var flvjsReady = false;
+        var flvjsScript = document.createElement('script');
+        flvjsScript.src = 'https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js';
+        flvjsScript.onload = function() { flvjsReady = true; console.log('flv.js loaded'); };
+        flvjsScript.onerror = function() { console.log('flv.js CDN failed'); };
+        document.head.appendChild(flvjsScript);
         var currentPlayer = null;
         var retryCount = 0;
         function loadFlv(url) {
@@ -220,7 +226,7 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
             tryLoad(url);
         }
         function tryLoad(url) {
-            if (typeof flvjs !== 'undefined' && flvjs.isSupported()) {
+            if (flvjsReady && typeof flvjs !== 'undefined' && flvjs.isSupported()) {
                 console.log('flvjs ready, creating player');
                 if (currentPlayer) { currentPlayer.destroy(); currentPlayer = null; }
                 try {
@@ -261,7 +267,7 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         </html>
         """
 
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: URL(string: "http://api.hclyz.com"))
         context.coordinator.flvURL = url
         return webView
     }
