@@ -37,7 +37,7 @@ struct MysteryMovieDetail {
 class MysteryMovieService: ObservableObject {
     static let shared = MysteryMovieService()
 
-    private let host = "https://h4ivs.sm431.vip"
+    let host = "https://h4ivs.sm431.vip"
     private let videoHost = "https://38.je:38"
     private let imageHost = "https://38.je:36"
     let siteName = "神秘电影"
