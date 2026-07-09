@@ -126,20 +126,32 @@ class MysteryMovieService: ObservableObject {
     // MARK: - 分类列表（分页）
 
     func fetchCategoryList(tid: String, page: Int) async -> [MysteryMovieVideo] {
-        do {
-            let url: String
-            if page == 1 {
-                url = "\(host)/list/\(tid).html"
-            } else {
-                url = "\(host)/list/\(tid)/\(page).html"
-            }
-            let html = try await fetchHTML(url: url)
-            guard let doc = try? HTML(html: html, encoding: .utf8) else { return [] }
-            return parseVideos(doc: doc)
-        } catch {
-            print("[MysteryMovie] fetchCategoryList(tid:\(tid), p:\(page)) error: \(error)")
-            return []
+        let urls: [String]
+        if page == 1 {
+            urls = ["\(host)/list/\(tid).html"]
+        } else {
+            // 尝试多种分页 URL 格式（不同网站使用不同格式）
+            urls = [
+                "\(host)/list/\(tid)-\(page).html",   // 格式1: /list/1-2.html（最常见）
+                "\(host)/list/\(tid)/\(page).html",   // 格式2: /list/1/2.html
+                "\(host)/list/\(tid).html?page=\(page)", // 格式3: query param
+            ]
         }
+        for url in urls {
+            do {
+                let html = try await fetchHTML(url: url)
+            guard let doc = try? HTML(html: html, encoding: .utf8) else { return [] }
+                let videos = parseVideos(doc: doc)
+                if !videos.isEmpty {
+                    print("[MysteryMovie] ✅ 分页 URL 有效: \(url) → \(videos.count)个视频")
+                    return videos
+                }
+            } catch {
+                continue
+            }
+        }
+        print("[MysteryMovie] ⚠️ 所有分页 URL 均失败: tid=\(tid), page=\(page)")
+        return []
     }
 
     // MARK: - 详情 → M3U8 播放地址
@@ -191,8 +203,13 @@ class MysteryMovieService: ObservableObject {
                 }
             }
 
-            // M3U8 播放地址
-            let playUrl = "\(videoHost)/\(vid)/hls/index.m3u8"
+            // M3U8 播放地址 — 从详情页 HTML 中抓取真实 URL
+            // 优先从页面中提取（网站可能更换 videoHost 或 URL 格式）
+            var playUrl = extractM3U8FromHTML(html)
+            if playUrl.isEmpty {
+                // 回退：硬编码 URL 格式（可能已失效）
+                playUrl = "\(videoHost)/\(vid)/hls/index.m3u8"
+            }
 
             return MysteryMovieDetail(playFrom: "神秘线路", playUrl: playUrl,
                                       content: content)
@@ -400,6 +417,53 @@ class MysteryMovieService: ObservableObject {
         return String(text[r])
     }
 }
+
+// MARK: - m3u8 提取
+
+    /// 从详情页 HTML 中提取真实的 m3u8 播放地址
+    private func extractM3U8FromHTML(_ html: String) -> String {
+        // 方法1：查找 player_aaaa 或类似 JSON 配置
+        let jsonPatterns = [
+            #"var\s+player_\w*\s*=\s*(\{[^}]+\})"#,
+            #""url"\s*:\s*"([^"]+\.m3u8[^"]*)"#,
+            #"'url'\s*:\s*'([^']+\.m3u8[^']*)'"#,
+            #"source\s*src\s*=\s*"([^"]+\.m3u8[^"]*)"#,
+        ]
+        for pattern in jsonPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+               let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+               let range = Range(match.range(at: 1), in: html) {
+                let url = String(html[range]).replacingOccurrences(of: "\\/", with: "/")
+                if url.contains(".m3u8") || url.contains(".mp4") {
+                    print("[MysteryMovie] ✅ 从页面提取到播放地址: \(url.prefix(80))...")
+                    return url
+                }
+            }
+        }
+
+        // 方法2：查找 iframe src
+        let iframePattern = #"<iframe[^>]+src="([^"]+\.m3u8[^"]*)"#
+        if let regex = try? NSRegularExpression(pattern: iframePattern, options: []),
+           let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+           let range = Range(match.range(at: 1), in: html) {
+            let url = String(html[range])
+            print("[MysteryMovie] ✅ 从 iframe 提取到播放地址: \(url.prefix(80))...")
+            return url
+        }
+
+        // 方法3：直接查找所有 m3u8 URL
+        let m3u8Pattern = #"https?://[^"'\s]+\.m3u8[^"'\s]*"#
+        if let regex = try? NSRegularExpression(pattern: m3u8Pattern, options: []),
+           let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+           let range = Range(match.range, in: html) {
+            let url = String(html[range])
+            print("[MysteryMovie] ✅ 从页面提取到 m3u8: \(url.prefix(80))...")
+            return url
+        }
+
+        print("[MysteryMovie] ⚠️ 未从页面提取到 m3u8，使用硬编码回退")
+        return ""
+    }
 
 // MARK: - 简易 re.sub 辅助（标题清洗）
 
