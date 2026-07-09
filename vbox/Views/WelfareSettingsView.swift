@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 福利平台域名设置页面
+// MARK: - 福利平台域名设置页面（多域名管理）
 
 struct WelfareSettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -10,7 +10,6 @@ struct WelfareSettingsView: View {
     @State private var savedToast: String? = nil
     @FocusState private var isFocused: Bool
 
-    /// 所有支持域名自定义的平台
     private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
         ("每日大乱斗", "flame.fill", ["https://border.bshzjjgq.cc", "https://blood.bshzjjgq.cc"]),
         ("每日大赛", "trophy.fill", ["https://www.ercwvciks.cc"]),
@@ -22,7 +21,7 @@ struct WelfareSettingsView: View {
         ZStack {
             List {
                 Section {
-                    Text("如果某个平台的域名失效，可以在这里自定义新的域名。自定义域名会优先于默认域名使用。")
+                    Text("添加自定义域名后，系统会按顺序轮询这些域名。第一个可用的域名将被使用。左滑已保存的域名可删除。")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
@@ -30,49 +29,74 @@ struct WelfareSettingsView: View {
                 Section {
                     ForEach(platforms, id: \.name) { platform in
                         VStack(alignment: .leading, spacing: 8) {
-                            // 平台名称 + 当前域名 + 编辑按钮
+                            // 平台名称
                             HStack {
-                                Image(systemName: platform.icon)
-                                    .foregroundColor(.accentColor)
-                                Text(platform.name)
-                                    .font(.system(size: 15, weight: .medium))
+                                Image(systemName: platform.icon).foregroundColor(.accentColor)
+                                Text(platform.name).font(.system(size: 15, weight: .medium))
                                 Spacer()
-
-                                if store.domain(for: platform.name) != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                        .font(.system(size: 14))
-                                }
-                            }
-
-                            // 当前域名
-                            HStack {
-                                Text("当前域名：")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                Text(currentDisplay(for: platform.name, defaults: platform.defaultHosts))
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(store.domain(for: platform.name) != nil ? .accentColor : .secondary)
-                                    .lineLimit(1)
-                                Spacer()
-
                                 Button(action: {
                                     editingPlatform = platform.name
-                                    editDomain = store.domain(for: platform.name) ?? ""
+                                    editDomain = ""
                                     isFocused = true
                                 }) {
-                                    Text("编辑")
-                                        .font(.system(size: 13, weight: .medium))
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 20))
                                         .foregroundColor(.accentColor)
                                 }
                                 .buttonStyle(.borderless)
                             }
+
+                            // 默认域名
+                            if !platform.defaultHosts.isEmpty {
+                                HStack(spacing: 4) {
+                                    Text("默认：").font(.system(size: 11)).foregroundColor(.secondary)
+                                    Text(platform.defaultHosts[0])
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            // 自定义域名列表
+                            let customs = store.domains(for: platform.name)
+                            if !customs.isEmpty {
+                                VStack(spacing: 4) {
+                                    ForEach(customs, id: \.self) { domain in
+                                        HStack {
+                                            Image(systemName: "link")
+                                                .font(.system(size: 10)).foregroundColor(.accentColor)
+                                            Text(domain)
+                                                .font(.system(size: 12, design: .monospaced))
+                                                .foregroundColor(.accentColor)
+                                                .lineLimit(1)
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 4).padding(.horizontal, 8)
+                                        .background(Color.accentColor.opacity(0.06))
+                                        .cornerRadius(6)
+                                        .swipeActions(edge: .trailing) {
+                                            Button("删除", role: .destructive) {
+                                                store.removeDomain(for: platform.name, domain)
+                                                resetService(for: platform.name)
+                                                showToast("已删除域名")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 提示
+                            let total = customs.count + platform.defaultHosts.count
+                            if total > 0 {
+                                Text("共 \(total) 个域名，按顺序轮询")
+                                    .font(.system(size: 10)).foregroundColor(.secondary)
+                            }
                         }
                         .padding(.vertical, 4)
                         .swipeActions(edge: .trailing) {
-                            if store.domain(for: platform.name) != nil {
-                                Button("重置", role: .destructive) {
-                                    store.setDomain(for: platform.name, nil)
+                            if !store.domains(for: platform.name).isEmpty {
+                                Button("全部重置", role: .destructive) {
+                                    store.clearDomains(for: platform.name)
                                     resetService(for: platform.name)
                                     showToast("已恢复默认域名")
                                 }
@@ -83,16 +107,13 @@ struct WelfareSettingsView: View {
             }
             .listStyle(.insetGrouped)
 
-            // 编辑弹窗
+            // 添加域名弹窗
             if let platform = editingPlatform {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        editingPlatform = nil
-                    }
+                Color.black.opacity(0.001).ignoresSafeArea()
+                    .onTapGesture { editingPlatform = nil }
 
                 VStack(spacing: 20) {
-                    Text("编辑 \(platform) 域名")
+                    Text("添加 \(platform) 域名")
                         .font(.system(size: 17, weight: .semibold))
 
                     TextField("输入新域名，如 https://example.com", text: $editDomain)
@@ -102,42 +123,30 @@ struct WelfareSettingsView: View {
                         .disableAutocorrection(true)
                         .focused($isFocused)
                         .submitLabel(.done)
-                        .onSubmit { doSave() }
+                        .onSubmit { doAdd() }
 
                     HStack(spacing: 16) {
-                        Button(action: {
-                            editingPlatform = nil
-                        }) {
-                            Text("取消")
-                                .font(.system(size: 15, weight: .medium))
+                        Button(action: { editingPlatform = nil }) {
+                            Text("取消").font(.system(size: 15, weight: .medium))
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .cornerRadius(10)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(Color(UIColor.secondarySystemBackground)).cornerRadius(10)
                         }
                         .buttonStyle(.plain)
 
-                        Button(action: {
-                            doSave()
-                        }) {
-                            Text("保存")
-                                .font(.system(size: 15, weight: .semibold))
+                        Button(action: { doAdd() }) {
+                            Text("添加").font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.accentColor)
-                                .cornerRadius(10)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(Color.accentColor).cornerRadius(10)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(24)
                 .background(Color(UIColor.systemBackground))
-                .cornerRadius(16)
-                .shadow(radius: 20)
+                .cornerRadius(16).shadow(radius: 20)
                 .padding(.horizontal, 30)
-                .transition(.scale.combined(with: .opacity))
                 .animation(.spring(response: 0.3), value: editingPlatform)
                 .zIndex(10)
             }
@@ -146,20 +155,17 @@ struct WelfareSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("完成") { dismiss() }
-                    .font(.system(size: 15, weight: .semibold))
+                Button("完成") { dismiss() }.font(.system(size: 15, weight: .semibold))
             }
         }
         .overlay(alignment: .top) {
             if let toast = savedToast {
-                Text(toast)
-                    .font(.system(size: 14, weight: .medium))
+                Text(toast).font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 20).padding(.vertical, 10)
                     .background(Color.green, in: Capsule())
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 8)
-                    .zIndex(20)
+                    .padding(.top, 8).zIndex(20)
                     .onAppear {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { savedToast = nil }
@@ -169,41 +175,25 @@ struct WelfareSettingsView: View {
         }
     }
 
-    // MARK: - 辅助方法
-
-    private func currentDisplay(for name: String, defaults: [String]) -> String {
-        if let custom = store.domain(for: name) {
-            return custom
-        }
-        return defaults.first ?? "—"
-    }
-
-    private func doSave() {
+    private func doAdd() {
         guard let platform = editingPlatform else { return }
         let trimmed = editDomain.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty {
-            store.setDomain(for: platform, nil)
-            showToast("已恢复默认域名")
-        } else {
-            store.setDomain(for: platform, trimmed)
-            showToast("\(platform) 域名已保存")
-        }
+        guard !trimmed.isEmpty else { return }
+        store.addDomain(for: platform, trimmed)
+        showToast("域名已添加")
         editingPlatform = nil
         resetService(for: platform)
     }
 
-    private func showToast(_ message: String) {
-        withAnimation { savedToast = message }
+    private func showToast(_ msg: String) {
+        withAnimation { savedToast = msg }
     }
 
     private func resetService(for name: String) {
         switch name {
-        case "每日大乱斗":
-            DailyBattleService.shared.resetDomain()
-        case "每日大赛":
-            DailyBattleService.contest.resetDomain()
-        default:
-            break
+        case "每日大乱斗": DailyBattleService.shared.resetDomain()
+        case "每日大赛": DailyBattleService.contest.resetDomain()
+        default: break
         }
     }
 }

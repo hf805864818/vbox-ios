@@ -1,8 +1,7 @@
 import SwiftUI
-import AVKit
+import WebKit
 
 // MARK: - 色播聚合主页面
-// 对应 Python SB聚合 脚本
 
 struct SBAggregationView: View {
     let platform: YBoxPlatform2
@@ -53,36 +52,28 @@ struct SBAggregationView: View {
                     Text(err)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Button("重试") {
-                        load()
-                    }
-                    .buttonStyle(.borderedProminent)
+                    Button("重试") { load() }
+                        .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear {
-            if videos.isEmpty { load() }
-        }
+        .onAppear { if videos.isEmpty { load() } }
     }
 
     private func load() {
-        isLoading = true
-        loadError = nil
+        isLoading = true; loadError = nil
         Task {
             let list = await svc.fetchList()
             await MainActor.run {
-                videos = list
-                isLoading = false
-                if list.isEmpty {
-                    loadError = "暂时无法获取数据，请稍后重试"
-                }
+                videos = list; isLoading = false
+                if list.isEmpty { loadError = "暂时无法获取数据，请稍后重试" }
             }
         }
     }
 }
 
-// MARK: - 色播聚合播放器页面
+// MARK: - 色播聚合播放器页面 (WKWebView FLV 播放器)
 
 struct SBAggregationPlayerView: View {
     let address: String
@@ -91,32 +82,23 @@ struct SBAggregationPlayerView: View {
     @State private var playItems: [SBAggregationPlayItem] = []
     @State private var selectedIdx = 0
     @State private var isLoading = true
-    @State private var player = AVPlayer()
-    @State private var loadError: String?
-    @State private var playerStatus: String = ""
+    @State private var currentURL: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            // 固定播放器
+            // 播放器
             ZStack {
-                SBAggregationVideoPlayer(player: player)
-                    .aspectRatio(16/9, contentMode: .fit)
-
-                if playerStatus == "loading" {
-                    ProgressView()
-                        .tint(.white)
-                        .scaleEffect(1.5)
-                }
-
-                if playerStatus == "failed" {
-                    VStack(spacing: 8) {
-                        Image(systemName: "play.slash")
-                            .font(.system(size: 40))
-                            .foregroundColor(.white.opacity(0.6))
-                        Text("播放失败，请尝试其他线路")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
+                if !currentURL.isEmpty {
+                    SBAggregationWebPlayer(url: currentURL)
+                } else {
+                    Rectangle()
+                        .fill(Color.black)
+                        .aspectRatio(16/9, contentMode: .fit)
+                        .overlay {
+                            if isLoading {
+                                ProgressView().tint(.white)
+                            }
+                        }
                 }
             }
             .background(Color.black)
@@ -124,17 +106,14 @@ struct SBAggregationPlayerView: View {
             // 标题
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 独立滑动的线路选择框
+            // 线路选择
             if playItems.count > 0 {
                 Text("播放线路")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                    .font(.system(size: 13)).foregroundColor(.secondary)
+                    .padding(.horizontal, 16).padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 ScrollView {
@@ -142,46 +121,32 @@ struct SBAggregationPlayerView: View {
                         ForEach(Array(playItems.enumerated()), id: \.offset) { idx, item in
                             Button(action: {
                                 selectedIdx = idx
-                                play(url: item.address)
+                                currentURL = item.address
                             }) {
                                 HStack {
-                                    Text(item.title)
-                                        .font(.system(size: 14))
+                                    Text(item.title).font(.system(size: 14))
                                         .foregroundColor(selectedIdx == idx ? .accentColor : .primary)
                                     Spacer()
                                     if selectedIdx == idx {
                                         Image(systemName: "play.fill")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.accentColor)
+                                            .font(.system(size: 11)).foregroundColor(.accentColor)
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(
-                                    selectedIdx == idx
-                                        ? Color.accentColor.opacity(0.08)
-                                        : Color.clear
-                                )
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                                .background(selectedIdx == idx ? Color.accentColor.opacity(0.08) : Color.clear)
                             }
                             .buttonStyle(.plain)
-
-                            if idx < playItems.count - 1 {
-                                Divider()
-                                    .padding(.leading, 16)
-                            }
+                            if idx < playItems.count - 1 { Divider().padding(.leading, 16) }
                         }
                     }
                 }
                 .frame(maxHeight: 300)
                 .background(Color(UIColor.secondarySystemBackground))
                 .cornerRadius(12)
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
+                .padding(.horizontal, 12).padding(.top, 6)
             } else if !isLoading {
                 Spacer()
-                Text("暂无可用线路")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                Text("暂无可用线路").font(.system(size: 14)).foregroundColor(.secondary)
                 Spacer()
             } else {
                 Spacer()
@@ -189,15 +154,7 @@ struct SBAggregationPlayerView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if playItems.isEmpty {
-                load()
-            }
-        }
-        .onDisappear {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
+        .onAppear { if playItems.isEmpty { load() } }
     }
 
     private func load() {
@@ -205,73 +162,91 @@ struct SBAggregationPlayerView: View {
         Task {
             let items = await svc.fetchDetail(address: address)
             await MainActor.run {
-                playItems = items
-                isLoading = false
+                playItems = items; isLoading = false
                 if !items.isEmpty {
-                    play(url: items[0].address)
-                } else {
-                    loadError = "获取播放地址失败"
-                }
-            }
-        }
-    }
-
-    private func play(url: String) {
-        // 确保 URL 有效
-        let trimmed = url.trimmingCharacters(in: .whitespaces)
-        // 处理可能的 URL 编码问题
-        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
-        guard let playURL = URL(string: encoded) ?? URL(string: trimmed) else {
-            print("[SBAggregation] ❌ URL 无效: \(url)")
-            playerStatus = "failed"
-            return
-        }
-
-        print("[SBAggregation] ▶️ 播放: \(playURL.absoluteString)")
-        playerStatus = "loading"
-
-        let playerItem = AVPlayerItem(url: playURL)
-        player.replaceCurrentItem(with: playerItem)
-
-        // 观察播放状态
-        Task {
-            // 等待一小段时间让播放器开始加载
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run {
-                switch playerItem.status {
-                case .readyToPlay:
-                    player.play()
-                    playerStatus = ""
-                    print("[SBAggregation] ✅ 播放成功")
-                case .failed:
-                    print("[SBAggregation] ❌ 播放失败: \(playerItem.error?.localizedDescription ?? "未知错误")")
-                    playerStatus = "failed"
-                default:
-                    // 仍在加载中，给更多时间
-                    player.play()
-                    playerStatus = ""
+                    selectedIdx = 0
+                    currentURL = items[0].address
                 }
             }
         }
     }
 }
 
-// MARK: - AVPlayer 包装（支持状态观察）
+// MARK: - WKWebView FLV 播放器
 
-struct SBAggregationVideoPlayer: UIViewControllerRepresentable {
-    let player: AVPlayer
+struct SBAggregationWebPlayer: UIViewRepresentable {
+    let url: String
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let vc = AVPlayerViewController()
-        vc.player = player
-        vc.showsPlaybackControls = true
-        vc.videoGravity = .resizeAspect
-        return vc
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
     }
 
-    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
-        if vc.player !== player {
-            vc.player = player
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = prefs
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.isScrollEnabled = false
+        webView.navigationDelegate = context.coordinator
+
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+        <style>
+        * { margin:0; padding:0; }
+        body { background:#000; display:flex; align-items:center; justify-content:center; height:100vh; }
+        video { width:100%; height:100%; object-fit:contain; }
+        </style>
+        </head>
+        <body>
+        <video id="v" controls autoplay playsinline></video>
+        <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+        <script>
+        function loadFlv(url) {
+            if (flvjs.isSupported()) {
+                var player = flvjs.createPlayer({ type: 'flv', url: url, isLive: true });
+                player.attachMediaElement(document.getElementById('v'));
+                player.load();
+                player.play();
+            } else {
+                document.getElementById('v').src = url;
+                document.getElementById('v').play();
+            }
+        }
+        </script>
+        </body>
+        </html>
+        """
+
+        webView.loadHTMLString(html, baseURL: nil)
+        context.coordinator.flvURL = url
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        if context.coordinator.flvURL != url {
+            context.coordinator.flvURL = url
+            let js = "loadFlv('\(url)');"
+            webView.evaluateJavaScript(js)
+        }
+    }
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var flvURL: String = ""
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            let js = "loadFlv('\(flvURL)');"
+            webView.evaluateJavaScript(js)
         }
     }
 }
