@@ -122,78 +122,36 @@ class DailyBattleService: ObservableObject {
 
     // MARK: - 站点存活探测
 
-    /// 判断 HTML 是否为 JS 跳转页（极短且只有 <a href=...> + window.location）
+    /// 判断 HTML 是否为 JS 跳转页（极短且只有跳转代码），用于日志提示
     private func isJSRedirectPage(_ html: String) -> Bool {
         let stripped = html.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 跳转页通常很短（< 500 字符），且包含惰性跳转代码
         guard stripped.count < 800 else { return false }
-        let hasJSRedirect = stripped.contains("window.location.replace")
+        return stripped.contains("window.location.replace")
             || stripped.contains("window.location.href")
             || stripped.contains("_5v9MXQT1Kq.click")
-        return hasJSRedirect
     }
 
-    /// 递归跟随 JS 跳转，直到找到真实内容页（最多 3 层）
-    private func followJSRedirects(from url: String, depth: Int = 0) async -> String {
-        guard depth < 3 else { return url }
-        do {
-            let (data, response) = try await session.data(for: self.request(url: url))
-            guard let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) else {
-                return url
-            }
-            let finalURL = httpResp.url?.absoluteString ?? url
-            guard let html = String(data: data, encoding: .utf8) else { return finalURL }
-
-            // 如果当前页是真实内容页（不是跳转页），返回
-            if !isJSRedirectPage(html) {
-                return finalURL
-            }
-
-            // 提取 <a href="..."> 中的跳转 URL
-            let pattern = "<a[^>]+href=\"([^\"]+)\""
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-                  let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) else {
-                return finalURL
-            }
-            let href = (html as NSString).substring(with: match.range(at: 1))
-            guard let jsURL = URL(string: href, relativeTo: URL(string: finalURL)) else {
-                return finalURL
-            }
-            print("[DailyBattle:\(config.name)] 🔀 JS 跳转 (第\(depth+1)层) → \(jsURL.absoluteString)")
-            return await followJSRedirects(from: jsURL.absoluteString, depth: depth + 1)
-        } catch {
-            print("[DailyBattle:\(config.name)] ⚠️ 跳转失败: \(error)")
-            return url
-        }
-    }
-
+    /// 站点存活探测，对应 Python get_working_host()
+    /// 关键：不跟踪 JS 跳转！跳转域名上的分类页面可直接访问（Python 同理）
     func probeHost() async -> String {
         for host in config.hosts {
             do {
                 let (data, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
-                    var finalURLStr = httpResp.url?.absoluteString ?? host
-                    // 如果返回的是 JS 跳转页，递归跟进直到找到真实内容页
-                    if let html = String(data: data, encoding: .utf8), isJSRedirectPage(html) {
-                        print("[DailyBattle:\(config.name)] 🔀 检测到 JS 跳转页，开始递归跟进...")
-                        finalURLStr = await followJSRedirects(from: finalURLStr)
-                    }
-                    // 只提取 origin（scheme + host）
-                    if let final = URL(string: finalURLStr) {
-                        let scheme = final.scheme ?? "https"
-                        let hostPart = final.host ?? ""
-                        if !hostPart.isEmpty {
-                            currentHost = "\(scheme)://\(hostPart)"
-                            isReady = true
-                            print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
-                            return currentHost
+                    // 只提取 origin（scheme + host），不包含路径
+                    let finalURL = httpResp.url ?? URL(string: host)!
+                    let scheme = finalURL.scheme ?? "https"
+                    let hostPart = finalURL.host ?? ""
+                    if !hostPart.isEmpty {
+                        currentHost = "\(scheme)://\(hostPart)"
+                        isReady = true
+                        // 检测是否为 JS 跳转页（仅日志提示，不影响后续使用）
+                        if let html = String(data: data, encoding: .utf8), isJSRedirectPage(html) {
+                            print("[DailyBattle:\(config.name)] ⚠️ 站点 \(currentHost) 首页为 JS 跳转页，分类页面仍可正常访问")
                         }
+                        print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
+                        return currentHost
                     }
-                    // fallback
-                    currentHost = host
-                    isReady = true
-                    print("[DailyBattle:\(config.name)] ✅ 使用原始站点: \(currentHost)")
-                    return currentHost
                 }
             } catch {
                 print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")
