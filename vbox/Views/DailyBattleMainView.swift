@@ -17,7 +17,7 @@ struct DailyBattleMainView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 顶部Tab
+            // 顶部Tab（无背景框）
             HStack(spacing: 0) {
                 ForEach(0..<tabs.count, id: \.self) { i in
                     Button(action: { withAnimation { selectedTab = i } }) {
@@ -32,6 +32,7 @@ struct DailyBattleMainView: View {
                             }
                         }
                     }
+                    .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -97,7 +98,7 @@ struct DailyBattleHomeTab: View {
                 }
                 .padding(20)
             } else {
-                // 分类横向滚动
+                // 分类横向滚动（无背景框）
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
@@ -109,6 +110,7 @@ struct DailyBattleHomeTab: View {
                                     .foregroundColor(selectedCateIdx == idx ? .accentColor : .secondary)
                                     .padding(.horizontal, 14).padding(.vertical, 7)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
