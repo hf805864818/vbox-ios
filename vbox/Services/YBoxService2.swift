@@ -259,6 +259,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://www.mrds66.com", desc: "每日精选"),
             YBoxPlatform2(name: "神秘电影", icon: "theatermasks.fill", type: .video,
                          baseURL: "https://h4ivs.sm431.vip", desc: "加密解密"),
+            YBoxPlatform2(name: "色播聚合", icon: "tv.fill", type: .video,
+                         baseURL: "http://api.hclyz.com:81/mf", desc: "直播聚合"),
         ]
 
         categories = [
