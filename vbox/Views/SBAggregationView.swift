@@ -210,15 +210,23 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         </head>
         <body>
         <video id="v" controls autoplay playsinline></video>
-        <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+        <script src="https://cdn.bootcdn.net/ajax/libs/flv.js/1.6.2/flv.min.js"></script>
         <script>
         function loadFlv(url) {
-            if (flvjs.isSupported()) {
-                var player = flvjs.createPlayer({ type: 'flv', url: url, isLive: true });
-                player.attachMediaElement(document.getElementById('v'));
-                player.load();
-                player.play();
-            } else {
+            console.log('loadFlv: ' + url);
+            try {
+                if (typeof flvjs !== 'undefined' && flvjs.isSupported()) {
+                    var player = flvjs.createPlayer({ type: 'flv', url: url, isLive: true });
+                    player.attachMediaElement(document.getElementById('v'));
+                    player.load();
+                    player.play().catch(function(e) { console.log('play error: ' + e); });
+                } else {
+                    console.log('flvjs not supported, fallback to direct');
+                    document.getElementById('v').src = url;
+                    document.getElementById('v').play();
+                }
+            } catch(e) {
+                console.log('flvjs error: ' + e);
                 document.getElementById('v').src = url;
                 document.getElementById('v').play();
             }

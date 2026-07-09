@@ -28,7 +28,7 @@ struct DailyBattleSiteConfig {
         hosts: [
             "https://www.ercwvciks.cc"
         ],
-        domainPatterns: ["nzmknoycm", "tvayhvuab", "miqmpuln", "synvmodz", "ercwvciks", "mrds", "mrdsk"]
+        domainPatterns: ["tvayhvuab", "rvvnvvuk", "nzmknoycm", "miqmpuln", "synvmodz", "ercwvciks", "mrds", "mrdsk"]
     )
 }
 
@@ -155,14 +155,32 @@ class DailyBattleService: ObservableObject {
         var domains: [String] = []
         var searchText = html
 
-        // 尝试 base64 解码（导航页可能整体 base64 编码）
-        if let decodedData = Data(base64Encoded: html.replacingOccurrences(of: "\n", with: ""), options: .ignoreUnknownCharacters),
-           let decoded = String(data: decodedData, encoding: .utf8) {
-            print("[DailyBattle:\(config.name)] 📦 导航页 base64 解码成功，长度: \(decoded.count)")
-            searchText = decoded
+        // 方式1: 尝试提取内嵌的 base64 块并解码
+        // 导航页 HTML 包含一个大的 base64 编码块，需要先提取再解码
+        let b64Pattern = "[\"']([A-Za-z0-9+/=]{500,})[\"']"
+        if let b64Regex = try? NSRegularExpression(pattern: b64Pattern, options: []),
+           let b64Match = b64Regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) {
+            let b64Str = (html as NSString).substring(with: b64Match.range(at: 1))
+            if let decodedData = Data(base64Encoded: b64Str, options: .ignoreUnknownCharacters),
+               let decoded = String(data: decodedData, encoding: .utf8) {
+                print("[DailyBattle:\(config.name)] 📦 提取内嵌 base64 块解码成功，长度: \(decoded.count)")
+                searchText = decoded
+            }
         }
 
-        // 方式1: 匹配 words.random() + '.domain.cc' 模式
+        // 方式2: 如果内嵌块提取失败，尝试整体解码
+        if searchText == html {
+            let cleaned = html.replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: " ", with: "")
+            if let decodedData = Data(base64Encoded: cleaned, options: .ignoreUnknownCharacters),
+               let decoded = String(data: decodedData, encoding: .utf8), decoded.count > 1000 {
+                print("[DailyBattle:\(config.name)] 📦 整体 base64 解码成功，长度: \(decoded.count)")
+                searchText = decoded
+            }
+        }
+
+        print("[DailyBattle:\(config.name)] 🔍 搜索域名模式，文本长度: \(searchText.count)")
+
+        // 匹配 words.random() + '.domain.cc' 模式
         let pattern1 = "words\\.random\\(\\)\\s*\\+\\s*['\"]\\.([a-z0-9-]+\\.[a-z]{2,})['\"]"
         if let regex = try? NSRegularExpression(pattern: pattern1, options: []) {
             let matches = regex.matches(in: searchText, range: NSRange(location: 0, length: searchText.utf16.count))
@@ -172,13 +190,25 @@ class DailyBattleService: ObservableObject {
             }
         }
 
-        // 方式2: 匹配单引号中的完整域名模式 '.nzmknoycm.cc' 等
+        // 匹配单引号中的完整域名模式 '.nzmknoycm.cc' 等
         let pattern2 = "'\\.([a-z0-9-]+\\.[a-z]{2,})'"
         if let regex = try? NSRegularExpression(pattern: pattern2, options: []) {
             let matches = regex.matches(in: searchText, range: NSRange(location: 0, length: searchText.utf16.count))
             for match in matches {
                 let domain = (searchText as NSString).substring(with: match.range(at: 1))
                 if !domains.contains(domain) { domains.append(domain) }
+            }
+        }
+
+        // 方式3: 兜底 — 在原始 HTML 中搜索已知域名模式
+        if domains.isEmpty {
+            for pattern in config.domainPatterns {
+                let escaped = NSRegularExpression.escapedPattern(for: pattern)
+                let p = "\\.\(escaped)"
+                if let regex = try? NSRegularExpression(pattern: p, options: []),
+                   regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)) != nil {
+                    domains.append("\(pattern)")
+                }
             }
         }
 
