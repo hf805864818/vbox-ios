@@ -26,9 +26,9 @@ struct DailyBattleSiteConfig {
     static let dailyContest = DailyBattleSiteConfig(
         name: "每日大赛",
         hosts: [
-            "https://mrdsa1.com"
+            "https://www.ercwvciks.cc"
         ],
-        domainPatterns: ["mrds", "mrdsk"]
+        domainPatterns: ["ercwvciks", "mrds", "mrdsk"]
     )
 }
 
@@ -182,7 +182,8 @@ class DailyBattleService: ObservableObject {
     }
 
     /// 站点存活探测，对应 Python get_working_host()
-    /// 关键：处理 mrdsa1.com → JS 跳转 → 导航页 → 线路域名 的链路
+    /// 处理链路：入口 → JS 跳转 → 导航页 → 线路域名
+    /// 如果入口本身就是导航页，直接提取线路域名
     func probeHost() async -> String {
         for host in effectiveHosts {
             do {
@@ -194,43 +195,40 @@ class DailyBattleService: ObservableObject {
 
                     guard !hostPart.isEmpty else { continue }
 
-                    // 检测是否为 JS 跳转页
-                    if let html = String(data: data, encoding: .utf8), isJSRedirectPage(html) {
-                        print("[DailyBattle:\(config.name)] 🔀 检测到 JS 跳转页，尝试跟进...")
+                    guard let html = String(data: data, encoding: .utf8) else {
+                        currentHost = "\(scheme)://\(hostPart)"
+                        isReady = true
+                        return currentHost
+                    }
 
-                        // 提取 JS 跳转目标 URL
+                    // 情况 1: JS 跳转页 → 跟进跳转获取导航页
+                    if isJSRedirectPage(html) {
+                        print("[DailyBattle:\(config.name)] 🔀 检测到 JS 跳转页，尝试跟进...")
                         if let jsTarget = extractJSHref(from: html) {
                             print("[DailyBattle:\(config.name)] 🔀 JS 跳转目标: \(jsTarget)")
-
-                            // 跟进跳转，获取导航页内容
-                            do {
-                                let (lpData, lpResp) = try await session.data(for: request(url: jsTarget))
-                                if let lpHttp = lpResp as? HTTPURLResponse, (200...299).contains(lpHttp.statusCode),
-                                   let lpHTML = String(data: lpData, encoding: .utf8) {
-
-                                    // 从导航页 JS 提取线路域名
-                                    let lineDomains = extractLineDomains(from: lpHTML)
-                                    print("[DailyBattle:\(config.name)] 🔍 发现线路域名: \(lineDomains)")
-
-                                    // 尝试每个线路域名的 www 子域名
-                                    for domain in lineDomains {
-                                        let testHost = "\(scheme)://www.\(domain)"
-                                        print("[DailyBattle:\(config.name)] 🧪 测试线路: \(testHost)")
-                                        if await testCategoryPage(host: testHost) {
-                                            currentHost = testHost
-                                            isReady = true
-                                            print("[DailyBattle:\(config.name)] ✅ 使用线路站点: \(currentHost)")
-                                            return currentHost
-                                        }
-                                    }
-                                }
-                            } catch {
-                                print("[DailyBattle:\(config.name)] ⚠️ 跳转跟进失败: \(error)")
+                            if let resultHost = await tryLineDomains(from: jsTarget, scheme: scheme) {
+                                return resultHost
                             }
                         }
                     }
 
-                    // 非跳转页，或跳转跟进失败 → 直接使用当前域名
+                    // 情况 2: 当前页就是导航页 → 直接提取线路域名
+                    let lineDomains = extractLineDomains(from: html)
+                    if !lineDomains.isEmpty {
+                        print("[DailyBattle:\(config.name)] 🔍 当前页就是导航页，发现线路域名: \(lineDomains)")
+                        for domain in lineDomains {
+                            let testHost = "\(scheme)://www.\(domain)"
+                            print("[DailyBattle:\(config.name)] 🧪 测试线路: \(testHost)")
+                            if await testCategoryPage(host: testHost) {
+                                currentHost = testHost
+                                isReady = true
+                                print("[DailyBattle:\(config.name)] ✅ 使用线路站点: \(currentHost)")
+                                return currentHost
+                            }
+                        }
+                    }
+
+                    // 情况 3: 普通内容页 → 直接使用
                     currentHost = "\(scheme)://\(hostPart)"
                     isReady = true
                     print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
@@ -242,6 +240,31 @@ class DailyBattleService: ObservableObject {
         }
         isReady = true
         return currentHost
+    }
+
+    /// 从 URL 获取页面并提取线路域名
+    private func tryLineDomains(from url: String, scheme: String) async -> String? {
+        do {
+            let (lpData, lpResp) = try await session.data(for: request(url: url))
+            if let lpHttp = lpResp as? HTTPURLResponse, (200...299).contains(lpHttp.statusCode),
+               let lpHTML = String(data: lpData, encoding: .utf8) {
+                let lineDomains = extractLineDomains(from: lpHTML)
+                print("[DailyBattle:\(config.name)] 🔍 发现线路域名: \(lineDomains)")
+                for domain in lineDomains {
+                    let testHost = "\(scheme)://www.\(domain)"
+                    print("[DailyBattle:\(config.name)] 🧪 测试线路: \(testHost)")
+                    if await testCategoryPage(host: testHost) {
+                        currentHost = testHost
+                        isReady = true
+                        print("[DailyBattle:\(config.name)] ✅ 使用线路站点: \(currentHost)")
+                        return currentHost
+                    }
+                }
+            }
+        } catch {
+            print("[DailyBattle:\(config.name)] ⚠️ 跳转跟进失败: \(error)")
+        }
+        return nil
     }
 
     /// 重置域名（清除自定义域名），用于设置页面

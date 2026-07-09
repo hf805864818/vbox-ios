@@ -91,36 +91,32 @@ struct SBAggregationPlayerView: View {
     @State private var playItems: [SBAggregationPlayItem] = []
     @State private var selectedIdx = 0
     @State private var isLoading = true
-    @State private var player: AVPlayer?
+    @State private var player = AVPlayer()
     @State private var loadError: String?
-    @State private var isPlaying = false
+    @State private var playerStatus: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
             // 固定播放器
             ZStack {
-                if let player = player {
-                    VideoPlayer(player: player)
-                        .aspectRatio(16/9, contentMode: .fit)
-                } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .aspectRatio(16/9, contentMode: .fit)
-                        .overlay {
-                            if isLoading {
-                                ProgressView()
-                                    .tint(.white)
-                            } else {
-                                VStack(spacing: 8) {
-                                    Image(systemName: "play.slash")
-                                        .font(.system(size: 40))
-                                        .foregroundColor(.white.opacity(0.5))
-                                    Text("暂无播放源")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.white.opacity(0.5))
-                                }
-                            }
-                        }
+                SBAggregationVideoPlayer(player: player)
+                    .aspectRatio(16/9, contentMode: .fit)
+
+                if playerStatus == "loading" {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.5)
+                }
+
+                if playerStatus == "failed" {
+                    VStack(spacing: 8) {
+                        Image(systemName: "play.slash")
+                            .font(.system(size: 40))
+                            .foregroundColor(.white.opacity(0.6))
+                        Text("播放失败，请尝试其他线路")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
                 }
             }
             .background(Color.black)
@@ -199,8 +195,8 @@ struct SBAggregationPlayerView: View {
             }
         }
         .onDisappear {
-            player?.pause()
-            player = nil
+            player.pause()
+            player.replaceCurrentItem(with: nil)
         }
     }
 
@@ -221,15 +217,61 @@ struct SBAggregationPlayerView: View {
     }
 
     private func play(url: String) {
-        print("[SBAggregation] 播放: \(url)")
-        guard let playURL = URL(string: url) else {
+        // 确保 URL 有效
+        let trimmed = url.trimmingCharacters(in: .whitespaces)
+        // 处理可能的 URL 编码问题
+        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+        guard let playURL = URL(string: encoded) ?? URL(string: trimmed) else {
             print("[SBAggregation] ❌ URL 无效: \(url)")
+            playerStatus = "failed"
             return
         }
-        player?.pause()
-        let p = AVPlayer(url: playURL)
-        player = p
-        p.play()
-        isPlaying = true
+
+        print("[SBAggregation] ▶️ 播放: \(playURL.absoluteString)")
+        playerStatus = "loading"
+
+        let playerItem = AVPlayerItem(url: playURL)
+        player.replaceCurrentItem(with: playerItem)
+
+        // 观察播放状态
+        Task {
+            // 等待一小段时间让播放器开始加载
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                switch playerItem.status {
+                case .readyToPlay:
+                    player.play()
+                    playerStatus = ""
+                    print("[SBAggregation] ✅ 播放成功")
+                case .failed:
+                    print("[SBAggregation] ❌ 播放失败: \(playerItem.error?.localizedDescription ?? "未知错误")")
+                    playerStatus = "failed"
+                default:
+                    // 仍在加载中，给更多时间
+                    player.play()
+                    playerStatus = ""
+                }
+            }
+        }
+    }
+}
+
+// MARK: - AVPlayer 包装（支持状态观察）
+
+struct SBAggregationVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let vc = AVPlayerViewController()
+        vc.player = player
+        vc.showsPlaybackControls = true
+        vc.videoGravity = .resizeAspect
+        return vc
+    }
+
+    func updateUIViewController(_ vc: AVPlayerViewController, context: Context) {
+        if vc.player !== player {
+            vc.player = player
+        }
     }
 }
