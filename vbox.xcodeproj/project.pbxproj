@@ -197,6 +197,8 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A80014896281C5C1B943BE /* SihuVideoService.swift */; };
+		04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -406,6 +408,8 @@
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
+		04A80014896281C5C1B943BE /* SihuVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoService.swift; sourceTree = "<group>"; };
+		04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -614,6 +618,7 @@
 				B10155 /* MissAVService.swift */,
 				5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */,
 				1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */,
+				04A80014896281C5C1B943BE /* SihuVideoService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 			);
 			path = Services;
@@ -654,6 +659,7 @@
 				B10156 /* MissAVViews.swift */,
 				424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */,
 				5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */,
+				04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
 			);
 			path = Views;
@@ -903,6 +909,8 @@
 				B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */,
 				AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */,
 				3A0F654B18027EB301542742 /* WelfareSettingsView.swift in Sources */,
+				04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */,
+				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

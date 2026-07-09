@@ -259,6 +259,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://www.mrds66.com", desc: "每日精选"),
             YBoxPlatform2(name: "神秘电影", icon: "theatermasks.fill", type: .video,
                          baseURL: "https://h4ivs.sm431.vip", desc: "加密解密"),
+            YBoxPlatform2(name: "四虎视频", icon: "film.fill", type: .video,
+                         baseURL: "https://www.sihuhu.xyz", desc: "综合视频站"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
