@@ -50,6 +50,13 @@ struct DailyBattleVideo: Identifiable, Codable {
     let tag: String
 }
 
+struct DailyBattleDetail {
+    let playFrom: String
+    let playUrl: String
+    let content: String
+    let keywords: [String]
+}
+
 // MARK: - SSL 跳过 Delegate (对应 Python verify=False)
 
 private class SSLBypassDelegate: NSObject, URLSessionDelegate {
