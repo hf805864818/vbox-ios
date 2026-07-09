@@ -380,11 +380,13 @@ class DailyBattleService: ObservableObject {
         return videos
     }
 
-    /// 图片代理：绕过被墙域名
+    /// 图片 URL（去除 ybox.vip 代理, 直接返回原始 URL）
+    /// 每日大乱斗/大赛封面图 AES 加密, 由 PlatformAsyncImage(.dailyBattle) 解密
+    /// 对应 Python 脚本 _proc_url(): 本地代理解密, 非 ybox.vip 外部代理
     func proxyImageURL(_ url: String) -> String {
-        guard !url.isEmpty, !url.hasPrefix("data:") else { return url }
-        // ybox.vip 图片代理
-        return "https://ybox.vip/image?url=\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
+        // 不再使用 ybox.vip 代理, 直接返回原始 URL
+        // 封面图 AES 解密由 PlatformImageLoader / PlatformAsyncImage 处理
+        return url
     }
 
     /// 从 article 元素提取封面图片 URL
@@ -414,7 +416,16 @@ class DailyBattleService: ObservableObject {
         }
 
         guard let cover = raw, !cover.isEmpty else { return "" }
-        return proxyImageURL(cover)
+        // 将相对 URL 转为绝对 URL (对应 Python _proc_url 中的相对路径处理)
+        var finalURL = cover
+        if !finalURL.hasPrefix("http") && !finalURL.hasPrefix("data:") {
+            if finalURL.hasPrefix("/") {
+                finalURL = "\(currentHost)\(finalURL)"
+            } else {
+                finalURL = "\(currentHost)/\(finalURL)"
+            }
+        }
+        return finalURL
     }
 
     private func firstMatch(pattern: String, in text: String, caseInsensitive: Bool = false) -> String? {

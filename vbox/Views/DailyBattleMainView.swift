@@ -203,21 +203,12 @@ struct DailyBattleVideoCard: View {
     let cover: String
     let title: String
     let remarks: String
+    var imageMode: PlatformImageMode = .dailyBattle
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: URL(string: cover)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.18))
-                            .overlay(Image(systemName: "play.rectangle.fill")
-                                .foregroundColor(.white.opacity(0.5)))
-                    }
-                }
+                PlatformAsyncImage(urlString: cover, mode: imageMode)
                 .frame(height: 88)
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -382,15 +373,9 @@ struct DailyBattlePlayerView: View {
     // MARK: - 封面
     @ViewBuilder private var coverSection: some View {
         ZStack {
-            AsyncImage(url: URL(string: cover)) { phase in
-                if let img = phase.image {
-                    img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                } else {
-                    Rectangle().fill(Color.gray.opacity(0.2))
-                        .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            PlatformAsyncImage(urlString: cover, mode: .dailyBattle, contentMode: .fit)
+                .cornerRadius(12)
+                .frame(maxWidth: .infinity)
 
             if isLoading {
                 ProgressView().scaleEffect(2).tint(.white)
