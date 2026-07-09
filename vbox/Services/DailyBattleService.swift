@@ -59,8 +59,17 @@ struct DailyBattleDetail {
 
 // MARK: - SSL 跳过 Delegate (对应 Python verify=False)
 
-private class SSLBypassDelegate: NSObject, URLSessionDelegate {
+private class SSLBypassDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
+    /// 会话级 SSL 挑战
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if let serverTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+    /// 任务级 SSL 挑战（async/await 触发的是这一层）
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         if let serverTrust = challenge.protectionSpace.serverTrust {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
         } else {
@@ -118,15 +127,18 @@ class DailyBattleService: ObservableObject {
             do {
                 let (_, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                    // 跟随重定向后的最终 URL (对应 Python response.url.rstrip('/'))
-                    var finalURL = httpResp.url?.absoluteString ?? host
-                    if finalURL.hasSuffix("/") {
-                        finalURL = String(finalURL.dropLast())
+                    // 跟随重定向后的最终 URL，只提取 origin（scheme + host）
+                    // 对应 Python: response.url.rstrip('/')，但只取 origin
+                    if let finalURL = httpResp.url {
+                        let scheme = finalURL.scheme ?? "https"
+                        let hostPart = finalURL.host ?? ""
+                        currentHost = "\(scheme)://\(hostPart)"
+                    } else {
+                        currentHost = host
                     }
-                    currentHost = finalURL
                     isReady = true
-                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(finalURL)")
-                    return finalURL
+                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(currentHost)")
+                    return currentHost
                 }
             } catch {
                 print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")
@@ -183,8 +195,14 @@ class DailyBattleService: ObservableObject {
             }
 
             // 提取推荐视频（过滤广告外链）
-            let rawArticles = doc.css("article")
+            // 对应 Python: data('#index article, article')
+            // 先用 CSS 选择器，失败则回退到 XPath
+            var rawArticles = doc.css("article")
+            if Array(rawArticles).isEmpty {
+                rawArticles = doc.xpath("//*[@id='index']//article | //article")
+            }
             let videos = parseVideos(rawArticles)
+            print("[DailyBattle:\(config.name)] fetchHome: \(cats.count) 分类, \(videos.count) 视频")
 
             return (cats, videos)
         } catch {
@@ -200,11 +218,13 @@ class DailyBattleService: ObservableObject {
             let fullURL = buildCategoryURL(base: url, page: page)
             let html = try await fetchHTML(url: fullURL)
             guard let doc = try? HTML(html: html, encoding: .utf8) else { return [] }
-            // 使用 XPath 替代逗号分隔的 CSS 选择器（Kanna 对逗号支持可能不完整）
             // 对应 Python: data('#archive article, #index article, article')
-            let articles = doc.xpath("//div[@id='archive']//article | //div[@id='index']//article | //article")
+            // 使用 XPath 替代逗号分隔的 CSS 选择器，//* 匹配任意元素类型
+            let articles = doc.xpath("//*[@id='archive']//article | //*[@id='index']//article | //article")
             let isFolder = url.contains("/mrdg")
-            return parseVideos(articles, tag: isFolder ? "folder" : "")
+            let videos = parseVideos(articles, tag: isFolder ? "folder" : "")
+            print("[DailyBattle:\(config.name)] fetchCategoryList(\(url), p\(page)): \(videos.count) 视频")
+            return videos
         } catch {
             print("[DailyBattle:\(config.name)] fetchCategoryList(\(url), p\(page)) error: \(error)")
             return []
@@ -367,6 +387,7 @@ class DailyBattleService: ObservableObject {
 
     private func parseVideos(_ articles: XPathObject, tag: String = "") -> [DailyBattleVideo] {
         var videos: [DailyBattleVideo] = []
+        var skippedNoTitle = 0, skippedNoHref = 0, skippedAd = 0
         for article in articles {
             // 提取标题
             var title = article.css("h2").first?.text
@@ -377,7 +398,7 @@ class DailyBattleService: ObservableObject {
             if title.isEmpty, let tagName = article.tagName, tagName == "a" {
                 title = article.text ?? ""
             }
-            guard !title.isEmpty else { continue }
+            guard !title.isEmpty else { skippedNoTitle += 1; continue }
 
             // 提取链接
             let anchor: XMLElement?
@@ -386,9 +407,9 @@ class DailyBattleService: ObservableObject {
             } else {
                 anchor = article.css("a").first
             }
-            guard let href = anchor?["href"], !href.isEmpty else { continue }
+            guard let href = anchor?["href"], !href.isEmpty else { skippedNoHref += 1; continue }
             // 跳过广告外链（非 / 开头且非本站域名的 URL）
-            if href.hasPrefix("http") && !config.domainPatterns.contains(where: { href.contains($0) }) { continue }
+            if href.hasPrefix("http") && !config.domainPatterns.contains(where: { href.contains($0) }) { skippedAd += 1; continue }
 
             // 提取封面
             let cover = extractCover(from: article)
@@ -403,6 +424,9 @@ class DailyBattleService: ObservableObject {
                 remarks: remarks,
                 tag: tag
             ))
+        }
+        if skippedNoTitle > 0 || skippedNoHref > 0 || skippedAd > 0 {
+            print("[DailyBattle:\(config.name)] parseVideos: \(videos.count)保留, 跳过: 无标题\(skippedNoTitle) 无链接\(skippedNoHref) 广告\(skippedAd)")
         }
         return videos
     }
