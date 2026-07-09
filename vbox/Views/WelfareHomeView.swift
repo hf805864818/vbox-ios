@@ -8,6 +8,7 @@ struct WelfareHomeView: View {
     @State private var isEditMode = false
     @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
     @State private var navigatePlatformID: String?
+    @State private var showSettings = false
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -26,6 +27,19 @@ struct WelfareHomeView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                // 顶部导航栏：tabs + 右上角设置按钮
+                HStack(spacing: 0) {
+                    Spacer()
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 16)
+                    .padding(.top, 8)
+                }
+
                 // Tab切换栏
                 HStack(spacing: 0) {
                     ForEach(WelfareTab.allCases, id: \.self) { tab in
@@ -86,6 +100,11 @@ struct WelfareHomeView: View {
             .background(settings.usesVisualSkin ? Color.clear.ignoresSafeArea() : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear { loadOrder() }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationView {
+                WelfareSettingsView()
+            }
         }
     }
 
