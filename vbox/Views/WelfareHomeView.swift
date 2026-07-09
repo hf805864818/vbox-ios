@@ -153,6 +153,8 @@ struct WelfareHomeView: View {
             return AnyView(MysteryMovieMainView(platform: platform))
         } else if platform.name == "色播聚合" {
             return AnyView(SBAggregationView(platform: platform))
+        } else if platform.name == "四虎视频" {
+            return AnyView(SihuVideoHomeView(platform: platform))
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -167,7 +169,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "色播聚合" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "色播聚合" }
     }
 
     // MARK: - 颜色工具

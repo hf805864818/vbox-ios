@@ -15,6 +15,7 @@ struct WelfareSettingsView: View {
         ("每日大乱斗", "flame.fill", ["https://border.bshzjjgq.cc", "https://blood.bshzjjgq.cc"]),
         ("每日大赛", "trophy.fill", ["https://www.ercwvciks.cc"]),
         ("神秘电影", "theatermasks.fill", ["https://h4ivs.sm431.vip"]),
+        ("四虎视频", "film.fill", ["https://www.sihuhu.xyz"]),
         ("香蕉秀", "heart.fill", [])
     ]
 
