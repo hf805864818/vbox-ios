@@ -50,11 +50,16 @@ struct DailyBattleVideo: Identifiable, Codable {
     let tag: String
 }
 
-struct DailyBattleDetail {
-    let playFrom: String
-    let playUrl: String
-    let content: String
-    let keywords: [String]
+// MARK: - SSL 跳过 Delegate (对应 Python verify=False)
+
+private class SSLBypassDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if let serverTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
 }
 
 // MARK: - 服务
@@ -76,6 +81,8 @@ class DailyBattleService: ObservableObject {
     ]
 
     private(set) var currentHost: String = ""
+    /// probeHost() 是否已完成，用于控制加载时机
+    @Published var isReady = false
 
     /// 从平台配置创建服务实例
     static func from(platform: YBoxPlatform2) -> DailyBattleService {
@@ -85,9 +92,16 @@ class DailyBattleService: ObservableObject {
         return shared
     }
 
+    private let sslDelegate = SSLBypassDelegate()
+    private let session: URLSession
+
     init(config: DailyBattleSiteConfig) {
         self.config = config
         currentHost = config.hosts[0]
+        let sessionConfig = URLSessionConfiguration.default
+        sessionConfig.timeoutIntervalForRequest = 15
+        sessionConfig.timeoutIntervalForResource = 30
+        self.session = URLSession(configuration: sessionConfig, delegate: sslDelegate, delegateQueue: nil)
     }
 
     // MARK: - 站点存活探测
@@ -97,14 +111,21 @@ class DailyBattleService: ObservableObject {
             do {
                 let (_, response) = try await session.data(for: request(url: host))
                 if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                    currentHost = host
-                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(host)")
-                    return host
+                    // 跟随重定向后的最终 URL (对应 Python response.url.rstrip('/'))
+                    var finalURL = httpResp.url?.absoluteString ?? host
+                    if finalURL.hasSuffix("/") {
+                        finalURL = String(finalURL.dropLast())
+                    }
+                    currentHost = finalURL
+                    isReady = true
+                    print("[DailyBattle:\(config.name)] ✅ 使用站点: \(finalURL)")
+                    return finalURL
                 }
             } catch {
                 print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")
             }
         }
+        isReady = true
         return currentHost
     }
 
@@ -120,7 +141,11 @@ class DailyBattleService: ObservableObject {
             let skipNames = Set(["首页", "更多", "官方QQ群", "商务合作", "求瓜投稿", "往期内容",
                                  "吃瓜电报群", "官方推特", "常见问题", "世界杯直播", "吃瓜首页",
                                  "吃瓜QQ群", "回家的路", "51AV"])
-            let navSelectors = [".mobile-nav-categories a", "nav a", ".nav-categories a"]
+            // 对应 Python 脚本中的 category_selectors
+            let navSelectors = [
+                ".category-list ul li a", ".nav-menu li a", ".menu li a", "nav ul li a",
+                ".mobile-nav-categories a", "nav a", ".nav-categories a"
+            ]
             for sel in navSelectors {
                 let items = Array(doc.css(sel))
                 if !items.isEmpty {
@@ -168,7 +193,9 @@ class DailyBattleService: ObservableObject {
             let fullURL = buildCategoryURL(base: url, page: page)
             let html = try await fetchHTML(url: fullURL)
             guard let doc = try? HTML(html: html, encoding: .utf8) else { return [] }
-            let articles = doc.css("#archive article, #index article, article")
+            // 使用 XPath 替代逗号分隔的 CSS 选择器（Kanna 对逗号支持可能不完整）
+            // 对应 Python: data('#archive article, #index article, article')
+            let articles = doc.xpath("//div[@id='archive']//article | //div[@id='index']//article | //article")
             let isFolder = url.contains("/mrdg")
             return parseVideos(articles, tag: isFolder ? "folder" : "")
         } catch {
@@ -309,13 +336,6 @@ class DailyBattleService: ObservableObject {
 
     // MARK: - 私有工具
 
-    private var session: URLSession {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
-        return URLSession(configuration: config)
-    }
-
     private func request(url: String) -> URLRequest {
         var req = URLRequest(url: URL(string: url)!)
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
@@ -380,20 +400,27 @@ class DailyBattleService: ObservableObject {
         return videos
     }
 
-    /// 图片代理：绕过被墙域名
+    /// 图片 URL（去除 ybox.vip 代理, 直接返回原始 URL）
+    /// 每日大乱斗/大赛封面图 AES 加密, 由 PlatformAsyncImage(.dailyBattle) 解密
+    /// 对应 Python 脚本 _proc_url(): 本地代理解密, 非 ybox.vip 外部代理
     func proxyImageURL(_ url: String) -> String {
-        guard !url.isEmpty, !url.hasPrefix("data:") else { return url }
-        // ybox.vip 图片代理
-        return "https://ybox.vip/image?url=\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)"
+        // 不再使用 ybox.vip 代理, 直接返回原始 URL
+        // 封面图 AES 解密由 PlatformImageLoader / PlatformAsyncImage 处理
+        return url
     }
 
     /// 从 article 元素提取封面图片 URL
+    /// 对应 Python getimg(text, elem, html_content) 方法
     private func extractCover(from article: XMLElement) -> String {
+        // 优先从 script 标签文本提取（对应 Python 第一参数 k('script').text()）
+        let scriptText = article.css("script").first?.text ?? ""
         let rawHTML = article.toHTML ?? ""
         var raw: String? = nil
 
-        // 1. loadBannerDirect('...')
-        if let m = firstMatch(pattern: #"loadBannerDirect\('([^']+)'"#, in: rawHTML) {
+        // 1. loadBannerDirect('...') — 优先从 script 文本匹配，再回退到完整 HTML
+        if let m = firstMatch(pattern: #"loadBannerDirect\('([^']+)'"#, in: scriptText) {
+            raw = m
+        } else if let m = firstMatch(pattern: #"loadBannerDirect\('([^']+)'"#, in: rawHTML) {
             raw = m
         }
         // 2. data:image
@@ -414,7 +441,16 @@ class DailyBattleService: ObservableObject {
         }
 
         guard let cover = raw, !cover.isEmpty else { return "" }
-        return proxyImageURL(cover)
+        // 将相对 URL 转为绝对 URL (对应 Python _proc_url 中的相对路径处理)
+        var finalURL = cover
+        if !finalURL.hasPrefix("http") && !finalURL.hasPrefix("data:") {
+            if finalURL.hasPrefix("/") {
+                finalURL = "\(currentHost)\(finalURL)"
+            } else {
+                finalURL = "\(currentHost)/\(finalURL)"
+            }
+        }
+        return finalURL
     }
 
     private func firstMatch(pattern: String, in text: String, caseInsensitive: Bool = false) -> String? {

@@ -1,0 +1,109 @@
+import SwiftUI
+
+// MARK: - 平台封面图 SwiftUI 组件
+// 替换原生 AsyncImage, 支持:
+// - 神秘电影: UA/Referer 头注入 (对应 Python img_url @UA@Referer)
+// - 每日大乱斗/大赛: AES 解密 (对应 Python aesimg)
+// - 内存缓存 + 并发去重
+
+struct PlatformAsyncImage: View {
+    let urlString: String
+    let mode: PlatformImageMode
+    var contentMode: ContentMode = .fill
+
+    @State private var image: UIImage?
+    @State private var loadFailed = false
+    @State private var retryCount = 0
+
+    init(urlString: String, mode: PlatformImageMode, contentMode: ContentMode = .fill) {
+        self.urlString = urlString
+        self.mode = mode
+        self.contentMode = contentMode
+    }
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else if loadFailed {
+                // 加载失败: 灰色背景 + 图标
+                Rectangle()
+                    .fill(Color.gray.opacity(0.18))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(.white.opacity(0.4))
+                            .font(.system(size: 24))
+                    )
+                    .onTapGesture {
+                        if retryCount < 2 {
+                            retryCount += 1
+                            loadFailed = false
+                            loadImage()
+                        }
+                    }
+            } else {
+                // 加载中
+                Rectangle()
+                    .fill(Color.gray.opacity(0.1))
+                    .overlay(
+                        Image(systemName: "play.rectangle.fill")
+                            .foregroundColor(.white.opacity(0.3))
+                            .font(.system(size: 20))
+                    )
+            }
+        }
+        .onAppear { loadImage() }
+        .onChange(of: urlString) { _ in
+            image = nil
+            loadFailed = false
+            loadImage()
+        }
+    }
+
+    private func loadImage() {
+        guard !urlString.isEmpty, image == nil else { return }
+
+        // 先检查缓存
+        let cacheKey = PlatformImageLoader.makeCacheKey(urlString, mode: mode)
+        if let cached = PlatformImageCache.shared.get(cacheKey) {
+            image = cached
+            return
+        }
+
+        Task {
+            let loaded = await PlatformImageLoader.shared.loadImage(urlString: urlString, mode: mode)
+            await MainActor.run {
+                if let loaded = loaded {
+                    image = loaded
+                } else {
+                    loadFailed = true
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 便捷构造器
+
+extension PlatformAsyncImage {
+    /// 神秘电影封面图 (带 UA/Referer 头)
+    static func mysteryMovie(_ urlString: String) -> PlatformAsyncImage {
+        PlatformAsyncImage(urlString: urlString, mode: .mysteryMovie)
+    }
+
+    /// 每日大乱斗/大赛封面图 (AES 解密)
+    static func dailyBattle(_ urlString: String) -> PlatformAsyncImage {
+        PlatformAsyncImage(urlString: urlString, mode: .dailyBattle)
+    }
+}
+
+// MARK: - PlatformImageLoader 缓存键扩展
+
+extension PlatformImageLoader {
+    static func makeCacheKey(_ urlString: String, mode: PlatformImageMode) -> String {
+        let (cleanURL, _) = PlatformImageLoader.parseHeaderSuffix(urlString)
+        return "\(cleanURL)#\(mode)"
+    }
+}

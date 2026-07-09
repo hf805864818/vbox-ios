@@ -128,9 +128,10 @@ struct MysteryMovieHomeTab: View {
                                     cover: video.cover, svc: svc
                                 )) {
                                     DailyBattleVideoCard(
-                                        cover: svc.proxyImageURL(video.cover),
+                                        cover: video.cover,
                                         title: video.title,
-                                        remarks: video.remarks
+                                        remarks: video.remarks,
+                                        imageMode: .mysteryMovie
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -244,9 +245,10 @@ struct MysteryMovieSearchTab: View {
                                 cover: video.cover, svc: svc
                             )) {
                                 DailyBattleVideoCard(
-                                    cover: svc.proxyImageURL(video.cover),
+                                    cover: video.cover,
                                     title: video.title,
-                                    remarks: video.remarks
+                                    remarks: video.remarks,
+                                    imageMode: .mysteryMovie
                                 )
                             }
                             .buttonStyle(.plain)
@@ -309,15 +311,9 @@ struct MysteryMoviePlayerView: View {
     // MARK: - 封面
     @ViewBuilder private var coverSection: some View {
         ZStack {
-            AsyncImage(url: URL(string: svc.proxyImageURL(cover))) { phase in
-                if let img = phase.image {
-                    img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                } else {
-                    Rectangle().fill(Color.gray.opacity(0.2))
-                        .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            PlatformAsyncImage(urlString: cover, mode: .mysteryMovie, contentMode: .fit)
+                .cornerRadius(12)
+                .frame(maxWidth: .infinity)
 
             if isLoading {
                 ProgressView().scaleEffect(2).tint(.white)
