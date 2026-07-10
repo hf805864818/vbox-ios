@@ -159,6 +159,8 @@ struct WelfareHomeView: View {
             return AnyView(XCPHomeView(platform: platform))
         } else if platform.name == "One平台" {
             return AnyView(OnePlatformHomeView(platform: platform))
+        } else if platform.name == "麻豆平台" {
+            return AnyView(MDTVHomeView(platform: platform))
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -173,7 +175,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" }
     }
 
     // MARK: - 颜色工具
