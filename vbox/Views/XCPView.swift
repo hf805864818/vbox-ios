@@ -123,30 +123,29 @@ struct XCPDetailView: View {
     @State private var selectedSourceIdx = 0
     @State private var selectedEpIdx = 0
     @State private var isLoading = true
-    @State private var playURL: String? = nil
-    @State private var player = AVPlayer()
-    @State private var isPlaying = false
+    @State private var vodItem: VodItem?
+    @State private var showPlayer = false
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                if let url = playURL, isPlaying {
-                    VideoPlayer(player: player)
-                        .onAppear { player.play() }
-                } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .aspectRatio(16/9, contentMode: .fit)
-                        .overlay {
-                            if isLoading {
-                                ProgressView().tint(.white)
-                            } else {
+                Rectangle()
+                    .fill(Color.black)
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .overlay {
+                        if isLoading {
+                            ProgressView().tint(.white)
+                        } else if vodItem == nil {
+                            VStack(spacing: 12) {
                                 Image(systemName: "play.slash")
                                     .font(.system(size: 36))
                                     .foregroundColor(.white.opacity(0.5))
+                                Text("点击剧集播放")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.5))
                             }
                         }
-                }
+                    }
             }
             .background(Color.black)
 
@@ -155,12 +154,15 @@ struct XCPDetailView: View {
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 播放源选择
             if playSources.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(playSources.enumerated()), id: \.offset) { idx, source in
-                            Button(action: { selectedSourceIdx = idx; selectedEpIdx = 0; playEpisode() }) {
+                            Button(action: {
+                                selectedSourceIdx = idx
+                                selectedEpIdx = 0
+                                buildVodItem()
+                            }) {
                                 Text(source.name)
                                     .font(.system(size: 13))
                                     .foregroundColor(selectedSourceIdx == idx ? .white : .primary)
@@ -176,7 +178,6 @@ struct XCPDetailView: View {
                 .padding(.top, 4)
             }
 
-            // 剧集
             if !playSources.isEmpty {
                 let episodes = playSources[selectedSourceIdx].episodes
                 Text("选集")
@@ -187,7 +188,10 @@ struct XCPDetailView: View {
                 ScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
                         ForEach(Array(episodes.enumerated()), id: \.offset) { idx, ep in
-                            Button(action: { selectedEpIdx = idx; playEpisode() }) {
+                            Button(action: {
+                                selectedEpIdx = idx
+                                buildVodItem()
+                            }) {
                                 Text(ep.name)
                                     .font(.system(size: 13))
                                     .foregroundColor(selectedEpIdx == idx ? .white : .primary)
@@ -203,49 +207,51 @@ struct XCPDetailView: View {
                 }
                 .frame(maxHeight: 300)
             }
+
+            Spacer().frame(height: 80)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { if playSources.isEmpty { loadDetail() } }
-        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
+        .onAppear {
+            if playSources.isEmpty { loadDetail() }
+        }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let vod = vodItem { VideoDetailView(video: vod) }
+        }
     }
 
     private func loadDetail() {
         isLoading = true
         Task {
-            let result = await svc.fetchDetail(vodId: vodId)
+            let (t, c, sources) = await svc.fetchDetail(vodId: vodId)
             await MainActor.run {
-                title = result.title; cover = result.cover
-                playSources = result.sources; isLoading = false
-                if !result.sources.isEmpty { playEpisode() }
+                title = t; cover = c
+                playSources = sources
+                isLoading = false
             }
         }
     }
 
-    private func playEpisode() {
+    private func buildVodItem() {
         guard !playSources.isEmpty else { return }
         let episode = playSources[selectedSourceIdx].episodes[selectedEpIdx]
-        isLoading = true; isPlaying = false; playURL = nil
-
+        isLoading = true
+        vodItem = nil
         Task {
             let url = await svc.fetchPlayURL(playPageURL: episode.playURL)
             await MainActor.run {
                 isLoading = false
                 guard let urlStr = url else { return }
-
-                // 通过本地代理注入 Referer
-                let headers = ["Referer": svc.currentHost]
-                if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
-                    for: urlStr, headers: headers, provider: "xcp") {
-                    playURL = localURL.absoluteString
-                    player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
-                    isPlaying = true
-                } else if let url = URL(string: urlStr) {
-                    playURL = urlStr
-                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                    isPlaying = true
-                }
+                let headers: [String: String] = ["Referer": svc.currentHost]
+                vodItem = VodItem(
+                    vodId: vodId,
+                    vodName: title,
+                    vodPic: cover,
+                    vodRemarks: "[福利]香肠派对",
+                    vodPlayUrl: urlStr,
+                    customHeaders: headers
+                )
             }
         }
     }
-}
+}}

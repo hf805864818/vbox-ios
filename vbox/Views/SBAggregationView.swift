@@ -282,7 +282,14 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         </html>
         """
 
-        webView.loadHTMLString(html, baseURL: URL(string: "http://api.hclyz.com"))
+                let refererHost: String = {
+            if let u = URL(string: url), let host = u.host {
+                let scheme = u.scheme ?? "https"
+                return "\(scheme)://\(host)/"
+            }
+            return "http://api.hclyz.com/"
+        }()
+        webView.loadHTMLString(html, baseURL: URL(string: refererHost))
         context.coordinator.flvURL = url
         return webView
     }
