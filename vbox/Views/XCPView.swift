@@ -144,6 +144,12 @@ struct XCPDetailView: View {
                                     .font(.system(size: 13))
                                     .foregroundColor(.white.opacity(0.5))
                             }
+                        } else {
+                            Button(action: { showPlayer = true }) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 60))
+                                    .foregroundColor(.white.opacity(0.9))
+                            }
                         }
                     }
             }
