@@ -2831,8 +2831,9 @@ class PlayerState: ObservableObject {
             let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
             if videoExts.contains(ext) { return true }
             if cleanPath.contains("/hls/") || cleanPath.contains("/video/") { return true }
-            // 兜底：已知是 http(s) 直链但无标准后缀时，也尝试直接播放
-            if urlString.hasPrefix("http://") || urlString.hasPrefix("https://") {
+            // 兜底：只有福利平台（vodRemarks 含 [福利]）且是 http(s) 直链但无标准后缀时，才尝试直接播放
+            if (video.vodRemarks?.contains("[福利]") == true) &&
+               (urlString.hasPrefix("http://") || urlString.hasPrefix("https://")) {
                 return true
             }
             return false

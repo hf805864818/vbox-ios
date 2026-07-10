@@ -204,12 +204,6 @@ struct SihuVideoDetailView: View {
                                     .font(.system(size: 60))
                                     .foregroundColor(.white.opacity(0.9))
                             }
-                        } else {
-                            Button(action: { showPlayer = true }) {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 60))
-                                    .foregroundColor(.white.opacity(0.9))
-                            }
                         }
                     }
             }
