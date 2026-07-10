@@ -146,10 +146,11 @@ jobs:
 
           # 从 CHANGELOG.md 提取最新日期的更新内容
           if [ -f CHANGELOG.md ]; then
-            LATEST_DATE=$(grep -m1 "^## " CHANGELOG.md | sed 's/^## //')
-            NOTES=$(awk '/^## /{if(NR>1)exit} NR>1{print}' CHANGELOG.md)
-            if [ -n "$NOTES" ] && [ -n "$LATEST_DATE" ]; then
-              NOTES="## ${LATEST_DATE}\n${NOTES}"
+            # 提取第一个 ## 标题到下一个 ## 之间的内容
+            NOTES=$(awk 'BEGIN{in_section=0} /^## /{if(in_section){exit} in_section=1; print; next} in_section{print}' CHANGELOG.md)
+            if [ -z "$NOTES" ]; then
+              # 兼容：如果只有标题没有内容，至少提取标题
+              NOTES=$(grep -m1 "^## " CHANGELOG.md)
             fi
           fi
 

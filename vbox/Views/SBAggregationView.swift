@@ -221,7 +221,7 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
         (function loadFlvJs() {
             var s = document.createElement('script');
             s.src = flvjsCDNs[cdnIdx];
-            s.onload = function() { flvjsReady = true; console.log('flv.js loaded from CDN ' + cdnIdx); };
+            s.onload = function() { flvjsReady = true; console.log('flv.js loaded from CDN ' + cdnIdx); if (typeof initialFlvUrl !== 'undefined') { loadFlv(initialFlvUrl); } };
             s.onerror = function() {
                 cdnIdx++;
                 if (cdnIdx < flvjsCDNs.length) {
@@ -233,6 +233,7 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
             };
             document.head.appendChild(s);
         })();
+        var initialFlvUrl = "\(url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "").replacingOccurrences(of: "\r", with: ""))";
         var currentPlayer = null;
         var retryCount = 0;
         function loadFlv(url) {
@@ -295,14 +296,19 @@ struct SBAggregationWebPlayer: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        if context.coordinator.flvURL != url {
+        // 转义 URL 中的特殊字符，防止 JS 注入
+        let escaped = url.replacingOccurrences(of: "\\", with: "\\\\")
+                       .replacingOccurrences(of: "'", with: "\\'")
+                       .replacingOccurrences(of: "\n", with: "")
+                       .replacingOccurrences(of: "\r", with: "")
+        let js = "loadFlv('\(escaped)');"
+        if context.coordinator.flvURL.isEmpty {
+            // 首次出现，强制调用
             context.coordinator.flvURL = url
-            // 转义 URL 中的特殊字符，防止 JS 注入
-            let escaped = url.replacingOccurrences(of: "\\", with: "\\\\")
-                           .replacingOccurrences(of: "'", with: "\\'")
-                           .replacingOccurrences(of: "\n", with: "")
-                           .replacingOccurrences(of: "\r", with: "")
-            let js = "loadFlv('\(escaped)');"
+            webView.evaluateJavaScript(js)
+        } else if context.coordinator.flvURL != url {
+            // URL 变化
+            context.coordinator.flvURL = url
             webView.evaluateJavaScript(js)
         }
     }

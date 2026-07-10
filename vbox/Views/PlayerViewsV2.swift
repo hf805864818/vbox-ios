@@ -2830,7 +2830,12 @@ class PlayerState: ObservableObject {
             let ext = (cleanPath as NSString).pathExtension.lowercased()
             let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
             if videoExts.contains(ext) { return true }
-            return cleanPath.contains("/hls/") || cleanPath.contains("/video/")
+            if cleanPath.contains("/hls/") || cleanPath.contains("/video/") { return true }
+            // 兜底：已知是 http(s) 直链但无标准后缀时，也尝试直接播放
+            if urlString.hasPrefix("http://") || urlString.hasPrefix("https://") {
+                return true
+            }
+            return false
         }()
 
         if isDirectLink {
