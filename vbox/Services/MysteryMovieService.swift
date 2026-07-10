@@ -467,7 +467,7 @@ class MysteryMovieService: ObservableObject {
            let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
            let range = Range(match.range(at: 1), in: html) {
             let scriptContent = String(html[range])
-            let m3u8InScript = "https?://[^"'\\s]*\\.m3u8[^"'\\s]*"
+            let m3u8InScript = ##"https?://[^"'\s]*\.m3u8[^"'\s]*"##
             if let r2 = try? NSRegularExpression(pattern: m3u8InScript, options: []),
                let m2 = r2.firstMatch(in: scriptContent, range: NSRange(location: 0, length: scriptContent.utf16.count)),
                let ur = Range(m2.range, in: scriptContent) {
