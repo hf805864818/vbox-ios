@@ -279,6 +279,22 @@ class XCPService: ObservableObject {
                 return m3u8
             }
 
+            // 方法5：从 script 标签中暴力提取 m3u8/mp4
+            let scriptPattern = "<script[^>]*>([\\s\\S]*?)</script>"
+            if let regex = try? NSRegularExpression(pattern: scriptPattern, options: [.dotMatchesLineSeparators]),
+               let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+               let range = Range(match.range(at: 1), in: html) {
+                let scriptContent = String(html[range])
+                let m3u8InScript = "https?://[^\"'\\s]*\\.m3u8[^\"'\\s]*"
+                if let r2 = try? NSRegularExpression(pattern: m3u8InScript, options: []),
+                   let m2 = r2.firstMatch(in: scriptContent, range: NSRange(location: 0, length: scriptContent.utf16.count)),
+                   let ur = Range(m2.range, in: scriptContent) {
+                    let url = String(scriptContent[ur])
+                    print("[XCP] fetchPlayURL from script: \(url.prefix(80))...")
+                    return url
+                }
+            }
+
             print("[XCP] fetchPlayURL: 未找到播放地址")
             return nil
         } catch {

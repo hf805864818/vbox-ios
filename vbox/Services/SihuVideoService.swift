@@ -275,6 +275,32 @@ class SihuVideoService: ObservableObject {
                 return await fetchPlayURL(playPath: iframeSrc)
             }
 
+            // 方法4：暴力查找所有 m3u8/mp4 URL
+            let m3u8Pattern = "https?://[^\"'\\s]+\\.(?:m3u8|mp4)[^\"'\\s]*"
+            if let regex = try? NSRegularExpression(pattern: m3u8Pattern, options: []),
+               let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+               let range = Range(match.range, in: html) {
+                let url = String(html[range])
+                print("[SihuVideo] fetchPlayURL brute force: \(url.prefix(80))...")
+                return url
+            }
+
+            // 方法5：从 script 标签中提取 m3u8
+            let scriptPattern = "<script[^>]*>([\\s\\S]*?)</script>"
+            if let regex = try? NSRegularExpression(pattern: scriptPattern, options: [.dotMatchesLineSeparators]),
+               let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+               let range = Range(match.range(at: 1), in: html) {
+                let scriptContent = String(html[range])
+                let m3u8InScript = "https?://[^\"'\\s]*\\.m3u8[^\"'\\s]*"
+                if let r2 = try? NSRegularExpression(pattern: m3u8InScript, options: []),
+                   let m2 = r2.firstMatch(in: scriptContent, range: NSRange(location: 0, length: scriptContent.utf16.count)),
+                   let ur = Range(m2.range, in: scriptContent) {
+                    let url = String(scriptContent[ur])
+                    print("[SihuVideo] fetchPlayURL from script: \(url.prefix(80))...")
+                    return url
+                }
+            }
+
             print("[SihuVideo] fetchPlayURL: 所有方法均未找到播放地址")
             return nil
         } catch {
