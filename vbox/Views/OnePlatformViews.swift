@@ -799,7 +799,6 @@ struct OneSettingsView: View {
     @StateObject private var svc = OnePlatformService.shared
     @State private var tokenInput: String = ""
     @State private var userKeyInput: String = ""
-    @State private var uuidInput: String = ""
     @State private var showSaved = false
 
     var body: some View {
@@ -811,13 +810,27 @@ struct OneSettingsView: View {
                 TextField("user-key", text: $userKeyInput)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
-                TextField("设备 UUID", text: $uuidInput)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
             } header: {
                 Text("认证信息")
             } footer: {
-                Text("从 ybox 中提取 One 平台的 token、user-key 和 uuid。\n提取方法：\n1. 使用 Thor / HTTP Catcher 抓包\n2. 或使用 FLEX++ Hook NSUserDefaults")
+                Text("从 ybox 中提取 One 平台的 token 和 user-key。\n提取方法：\n1. 使用 Thor / HTTP Catcher 抓包\n2. 或使用 FLEX++ Hook NSUserDefaults")
+            }
+
+            Section {
+                HStack {
+                    Text("设备 UUID")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(svc.uuid)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            } header: {
+                Text("设备信息（自动生成）")
+            } footer: {
+                Text("UUID 首次启动自动生成并永久保存，无需手动填写")
             }
 
             Section {
@@ -885,7 +898,6 @@ struct OneSettingsView: View {
         .onAppear {
             tokenInput = svc.token
             userKeyInput = svc.userKey
-            uuidInput = svc.uuid
         }
         .alert("保存成功", isPresented: $showSaved) {
             Button("确定", role: .cancel) { }
@@ -895,7 +907,7 @@ struct OneSettingsView: View {
     }
 
     private func save() {
-        svc.saveToken(tokenInput, userKey: userKeyInput, uuid: uuidInput)
+        svc.saveToken(tokenInput, userKey: userKeyInput, uuid: svc.uuid)
         showSaved = true
     }
 }

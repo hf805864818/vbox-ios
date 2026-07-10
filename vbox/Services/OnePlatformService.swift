@@ -126,9 +126,9 @@ class OnePlatformService: ObservableObject {
     //
     // 你可以在 vbox 设置中手动配置，也可以直接硬编码测试
 
-    @Published var token: String = ""          // JWT Token
-    @Published var userKey: String = ""        // user-key
-    @Published var uuid: String = ""           // 设备 UUID
+    @Published var token: String = ""          // JWT Token (需登录获取)
+    @Published var userKey: String = ""        // user-key (需登录获取)
+    @Published var uuid: String = ""           // 设备 UUID (自动生成)
     @Published var platform: String = "2"      // 平台：1=Android, 2=iOS
     @Published var appVersion: String = "5.2.0"
 
@@ -138,7 +138,7 @@ class OnePlatformService: ObservableObject {
     private let aesIVHex  = "0a010b05040f070917030106080c0d5b"  // 固定 IV
 
     init() {
-        // 尝试从 UserDefaults 读取已保存的 token
+        // 读取已保存的 token
         if let savedToken = UserDefaults.standard.string(forKey: "one_platform_token"),
            !savedToken.isEmpty {
             self.token = savedToken
@@ -147,9 +147,14 @@ class OnePlatformService: ObservableObject {
            !savedUserKey.isEmpty {
             self.userKey = savedUserKey
         }
+        // UUID 自动生成并持久化
         if let savedUUID = UserDefaults.standard.string(forKey: "one_platform_uuid"),
            !savedUUID.isEmpty {
             self.uuid = savedUUID
+        } else {
+            let newUUID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            self.uuid = newUUID
+            UserDefaults.standard.set(newUUID, forKey: "one_platform_uuid")
         }
     }
 
