@@ -110,7 +110,7 @@ class OnePlatformService: ObservableObject {
 
     /// API 基础域名（可通过 WelfareDomainStore 自定义）
     var baseURL: String {
-        WelfareDomainStore.shared.oneDomain ?? "https://api.em1oifd0.com"
+        WelfareDomainStore.shared.domains(for: "One平台").first ?? "https://api.em1oifd0.com"
     }
 
     /// 图片 CDN 域名
