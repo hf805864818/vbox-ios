@@ -129,13 +129,39 @@ class OnePlatformService: ObservableObject {
     @Published var appVersion: String = "5.2.0"
     @Published var isRegistered: Bool = false  // 是否已完成设备注册
 
-    // MARK: - AES 密钥（已确认 ✓）
-    // 通过 FLEX++ CCCrypt Hook 提取，已双向验证通过
-    private let aesKeyHex = "30663438613465373765346138346630"  // "0f48a4e77e4a84f0" 的 hex
-    private let aesIVHex  = "0a010b05040f070917030106080c0d5b"  // 固定 IV
+    // MARK: - AES 密钥（多组候选，按优先级尝试）
+    // 候选1: 从阅姝阁 App 二进制中提取的 6d89c6d11f1a00dcfa5451fc6712a5532 (OneService 附近找到)
+    // 候选2: 从 FLEX++ CCCrypt Hook 提取的旧版 key (0f48a4e77e4a84f0 的 hex)
+    private let aesKeyCandidates: [String] = [
+        "6d89c6d11f1a00dcfa5451fc6712a5532",  // 阅姝阁 App 提取 (16字节 hex)
+        "30663438613465373765346138346630",  // FLEX 旧版 key: "0f48a4e77e4a84f0" 的 hex
+    ]
 
-    // 注册时使用的初始 userKey（用于生成注册请求的 sign）
-    private let initialUserKey = "0f48a4e77e4a84f0"
+    private let aesIVCandidates: [String] = [
+        "0a010b05040f070917030106080c0d5b",  // 固定 IV (FLEX 提取)
+        "00000000000000000000000000000000",  // 零 IV
+        "6d89c6d11f1a00dcfa5451fc6712a5532",  // 和 key 相同
+    ]
+
+    // 当前使用的 key/iv 索引
+    private var currentKeyIndex = 0
+    private var currentIVIndex = 0
+
+    /// 当前使用的 AES key
+    private var aesKeyHex: String { aesKeyCandidates[currentKeyIndex] }
+
+    /// 当前使用的 AES IV
+    private var aesIVHex: String { aesIVCandidates[currentIVIndex] }
+
+    // 注册时使用的初始 userKey 候选（用于生成注册请求的 sign）
+    private let initialUserKeyCandidates: [String] = [
+        "6d89c6d11f1a00dc",  // 新 key 的前 16 位
+        "6d89c6d11f1a00dcfa5451fc6712a5532",  // 新 key 完整 32 位
+        "0f48a4e77e4a84f0",  // 旧版 key
+    ]
+
+    /// 当前初始 userKey
+    private var initialUserKey: String { initialUserKeyCandidates[0] }
 
     init() {
         // 读取已保存的 token
@@ -156,6 +182,18 @@ class OnePlatformService: ObservableObject {
             let newUUID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
             self.uuid = newUUID
             UserDefaults.standard.set(newUUID, forKey: "one_platform_uuid")
+        }
+    }
+
+    /// 在 init 完成后加载保存的密钥索引
+    func loadSavedKeyIndex() {
+        let savedKeyIdx = UserDefaults.standard.integer(forKey: "one_platform_key_idx")
+        if savedKeyIdx >= 0 && savedKeyIdx < aesKeyCandidates.count {
+            self.currentKeyIndex = savedKeyIdx
+        }
+        let savedIvIdx = UserDefaults.standard.integer(forKey: "one_platform_iv_idx")
+        if savedIvIdx >= 0 && savedIvIdx < aesIVCandidates.count {
+            self.currentIVIndex = savedIvIdx
         }
     }
 
@@ -347,17 +385,36 @@ class OnePlatformService: ObservableObject {
     }
 
     /// 解密响应数据（处理 gzip + base64 + AES）
+    /// 如果当前密钥失败，自动尝试所有候选密钥组合
     private func decryptResponse(_ responseString: String) -> String? {
         let trimmed = responseString.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 方式 1: 直接 Base64 → AES 解密
+        // 方式 1: 使用当前密钥直接 Base64 → AES 解密
         if let decrypted = decrypt(base64: trimmed) {
             return decrypted
         }
 
-        // 方式 2: 尝试先 gzip 解压再解密（如果响应是 gzip 压缩的）
-        // 由于 URLSession 默认会自动解压 gzip，这里可能不需要
-        // 但如果响应体是先加密再 gzip 的，需要特殊处理
+        // 方式 2: 尝试所有密钥组合
+        for keyIdx in 0..<aesKeyCandidates.count {
+            for ivIdx in 0..<aesIVCandidates.count {
+                if keyIdx == currentKeyIndex && ivIdx == currentIVIndex {
+                    continue  // 已经试过了
+                }
+                if let keyData = Data(hexString: aesKeyCandidates[keyIdx]),
+                   let ivData = Data(hexString: aesIVCandidates[ivIdx]),
+                   let data = Data(base64Encoded: trimmed),
+                   let decrypted = aesCBC(data: data, key: keyData, iv: ivData, operation: CCOperation(kCCDecrypt)),
+                   let result = String(data: decrypted, encoding: .utf8) {
+                    // 找到正确的密钥，保存下来
+                    currentKeyIndex = keyIdx
+                    currentIVIndex = ivIdx
+                    UserDefaults.standard.set(keyIdx, forKey: "one_platform_key_idx")
+                    UserDefaults.standard.set(ivIdx, forKey: "one_platform_iv_idx")
+                    print("[OnePlatform] 找到正确密钥! keyIdx=\(keyIdx), ivIdx=\(ivIdx)")
+                    return result
+                }
+            }
+        }
 
         return nil
     }
@@ -371,84 +428,125 @@ class OnePlatformService: ObservableObject {
     /// - Returns: 是否注册成功
     @discardableResult
     func registerDevice() async -> Bool {
-        // 尝试多种注册路径和参数组合
-        let attempts: [(path: String, params: [String: Any], customUserKey: String)] = [
-            // 路径 + device_id 参数 + 初始 key
-            ("/v2.5/user/device", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            ("/v2.5/app/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            ("/v2.5/user/register", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            ("/v2.5/index/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            // uuid 参数名变体
-            ("/v2.5/user/device", ["uuid": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            ("/v2.5/app/init", ["uuid": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
-            // 空 userKey 尝试
-            ("/v2.5/user/device", ["device_id": uuid, "platform": platform, "app_version": appVersion], ""),
-            ("/v2.5/app/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], ""),
-            // 更多可能的路径
-            ("/v2.5/user/login", ["device_id": uuid, "platform": platform], initialUserKey),
-            ("/v2.5/user/visitor", ["device_id": uuid, "platform": platform], initialUserKey),
-            ("/v2.5/index/config", ["device_id": uuid], initialUserKey),
-            ("/v2.5/app/config", ["device_id": uuid], initialUserKey),
-            // v1 版本路径
-            ("/v1/user/device", ["device_id": uuid], initialUserKey),
-            ("/v1/app/init", ["device_id": uuid], initialUserKey),
+        // 尝试多种注册路径、参数组合、密钥组合
+        // 参考阅姝阁 App 逆向分析结果
+
+        // 注册路径候选（按优先级排序）
+        let pathCandidates = [
+            // v1 版本路径（阅姝阁 App 中发现）
+            "/v1/register/token",
+            "/v1/user/device",
+            "/v1/app/init",
+            "/v1/user/info",
+            // v2.5 版本路径
+            "/v2.5/user/device",
+            "/v2.5/app/init",
+            "/v2.5/user/register",
+            "/v2.5/index/init",
+            "/v2.5/user/login",
+            "/v2.5/user/visitor",
+            "/v2.5/index/config",
+            "/v2.5/app/config",
+            // user/api 路径（阅姝阁 App 中发现）
+            "/user/api/register",
+            "/user/api/login",
         ]
 
-        for (index, attempt) in attempts.enumerated() {
-            do {
-                let json = try await request(
-                    path: attempt.path,
-                    parameters: attempt.params,
-                    customToken: "",
-                    customUserKey: attempt.customUserKey
-                )
+        // 参数组合
+        let paramCombinations: [[String: Any]] = [
+            ["device_id": uuid, "platform": platform, "app_version": appVersion],
+            ["uuid": uuid, "platform": platform, "app_version": appVersion],
+            ["device_id": uuid, "platform": platform],
+            ["uuid": uuid, "platform": platform],
+            ["device_id": uuid],
+            ["uuid": uuid],
+        ]
 
-                // 尝试从响应中提取 token 和 user-key
-                if let data = json["data"] as? [String: Any] {
-                    let token = (data["token"] as? String) ?? (data["access_token"] as? String) ?? ""
-                    let userKey = (data["user_key"] as? String) ?? (data["userkey"] as? String) ?? ""
-
-                    if !token.isEmpty {
-                        await MainActor.run {
-                            self.token = token
-                            if !userKey.isEmpty {
-                                self.userKey = userKey
-                            }
-                            self.isRegistered = true
-                            UserDefaults.standard.set(token, forKey: "one_platform_token")
-                            if !userKey.isEmpty {
-                                UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
-                            }
-                        }
-                        print("[OnePlatform] 注册成功! path=\(attempt.path), 第\(index+1)次尝试")
-                        return true
-                    }
+        // 密钥组合索引 (keyIndex, ivIndex, userKeyIndex)
+        var keyCombos: [(keyIdx: Int, ivIdx: Int, userKeyIdx: Int)] = []
+        for ki in 0..<aesKeyCandidates.count {
+            for ii in 0..<aesIVCandidates.count {
+                for ui in 0..<initialUserKeyCandidates.count {
+                    keyCombos.append((ki, ii, ui))
                 }
-
-                // 也可能 token 在顶层
-                if let token = json["token"] as? String, !token.isEmpty {
-                    let userKey = (json["user_key"] as? String) ?? (json["userkey"] as? String) ?? ""
-                    await MainActor.run {
-                        self.token = token
-                        if !userKey.isEmpty {
-                            self.userKey = userKey
-                        }
-                        self.isRegistered = true
-                        UserDefaults.standard.set(token, forKey: "one_platform_token")
-                        if !userKey.isEmpty {
-                            UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
-                        }
-                    }
-                    print("[OnePlatform] 注册成功! path=\(attempt.path), token在顶层")
-                    return true
-                }
-            } catch {
-                print("[OnePlatform] 注册尝试\(index+1)失败: \(attempt.path) - \(error)")
-                continue
             }
         }
 
-        print("[OnePlatform] 所有注册路径都失败")
+        var attemptIndex = 0
+        for path in pathCandidates {
+            for params in paramCombinations {
+                for combo in keyCombos {
+                    attemptIndex += 1
+                    do {
+                        // 临时切换密钥
+                        currentKeyIndex = combo.keyIdx
+                        currentIVIndex = combo.ivIdx
+
+                        let userKey = initialUserKeyCandidates[combo.userKeyIdx]
+                        let json = try await request(
+                            path: path,
+                            parameters: params,
+                            customToken: "",
+                            customUserKey: userKey
+                        )
+
+                        // 尝试从响应中提取 token 和 user-key
+                        if let data = json["data"] as? [String: Any] {
+                            let token = (data["token"] as? String) ?? (data["access_token"] as? String) ?? ""
+                            let respUserKey = (data["user_key"] as? String) ?? (data["userkey"] as? String) ?? ""
+
+                            if !token.isEmpty {
+                                await MainActor.run {
+                                    self.token = token
+                                    if !respUserKey.isEmpty {
+                                        self.userKey = respUserKey
+                                    }
+                                    self.isRegistered = true
+                                    UserDefaults.standard.set(token, forKey: "one_platform_token")
+                                    if !respUserKey.isEmpty {
+                                        UserDefaults.standard.set(respUserKey, forKey: "one_platform_userkey")
+                                    }
+                                    // 保存当前使用的密钥索引
+                                    UserDefaults.standard.set(combo.keyIdx, forKey: "one_platform_key_idx")
+                                    UserDefaults.standard.set(combo.ivIdx, forKey: "one_platform_iv_idx")
+                                }
+                                print("[OnePlatform] 注册成功! path=\(path), 第\(attemptIndex)次尝试, keyIdx=\(combo.keyIdx), ivIdx=\(combo.ivIdx)")
+                                return true
+                            }
+                        }
+
+                        // 也可能 token 在顶层
+                        if let token = json["token"] as? String, !token.isEmpty {
+                            let respUserKey = (json["user_key"] as? String) ?? (json["userkey"] as? String) ?? ""
+                            await MainActor.run {
+                                self.token = token
+                                if !respUserKey.isEmpty {
+                                    self.userKey = respUserKey
+                                }
+                                self.isRegistered = true
+                                UserDefaults.standard.set(token, forKey: "one_platform_token")
+                                if !respUserKey.isEmpty {
+                                    UserDefaults.standard.set(respUserKey, forKey: "one_platform_userkey")
+                                }
+                                UserDefaults.standard.set(combo.keyIdx, forKey: "one_platform_key_idx")
+                                UserDefaults.standard.set(combo.ivIdx, forKey: "one_platform_iv_idx")
+                            }
+                            print("[OnePlatform] 注册成功! path=\(path), token在顶层")
+                            return true
+                        }
+                    } catch {
+                        // 继续下一个组合
+                        continue
+                    }
+                }
+            }
+        }
+
+        // 恢复默认密钥
+        currentKeyIndex = 0
+        currentIVIndex = 0
+
+        print("[OnePlatform] 所有注册路径都失败 (共尝试 \(attemptIndex) 种组合)")
         return false
     }
 
