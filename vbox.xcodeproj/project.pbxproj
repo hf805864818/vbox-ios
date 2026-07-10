@@ -125,7 +125,9 @@
 		A10152 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10152 /* TMDBService.swift */; };
 		A10153 /* MaShanZheng-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B10153 /* MaShanZheng-Regular.ttf */; };
 		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
-		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
+		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200
+		3EB97EDE10ABAC76C4B8444C /* OnePlatformService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0B1CC7DB2B9E997DDA0874 /* OnePlatformService.swift */; };
+		4B12393CB0C7D3118B5F0261 /* OnePlatformViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07014AC66BBA6E7502FAB526 /* OnePlatformViews.swift */; }; /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
@@ -290,7 +292,8 @@
 		807222ECDB74BD55495F6395 /* libz.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
 		822F991529A94E749D9BC1C5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		86829CD08A7449B682FF058E /* DailyBattleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleService.swift; sourceTree = "<group>"; };
-		8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareHomeView.swift; sourceTree = "<group>"; };
+		8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;
+		07014AC66BBA6E7502FAB526 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; }; path = WelfareHomeView.swift; sourceTree = "<group>"; };
 		8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
 		933905689FCEDA2327DA3D6A /* Libavformat.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavformat.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavformat.xcframework; sourceTree = SOURCE_ROOT; };
 		9353A6CB751B12B08CDC9742 /* Libass.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libass.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libass.xcframework; sourceTree = SOURCE_ROOT; };
@@ -357,7 +360,8 @@
 		B10154 /* DoubanChartService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanChartService.swift; sourceTree = "<group>"; };
 		B10155 /* MissAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVService.swift; sourceTree = "<group>"; };
 		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
-		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
+				CE0B1CC7DB2B9E997DDA0874 /* OnePlatformService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformService.swift; sourceTree = "<group>"; };
+B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
@@ -616,6 +620,7 @@
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
 				B10126 /* ShortDramaService.swift */,
 				B10200 /* YBoxService2.swift */,
+						CE0B1CC7DB2B9E997DDA0874 /* OnePlatformService.swift */,
 				86829CD08A7449B682FF058E /* DailyBattleService.swift */,
 				D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */,
 				B12031 /* KXSPAPIService.swift */,
@@ -654,6 +659,7 @@
 				B10142 /* LiveTVView.swift */,
 				822F991529A94E749D9BC1C5 /* ProfileView.swift */,
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
+						07014AC66BBA6E7502FAB526 /* OnePlatformViews.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -892,6 +898,8 @@
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
 				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
+						3EB97EDE10ABAC76C4B8444C /* OnePlatformService.swift in Sources */,
+						4B12393CB0C7D3118B5F0261 /* OnePlatformViews.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
