@@ -560,8 +560,12 @@ class OnePlatformService: ObservableObject {
 
     /// 获取分类列表
     func fetchCategories() async -> [OneCategory] {
-        // 注意：实际接口路径需确认，以下为根据文档 A 的推测
-        // 也可能从 discovery 接口返回的数据中提取分类
+        // 确保已注册
+        guard await ensureRegistered() else {
+            print("[OnePlatform] fetchCategories: 未注册，返回默认分类")
+            return defaultCategories
+        }
+
         do {
             let json = try await request(path: "/v2.5/article/category")
             if let data = json["data"] as? [[String: Any]] {
@@ -600,6 +604,12 @@ class OnePlatformService: ObservableObject {
     ///   - categoryId: 分类 ID，"0" 为推荐
     ///   - page: 页码，从 1 开始
     func fetchVideos(categoryId: String, page: Int = 1) async -> (items: [OneVideoItem], hasMore: Bool) {
+        // 确保已注册
+        guard await ensureRegistered() else {
+            print("[OnePlatform] fetchVideos: 未注册")
+            return ([], false)
+        }
+
         let params: [String: Any] = [
             "page": page,
             "cateid": categoryId,
@@ -628,6 +638,7 @@ class OnePlatformService: ObservableObject {
 
     /// 每日推荐
     func fetchDailyRecommend() async -> [OneVideoItem] {
+        guard await ensureRegistered() else { return [] }
         do {
             let json = try await request(path: "/v2.5/article/day")
             if let data = json["data"] as? [[String: Any]] {
@@ -641,6 +652,7 @@ class OnePlatformService: ObservableObject {
 
     /// 获取视频详情
     func fetchVideoDetail(articleId: String) async -> OneVideoDetail? {
+        guard await ensureRegistered() else { return nil }
         do {
             let json = try await request(path: "/v2.5/article/detail", parameters: ["id": articleId])
             if let data = json["data"] as? [String: Any] {
@@ -654,6 +666,7 @@ class OnePlatformService: ObservableObject {
 
     /// 获取播放地址
     func fetchPlayURL(articleId: String) async -> String? {
+        guard await ensureRegistered() else { return nil }
         do {
             let json = try await request(path: "/v2.5/article/play", parameters: ["id": articleId])
             if let data = json["data"] as? [String: Any] {
@@ -669,6 +682,7 @@ class OnePlatformService: ObservableObject {
 
     /// 获取专辑列表
     func fetchAlbums(page: Int = 1) async -> [OneAlbum] {
+        guard await ensureRegistered() else { return [] }
         do {
             let json = try await request(path: "/v2.5/series/album/list", parameters: ["page": page, "pagesize": 20])
             if let data = json["data"] as? [String: Any],
@@ -683,6 +697,7 @@ class OnePlatformService: ObservableObject {
 
     /// 获取专辑章节
     func fetchChapters(albumId: String, page: Int = 1) async -> [OneChapter] {
+        guard await ensureRegistered() else { return [] }
         do {
             let json = try await request(path: "/v2.5/series/chapters", parameters: ["id": albumId, "page": page])
             if let data = json["data"] as? [[String: Any]] {
