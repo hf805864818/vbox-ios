@@ -1,0 +1,89 @@
+name: 自动更新日志
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '.version'
+      - 'vbox/Info.plist'
+
+jobs:
+  update-changelog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成更新日志
+        run: |
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+
+          # 如果今天已经有记录，跳过
+          if grep -q "^## $TODAY" CHANGELOG.md 2>/dev/null; then
+            echo "今日已有更新记录，跳过"
+            exit 0
+          fi
+
+          # 找到上次更新日期
+          LAST_DATE=$(grep -oP '^## \K\d{4}-\d{2}-\d{2}' CHANGELOG.md | head -1)
+          if [ -z "$LAST_DATE" ]; then
+            LAST_DATE="2026-01-01"
+          fi
+
+          # 获取新提交（排除 ci 自动提交和 changelog 提交）
+          COMMITS=$(git log --since="$LAST_DATE 00:00:00 +0800" --format="%ad|%s|%h" --date=short --no-merges \
+            | grep -v "ci: auto bump" \
+            | grep -v "docs: 自动更新" \
+            | grep -v "docs: 新增 CHANGELOG" \
+            | head -50)
+
+          if [ -z "$COMMITS" ]; then
+            echo "无新提交，跳过"
+            exit 0
+          fi
+
+          # 按日期分组
+          declare -A GROUPS
+          while IFS='|' read -r date msg hash; do
+            # 分类: feat → 新增, fix → 修复, 其他 → 其他
+            if echo "$msg" | grep -qi "^feat"; then
+              tag="新增"
+            elif echo "$msg" | grep -qi "^fix"; then
+              tag="修复"
+            elif echo "$msg" | grep -qi "^refactor\|^perf\|^style"; then
+              tag="优化"
+            else
+              tag="其他"
+            fi
+            GROUPS["$date"]+="  - **${tag}**: ${msg} (${hash})\n"
+          done <<< "$COMMITS"
+
+          # 按日期倒序生成内容
+          NEW_CONTENT=""
+          for date in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort -ur); do
+            NEW_CONTENT+="\n## $date\n\n${GROUPS[$date]}"
+          done
+
+          # 插入到 CHANGELOG.md 顶部（标题之后）
+          HEADER=$(head -6 CHANGELOG.md)
+          BODY=$(tail -n +7 CHANGELOG.md)
+          printf "%s\n%s\n%s" "$HEADER" "$NEW_CONTENT" "$BODY" > CHANGELOG.md
+
+          echo "更新完成"
+
+      - name: 提交推送
+        run: |
+          git config user.name "changelog-bot"
+          git config user.email "changelog-bot@vbox.local"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "无变更"
+            exit 0
+          fi
+          git commit -m "docs: 自动更新 CHANGELOG"
+          git push
