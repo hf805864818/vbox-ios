@@ -371,63 +371,85 @@ class OnePlatformService: ObservableObject {
     /// - Returns: 是否注册成功
     @discardableResult
     func registerDevice() async -> Bool {
-        do {
-            // 设备注册接口（推测路径，可能需要调整）
-            // 常见路径: /v2.5/user/device, /v2.5/app/init, /v2.5/user/register
-            let paths = [
-                "/v2.5/user/device",
-                "/v2.5/app/init",
-                "/v2.5/user/register",
-                "/v2.5/index/init",
-            ]
+        // 尝试多种注册路径和参数组合
+        let attempts: [(path: String, params: [String: Any], customUserKey: String)] = [
+            // 路径 + device_id 参数 + 初始 key
+            ("/v2.5/user/device", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            ("/v2.5/app/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            ("/v2.5/user/register", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            ("/v2.5/index/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            // uuid 参数名变体
+            ("/v2.5/user/device", ["uuid": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            ("/v2.5/app/init", ["uuid": uuid, "platform": platform, "app_version": appVersion], initialUserKey),
+            // 空 userKey 尝试
+            ("/v2.5/user/device", ["device_id": uuid, "platform": platform, "app_version": appVersion], ""),
+            ("/v2.5/app/init", ["device_id": uuid, "platform": platform, "app_version": appVersion], ""),
+            // 更多可能的路径
+            ("/v2.5/user/login", ["device_id": uuid, "platform": platform], initialUserKey),
+            ("/v2.5/user/visitor", ["device_id": uuid, "platform": platform], initialUserKey),
+            ("/v2.5/index/config", ["device_id": uuid], initialUserKey),
+            ("/v2.5/app/config", ["device_id": uuid], initialUserKey),
+            // v1 版本路径
+            ("/v1/user/device", ["device_id": uuid], initialUserKey),
+            ("/v1/app/init", ["device_id": uuid], initialUserKey),
+        ]
 
-            let params: [String: Any] = [
-                "device_id": uuid,
-                "platform": platform,
-                "app_version": appVersion,
-            ]
+        for (index, attempt) in attempts.enumerated() {
+            do {
+                let json = try await request(
+                    path: attempt.path,
+                    parameters: attempt.params,
+                    customToken: "",
+                    customUserKey: attempt.customUserKey
+                )
 
-            for path in paths {
-                do {
-                    let json = try await request(
-                        path: path,
-                        parameters: params,
-                        customToken: "",
-                        customUserKey: initialUserKey
-                    )
+                // 尝试从响应中提取 token 和 user-key
+                if let data = json["data"] as? [String: Any] {
+                    let token = (data["token"] as? String) ?? (data["access_token"] as? String) ?? ""
+                    let userKey = (data["user_key"] as? String) ?? (data["userkey"] as? String) ?? ""
 
-                    // 尝试从响应中提取 token 和 user-key
-                    if let data = json["data"] as? [String: Any] {
-                        let token = (data["token"] as? String) ?? (data["access_token"] as? String) ?? ""
-                        let userKey = (data["user_key"] as? String) ?? (data["userkey"] as? String) ?? ""
-
-                        if !token.isEmpty {
-                            await MainActor.run {
-                                self.token = token
-                                if !userKey.isEmpty {
-                                    self.userKey = userKey
-                                }
-                                self.isRegistered = true
-                                // 保存到本地
-                                UserDefaults.standard.set(token, forKey: "one_platform_token")
-                                if !userKey.isEmpty {
-                                    UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
-                                }
+                    if !token.isEmpty {
+                        await MainActor.run {
+                            self.token = token
+                            if !userKey.isEmpty {
+                                self.userKey = userKey
                             }
-                            print("[OnePlatform] 设备注册成功, path=\(path)")
-                            return true
+                            self.isRegistered = true
+                            UserDefaults.standard.set(token, forKey: "one_platform_token")
+                            if !userKey.isEmpty {
+                                UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
+                            }
+                        }
+                        print("[OnePlatform] 注册成功! path=\(attempt.path), 第\(index+1)次尝试")
+                        return true
+                    }
+                }
+
+                // 也可能 token 在顶层
+                if let token = json["token"] as? String, !token.isEmpty {
+                    let userKey = (json["user_key"] as? String) ?? (json["userkey"] as? String) ?? ""
+                    await MainActor.run {
+                        self.token = token
+                        if !userKey.isEmpty {
+                            self.userKey = userKey
+                        }
+                        self.isRegistered = true
+                        UserDefaults.standard.set(token, forKey: "one_platform_token")
+                        if !userKey.isEmpty {
+                            UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
                         }
                     }
-                } catch {
-                    // 这个路径不行，试下一个
-                    print("[OnePlatform] 注册路径 \(path) 失败: \(error)")
-                    continue
+                    print("[OnePlatform] 注册成功! path=\(attempt.path), token在顶层")
+                    return true
                 }
+            } catch {
+                print("[OnePlatform] 注册尝试\(index+1)失败: \(attempt.path) - \(error)")
+                continue
             }
-
-            print("[OnePlatform] 所有注册路径都失败")
-            return false
         }
+
+        print("[OnePlatform] 所有注册路径都失败")
+        return false
     }
 
     /// 确保已注册（如果没有 token 则自动注册）

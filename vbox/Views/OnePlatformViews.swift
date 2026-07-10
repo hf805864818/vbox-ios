@@ -24,8 +24,6 @@ struct OnePlatformHomeView: View {
     let platform: YBoxPlatform2
     @StateObject private var svc = OnePlatformService.shared
     @State private var selectedTab = 0
-    @State private var isRegistering = false
-    @State private var registerError: String?
     private let tabs = ["发现", "每日推荐", "专辑"]
 
     var body: some View {
@@ -54,49 +52,12 @@ struct OnePlatformHomeView: View {
 
             Divider()
 
-            if isRegistering {
-                // 注册中
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Text("正在初始化...")
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = registerError {
-                // 注册失败
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 40))
-                        .foregroundColor(.orange)
-                    Text("初始化失败")
-                        .font(.system(size: 16, weight: .medium))
-                    Text(error)
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button(action: {
-                        registerError = nil
-                        Task { await autoRegister() }
-                    }) {
-                        Text("重试")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 8)
-                            .background(Color.accentColor)
-                            .cornerRadius(8)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                TabView(selection: $selectedTab) {
-                    OneDiscoveryTab(platform: platform).tag(0)
-                    OneDailyTab(platform: platform).tag(1)
-                    OneAlbumTab(platform: platform).tag(2)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+            TabView(selection: $selectedTab) {
+                OneDiscoveryTab(platform: platform).tag(0)
+                OneDailyTab(platform: platform).tag(1)
+                OneAlbumTab(platform: platform).tag(2)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .navigationTitle("One 平台")
         .navigationBarTitleDisplayMode(.inline)
@@ -109,19 +70,9 @@ struct OnePlatformHomeView: View {
             }
         }
         .onAppear {
+            // 进入页面自动注册（后台进行，不阻塞界面）
             if !svc.isRegistered {
-                Task { await autoRegister() }
-            }
-        }
-    }
-
-    private func autoRegister() async {
-        await MainActor.run { isRegistering = true }
-        let success = await svc.ensureRegistered()
-        await MainActor.run {
-            isRegistering = false
-            if !success {
-                registerError = "无法自动获取访问凭证，请检查网络或在设置中手动配置 Token"
+                Task { await svc.registerDevice() }
             }
         }
     }
@@ -143,33 +94,7 @@ struct OneDiscoveryTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !svc.isConfigured {
-                // 未配置提示
-                VStack(spacing: 16) {
-                    Spacer()
-                    Image(systemName: "lock.trianglebadge.exclamationmark")
-                        .font(.system(size: 50))
-                        .foregroundColor(.orange)
-                    Text("需要配置 One 平台 Token")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("请点击右上角设置按钮，填入从 ybox 中提取的 token 和 user-key")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                    NavigationLink(destination: OneSettingsView()) {
-                        Text("去配置")
-                            .font(.system(size: 14, weight: .semibold))
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 10)
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                    }
-                    Spacer()
-                }
-                .padding(20)
-            } else if categories.isEmpty && isLoading {
+            if categories.isEmpty && isLoading {
                 Spacer()
                 ProgressView().scaleEffect(1.5)
                 Spacer()
