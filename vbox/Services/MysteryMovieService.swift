@@ -461,6 +461,32 @@ class MysteryMovieService: ObservableObject {
             return url
         }
 
+        // 方法4：从 script 标签中暴力提取 m3u8/mp4
+        let scriptPattern = "<script[^>]*>([\\s\\S]*?)</script>"
+        if let regex = try? NSRegularExpression(pattern: scriptPattern, options: [.dotMatchesLineSeparators]),
+           let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+           let range = Range(match.range(at: 1), in: html) {
+            let scriptContent = String(html[range])
+            let m3u8InScript = "https?://[^"'\\s]*\\.m3u8[^"'\\s]*"
+            if let r2 = try? NSRegularExpression(pattern: m3u8InScript, options: []),
+               let m2 = r2.firstMatch(in: scriptContent, range: NSRange(location: 0, length: scriptContent.utf16.count)),
+               let ur = Range(m2.range, in: scriptContent) {
+                let url = String(scriptContent[ur])
+                print("[MysteryMovie] ✅ 从 script 提取到 m3u8: \(url.prefix(80))...")
+                return url
+            }
+        }
+
+        // 方法5：查找所有 mp4 直链
+        let mp4Pattern = #"https?://[^"'\s]+\.mp4[^"'\s]*"#
+        if let regex = try? NSRegularExpression(pattern: mp4Pattern, options: []),
+           let match = regex.firstMatch(in: html, range: NSRange(location: 0, length: html.utf16.count)),
+           let range = Range(match.range, in: html) {
+            let url = String(html[range])
+            print("[MysteryMovie] ✅ 从页面提取到 mp4: \(url.prefix(80))...")
+            return url
+        }
+
         print("[MysteryMovie] ⚠️ 未从页面提取到 m3u8，使用硬编码回退")
         return ""
     }

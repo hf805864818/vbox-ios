@@ -113,6 +113,7 @@ struct XCPCategoryView: View {
 }
 
 // MARK: - 香肠派对详情页（播放器 + 剧集）
+// MARK: - 香肠派对详情页（香蕉秀模式：点击剧集 → 直接打开全屏播放器）
 
 struct XCPDetailView: View {
     let vodId: String
@@ -125,30 +126,36 @@ struct XCPDetailView: View {
     @State private var isLoading = true
     @State private var vodItem: VodItem?
     @State private var showPlayer = false
+    @State private var errorMsg: String?
 
     var body: some View {
         VStack(spacing: 0) {
+            // 封面 + 状态提示
             ZStack {
                 Rectangle()
                     .fill(Color.black)
                     .aspectRatio(16/9, contentMode: .fit)
                     .overlay {
                         if isLoading {
-                            ProgressView().tint(.white)
-                        } else if vodItem == nil {
+                            ProgressView().scaleEffect(2).tint(.white)
+                        } else if let e = errorMsg {
                             VStack(spacing: 12) {
                                 Image(systemName: "play.slash")
                                     .font(.system(size: 36))
                                     .foregroundColor(.white.opacity(0.5))
-                                Text("点击剧集播放")
+                                Text(e).font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 16)
+                            }
+                        } else if !playSources.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "play.rectangle")
+                                    .font(.system(size: 36))
+                                    .foregroundColor(.white.opacity(0.5))
+                                Text("点击下方剧集播放")
                                     .font(.system(size: 13))
                                     .foregroundColor(.white.opacity(0.5))
-                            }
-                        } else {
-                            Button(action: { showPlayer = true }) {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 60))
-                                    .foregroundColor(.white.opacity(0.9))
                             }
                         }
                     }
@@ -160,14 +167,13 @@ struct XCPDetailView: View {
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            // 播放源选择
             if playSources.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(playSources.enumerated()), id: \.offset) { idx, source in
                             Button(action: {
-                                selectedSourceIdx = idx
-                                selectedEpIdx = 0
-                                buildVodItem()
+                                selectedSourceIdx = idx; selectedEpIdx = 0
                             }) {
                                 Text(source.name)
                                     .font(.system(size: 13))
@@ -184,6 +190,7 @@ struct XCPDetailView: View {
                 .padding(.top, 4)
             }
 
+            // 剧集列表
             if !playSources.isEmpty {
                 let episodes = playSources[selectedSourceIdx].episodes
                 Text("选集")
@@ -196,7 +203,7 @@ struct XCPDetailView: View {
                         ForEach(Array(episodes.enumerated()), id: \.offset) { idx, ep in
                             Button(action: {
                                 selectedEpIdx = idx
-                                buildVodItem()
+                                playEpisode()
                             }) {
                                 Text(ep.name)
                                     .font(.system(size: 13))
@@ -238,16 +245,20 @@ struct XCPDetailView: View {
         }
     }
 
-    private func buildVodItem() {
+    /// 点击剧集 → 获取播放地址 → 直接打开全屏播放器（香蕉秀模式）
+    private func playEpisode() {
         guard !playSources.isEmpty else { return }
         let episode = playSources[selectedSourceIdx].episodes[selectedEpIdx]
         isLoading = true
-        vodItem = nil
+        errorMsg = nil
         Task {
             let url = await svc.fetchPlayURL(playPageURL: episode.playURL)
             await MainActor.run {
                 isLoading = false
-                guard let urlStr = url else { return }
+                guard let urlStr = url else {
+                    errorMsg = "播放地址获取失败，请稍后重试"
+                    return
+                }
                 let headers: [String: String] = ["Referer": svc.currentHost]
                 vodItem = VodItem(
                     vodId: vodId,
@@ -257,7 +268,9 @@ struct XCPDetailView: View {
                     vodPlayUrl: urlStr,
                     customHeaders: headers
                 )
+                showPlayer = true
             }
         }
     }
 }
+
