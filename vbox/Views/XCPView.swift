@@ -254,4 +254,4 @@ struct XCPDetailView: View {
             }
         }
     }
-}}
+}
