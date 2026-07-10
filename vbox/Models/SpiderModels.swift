@@ -155,11 +155,12 @@ struct VodItem: Codable, Identifiable {
     let vodContent: String?
     let vodPlayFrom: String?
     var vodPlayUrl: String?
+    let customHeaders: [String: String]?
 
     init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
          vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,
          vodActor: String? = nil, vodContent: String? = nil, vodPlayFrom: String? = nil,
-         vodPlayUrl: String? = nil) {
+         vodPlayUrl: String? = nil, customHeaders: [String: String]? = nil) {
         self.vodId = vodId
         self.vodName = vodName
         self.vodPic = vodPic
@@ -171,6 +172,7 @@ struct VodItem: Codable, Identifiable {
         self.vodContent = vodContent
         self.vodPlayFrom = vodPlayFrom
         self.vodPlayUrl = vodPlayUrl
+        self.customHeaders = customHeaders
     }
 
     enum CodingKeys: String, CodingKey {

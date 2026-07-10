@@ -177,41 +177,43 @@ struct SihuVideoDetailView: View {
     @State private var selectedSourceIdx = 0
     @State private var selectedEpIdx = 0
     @State private var isLoading = true
-    @State private var playURL: String? = nil
-    @State private var player = AVPlayer()
-    @State private var isPlaying = false
+    @State private var vodItem: VodItem?
+    @State private var showPlayer = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // 播放器
             ZStack {
-                if let url = playURL, isPlaying {
-                    VideoPlayer(player: player)
-                        .onAppear { player.play() }
-                } else {
-                    Rectangle()
-                        .fill(Color.black)
-                        .aspectRatio(16/9, contentMode: .fit)
-                        .overlay {
-                            if isLoading {
-                                ProgressView().tint(.white)
-                            } else {
+                Rectangle()
+                    .fill(Color.black)
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .overlay {
+                        if isLoading {
+                            ProgressView().tint(.white)
+                        } else if vodItem == nil {
+                            VStack(spacing: 12) {
                                 Image(systemName: "play.slash")
                                     .font(.system(size: 36))
                                     .foregroundColor(.white.opacity(0.5))
+                                Text("点击剧集播放")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                        } else {
+                            Button(action: { showPlayer = true }) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 60))
+                                    .foregroundColor(.white.opacity(0.9))
                             }
                         }
-                }
+                    }
             }
             .background(Color.black)
 
-            // 标题
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 播放源选择
             if playSources.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -219,7 +221,7 @@ struct SihuVideoDetailView: View {
                             Button(action: {
                                 selectedSourceIdx = idx
                                 selectedEpIdx = 0
-                                playEpisode()
+                                buildVodItem()
                             }) {
                                 Text(source.name)
                                     .font(.system(size: 13))
@@ -236,7 +238,6 @@ struct SihuVideoDetailView: View {
                 .padding(.top, 4)
             }
 
-            // 剧集列表
             if !playSources.isEmpty {
                 let episodes = playSources[selectedSourceIdx].episodes
                 Text("选集")
@@ -249,7 +250,7 @@ struct SihuVideoDetailView: View {
                         ForEach(Array(episodes.enumerated()), id: \.offset) { idx, ep in
                             Button(action: {
                                 selectedEpIdx = idx
-                                playEpisode()
+                                buildVodItem()
                             }) {
                                 Text(ep.name)
                                     .font(.system(size: 13))
@@ -272,9 +273,8 @@ struct SihuVideoDetailView: View {
         .onAppear {
             if playSources.isEmpty { loadDetail() }
         }
-        .onDisappear {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let vod = vodItem { VideoDetailView(video: vod) }
         }
     }
 
@@ -285,39 +285,29 @@ struct SihuVideoDetailView: View {
             await MainActor.run {
                 playSources = sources
                 isLoading = false
-                if !sources.isEmpty { playEpisode() }
             }
         }
     }
 
-    private func playEpisode() {
+    private func buildVodItem() {
         guard !playSources.isEmpty else { return }
         let episode = playSources[selectedSourceIdx].episodes[selectedEpIdx]
         isLoading = true
-        isPlaying = false
-        playURL = nil
-
+        vodItem = nil
         Task {
             let url = await svc.fetchPlayURL(playPath: episode.playPath)
             await MainActor.run {
                 isLoading = false
                 guard let urlStr = url else { return }
-
-                // 通过本地代理注入 Referer 头（AVPlayer 不支持自定义 Header）
-                let headers = ["Referer": svc.currentBaseURL]
-                if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
-                    for: urlStr, headers: headers, provider: "sihu") {
-                    playURL = localURL.absoluteString
-                    player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
-                    isPlaying = true
-                } else {
-                    // 代理不可用时直连
-                    if let url = URL(string: urlStr) {
-                        playURL = urlStr
-                        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                        isPlaying = true
-                    }
-                }
+                let headers: [String: String] = ["Referer": svc.currentBaseURL]
+                vodItem = VodItem(
+                    vodId: vodId,
+                    vodName: title,
+                    vodPic: "",
+                    vodRemarks: "[福利]四虎视频",
+                    vodPlayUrl: urlStr,
+                    customHeaders: headers
+                )
             }
         }
     }

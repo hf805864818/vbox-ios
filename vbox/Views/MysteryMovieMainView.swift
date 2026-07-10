@@ -289,7 +289,7 @@ struct MysteryMoviePlayerView: View {
     @State private var playURL: String?
     @State private var content: String = ""
     @State private var showPlayer = false
-    @State private var player = AVPlayer()
+    @State private var vodItem: VodItem?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -307,26 +307,8 @@ struct MysteryMoviePlayerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .onAppear { loadDetail() }
-        .onDisappear {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-        }
         .fullScreenCover(isPresented: $showPlayer) {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let url = playURL {
-                    VideoPlayer(player: player)
-                        .onAppear { player.play() }
-                        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                Button(action: { showPlayer = false }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28)).foregroundColor(.white.opacity(0.8))
-                }
-                .padding()
-            }
+            if let vod = vodItem { VideoDetailView(video: vod) }
         }
     }
 
@@ -367,16 +349,16 @@ struct MysteryMoviePlayerView: View {
 
     @ViewBuilder private var playButton: some View {
         Button(action: {
-            // 设置播放器
-            if let urlStr = playURL {
-                let headers = ["Referer": svc.host]
-                if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(
-                    for: urlStr, headers: headers, provider: "mystery") {
-                    player.replaceCurrentItem(with: AVPlayerItem(url: localURL))
-                } else if let url = URL(string: urlStr) {
-                    player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                }
-            }
+            guard let urlStr = playURL else { return }
+            let headers: [String: String] = ["Referer": svc.host]
+            vodItem = VodItem(
+                vodId: vodId,
+                vodName: title,
+                vodPic: cover,
+                vodRemarks: "[福利]神秘电影",
+                vodPlayUrl: urlStr,
+                customHeaders: headers
+            )
             showPlayer = true
         }) {
             Label("播放", systemImage: "play.fill")
@@ -384,7 +366,7 @@ struct MysteryMoviePlayerView: View {
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(Color.clear)
+                .background(Color.accentColor)
                 .cornerRadius(12)
                 .padding(.horizontal, 16)
         }

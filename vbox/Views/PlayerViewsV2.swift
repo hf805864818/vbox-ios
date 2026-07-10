@@ -2720,7 +2720,7 @@ class PlayerState: ObservableObject {
             let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if !firstUrlClean.isEmpty {
                 log("[PlayerV2] 步骤1: 先尝试已有地址: \(firstUrlClean.prefix(80))...")
-                await handlePlayUrl(firstUrlClean, spider: spider, video: video)
+                await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders)
             }
         }
         
@@ -2807,7 +2807,7 @@ class PlayerState: ObservableObject {
     }
     
     // MARK: - 处理单个播放地址
-    private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem) async {
+    private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil) async {
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
 
         // 检测官方平台URL（需要解析器转直链）
@@ -2837,7 +2837,7 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 直链模式: 直接使用 URL=\(urlString.prefix(100))")
             if let url = createURL(from: urlString) {
                 log("[PlayerV2] ✅ URL创建成功, 协议=\(url.scheme ?? "nil"), 主机=\(url.host ?? "nil")")
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
                 return
             }
             log("[PlayerV2] ❌ 直链URL创建失败, raw=\(urlString.prefix(120))")
@@ -2871,7 +2871,7 @@ class PlayerState: ObservableObject {
                                 let result = String(resp[r])
                                 if result.hasPrefix("http"), let url = createURL(from: result) {
                                     log("[PlayerV2] ✅ 解析器[\(parser.name)]成功: \(result.prefix(60))")
-                                    await MainActor.run { initPlayer(url: url) }
+                                    await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
                                     return
                                 }
                             }
@@ -2886,7 +2886,7 @@ class PlayerState: ObservableObject {
         if let parsedUrl = await spider.parsePlayUrl(from: urlString) {
             log("[PlayerV2] ✅ SpiderManager 解析成功: \(parsedUrl.prefix(60))")
             if let url = createURL(from: parsedUrl) {
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
                 return
             }
         }
@@ -2896,7 +2896,7 @@ class PlayerState: ObservableObject {
             let pu = pr.playUrl ?? pr.url
             if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
                 log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
-                await MainActor.run { initPlayer(url: url) }
+                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
                 return
             }
         }
@@ -2914,7 +2914,7 @@ class PlayerState: ObservableObject {
             let du = urls.first(where: { $0.contains(".m3u8") || $0.contains(".mp4") }) ?? urls.first ?? pu
             if !du.isEmpty {
                 if let url = createURL(from: du) {
-                    await MainActor.run { initPlayer(url: url) }
+                    await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
                     return
                 }
                 log("[PlayerV2] ❌ nativeDetail URL创建失败")
