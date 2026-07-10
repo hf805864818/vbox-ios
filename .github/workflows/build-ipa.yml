@@ -144,14 +144,23 @@ jobs:
           VERSION="${{ steps.get_version.outputs.MARKETING_VERSION }}"
           BUILD="${{ steps.get_version.outputs.BUILD_NUM }}"
 
-          # 获取上一个 tag（跳过当前 tag）
-          PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
-          if [ -n "$PREVIOUS_TAG" ]; then
-            # 获取上一个 tag 到 HEAD 的提交，过滤 feat/fix/perf/refactor
-            NOTES=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" | \
-              grep -iE "^(feat|fix|perf|refactor):" | \
-              sed -E 's/^[[:space:]]*(feat|fix|perf|refactor)[[:space:]]*:[[:space:]]*//I' | \
-              awk '{print NR "、" $0}')
+          # 从 CHANGELOG.md 提取最新日期的更新内容
+          if [ -f CHANGELOG.md ]; then
+            LATEST_DATE=$(grep -m1 "^## " CHANGELOG.md | sed 's/^## //')
+            NOTES=$(awk '/^## /{if(NR>1)exit} NR>1{print}' CHANGELOG.md)
+            if [ -n "$NOTES" ] && [ -n "$LATEST_DATE" ]; then
+              NOTES="## ${LATEST_DATE}\n${NOTES}"
+            fi
+          fi
+
+          if [ -z "$NOTES" ]; then
+            PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
+            if [ -n "$PREVIOUS_TAG" ]; then
+              NOTES=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" | \
+                grep -iE "^(feat|fix|perf|refactor):" | \
+                sed -E 's/^[[:space:]]*(feat|fix|perf|refactor)[[:space:]]*:[[:space:]]*//I' | \
+                awk '{print NR "、" $0}')
+            fi
           fi
 
           if [ -z "$NOTES" ]; then

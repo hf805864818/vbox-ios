@@ -187,6 +187,7 @@ struct VodItem: Codable, Identifiable {
         case vodContent = "vod_content"
         case vodPlayFrom = "vod_play_from"
         case vodPlayUrl = "vod_play_url"
+        case customHeaders
     }
 }
 
