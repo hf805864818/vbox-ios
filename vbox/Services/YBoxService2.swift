@@ -263,6 +263,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://www.sihuhu.xyz", desc: "综合视频站"),
             YBoxPlatform2(name: "香肠派对", icon: "party.popper.fill", type: .video,
                          baseURL: "https://xiang512.xiang.party/xcpd", desc: "免费视频"),
+            YBoxPlatform2(name: "One平台", icon: "sparkles.tv", type: .video,
+                         baseURL: "https://api.em1oifd0.com", desc: "AES加密视频站"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
