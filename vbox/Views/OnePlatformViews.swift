@@ -24,6 +24,8 @@ struct OnePlatformHomeView: View {
     let platform: YBoxPlatform2
     @StateObject private var svc = OnePlatformService.shared
     @State private var selectedTab = 0
+    @State private var isRegistering = false
+    @State private var registerError: String?
     private let tabs = ["发现", "每日推荐", "专辑"]
 
     var body: some View {
@@ -52,12 +54,49 @@ struct OnePlatformHomeView: View {
 
             Divider()
 
-            TabView(selection: $selectedTab) {
-                OneDiscoveryTab(platform: platform).tag(0)
-                OneDailyTab(platform: platform).tag(1)
-                OneAlbumTab(platform: platform).tag(2)
+            if isRegistering {
+                // 注册中
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("正在初始化...")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = registerError {
+                // 注册失败
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 40))
+                        .foregroundColor(.orange)
+                    Text("初始化失败")
+                        .font(.system(size: 16, weight: .medium))
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button(action: {
+                        registerError = nil
+                        Task { await autoRegister() }
+                    }) {
+                        Text("重试")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor)
+                            .cornerRadius(8)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TabView(selection: $selectedTab) {
+                    OneDiscoveryTab(platform: platform).tag(0)
+                    OneDailyTab(platform: platform).tag(1)
+                    OneAlbumTab(platform: platform).tag(2)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .navigationTitle("One 平台")
         .navigationBarTitleDisplayMode(.inline)
@@ -67,6 +106,22 @@ struct OnePlatformHomeView: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: 16))
                 }
+            }
+        }
+        .onAppear {
+            if !svc.isRegistered {
+                Task { await autoRegister() }
+            }
+        }
+    }
+
+    private func autoRegister() async {
+        await MainActor.run { isRegistering = true }
+        let success = await svc.ensureRegistered()
+        await MainActor.run {
+            isRegistering = false
+            if !success {
+                registerError = "无法自动获取访问凭证，请检查网络或在设置中手动配置 Token"
             }
         }
     }
@@ -800,20 +855,78 @@ struct OneSettingsView: View {
     @State private var tokenInput: String = ""
     @State private var userKeyInput: String = ""
     @State private var showSaved = false
+    @State private var isRefreshing = false
 
     var body: some View {
         Form {
             Section {
-                TextField("JWT Token", text: $tokenInput, axis: .vertical)
+                HStack {
+                    Text("注册状态")
+                    Spacer()
+                    if svc.isRegistered {
+                        Label("已注册", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else {
+                        Label("未注册", systemImage: "exclamationmark.circle")
+                            .foregroundColor(.orange)
+                    }
+                }
+                if svc.isRegistered {
+                    HStack {
+                        Text("Token")
+                        Spacer()
+                        Text(svc.token.prefix(20) + "...")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack {
+                        Text("user-key")
+                        Spacer()
+                        Text(svc.userKey.prefix(16) + "...")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Button(action: {
+                    Task {
+                        isRefreshing = true
+                        await svc.registerDevice()
+                        isRefreshing = false
+                    }
+                }) {
+                    HStack {
+                        Spacer()
+                        if isRefreshing {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text(svc.isRegistered ? "重新注册" : "立即注册")
+                            .font(.system(size: 14, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .disabled(isRefreshing)
+            } header: {
+                Text("设备注册（游客模式）")
+            } footer: {
+                Text("首次进入自动注册游客账号，无需手动配置")
+            }
+
+            Section {
+                TextField("JWT Token（可选，手动覆盖）", text: $tokenInput, axis: .vertical)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
-                TextField("user-key", text: $userKeyInput)
+                TextField("user-key（可选，手动覆盖）", text: $userKeyInput)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
             } header: {
-                Text("认证信息")
+                Text("手动配置")
             } footer: {
-                Text("从 ybox 中提取 One 平台的 token 和 user-key。\n提取方法：\n1. 使用 Thor / HTTP Catcher 抓包\n2. 或使用 FLEX++ Hook NSUserDefaults")
+                Text("如自动注册失败，可从 ybox 中提取 token 和 user-key 手动填入")
             }
 
             Section {
@@ -833,22 +946,24 @@ struct OneSettingsView: View {
                 Text("UUID 首次启动自动生成并永久保存，无需手动填写")
             }
 
-            Section {
-                Button(action: save) {
-                    HStack {
-                        Spacer()
-                        Text("保存配置")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                        Spacer()
+            if !tokenInput.isEmpty || !userKeyInput.isEmpty {
+                Section {
+                    Button(action: save) {
+                        HStack {
+                            Spacer()
+                            Text("保存手动配置")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .background(Color.accentColor)
+                        .cornerRadius(10)
+                        .listRowInsets(EdgeInsets())
                     }
-                    .padding(.vertical, 12)
-                    .background(Color.accentColor)
-                    .cornerRadius(10)
-                    .listRowInsets(EdgeInsets())
                 }
+                .listRowBackground(Color.clear)
             }
-            .listRowBackground(Color.clear)
 
             Section("加密参数") {
                 HStack {

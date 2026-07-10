@@ -118,30 +118,31 @@ class OnePlatformService: ObservableObject {
         "https://enimg807.5pkwjhp.com"
     }
 
-    // MARK: - 认证信息（需用户配置）
-    // ⚠️ 以下 token 和 user-key 需要从 ybox 中提取
-    // 提取方法：
-    //   1. 使用 Thor / HTTP Catcher 抓包
-    //   2. 或使用 FLEX++ Hook NSUserDefaults 读取 flutter.token_one1
-    //
-    // 你可以在 vbox 设置中手动配置，也可以直接硬编码测试
+    // MARK: - 认证信息
+    // token 和 user-key 通过设备注册接口自动获取（游客模式）
+    // UUID 自动生成并持久化
 
-    @Published var token: String = ""          // JWT Token (需登录获取)
-    @Published var userKey: String = ""        // user-key (需登录获取)
+    @Published var token: String = ""          // JWT Token (自动注册获取)
+    @Published var userKey: String = ""        // user-key (自动注册获取)
     @Published var uuid: String = ""           // 设备 UUID (自动生成)
     @Published var platform: String = "2"      // 平台：1=Android, 2=iOS
     @Published var appVersion: String = "5.2.0"
+    @Published var isRegistered: Bool = false  // 是否已完成设备注册
 
     // MARK: - AES 密钥（已确认 ✓）
     // 通过 FLEX++ CCCrypt Hook 提取，已双向验证通过
     private let aesKeyHex = "30663438613465373765346138346630"  // "0f48a4e77e4a84f0" 的 hex
     private let aesIVHex  = "0a010b05040f070917030106080c0d5b"  // 固定 IV
 
+    // 注册时使用的初始 userKey（用于生成注册请求的 sign）
+    private let initialUserKey = "0f48a4e77e4a84f0"
+
     init() {
         // 读取已保存的 token
         if let savedToken = UserDefaults.standard.string(forKey: "one_platform_token"),
            !savedToken.isEmpty {
             self.token = savedToken
+            self.isRegistered = true
         }
         if let savedUserKey = UserDefaults.standard.string(forKey: "one_platform_userkey"),
            !savedUserKey.isEmpty {
@@ -235,11 +236,13 @@ class OnePlatformService: ObservableObject {
     ///   - path: 请求路径，如 /v2.5/article/discovery
     ///   - body: 请求体 JSON 字符串
     ///   - timestamp: 时间戳（秒）
+    ///   - customUserKey: 自定义 userKey（用于注册等未登录场景）
     /// - Returns: 32 位 MD5 sign
-    private func generateSign(path: String, body: String, timestamp: String) -> String {
+    private func generateSign(path: String, body: String, timestamp: String, customUserKey: String? = nil) -> String {
         // TODO: 确认 sign 算法后替换
         // 当前使用最可能的组合：MD5(timestamp + body + userKey)
-        let raw = "\(timestamp)\(body)\(userKey)"
+        let key = customUserKey ?? userKey
+        let raw = "\(timestamp)\(body)\(key)"
         return md5(raw)
     }
 
@@ -259,9 +262,14 @@ class OnePlatformService: ObservableObject {
     /// - Parameters:
     ///   - path: API 路径，如 /v2.5/article/discovery
     ///   - parameters: 请求参数（字典）
+    ///   - customToken: 自定义 token（用于注册等特殊场景）
+    ///   - customUserKey: 自定义 userKey（用于注册等特殊场景）
     /// - Returns: 解密后的 JSON 字典
-    func request(path: String, parameters: [String: Any] = [:]) async throws -> [String: Any] {
+    func request(path: String, parameters: [String: Any] = [:],
+                 customToken: String? = nil, customUserKey: String? = nil) async throws -> [String: Any] {
         let timestamp = String(Int(Date().timeIntervalSince1970))
+        let reqToken = customToken ?? token
+        let reqUserKey = customUserKey ?? userKey
 
         // 1. 构造请求体 JSON
         let jsonData = try JSONSerialization.data(withJSONObject: parameters)
@@ -275,7 +283,7 @@ class OnePlatformService: ObservableObject {
         }
 
         // 3. 生成 sign
-        let sign = generateSign(path: path, body: bodyString, timestamp: timestamp)
+        let sign = generateSign(path: path, body: bodyString, timestamp: timestamp, customUserKey: reqUserKey)
 
         // 4. 构造请求
         guard let url = URL(string: baseURL + path) else {
@@ -285,8 +293,8 @@ class OnePlatformService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "token")
-        request.setValue(userKey, forHTTPHeaderField: "user-key")
+        request.setValue(reqToken, forHTTPHeaderField: "token")
+        request.setValue(reqUserKey, forHTTPHeaderField: "user-key")
         request.setValue(uuid, forHTTPHeaderField: "uuid")
         request.setValue(timestamp, forHTTPHeaderField: "timestamp")
         request.setValue(sign, forHTTPHeaderField: "sign")
@@ -355,6 +363,80 @@ class OnePlatformService: ObservableObject {
     }
 
     // MARK: - API 方法
+
+    // MARK: 设备注册（游客登录）
+
+    /// 设备注册 - 自动获取 token 和 user-key
+    /// 调用时机：首次启动或 token 失效时
+    /// - Returns: 是否注册成功
+    @discardableResult
+    func registerDevice() async -> Bool {
+        do {
+            // 设备注册接口（推测路径，可能需要调整）
+            // 常见路径: /v2.5/user/device, /v2.5/app/init, /v2.5/user/register
+            let paths = [
+                "/v2.5/user/device",
+                "/v2.5/app/init",
+                "/v2.5/user/register",
+                "/v2.5/index/init",
+            ]
+
+            let params: [String: Any] = [
+                "device_id": uuid,
+                "platform": platform,
+                "app_version": appVersion,
+            ]
+
+            for path in paths {
+                do {
+                    let json = try await request(
+                        path: path,
+                        parameters: params,
+                        customToken: "",
+                        customUserKey: initialUserKey
+                    )
+
+                    // 尝试从响应中提取 token 和 user-key
+                    if let data = json["data"] as? [String: Any] {
+                        let token = (data["token"] as? String) ?? (data["access_token"] as? String) ?? ""
+                        let userKey = (data["user_key"] as? String) ?? (data["userkey"] as? String) ?? ""
+
+                        if !token.isEmpty {
+                            await MainActor.run {
+                                self.token = token
+                                if !userKey.isEmpty {
+                                    self.userKey = userKey
+                                }
+                                self.isRegistered = true
+                                // 保存到本地
+                                UserDefaults.standard.set(token, forKey: "one_platform_token")
+                                if !userKey.isEmpty {
+                                    UserDefaults.standard.set(userKey, forKey: "one_platform_userkey")
+                                }
+                            }
+                            print("[OnePlatform] 设备注册成功, path=\(path)")
+                            return true
+                        }
+                    }
+                } catch {
+                    // 这个路径不行，试下一个
+                    print("[OnePlatform] 注册路径 \(path) 失败: \(error)")
+                    continue
+                }
+            }
+
+            print("[OnePlatform] 所有注册路径都失败")
+            return false
+        }
+    }
+
+    /// 确保已注册（如果没有 token 则自动注册）
+    func ensureRegistered() async -> Bool {
+        if isRegistered && !token.isEmpty {
+            return true
+        }
+        return await registerDevice()
+    }
 
     /// 获取分类列表
     func fetchCategories() async -> [OneCategory] {
