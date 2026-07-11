@@ -74,7 +74,7 @@ struct MDTVPlaySource: Identifiable {
 }
 
 /// 标签
-struct MDTVTag: Identifiable {
+struct MDTVTag: Identifiable, Hashable {
     var id: String { tagId }
     let tagId: String
     let name: String
@@ -351,6 +351,58 @@ class MDTVService: ObservableObject {
         return try JSONDecoder().decode(T.self, from: decryptedData)
     }
 
+    /// 发送请求并返回解密后的原始 Data（不需要 Decodable 类型约束）
+    /// 用于触发密钥探测等场景
+    func requestRaw(_ path: String, parameters: [String: Any] = [:]) async throws -> Data {
+        // 1. 加密请求参数
+        let plaintext = try JSONSerialization.data(withJSONObject: parameters)
+        guard let encryptedRequest = encryptRequest(plaintext) else {
+            throw MDTVError.encryptionFailed
+        }
+
+        // 2. 构建请求体
+        let requestBody: [String: Any] = [
+            "post-data": encryptedRequest
+        ]
+        let bodyData = try JSONSerialization.data(withJSONObject: requestBody)
+
+        // 3. 发送请求
+        guard let url = URL(string: baseURL + path) else {
+            throw MDTVError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Dart/3.4 (dart:io)", forHTTPHeaderField: "User-Agent")
+        request.setValue(platformSuffix, forHTTPHeaderField: "suffix")
+        request.httpBody = bodyData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw MDTVError.networkError
+        }
+
+        // 4. 解析响应
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let encryptedData = json["data"] as? String else {
+            throw MDTVError.invalidResponse
+        }
+
+        // 5. 解密响应数据
+        if let decryptedData = try decryptResponse(encryptedData) {
+            return decryptedData
+        }
+
+        // 解密失败，尝试暴力探测密钥
+        if let foundData = try await bruteForceDecrypt(encryptedData) {
+            return foundData
+        }
+        throw MDTVError.decryptionFailed
+    }
+
     // MARK: - 加密请求
 
     /// 加密请求体
@@ -566,8 +618,8 @@ class MDTVService: ObservableObject {
 
     /// 获取分类/频道列表
     func fetchCategories() async throws -> [MDTVCategory] {
-        let response: MDTVAPIResponse<[[String: Any]]> = try await request("/video/channel")
-        // 临时返回空数组，等密钥确认后完善解析
+        // 临时调用触发密钥探测，解析逻辑待密钥确认后完善
+        _ = try? await requestRaw("/video/channel")
         return []
     }
 
@@ -581,20 +633,20 @@ class MDTVService: ObservableObject {
         if let categoryId = categoryId {
             params["cid"] = categoryId
         }
-        let response: MDTVAPIResponse<[[String: Any]]> = try await request("/video/listcache", parameters: params)
+        _ = try? await requestRaw("/video/listcache", parameters: params)
         return []
     }
 
     /// 获取标签列表
     func fetchTags() async throws -> [MDTVTag] {
-        let response: MDTVAPIResponse<[[String: Any]]> = try await request("/video/tags")
+        _ = try? await requestRaw("/video/tags")
         return []
     }
 
     /// 搜索视频
     func searchVideos(keyword: String, page: Int = 1) async throws -> [MDTVVideoItem] {
         let params: [String: Any] = ["keyword": keyword, "page": page]
-        let response: MDTVAPIResponse<[[String: Any]]> = try await request("/app/mdtv/search", parameters: params)
+        _ = try? await requestRaw("/app/mdtv/search", parameters: params)
         return []
     }
 
@@ -704,6 +756,13 @@ extension Data {
 extension String {
     var dataHexString: String? {
         return data(using: .utf8)?.hexString
+    }
+
+    /// 左对齐填充字符串到指定长度（类似 Python 的 str.ljust）
+    func ljust(_ length: Int, _ pad: String = " ") -> String {
+        if self.count >= length { return self }
+        let padding = String(repeating: pad, count: (length - self.count) / pad.count + 1)
+        return self + padding.prefix(length - self.count)
     }
 }
 
