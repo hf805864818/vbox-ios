@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 🔧 Select Xcode
         run: |
@@ -144,35 +146,68 @@ jobs:
           VERSION="${{ steps.get_version.outputs.MARKETING_VERSION }}"
           BUILD="${{ steps.get_version.outputs.BUILD_NUM }}"
 
-          # 从 CHANGELOG.md 提取最新日期的更新内容
-          if [ -f CHANGELOG.md ]; then
-            # 提取第一个 ## 标题到下一个 ## 之间的内容
-            NOTES=$(awk 'BEGIN{in_section=0} /^## /{if(in_section){exit} in_section=1; print; next} in_section{print}' CHANGELOG.md)
-            if [ -z "$NOTES" ]; then
-              # 兼容：如果只有标题没有内容，至少提取标题
-              NOTES=$(grep -m1 "^## " CHANGELOG.md)
+          # 直接从 git log 提取自上一个 tag 以来的变更（不依赖 CHANGELOG.md）
+          # 这样无论 changelog.yml 是否已运行，都能获取到最新内容
+          PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
+
+          NOTES=""
+
+          # 方式1: 从上一个 tag 到当前 HEAD 的 commit
+          if [ -n "$PREVIOUS_TAG" ]; then
+            RAW_COMMITS=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" --no-merges 2>/dev/null | \
+              grep -v "^ci: auto bump" | \
+              grep -v "^docs: 自动更新" | \
+              grep -v "^docs: 新增 CHANGELOG")
+          else
+            # 没有 tag 时，取最近 30 条 commit
+            RAW_COMMITS=$(git log -30 --pretty=format:"%s" --no-merges 2>/dev/null | \
+              grep -v "^ci: auto bump" | \
+              grep -v "^docs: 自动更新" | \
+              grep -v "^docs: 新增 CHANGELOG")
+          fi
+
+          if [ -n "$RAW_COMMITS" ]; then
+            # 分类统计
+            FEAT_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^feat" | sed -E 's/^[[:space:]]*(feat|feature)[[:space:]]*:[[:space:]]*//I')
+            FIX_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^fix" | sed -E 's/^[[:space:]]*fix[[:space:]]*:[[:space:]]*//I')
+            OTHER_ITEMS=$(echo "$RAW_COMMITS" | grep -viE "^(feat|feature|fix)" | head -20)
+
+            NOTES="## 修复\n\n"
+            if [ -n "$FIX_ITEMS" ]; then
+              echo "$FIX_ITEMS" | awk '{print "- "$0}' >> /tmp/notes_fix.txt
+              NOTES+=$(cat /tmp/notes_fix.txt)
+              NOTES+="\n"
+            else
+              NOTES+="_无_\n"
+            fi
+
+            NOTES+="\n## 新增\n\n"
+            if [ -n "$FEAT_ITEMS" ]; then
+              echo "$FEAT_ITEMS" | awk '{print "- "$0}' >> /tmp/notes_feat.txt
+              NOTES+=$(cat /tmp/notes_feat.txt)
+              NOTES+="\n"
+            else
+              NOTES+="_无_\n"
+            fi
+
+            if [ -n "$OTHER_ITEMS" ]; then
+              NOTES+="\n## 其他变更\n\n"
+              echo "$OTHER_ITEMS" | awk '{print "- "$0}' >> /tmp/notes_other.txt
+              NOTES+=$(cat /tmp/notes_other.txt)
+              NOTES+="\n"
             fi
           fi
 
-          if [ -z "$NOTES" ]; then
-            PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
-            if [ -n "$PREVIOUS_TAG" ]; then
-              NOTES=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" | \
-                grep -iE "^(feat|fix|perf|refactor):" | \
-                sed -E 's/^[[:space:]]*(feat|fix|perf|refactor)[[:space:]]*:[[:space:]]*//I' | \
-                awk '{print NR "、" $0}')
-            fi
-          fi
-
+          # 兜底：如果没有有效 commit
           if [ -z "$NOTES" ]; then
             NOTES="版本 v$VERSION (build $BUILD)"
           fi
 
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo -e "$NOTES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          echo "$NOTES" > release_notes.txt
+          echo -e "$NOTES" > release_notes.txt
           echo "=== 生成 Release Notes ==="
           cat release_notes.txt
 
