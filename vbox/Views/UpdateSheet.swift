@@ -93,13 +93,13 @@ struct UpdateSheet: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.gray)
-                        .frame(width: 32, height: 32)
-                        .background(Color.gray.opacity(0.15))
+                        .frame(width: 24, height: 24)
+                        .background(Color.gray.opacity(0.12))
                         .clipShape(Circle())
                         .onTapGesture { close() }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.top, 8)
 
                 // 图标（下载中显示旋转动画）
                 if updateManager.isDownloading {
@@ -108,14 +108,12 @@ struct UpdateSheet: View {
                         .scaledToFit()
                         .frame(width: 70, height: 70)
                         .foregroundColor(Color(hex: "00A8FF"))
-                        .padding(.top, 8)
                 } else if updateManager.downloadedIPAPath != nil {
                     Image(systemName: "checkmark.circle.fill")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 70, height: 70)
                         .foregroundColor(.green)
-                        .padding(.top, 8)
                 } else {
                     Image(systemName: "paperplane.circle.fill")
                         .resizable()
@@ -123,20 +121,19 @@ struct UpdateSheet: View {
                         .frame(width: 70, height: 70)
                         .foregroundColor(Color(hex: "00A8FF"))
                         .rotationEffect(.degrees(-30))
-                        .padding(.top, 8)
                 }
 
                 // 标题
                 Text(updateManager.isDownloading ? "正在下载" : (updateManager.downloadedIPAPath != nil ? "下载完成" : "发现新版本"))
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.primary)
-                    .padding(.top, 12)
+                    .padding(.top, 4)
 
                 // 最新版本号
                 Text(updateManager.latestVersion)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundColor(.primary)
-                    .padding(.top, 4)
+                    .padding(.top, 2)
 
                 // 下载进度条（下载中显示）
                 if updateManager.isDownloading {
@@ -225,8 +222,9 @@ struct UpdateSheet: View {
                     )
                     .cornerRadius(12)
                 }
+                .buttonStyle(.plain)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
 
                 // 降级入口：Safari 下载
                 if !updateManager.isDownloading {
