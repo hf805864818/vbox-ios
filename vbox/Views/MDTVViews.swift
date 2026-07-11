@@ -90,22 +90,20 @@ struct MDTVHomeView: View {
     /// 根据 Tab 名称返回对应的内容视图
     @ViewBuilder
     private func tabContent(for index: Int) -> some View {
-        guard index < tabs.count else {
+        if index < tabs.count {
+            switch tabs[index] {
+            case "推荐":
+                MDTVRecommendTab(platform: platform)
+            case "分类":
+                MDTVCategoryTab(platform: platform)
+            case "标签":
+                MDTVTagTab(platform: platform)
+            default:
+                // 未知 Tab，默认显示视频列表
+                MDTVCustomTab(platform: platform, tabName: tabs[index])
+            }
+        } else {
             EmptyView()
-            return
-        }
-
-        let tabName = tabs[index]
-        switch tabName {
-        case "推荐":
-            MDTVRecommendTab(platform: platform)
-        case "分类":
-            MDTVCategoryTab(platform: platform)
-        case "标签":
-            MDTVTagTab(platform: platform)
-        default:
-            // 未知 Tab，默认显示视频列表
-            MDTVCustomTab(platform: platform, tabName: tabName)
         }
     }
 }

@@ -877,22 +877,4 @@ enum OneError: Error, LocalizedError {
 }
 
 // MARK: - Data Hex 扩展
-
-private extension Data {
-    init?(hexString: String) {
-        let len = hexString.count / 2
-        var data = Data(capacity: len)
-        var idx = hexString.startIndex
-        for _ in 0..<len {
-            let end = hexString.index(idx, offsetBy: 2)
-            let byteString = hexString[idx..<end]
-            if let num = UInt8(byteString, radix: 16) {
-                data.append(num)
-            } else {
-                return nil
-            }
-            idx = end
-        }
-        self = data
-    }
-}
+// 注: init?(hexString:) 已在 MDTVService.swift 中声明，此处不再重复定义
