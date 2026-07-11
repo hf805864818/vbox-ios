@@ -23,24 +23,26 @@ jobs:
         run: |
           TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
 
-          # 如果今天已经有记录，跳过
-          if grep -q "^## $TODAY" CHANGELOG.md 2>/dev/null; then
-            echo "今日已有更新记录，跳过"
-            exit 0
-          fi
-
-          # 找到上次更新日期
+          # 找到上次已记录的最新日期
           LAST_DATE=$(grep -oP '^## \K\d{4}-\d{2}-\d{2}' CHANGELOG.md | head -1)
           if [ -z "$LAST_DATE" ]; then
             LAST_DATE="2026-01-01"
           fi
 
-          # 获取新提交（排除 ci 自动提交和 changelog 提交）
+          # 获取 CHANGELOG.md 中已记录的 commit hash（避免重复记录）
+          RECORDED_HASHES=$(grep -oP '\(([0-9a-f]{7})\)' CHANGELOG.md | tr -d '()' | sort -u)
+          
+          # 获取自上次记录日期以来的新 commit（排除 ci/docs 自动提交）
           COMMITS=$(git log --since="$LAST_DATE 00:00:00 +0800" --format="%ad|%s|%h" --date=short --no-merges \
             | grep -v "ci: auto bump" \
             | grep -v "docs: 自动更新" \
             | grep -v "docs: 新增 CHANGELOG" \
-            | head -50)
+            | while IFS='|' read -r date msg hash; do
+                # 只添加未记录过的 commit
+                if ! echo "$RECORDED_HASHES" | grep -q "^${hash}$"; then
+                  echo "${date}|${msg}|${hash}"
+                fi
+              done)
 
           if [ -z "$COMMITS" ]; then
             echo "无新提交，跳过"
