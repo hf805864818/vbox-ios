@@ -124,10 +124,17 @@ struct ContentView: View {
             if !settings.searchQuery.isEmpty { selectedTab = .home }
         }
         .onAppear {
+            // 更新检测与爬虫初始化并行执行，避免弹窗延迟
             Task {
                 await SpiderManager.shared.initialize()
+            }
+            Task {
                 await UpdateManager.shared.checkForUpdate()
-                if UpdateManager.shared.hasUpdate { showUpdateSheet = true }
+                if UpdateManager.shared.hasUpdate {
+                    await MainActor.run {
+                        showUpdateSheet = true
+                    }
+                }
             }
         }
         .overlay {

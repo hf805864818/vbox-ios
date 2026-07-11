@@ -1,12 +1,14 @@
 import Foundation
 import SwiftUI
+import UIKit
 
-/// 自动更新管理器 — 检查GitHub Releases版本更新
+/// 自动更新管理器 — 检查GitHub Releases版本更新，支持APP内下载安装
 @MainActor
 class UpdateManager: ObservableObject {
 
     static let shared = UpdateManager()
 
+    // MARK: - 检查更新状态
     @Published var isChecking = false
     @Published var hasUpdate = false
     @Published var latestVersion = ""
@@ -16,9 +18,27 @@ class UpdateManager: ObservableObject {
     @Published var releaseNotes = ""
     @Published var updateError: String?
 
+    // MARK: - 下载安装状态
+    /// 下载进度 0.0 ~ 1.0
+    @Published var downloadProgress: Double = 0
+    /// 是否正在下载
+    @Published var isDownloading = false
+    /// 下载完成后的本地 IPA 文件路径
+    @Published var downloadedIPAPath: URL?
+    /// 下载错误信息
+    @Published var downloadError: String?
+    /// 是否安装了 TrollStore
+    @Published var hasTrollStore = false
+
     // B 仓库配置 — APP 从这里检查更新和下载 IPA
-    private let repoOwner = "hfkj520"  // 替换为 B 仓库的 GitHub 用户名
-    private let repoName = "vbox-release"       // 替换为 B 仓库的名称
+    private let repoOwner = "hfkj520"
+    private let repoName = "vbox-release"
+
+    /// 下载任务
+    private var downloadTask: Task<Void, Never>?
+    /// 上次检查更新的时间戳（5分钟内不重复检查）
+    private var lastCheckTime: Date?
+    private let checkInterval: TimeInterval = 300 // 5分钟
 
     private var currentVersion: String {
         let raw = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3"
@@ -33,25 +53,54 @@ class UpdateManager: ObservableObject {
     /// 把 tag/版本字符串清理成纯数字+点，例如 "v3.700-beta" -> "3.700"
     private func cleanVersion(_ version: String) -> String {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 去掉常见的 v 前缀
         var cleaned = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
-        // 取第一个 "-" 之前的部分，避免 "3.700-beta" 干扰比较
         cleaned = cleaned.components(separatedBy: "-").first ?? cleaned
-        // 去掉所有非数字和非点的字符
         cleaned = cleaned.filter { $0.isNumber || $0 == "." }
         return cleaned
     }
 
-    private init() {}
+    private init() {
+        // 启动时检测 TrollStore
+        checkTrollStoreAvailability()
+    }
 
-    /// 检查更新
-    func checkForUpdate() async {
+    // MARK: - TrollStore 检测
+
+    /// 检测设备是否安装了 TrollStore
+    func checkTrollStoreAvailability() {
+        // TrollStore 注册的 URL Scheme
+        // tsinstall:// 是 TrollStore 安装 scheme
+        let trollStoreSchemes = [
+            "apple-magnifier://",  // TrollStore 2 常用
+            "tsinstall://",        // TrollStore 安装 scheme
+        ]
+
+        for scheme in trollStoreSchemes {
+            if let url = URL(string: scheme), UIApplication.shared.canOpenURL(url) {
+                hasTrollStore = true
+                print("[UpdateManager] 检测到 TrollStore")
+                return
+            }
+        }
+        hasTrollStore = false
+        print("[UpdateManager] 未检测到 TrollStore")
+    }
+
+    // MARK: - 检查更新（带缓存，避免频繁请求）
+
+    /// 检查更新（带5分钟缓存）
+    func checkForUpdate(force: Bool = false) async {
+        // 非强制检查时，5分钟内不重复请求
+        if !force, let last = lastCheckTime, Date().timeIntervalSince(last) < checkInterval {
+            print("[UpdateManager] 距上次检查不足5分钟，跳过")
+            return
+        }
+        lastCheckTime = Date()
+
         isChecking = true
         updateError = nil
 
         do {
-            // 使用 /releases 列表API（包含pre-release），取第一个（最新）的 release
-            // 注意：/releases/latest 会忽略 pre-release，而我们所有版本都是 pre-release
             let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases?per_page=1")!
             var request = URLRequest(url: url)
             request.timeoutInterval = 10
@@ -66,7 +115,6 @@ class UpdateManager: ObservableObject {
                 let htmlURL = json["html_url"] as? String
                 let assets = json["assets"] as? [[String: Any]] ?? []
 
-                // 找第一个IPA下载链接
                 var ipaURL: String?
                 for asset in assets {
                     if (asset["name"] as? String)?.hasSuffix(".ipa") == true {
@@ -75,7 +123,6 @@ class UpdateManager: ObservableObject {
                     }
                 }
 
-                // 解析版本号并清理
                 let remoteVersion = cleanVersion(tagName)
                 let localVersion = cleanVersion(currentVersion)
 
@@ -84,7 +131,6 @@ class UpdateManager: ObservableObject {
                 downloadURL = ipaURL
                 releasePageURL = htmlURL
 
-                // 比较版本：如果当前版本小于远程版本则有更新
                 if localVersion.compare(remoteVersion, options: .numeric) == .orderedAscending {
                     hasUpdate = true
                     print("[UpdateManager] 发现新版本: v\(remoteVersion)，当前: v\(localVersion)")
@@ -101,8 +147,201 @@ class UpdateManager: ObservableObject {
         isChecking = false
     }
 
-    /// 打开 Release 页面
-    func openReleasePage() {
+    // MARK: - 下载 IPA
+
+    /// 在 APP 内下载 IPA 安装包
+    func downloadIPA() async {
+        guard let urlString = downloadURL, let url = URL(string: urlString) else {
+            downloadError = "下载链接无效"
+            return
+        }
+
+        // 取消已有下载
+        downloadTask?.cancel()
+
+        downloadTask = Task {
+            await performDownload(from: url)
+        }
+        await downloadTask?.value
+    }
+
+    /// 执行实际下载
+    private func performDownload(from url: URL) async {
+        isDownloading = true
+        downloadProgress = 0
+        downloadError = nil
+        downloadedIPAPath = nil
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let destinationURL = tempDir.appendingPathComponent("vbox_update.ipa")
+
+        // 删除旧文件
+        try? FileManager.default.removeItem(at: destinationURL)
+
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 300 // 下载超时5分钟
+            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+
+            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                downloadError = "服务器返回错误"
+                isDownloading = false
+                return
+            }
+
+            // 获取文件总大小
+            let totalBytes = httpResponse.expectedContentLength
+            var receivedBytes: Int64 = 0
+
+            // 创建文件句柄
+            FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
+            let fileHandle = try FileHandle(forWritingTo: destinationURL)
+
+            // 逐块写入
+            let bufferSize = 64 * 1024 // 64KB
+            var buffer = Data()
+
+            for try await byte in asyncBytes {
+                buffer.append(byte)
+                receivedBytes += 1
+
+                if buffer.count >= bufferSize {
+                    try fileHandle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+
+                    if totalBytes > 0 {
+                        let progress = Double(receivedBytes) / Double(totalBytes)
+                        downloadProgress = min(progress, 0.999)
+                    }
+                }
+            }
+
+            // 写入剩余数据
+            if !buffer.isEmpty {
+                try fileHandle.write(contentsOf: buffer)
+            }
+
+            try fileHandle.close()
+
+            downloadProgress = 1.0
+            downloadedIPAPath = destinationURL
+            print("[UpdateManager] IPA 下载完成: \(destinationURL.path)")
+
+        } catch {
+            downloadError = "下载失败: \(error.localizedDescription)"
+            print("[UpdateManager] 下载失败: \(error)")
+            // 清理不完整文件
+            try? FileManager.default.removeItem(at: destinationURL)
+        }
+
+        isDownloading = false
+    }
+
+    /// 取消下载
+    func cancelDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        isDownloading = false
+        downloadProgress = 0
+        print("[UpdateManager] 用户取消下载")
+    }
+
+    // MARK: - 安装 IPA
+
+    /// 安装已下载的 IPA
+    /// 优先尝试 TrollStore，没有则弹出系统分享面板
+    func installIPA() {
+        guard let ipaPath = downloadedIPAPath else {
+            print("[UpdateManager] 没有已下载的 IPA 文件")
+            return
+        }
+
+        // 重新检测 TrollStore
+        checkTrollStoreAvailability()
+
+        if hasTrollStore {
+            // 方式1: 通过 TrollStore URL Scheme 安装
+            installViaTrollStore(ipaPath: ipaPath)
+        } else {
+            // 方式2: 弹出系统分享面板（AltStore / SideStore / 文件 App）
+            shareIPA(ipaPath: ipaPath)
+        }
+    }
+
+    /// 通过 TrollStore 安装 IPA
+    private func installViaTrollStore(ipaPath: URL) {
+        // TrollStore 支持的安装方式：
+        // 1. tsinstall://url=<编码后的文件URL>
+        // 2. apple-magnifier://install?url=<编码后的文件URL>
+        let fileURLString = ipaPath.absoluteString
+        let encodedURL = fileURLString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileURLString
+
+        // 尝试多种 TrollStore scheme
+        let schemes = [
+            "tsinstall://install?url=\(encodedURL)",
+            "apple-magnifier://install?url=\(encodedURL)",
+        ]
+
+        for scheme in schemes {
+            if let url = URL(string: scheme), UIApplication.shared.canOpenURL(url) {
+                print("[UpdateManager] 通过 TrollStore 安装: \(scheme)")
+                UIApplication.shared.open(url)
+                return
+            }
+        }
+
+        // 所有 scheme 都失败，降级到分享面板
+        print("[UpdateManager] TrollStore scheme 不可用，降级到分享面板")
+        shareIPA(ipaPath: ipaPath)
+    }
+
+    /// 通过系统分享面板分享 IPA 文件
+    /// 用户可以选择 AltStore / SideStore / 存储到文件等
+    private func shareIPA(ipaPath: URL) {
+        print("[UpdateManager] 弹出分享面板: \(ipaPath.path)")
+
+        // 获取当前最顶层的 ViewController
+        guard let rootVC = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController else {
+            // 降级：如果无法获取 VC，直接打开 Safari
+            openReleasePageInSafari()
+            return
+        }
+
+        // 找到最顶层的 presented VC
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+
+        let activityVC = UIActivityViewController(
+            activityItems: [ipaPath],
+            applicationActivities: nil
+        )
+
+        // iPad 适配
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = topVC.view
+            popover.sourceRect = CGRect(
+                x: topVC.view.bounds.midX,
+                y: topVC.view.bounds.midY,
+                width: 0,
+                height: 0
+            )
+            popover.permittedArrowDirections = []
+        }
+
+        topVC.present(activityVC, animated: true)
+    }
+
+    /// 打开 Release 页面（降级方案，跳转 Safari）
+    func openReleasePageInSafari() {
         guard let url = releasePageURL ?? downloadURL, let urlObj = URL(string: url) else { return }
         UIApplication.shared.open(urlObj)
     }

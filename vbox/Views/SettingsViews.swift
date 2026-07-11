@@ -585,7 +585,7 @@ struct SettingsView: View {
             Button(action: {
                 Task {
                     isChecking = true
-                    await updateManager.checkForUpdate()
+                    await updateManager.checkForUpdate(force: true)
                     isChecking = false
                     if updateManager.hasUpdate {
                         showUpdateSheet = true
