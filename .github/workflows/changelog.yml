@@ -20,65 +20,78 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 生成更新日志
+        shell: bash
         run: |
+          set -euo pipefail
+
           TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
 
           # 找到上次已记录的最新日期
-          LAST_DATE=$(grep -oP '^## \K\d{4}-\d{2}-\d{2}' CHANGELOG.md | head -1)
+          LAST_DATE=$(grep -oP '^## \K\d{4}-\d{2}-\d{2}' CHANGELOG.md 2>/dev/null | head -1)
           if [ -z "$LAST_DATE" ]; then
             LAST_DATE="2026-01-01"
           fi
 
           # 获取 CHANGELOG.md 中已记录的 commit hash（避免重复记录）
-          RECORDED_HASHES=$(grep -oP '\(([0-9a-f]{7})\)' CHANGELOG.md | tr -d '()' | sort -u)
-          
+          RECORDED_HASHES=$(grep -oP '\(([0-9a-f]{7})\)' CHANGELOG.md 2>/dev/null | tr -d '()' | sort -u)
+
           # 获取自上次记录日期以来的新 commit（排除 ci/docs 自动提交）
-          COMMITS=$(git log --since="$LAST_DATE 00:00:00 +0800" --format="%ad|%s|%h" --date=short --no-merges \
+          TMP_COMMITS=$(mktemp)
+          git log --since="$LAST_DATE 00:00:00 +0800" --format="%ad|%s|%h" --date=short --no-merges \
             | grep -v "ci: auto bump" \
             | grep -v "docs: 自动更新" \
             | grep -v "docs: 新增 CHANGELOG" \
             | while IFS='|' read -r date msg hash; do
                 # 只添加未记录过的 commit
-                if ! echo "$RECORDED_HASHES" | grep -q "^${hash}$"; then
+                if ! echo "$RECORDED_HASHES" | grep -qw "$hash"; then
                   echo "${date}|${msg}|${hash}"
                 fi
-              done)
+              done > "$TMP_COMMITS"
 
-          if [ -z "$COMMITS" ]; then
+          if [ ! -s "$TMP_COMMITS" ]; then
             echo "无新提交，跳过"
+            rm -f "$TMP_COMMITS"
             exit 0
           fi
 
-          # 按日期分组
-          declare -A GROUPS
-          while IFS='|' read -r date msg hash; do
-            # 分类: feat → 新增, fix → 修复, 其他 → 其他
-            if echo "$msg" | grep -qi "^feat"; then
-              tag="新增"
-            elif echo "$msg" | grep -qi "^fix"; then
-              tag="修复"
-            elif echo "$msg" | grep -qi "^refactor\|^perf\|^style"; then
-              tag="优化"
-            else
-              tag="其他"
-            fi
-            GROUPS["$date"]+="  - **${tag}**: ${msg} (${hash})\n"
-          done <<< "$COMMITS"
+          # 按日期分组（使用临时文件代替关联数组，兼容性更好）
+          DATES_FILE=$(mktemp)
+          cut -d'|' -f1 "$TMP_COMMITS" | sort -u > "$DATES_FILE"
 
           # 按日期倒序生成内容
           NEW_CONTENT=""
-          for date in $(echo "${!GROUPS[@]}" | tr ' ' '\n' | sort -ur); do
-            NEW_CONTENT+="\n## $date\n\n${GROUPS[$date]}"
-          done
+          while IFS= read -r date; do
+            SECTION=""
+            while IFS='|' read -r cdate msg hash; do
+              if [ "$cdate" = "$date" ]; then
+                # 分类: feat → 新增, fix → 修复, 其他 → 其他
+                if echo "$msg" | grep -qi "^feat"; then
+                  tag="新增"
+                elif echo "$msg" | grep -qi "^fix"; then
+                  tag="修复"
+                elif echo "$msg" | grep -qi "^refactor\|^perf\|^style"; then
+                  tag="优化"
+                else
+                  tag="其他"
+                fi
+                SECTION+="  - **${tag}**: ${msg} (${hash})\n"
+              fi
+            done < "$TMP_COMMITS"
+            NEW_CONTENT+="\n## ${date}\n\n${SECTION}"
+          done < "$DATES_FILE"
 
           # 插入到 CHANGELOG.md 顶部（标题之后）
           HEADER=$(head -6 CHANGELOG.md)
           BODY=$(tail -n +7 CHANGELOG.md)
           printf "%s\n%s\n%s" "$HEADER" "$NEW_CONTENT" "$BODY" > CHANGELOG.md
 
+          # 清理临时文件
+          rm -f "$TMP_COMMITS" "$DATES_FILE"
+
           echo "更新完成"
 
       - name: 提交推送
+        shell: bash
         run: |
           git config user.name "changelog-bot"
           git config user.email "changelog-bot@vbox.local"
