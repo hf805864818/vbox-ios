@@ -4846,18 +4846,10 @@ class CloudDriveManager: ObservableObject {
         fileName hintFileName: String? = nil,
         pcsCookie: String = ""
     ) async throws -> PlayResult {
-        let cacheKey = baiduMainRouteCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
-        if let cached = baiduCachedPlayResult(for: cacheKey) {
-            baiduLog("[Baidu-MainRoute] ✅ 命中主路链播放缓存：fsId=\(fsId)")
-            recordBaiduRouteDiagnostic(stage: "主路链缓存", status: "命中", detail: "命中主路链 dlink 缓存", fsId: fsId, fileName: hintFileName)
-            return cached
-        }
-
+        // 提前触发兜底清理：无论缓存命中与否，都先清理 /vbox 下超过 2 小时的旧文件
         let parsed = parseBaiduToken(bduss)
         let webCookie = parsed.cookie
         let pcs = normalizeBaiduPCSCookie(pcsCookie)
-
-        // 提前触发兜底清理：确保缓存命中路径也能清理 /vbox 下超过 2 小时的旧文件
         let earlyCleanupCookie = baiduMergeCookieStrings([webCookie, pcs])
         let earlyPureCookie = baiduPureAccountCookie(earlyCleanupCookie)
         Task { [weak self] in
@@ -4865,6 +4857,13 @@ class CloudDriveManager: ObservableObject {
             if !token.isEmpty {
                 self?.baiduCleanupOldTransferFiles(cookie: earlyPureCookie, bdstoken: token)
             }
+        }
+
+        let cacheKey = baiduMainRouteCacheKey(shareURL: shareURL, fsId: fsId, bduss: bduss, pcsCookie: pcsCookie)
+        if let cached = baiduCachedPlayResult(for: cacheKey) {
+            baiduLog("[Baidu-MainRoute] ✅ 命中主路链播放缓存：fsId=\(fsId)")
+            recordBaiduRouteDiagnostic(stage: "主路链缓存", status: "命中", detail: "命中主路链 dlink 缓存", fsId: fsId, fileName: hintFileName)
+            return cached
         }
 
         if let itemResult = try? await baiduResolveViaIBoxPlayItem(
