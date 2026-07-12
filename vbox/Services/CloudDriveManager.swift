@@ -5711,7 +5711,7 @@ class CloudDriveManager: ObservableObject {
                         let delErrMsg = (delJson["errmsg"] as? String) ?? (delJson["error_msg"] as? String) ?? ""
                         baiduLog("[Baidu-Cleanup] ❌ 批量删除失败 errno=\(delErrno)\(delErrMsg.isEmpty ? "" : " msg=\(delErrMsg)")")
                     }
-                    baiduLog("[Baidu-Cleanup] 🔍 删除完整响应 HTTP \(delResp.statusCode)：\(String(data: delData, encoding: .utf8) ?? "(非UTF8)")")
+                    baiduLog("[Baidu-Cleanup] 🔍 删除完整响应 HTTP \((delResp as? HTTPURLResponse)?.statusCode ?? 0)：\(String(data: delData, encoding: .utf8) ?? "(非UTF8)")")
                 } else {
                     baiduLog("[Baidu-Cleanup] ❌ 批量删除请求网络失败")
                 }
