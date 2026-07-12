@@ -5681,8 +5681,15 @@ class CloudDriveManager: ObservableObject {
 
                 // 批量删除
                 let paths = oldFiles.compactMap { $0["path"] as? String }
+                baiduLog("[Baidu-Cleanup] 🔍 待删除文件路径：\(paths)")
                 let encodedList = try? JSONSerialization.data(withJSONObject: paths)
                 let fileListStr = String(data: encodedList ?? Data(), encoding: .utf8) ?? "[]"
+                baiduLog("[Baidu-Cleanup] 🔍 filelist 原始值：\(fileListStr)")
+                let encodedFileList = fileListStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileListStr
+                baiduLog("[Baidu-Cleanup] 🔍 filelist 编码后：\(encodedFileList)")
+                let bodyStr = "filelist=\(encodedFileList)"
+                baiduLog("[Baidu-Cleanup] 🔍 删除请求 body：\(bodyStr)")
+                baiduLog("[Baidu-Cleanup] 🔍 删除请求 Cookie BDUSS=\(baiduCookieValue(cookie, named: "BDUSS")?.prefix(8) ?? "nil")… STOKEN=\(baiduCookieValue(cookie, named: "STOKEN")?.prefix(8) ?? "nil")… bdstoken=\(freshBdstoken.prefix(8))…")
 
                 // 对齐 iBox 删除 API 格式
                 let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&channel=chunlei&bdstoken=\(freshBdstoken)")!
@@ -5693,9 +5700,9 @@ class CloudDriveManager: ObservableObject {
                 delReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
                 delReq.setValue("https://pan.baidu.com/disk/main", forHTTPHeaderField: "Referer")
                 delReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-                delReq.httpBody = "filelist=\(fileListStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileListStr)".data(using: .utf8)
+                delReq.httpBody = bodyStr.data(using: .utf8)
 
-                if let (delData, _) = try? await session.data(for: delReq),
+                if let (delData, delResp) = try? await session.data(for: delReq),
                    let delJson = try? JSONSerialization.jsonObject(with: delData) as? [String: Any] {
                     let delErrno = delJson["errno"] as? Int ?? -1
                     if delErrno == 0 {
@@ -5704,6 +5711,7 @@ class CloudDriveManager: ObservableObject {
                         let delErrMsg = (delJson["errmsg"] as? String) ?? (delJson["error_msg"] as? String) ?? ""
                         baiduLog("[Baidu-Cleanup] ❌ 批量删除失败 errno=\(delErrno)\(delErrMsg.isEmpty ? "" : " msg=\(delErrMsg)")")
                     }
+                    baiduLog("[Baidu-Cleanup] 🔍 删除完整响应 HTTP \(delResp.statusCode)：\(String(data: delData, encoding: .utf8) ?? "(非UTF8)")")
                 } else {
                     baiduLog("[Baidu-Cleanup] ❌ 批量删除请求网络失败")
                 }
