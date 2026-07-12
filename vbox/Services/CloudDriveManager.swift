@@ -5622,6 +5622,7 @@ class CloudDriveManager: ObservableObject {
                     req.timeoutInterval = 12
                     req.setValue(cookie, forHTTPHeaderField: "Cookie")
                     req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+                    req.setValue("https://pan.baidu.com/disk/main", forHTTPHeaderField: "Referer")
                     req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                     req.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=\(page)".data(using: .utf8)
 
@@ -5692,6 +5693,7 @@ class CloudDriveManager: ObservableObject {
                 delReq.timeoutInterval = 12
                 delReq.setValue(cookie, forHTTPHeaderField: "Cookie")
                 delReq.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+                delReq.setValue("https://pan.baidu.com/disk/main", forHTTPHeaderField: "Referer")
                 delReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                 delReq.httpBody = "filelist=\(fileListStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileListStr)".data(using: .utf8)
 
