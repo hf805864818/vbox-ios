@@ -5550,12 +5550,13 @@ class CloudDriveManager: ObservableObject {
             return
         }
         // 对齐 iBox 2.4.6 删除 API 格式，提升兼容性
-        let url = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&bdstoken=\(effectiveBdstoken)")!
+        let url = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&channel=chunlei&bdstoken=\(effectiveBdstoken)")!
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        req.setValue("https://pan.baidu.com/disk/main", forHTTPHeaderField: "Referer")
         // 支持 fileId 或 path 两种格式：path 以 / 开头，fileId 是纯数字
         let paths = fileIds.map { $0.hasPrefix("/") ? $0 : "/vbox/\($0)" }
         let filelistJSON = (try? JSONSerialization.data(withJSONObject: paths))
@@ -5593,14 +5594,11 @@ class CloudDriveManager: ObservableObject {
 
         Task {
             do {
-                baiduLog("[Baidu-Cleanup] 🔧 开始重新获取 bdstoken...")
-                // 异步执行前重新获取 bdstoken，防止过期
-                let freshBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? bdstoken
-                guard !freshBdstoken.isEmpty else {
-                    baiduLog("[Baidu-Cleanup] ⚠️ 无法刷新 bdstoken，跳过清理")
-                    return
-                }
-                baiduLog("[Baidu-Cleanup] 🔧 freshBdstoken=\(freshBdstoken.prefix(8))…，cutoff=\(Date().addingTimeInterval(-2 * 3600))")
+                // 直接使用传入的 bdstoken，不再重新获取。
+                // earlyPureCookie 经过过滤后可能缺少 BAIDUID 等字段，导致 gettemplatevariable 返回 errno=-6。
+                // 传入的 bdstoken 是在 resolveBaiduPlayURLViaMainRoute 入口处通过完整 Cookie 获取的，有效。
+                let freshBdstoken = bdstoken
+                baiduLog("[Baidu-Cleanup] 🔧 使用传入的 bdstoken=\(freshBdstoken.prefix(8))…，cutoff=\(Date().addingTimeInterval(-2 * 3600))")
 
                 let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
                 let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
@@ -5687,7 +5685,7 @@ class CloudDriveManager: ObservableObject {
                 let fileListStr = String(data: encodedList ?? Data(), encoding: .utf8) ?? "[]"
 
                 // 对齐 iBox 删除 API 格式
-                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&bdstoken=\(freshBdstoken)")!
+                let deleteURL = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&channel=chunlei&bdstoken=\(freshBdstoken)")!
                 var delReq = URLRequest(url: deleteURL)
                 delReq.httpMethod = "POST"
                 delReq.timeoutInterval = 12
