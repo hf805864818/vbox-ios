@@ -105,4 +105,5 @@ ${SECTION}"
             exit 0
           fi
           git commit -m "docs: 自动更新 CHANGELOG"
+          git pull --rebase origin main
           git push
