@@ -1089,7 +1089,19 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func resolveTokenName(drive: DriveType, tokenValue: String) -> String {
-        savedTokens.first(where: { $0.type == drive.rawValue && $0.value == tokenValue })?.name ?? ""
+        // 先尝试完全匹配（常规手动 Token 路径）
+        if let exact = savedTokens.first(where: { $0.type == drive.rawValue && $0.value == tokenValue }) {
+            return exact.name
+        }
+        // 对于百度，pureAccountCookie 是合并/过滤后的合成值，与 savedTokens 中的原始 Cookie
+        // 不完全相等，但 BDUSS 相同。通过 BDUSS 值匹配来找到对应的 Token。
+        if drive == .baidu, let bduss = baiduCookieValue(tokenValue, named: "BDUSS") {
+            return savedTokens.first(where: { token in
+                guard token.type == drive.rawValue else { return false }
+                return baiduCookieValue(token.value, named: "BDUSS") == bduss
+            })?.name ?? ""
+        }
+        return ""
     }
 
     private func tokenValue(for drive: DriveType, tokenName: String) -> String? {
@@ -1097,7 +1109,15 @@ class CloudDriveManager: ObservableObject {
            let found = tokens(for: drive).first(where: { $0.name == tokenName }) {
             return found.value
         }
-        return tokens(for: drive).first?.value
+        // 兜底：百度优先返回 Account Web Token（含 BDUSS+STOKEN），
+        // 避免返回 PCS Token（仅用于下载直链，无法调用 filemanager 删除 API）
+        let candidates = tokens(for: drive)
+        if drive == .baidu {
+            if let account = candidates.first(where: { isBaiduAccountWebToken($0) }) {
+                return account.value
+            }
+        }
+        return candidates.first?.value
     }
 
     private func loadCleanupQueue() -> [CleanupQueueItem] {
@@ -5518,8 +5538,12 @@ class CloudDriveManager: ObservableObject {
             effectiveBdstoken = bdstoken
         } else {
             // 延迟清理场景下 bdstoken 可能已过期，实时获取
-            let cookie = "BDUSS=\(rawBDUSS)"
-            effectiveBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? ""
+            // 使用完整 cookieHeader（含 BDUSS+STOKEN）而非仅 BDUSS，确保 gettemplatevariable 认证通过
+            effectiveBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookieHeader) ?? ""
+        }
+        guard !effectiveBdstoken.isEmpty else {
+            self.log("[CloudDrive] ❌ 百度删除失败：无法获取 bdstoken，跳过 \(fileIds.count) 个文件")
+            return
         }
         // 对齐 iBox 2.4.6 删除 API 格式，提升兼容性
         let url = URL(string: "https://pan.baidu.com/api/filemanager?async=2&onnest=fail&opera=delete&newVerify=1&clienttype=0&app_id=250528&web=1&bdstoken=\(effectiveBdstoken)")!
@@ -5534,8 +5558,19 @@ class CloudDriveManager: ObservableObject {
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         let params = "filelist=\(filelistJSON.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? filelistJSON)"
         req.httpBody = params.data(using: .utf8)
-        let _ = try? await session.data(for: req)
-        self.log("[CloudDrive] ✅ 百度已删除转存文件: \(paths)")
+        // 解析删除 API 响应，校验 errno 判断删除是否成功
+        if let (data, _) = try? await session.data(for: req),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let errno = json["errno"] as? Int ?? -1
+            if errno == 0 {
+                self.log("[CloudDrive] ✅ 百度已删除转存文件: \(paths)")
+            } else {
+                let errMsg = (json["errmsg"] as? String) ?? (json["error_msg"] as? String) ?? ""
+                self.log("[CloudDrive] ❌ 百度删除失败 errno=\(errno)\(errMsg.isEmpty ? "" : " msg=\(errMsg)")，文件: \(paths)")
+            }
+        } else {
+            self.log("[CloudDrive] ❌ 百度删除请求网络失败: \(paths)")
+        }
     }
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
