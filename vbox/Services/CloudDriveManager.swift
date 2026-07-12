@@ -5635,12 +5635,15 @@ class CloudDriveManager: ObservableObject {
                         baiduLog("[Baidu-Cleanup] ⚠️ api/list 第\(page)页 errno=\(listErrno)")
                         break
                     }
-                    guard let root = json["data"] as? [String: Any],
-                          let list = root["list"] as? [[String: Any]] else {
-                        baiduLog("[Baidu-Cleanup] ⚠️ api/list 第\(page)页 data/list 结构异常")
+                    // 对齐 baiduFindExistingVboxPath：兼容 api/list 多种返回格式
+                    let root = (json["data"] as? [String: Any]) ?? json
+                    let list = root["list"] as? [[String: Any]]
+                        ?? root["file_list"] as? [[String: Any]]
+                        ?? root["records"] as? [[String: Any]]
+                    guard let list = list, !list.isEmpty else {
+                        baiduLog("[Baidu-Cleanup] ℹ️ api/list 第\(page)页无数据，结束分页")
                         break
                     }
-                    if list.isEmpty { break }
                     allFiles.append(contentsOf: list)
                     if list.count < 200 { break }
                 }
