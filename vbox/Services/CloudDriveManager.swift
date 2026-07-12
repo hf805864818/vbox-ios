@@ -4852,10 +4852,15 @@ class CloudDriveManager: ObservableObject {
         let pcs = normalizeBaiduPCSCookie(pcsCookie)
         let earlyCleanupCookie = baiduMergeCookieStrings([webCookie, pcs])
         let earlyPureCookie = baiduPureAccountCookie(earlyCleanupCookie)
+        baiduLog("[Baidu-Cleanup] 🔧 早期清理触发器已启动，准备获取 bdstoken...")
         Task { [weak self] in
+            baiduLog("[Baidu-Cleanup] 🔧 开始获取 bdstoken，cookie 中 BDUSS=\(baiduCookieValue(earlyPureCookie, named: "BDUSS")?.prefix(8) ?? "nil")…")
             let token = await self?.baiduFetchUserBdstokenLocal(cookie: earlyPureCookie) ?? ""
+            baiduLog("[Baidu-Cleanup] 🔧 bdstoken 获取结果：\(token.isEmpty ? "失败（空）" : "成功 \(token.prefix(8))…")")
             if !token.isEmpty {
                 self?.baiduCleanupOldTransferFiles(cookie: earlyPureCookie, bdstoken: token)
+            } else {
+                baiduLog("[Baidu-Cleanup] ❌ bdstoken 为空，清理未执行")
             }
         }
 
@@ -5574,24 +5579,28 @@ class CloudDriveManager: ObservableObject {
 
     /// 异步清理 /vbox/ 目录下超过2小时的旧转存文件，不阻塞调用方
     private func baiduCleanupOldTransferFiles(cookie: String, bdstoken: String) {
+        baiduLog("[Baidu-Cleanup] 🔧 baiduCleanupOldTransferFiles 入口，bdstoken=\(bdstoken.prefix(8))…")
         // 守卫：bdstoken 为空时无法调用任何百度 API，直接跳过
         guard !bdstoken.isEmpty else {
             baiduLog("[Baidu-Cleanup] ⚠️ bdstoken 为空，跳过旧文件清理")
             return
         }
-        guard let _ = baiduCookieValue(cookie, named: "BDUSS") else {
+        guard let bdussVal = baiduCookieValue(cookie, named: "BDUSS") else {
             baiduLog("[Baidu-Cleanup] ⚠️ Cookie 中缺少 BDUSS，跳过旧文件清理")
             return
         }
+        baiduLog("[Baidu-Cleanup] 🔧 守卫通过，BDUSS=\(bdussVal.prefix(8))…")
 
         Task {
             do {
+                baiduLog("[Baidu-Cleanup] 🔧 开始重新获取 bdstoken...")
                 // 异步执行前重新获取 bdstoken，防止过期
                 let freshBdstoken = await baiduFetchUserBdstokenLocal(cookie: cookie) ?? bdstoken
                 guard !freshBdstoken.isEmpty else {
                     baiduLog("[Baidu-Cleanup] ⚠️ 无法刷新 bdstoken，跳过清理")
                     return
                 }
+                baiduLog("[Baidu-Cleanup] 🔧 freshBdstoken=\(freshBdstoken.prefix(8))…，cutoff=\(Date().addingTimeInterval(-2 * 3600))")
 
                 let cutoff = Date().addingTimeInterval(-2 * 3600) // 2小时前
                 let encodedDir = Self.baiduIBoxTransferDir.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? Self.baiduIBoxTransferDir
@@ -5640,6 +5649,8 @@ class CloudDriveManager: ObservableObject {
                     return
                 }
 
+                baiduLog("[Baidu-Cleanup] 🔧 api/list 成功获取 \(allFiles.count) 个文件")
+
                 // 找出超过2小时的文件
                 // 百度 api/list 返回的时间戳字段为 server_ctime / server_mtime
                 let oldFiles: [[String: Any]] = allFiles.filter { item in
@@ -5652,6 +5663,10 @@ class CloudDriveManager: ObservableObject {
                         ?? (item["local_mtime"] as? Int)
                         ?? 0
                     let timestamp = max(ctime, mtime)
+                    // 首次执行时打印每个文件的时间戳信息用于诊断
+                    if let fname = item["server_filename"] as? String ?? item["path"] as? String {
+                        baiduLog("[Baidu-Cleanup] 🔍 文件：\(fname)，server_ctime=\(item["server_ctime"] ?? "nil")，server_mtime=\(item["server_mtime"] ?? "nil")，mtime=\(item["mtime"] ?? "nil")，计算timestamp=\(timestamp)")
+                    }
                     guard timestamp > 0 else { return false }
                     let fileDate = Date(timeIntervalSince1970: Double(timestamp))
                     return fileDate < cutoff
