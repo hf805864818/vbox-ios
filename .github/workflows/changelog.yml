@@ -105,5 +105,7 @@ ${SECTION}"
             exit 0
           fi
           git commit -m "docs: 自动更新 CHANGELOG"
-          git pull --rebase origin main
-          git push
+          # 避免与其他自动提交冲突，先获取最新 main 并变基
+          git fetch origin main
+          git rebase origin/main || (git rebase --abort && echo "rebase 失败，跳过推送")
+          git push || echo "推送失败，可能已被其他工作流更新"
