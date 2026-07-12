@@ -5617,29 +5617,50 @@ class CloudDriveManager: ObservableObject {
                     req.httpBody = "dir=\(encodedDir)&order=time&desc=1&num=200&page=\(page)".data(using: .utf8)
 
                     let (data, _) = try await session.data(for: req)
-                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let errno = json["errno"] as? Int, errno == 0,
-                          let root = json["data"] as? [String: Any],
+                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        baiduLog("[Baidu-Cleanup] ⚠️ api/list 第\(page)页 JSON 解析失败")
+                        break
+                    }
+                    let listErrno = json["errno"] as? Int ?? -1
+                    guard listErrno == 0 else {
+                        baiduLog("[Baidu-Cleanup] ⚠️ api/list 第\(page)页 errno=\(listErrno)")
+                        break
+                    }
+                    guard let root = json["data"] as? [String: Any],
                           let list = root["list"] as? [[String: Any]] else {
+                        baiduLog("[Baidu-Cleanup] ⚠️ api/list 第\(page)页 data/list 结构异常")
                         break
                     }
                     if list.isEmpty { break }
                     allFiles.append(contentsOf: list)
                     if list.count < 200 { break }
                 }
-                guard !allFiles.isEmpty else { return }
+                guard !allFiles.isEmpty else {
+                    baiduLog("[Baidu-Cleanup] ⚠️ /vbox/ 目录为空或 api/list 全部失败，跳过清理")
+                    return
+                }
 
                 // 找出超过2小时的文件
+                // 百度 api/list 返回的时间戳字段为 server_ctime / server_mtime
                 let oldFiles: [[String: Any]] = allFiles.filter { item in
-                    let ctime = item["ctime"] as? Int ?? 0
-                    let mtime = item["mtime"] as? Int ?? 0
+                    let ctime = (item["server_ctime"] as? Int)
+                        ?? (item["ctime"] as? Int)
+                        ?? (item["local_ctime"] as? Int)
+                        ?? 0
+                    let mtime = (item["server_mtime"] as? Int)
+                        ?? (item["mtime"] as? Int)
+                        ?? (item["local_mtime"] as? Int)
+                        ?? 0
                     let timestamp = max(ctime, mtime)
                     guard timestamp > 0 else { return false }
                     let fileDate = Date(timeIntervalSince1970: Double(timestamp))
                     return fileDate < cutoff
                 }
 
-                guard !oldFiles.isEmpty else { return }
+                guard !oldFiles.isEmpty else {
+                    baiduLog("[Baidu-Cleanup] ℹ️ /vbox/ 目录无超过2小时的旧文件（共 \(allFiles.count) 个文件，截止 \(cutoff)）")
+                    return
+                }
 
                 // 批量删除
                 let paths = oldFiles.compactMap { $0["path"] as? String }
@@ -5656,8 +5677,18 @@ class CloudDriveManager: ObservableObject {
                 delReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                 delReq.httpBody = "filelist=\(fileListStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileListStr)".data(using: .utf8)
 
-                let (_, _) = try await session.data(for: delReq)
-                baiduLog("[Baidu-Cleanup] ✅ 已清理 \(oldFiles.count) 个超过2小时的旧转存文件")
+                if let (delData, _) = try? await session.data(for: delReq),
+                   let delJson = try? JSONSerialization.jsonObject(with: delData) as? [String: Any] {
+                    let delErrno = delJson["errno"] as? Int ?? -1
+                    if delErrno == 0 {
+                        baiduLog("[Baidu-Cleanup] ✅ 已清理 \(oldFiles.count) 个超过2小时的旧转存文件")
+                    } else {
+                        let delErrMsg = (delJson["errmsg"] as? String) ?? (delJson["error_msg"] as? String) ?? ""
+                        baiduLog("[Baidu-Cleanup] ❌ 批量删除失败 errno=\(delErrno)\(delErrMsg.isEmpty ? "" : " msg=\(delErrMsg)")")
+                    }
+                } else {
+                    baiduLog("[Baidu-Cleanup] ❌ 批量删除请求网络失败")
+                }
             } catch {
                 baiduLog("[Baidu-Cleanup] ⚠️ 清理旧转存文件失败（不影响播放）：\(error.localizedDescription)")
             }
