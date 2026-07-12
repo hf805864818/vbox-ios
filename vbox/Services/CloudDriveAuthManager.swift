@@ -546,13 +546,12 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
+        // 对齐欧歌源 config.jar 实测参数（__dt/__t），旧版 client_id/v/request_id 作为兜底保留
         components.queryItems = [
-            URLQueryItem(name: "pr", value: "ucpro"),
-            URLQueryItem(name: "fr", value: "iphone"),
-            URLQueryItem(name: "sys", value: "ios"),
+            URLQueryItem(name: "__dt", value: "641254"),
+            URLQueryItem(name: "__t", value: timestampMS()),
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "v", value: "1.2"),
-            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
+            URLQueryItem(name: "v", value: "1.2")
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
@@ -586,10 +585,12 @@ final class CloudDriveAuthManager: ObservableObject {
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
+        // 对齐欧歌源 config.jar 实测参数（__dt/__t）
         components.queryItems = [
+            URLQueryItem(name: "__dt", value: "18884"),
+            URLQueryItem(name: "__t", value: timestampMS()),
             URLQueryItem(name: "client_id", value: token.pollClientId),
             URLQueryItem(name: "v", value: "1.2"),
-            URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased()),
             URLQueryItem(name: "token", value: token.token)
         ]
         var request = URLRequest(url: components.url!)
@@ -599,17 +600,22 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        let (data, _) = try await ucSession.data(for: request)
+        let (data, response) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        print("[VBox UC Poll] raw: \(rawBody)")
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox UC Poll] HTTP \(httpStatus) raw: \(rawBody)")
+
+        // 优先直接提取 service_ticket（欧歌源/新版 UC 可能直接放在顶层或 result 下）
         let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
             ?? extractNestedString(json, path: ["data", "service_ticket"])
             ?? extractNestedString(json, path: ["result", "service_ticket"])
             ?? extractString(json, keys: ["service_ticket", "ticket"])
         if let ticket, !ticket.isEmpty {
+            print("[VBox UC Poll] 获取到 service_ticket: \(ticket.prefix(20))...")
             return .success(serviceTicket: ticket)
         }
+
         var status = json["status"] as? Int
             ?? json["code"] as? Int
             ?? json["status"] as? NSNumber as? Int
@@ -623,13 +629,21 @@ final class CloudDriveAuthManager: ObservableObject {
                 if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
             }
         }
+        print("[VBox UC Poll] parsed status: \(status)")
+
         if status == -2 {
             // -2 在部分版本中表示"未扫描"或临时状态，继续轮询而非直接失败
             return .pending
         }
-        if [50004002, 50004003, 50004004, 50004005].contains(status) { return .expired }
+        // 新版 UC 常见状态码：50004001=待扫码，50004000=已扫码，50004002+=过期/取消
+        if [50004002, 50004003, 50004004, 50004005, 50004006, 50004007].contains(status) { return .expired }
         if status == 50004000 { return .scanned }
         if status == 50004001 { return .pending }
+        // 有些版本用 0/-1 表示成功/等待，也兜底处理
+        if status == 0 {
+            // 已返回成功状态但没有 ticket，继续轮询一次
+            return .pending
+        }
         if status != -1 { print("[VBox UC Poll] unknown status: \(status)") }
         return .pending
     }
@@ -637,88 +651,24 @@ final class CloudDriveAuthManager: ObservableObject {
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
         // UC 云盘使用自己的 CAS 体系，优先使用 drive.uc.cn 域名换取 Cookie
         // 若 UC 自身接口失败，回退到 pan.quark.cn（兼容旧版 CAS 共享体系）
-        
-        // 策略1: 使用 UC 自身 account/info 接口换取 Cookie
-        let ucEndpoints = [
-            "https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc"
+
+        // 策略1+2: 使用 UC 自身 account/info 接口换取 Cookie
+        // 欧歌源 config.jar 使用的不带 fr/platform 的 endpoint，同时保留 vbox 旧版参数做兜底
+        let ucEndpoints: [(url: String, domain: String)] = [
+            ("https://drive.uc.cn/account/info?st=\(serviceTicket)", "https://drive.uc.cn"),
+            ("https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc", "https://drive.uc.cn")
         ]
-        
-        var lastCookie = ""
+
         var lastError: Error? = nil
-        
-        for endpoint in ucEndpoints {
+        var lastCookie: String? = nil
+
+        for (endpoint, domain) in ucEndpoints {
             guard let url = URL(string: endpoint) else { continue }
-            var request = URLRequest(url: url)
-            request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-            request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
-            request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-            // 如果有 serviceTicket，通过 Cookie 或 header 传递
-            if endpoint.contains("st=") {
-                request.setValue("st=\(serviceTicket)", forHTTPHeaderField: "Cookie")
-            }
-
-            let config = URLSessionConfiguration.ephemeral
-            config.httpCookieAcceptPolicy = .always
-            config.httpShouldSetCookies = true
-            let oneShot = URLSession(configuration: config)
-            defer { oneShot.finishTasksAndInvalidate() }
-
             do {
-                let (data, response) = try await oneShot.data(for: request)
-                let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-                let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                print("[VBox UC Exchange] endpoint: \(endpoint.prefix(50))... HTTP \(httpStatusCode): \(rawBody.prefix(300))")
-
-                let ucURL = URL(string: "https://drive.uc.cn")!
-                let cookie = collectCookies(from: response as? HTTPURLResponse ?? HTTPURLResponse(), storage: oneShot.configuration.httpCookieStorage, url: ucURL)
+                let (cookie, data) = try await ucFetchAccountInfoCookie(url: url, domain: domain)
                 lastCookie = cookie
-                
                 if !cookie.isEmpty {
-                    print("[VBox UC Exchange] success with endpoint: \(endpoint.prefix(50))...")
-
-                    // 如果 response 包含用户信息则提取
-                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                    let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
-                        ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
-
-                    let credential = CloudDriveCredential(
-                        driveType: CloudDriveManager.DriveType.uc.rawValue,
-                        authType: .qr,
-                        accessToken: nil,
-                        refreshToken: nil,
-                        cookie: cookie,
-                        driveId: nil,
-                        userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
-                        userName: userName,
-                        avatar: extractNestedString(json ?? [:], path: ["data", "avatar"]) ?? extractString(json ?? [:], keys: ["avatar"]),
-                        expiresAt: nil,
-                        updatedAt: Date(),
-                        lastCheckedAt: Date(),
-                        state: .valid,
-                        statusMessage: "UC 扫码登录成功",
-                        extra: [:]
-                    )
-                    saveCredential(credential)
-
-                    // 异步兑换 UCTV Token，不影响登录成功返回
-                    Task {
-                        do {
-                            let tvToken = try await self.ucExchangeTVToken(cookie: cookie)
-                            await MainActor.run {
-                                guard var cred = self.credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
-                                var extra = cred.extra
-                                extra["uc_tv_token"] = tvToken
-                                cred.extra = extra
-                                cred.statusMessage = "UC 扫码登录成功（已获取 UCTV Token）"
-                                self.credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
-                                self.persist()
-                                CloudDriveAuthManager.logSensitive("[VBox UC] UCTV Token 已保存", value: tvToken)
-                            }
-                        } catch {
-                            print("[VBox UC] UCTV Token 兑换失败（非阻断）: \(error)")
-                        }
-                    }
+                    try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC drive.uc.cn")
                     return
                 }
             } catch {
@@ -726,71 +676,83 @@ final class CloudDriveAuthManager: ObservableObject {
                 print("[VBox UC Exchange] endpoint failed: \(error)")
             }
         }
-        
-        // 策略2: 回退到 pan.quark.cn（兼容 UC CAS 与夸克共享的旧版系统）
+
+        // 策略3: 回退到 pan.quark.cn（兼容 UC CAS 与夸克共享的旧版系统）
         print("[VBox UC Exchange] UC own endpoints failed, falling back to pan.quark.cn")
-        // 尝试使用 UC 自身域名，若 UC CAS 已独立于夸克则需要此配置
         var components = URLComponents(string: "https://pan.quark.cn/account/info")!
         components.queryItems = [
             URLQueryItem(name: "st", value: serviceTicket),
             URLQueryItem(name: "fr", value: "pc"),
             URLQueryItem(name: "platform", value: "pc")
         ]
-        var request = URLRequest(url: components.url!)
-        request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        do {
+            let (cookie, data) = try await ucFetchAccountInfoCookie(url: components.url!, domain: "https://pan.quark.cn")
+            let finalCookie = cookie.isEmpty ? (lastCookie ?? "") : cookie
+            guard !finalCookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
+
+            let cookieLower = finalCookie.lowercased()
+            let mustHave = ["__kps", "__pus", "__uid"]
+            for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
+                print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
+            }
+            guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") else {
+                throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid)，登录可能无效")
+            }
+            try await ucSaveCredentialFromCookie(cookie: finalCookie, data: data, source: "UC pan.quark.cn fallback")
+        } catch {
+            if let lastError = lastError {
+                throw lastError
+            }
+            throw error
+        }
+    }
+
+    private func ucFetchAccountInfoCookie(url: URL, domain: String) async throws -> (cookie: String, data: Data) {
+        var request = URLRequest(url: url)
+        request.setValue(domain, forHTTPHeaderField: "Origin")
+        request.setValue("\(domain)/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
+        let cookieCollector = RedirectCookieCollector()
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.httpShouldSetCookies = true
-        let oneShot = URLSession(configuration: config)
+        let oneShot = URLSession(configuration: config, delegate: cookieCollector, delegateQueue: nil)
         defer { oneShot.finishTasksAndInvalidate() }
 
         let (data, response) = try await oneShot.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        print("[VBox UC Exchange fallback] HTTP \(httpStatusCode): \(rawBody.prefix(300))")
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            if let lastError = lastError {
-                throw lastError
-            }
-            throw AuthError.remoteError("UC account/info HTTP 失败 (status: \(httpStatusCode))")
+        guard let http = response as? HTTPURLResponse else {
+            throw AuthError.invalidResponse("UC account/info 无响应")
         }
-        let quarkURL = URL(string: "https://pan.quark.cn")!
-        let cookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: quarkURL)
-        
-        // 如果 quark 回退也返回空 cookie，尝试从 uc 自身端点获取
-        let finalCookie: String
-        if cookie.isEmpty && !lastCookie.isEmpty {
-            finalCookie = lastCookie
-        } else {
-            finalCookie = cookie
-        }
-        
-        guard !finalCookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
+        let httpStatusCode = http.statusCode
+        print("[VBox UC Exchange] endpoint: \(url.absoluteString.prefix(60))... HTTP \(httpStatusCode): \(rawBody.prefix(300))")
 
-        // 校验必须字段（参考夸克实现，UC 需要 __pus / __kps / __uid）
-        let mustHave = ["__kps", "__pus", "__uid"]
-        let cookieLower = finalCookie.lowercased()
-        for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
-            print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
-        }
-        // 回退到 quark 时，只有拿到夸克核心登录态字段才保存，避免保存无效 cookie
-        guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") else {
-            throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid)，登录可能无效")
-        }
+        // 收集重定向 Cookie + 最终响应 Cookie + URLSession 自动存储的 Cookie
+        let domainURL = URL(string: domain)!
+        let responseCookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: domainURL)
+        let redirectCookie = cookieCollector.cookieString()
+        let cookie = mergeCookieStrings([redirectCookie, responseCookie])
 
+        print("[VBox UC Exchange] redirectCookie fields: \(redirectCookie.isEmpty ? "none" : redirectCookie.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces).components(separatedBy: "=").first ?? "" }.joined(separator: ","))")
+        print("[VBox UC Exchange] responseCookie fields: \(responseCookie.isEmpty ? "none" : responseCookie.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces).components(separatedBy: "=").first ?? "" }.joined(separator: ","))")
+        print("[VBox UC Exchange] merged cookie empty: \(cookie.isEmpty)")
+
+        return (cookie, data)
+    }
+
+    private func ucSaveCredentialFromCookie(cookie: String, data: Data, source: String) async throws {
         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         let userName = extractNestedString(json ?? [:], path: ["data", "nickname"])
             ?? extractString(json ?? [:], keys: ["nickname", "nick_name", "user_name"])
+
         let credential = CloudDriveCredential(
             driveType: CloudDriveManager.DriveType.uc.rawValue,
             authType: .qr,
             accessToken: nil,
             refreshToken: nil,
-            cookie: finalCookie,
+            cookie: cookie,
             driveId: nil,
             userId: extractNestedString(json ?? [:], path: ["data", "uid"]) ?? extractString(json ?? [:], keys: ["uid", "user_id"]),
             userName: userName,
@@ -803,11 +765,12 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: [:]
         )
         saveCredential(credential)
+        print("[VBox UC Exchange] ✅ 已保存 UC Cookie (source: \(source))")
 
-        // 尝试兑换 UCTV Token，用于 open-api-drive.uc.cn 播放兜底
+        // 异步兑换 UCTV Token，不影响登录成功返回
         Task {
             do {
-                let tvToken = try await self.ucExchangeTVToken(cookie: finalCookie)
+                let tvToken = try await self.ucExchangeTVToken(cookie: cookie)
                 await MainActor.run {
                     guard var cred = self.credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
                     var extra = cred.extra
@@ -1896,7 +1859,7 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private var ucUserAgent: String {
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.16-b62cf9c50d Safari/537.36 Channel/ucpan_other_ch"
     }
 
     private var aliUserAgent: String {
@@ -1962,15 +1925,14 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 去掉了 ssb=weblogin（该参数为夸克扫码沿用，可能不适用于 UC 云盘 KPS 登录）
+        // 对齐欧歌源 config.jar 实测的 uc_param_str，确保 UC App 能正确识别二维码
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
+            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "uc_param_str", value: ""),
-            URLQueryItem(name: "uc_biz_str", value: "S:custom|C:titlebar_fix")
+            URLQueryItem(name: "client_id", value: clientId)
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)"
+        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
     }
 
     private func timestampMS() -> String {
