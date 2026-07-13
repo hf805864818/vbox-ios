@@ -232,8 +232,24 @@ struct EpisodePickerPanelV2: View {
     @ObservedObject var playerState: PlayerState
     @Binding var isPresented: Bool
     var isPortrait: Bool = true
+    @Binding var isReversed: Bool
     @EnvironmentObject private var settings: AppSettings
-    @State private var isReversed = false
+    @State private var internalIsReversed = false
+
+    private var effectiveIsReversed: Bool {
+        // 竖屏由外部绑定控制（排序按钮在标题栏），横屏由内部状态控制
+        isPortrait ? isReversed : internalIsReversed
+    }
+
+    private func toggleReversed() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if isPortrait {
+                isReversed.toggle()
+            } else {
+                internalIsReversed.toggle()
+            }
+        }
+    }
 
     /// 自适应皮肤的按钮背景色
     private var buttonBackground: Color {
@@ -265,39 +281,37 @@ struct EpisodePickerPanelV2: View {
     }
 
     private var sortedEpisodes: [EpisodeItem] {
-        isReversed ? Array(playerState.episodeItems.reversed()) : playerState.episodeItems
+        effectiveIsReversed ? Array(playerState.episodeItems.reversed()) : playerState.episodeItems
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if !playerState.episodeItems.isEmpty {
-                // 排序按钮
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isReversed.toggle()
+                // 横屏模式：排序按钮在面板内显示
+                if !isPortrait {
+                    HStack {
+                        Spacer()
+                        Button(action: { toggleReversed() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: effectiveIsReversed ? "arrow.up" : "arrow.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(effectiveIsReversed ? "倒序" : "正序")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
+                            )
                         }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: isReversed ? "arrow.up" : "arrow.down")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text(isReversed ? "倒序" : "正序")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
-                        )
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal, 10)
+                    .padding(.top, 4)
+                    .padding(.bottom, 2)
                 }
-                .padding(.horizontal, isPortrait ? 14 : 10)
-                .padding(.top, isPortrait ? 6 : 4)
-                .padding(.bottom, 2)
 
                 // 河马剧场风格：浅蓝色按钮网格
                 ScrollView(showsIndicators: true) {

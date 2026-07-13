@@ -3597,9 +3597,7 @@ struct PlayerContainerView: View {
             // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
             Group {
                 if playerState.isPortrait && playerState.showEpisodePicker {
-                    PortraitPopupView(isPresented: $playerState.showEpisodePicker, title: "选集") {
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: true)
-                    }
+                    EpisodePickerPopupWrapper(playerState: playerState, isPresented: $playerState.showEpisodePicker)
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
                     // 横屏：小弹窗，宽度足够显示5列网格
                     GeometryReader { geo in
@@ -3612,7 +3610,7 @@ struct PlayerContainerView: View {
                                 }
                             }
 
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false)
+                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false, isReversed: .constant(false))
                             .environmentObject(settings)
                             .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 300))
                             .background(
@@ -4015,9 +4013,9 @@ struct PlayerTopBarView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
 
-                    // 资源名称（自动滚动长名称）
-                    VideoNameScrollingText(name: videoName)
-                        .frame(maxWidth: UIScreen.main.bounds.width * 0.25)
+                    // 资源名称（自动滚动长名称，固定宽度避免撑破布局）
+                    VideoNameScrollingText(name: videoName, maxWidth: 120)
+                        .frame(width: 120, alignment: .leading)
                 }
 
                 Spacer()
@@ -4102,45 +4100,51 @@ struct PlayerTopBarView: View {
 // MARK: - 视频名称自动滚动组件
 struct VideoNameScrollingText: View {
     let name: String
+    let maxWidth: CGFloat
     @State private var animate = false
-    @State private var showName = false
+
+    init(name: String, maxWidth: CGFloat = 120) {
+        self.name = name
+        self.maxWidth = maxWidth
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let font = UIFont.systemFont(ofSize: 13, weight: .medium)
-            let textWidth = (name as NSString).size(withAttributes: [.font: font]).width
-            let needsScroll = textWidth > geo.size.width - 8
+        let font = UIFont.systemFont(ofSize: 13, weight: .medium)
+        let textWidth = (name as NSString).size(withAttributes: [.font: font]).width
+        let needsScroll = textWidth > maxWidth
 
-            if needsScroll {
-                Text(name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .offset(x: animate ? -(textWidth - geo.size.width + 20) : geo.size.width)
-                    .animation(
-                        .linear(duration: max(4.0, textWidth / 30.0))
-                        .delay(2)
-                        .repeatForever(autoreverses: false),
-                        value: animate
+        if needsScroll {
+            Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: maxWidth, alignment: .leading)
+                .clipped()
+                .overlay(alignment: .trailing) {
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black]),
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
-                    .mask(
-                        HStack(spacing: 0) {
-                            Color.black
-                            LinearGradient(gradient: Gradient(colors: [.black, .clear]), startPoint: .trailing, endPoint: .leading)
-                                .frame(width: 20)
-                        }
-                    )
-                    .onAppear { animate = true }
-            } else {
-                Text(name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(1)
-                    .padding(.leading, 8)
-            }
+                    .frame(width: 20)
+                }
+                .offset(x: animate ? -(textWidth - maxWidth + 20) : maxWidth)
+                .animation(
+                    .linear(duration: max(4.0, textWidth / 30.0))
+                    .delay(2)
+                    .repeatForever(autoreverses: false),
+                    value: animate
+                )
+                .onAppear { animate = true }
+                .padding(.leading, 8)
+        } else {
+            Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .lineLimit(1)
+                .padding(.leading, 8)
         }
-        .clipped()
     }
 }
 
@@ -4665,17 +4669,66 @@ struct PlayerControlsView: View {
     }
 }
 
+// MARK: - 竖屏选集弹窗（排序按钮在标题栏右侧，替代关闭按钮）
+struct EpisodePickerPopupWrapper: View {
+    @ObservedObject var playerState: PlayerState
+    @Binding var isPresented: Bool
+    @State private var isReversed = false
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        PortraitPopupView(isPresented: $isPresented, title: "选集", content: {
+            EpisodePickerPanelV2(
+                playerState: playerState,
+                isPresented: $isPresented,
+                isPortrait: true,
+                isReversed: $isReversed
+            )
+        }, trailing: {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isReversed.toggle()
+                }
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: isReversed ? "arrow.up" : "arrow.down")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(isReversed ? "倒序" : "正序")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+        })
+    }
+}
+
 // MARK: - 竖屏弹窗容器（河马剧场风格：半透明背景+居中面板，自适应皮肤）
-struct PortraitPopupView<Content: View>: View {
+struct PortraitPopupView<Content: View, Trailing: View>: View {
     @Binding var isPresented: Bool
     let title: String
     let content: Content
+    let trailingView: Trailing?
     @EnvironmentObject private var settings: AppSettings
 
-    init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content) {
+    init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content, @ViewBuilder trailing: () -> Trailing) {
         self._isPresented = isPresented
         self.title = title
         self.content = content()
+        self.trailingView = trailing()
+    }
+
+    init(isPresented: Binding<Bool>, title: String, @ViewBuilder content: () -> Content) where Trailing == EmptyView {
+        self._isPresented = isPresented
+        self.title = title
+        self.content = content()
+        self.trailingView = nil
     }
 
     /// 自适应皮肤的面板背景色
@@ -4709,15 +4762,19 @@ struct PortraitPopupView<Content: View>: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white)
                             Spacer()
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isPresented = false
+                            if let trailing = trailingView {
+                                trailing
+                            } else {
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isPresented = false
+                                    }
+                                }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.7))
+                                        .frame(width: 28, height: 28)
                                 }
-                            }) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.7))
-                                    .frame(width: 28, height: 28)
                             }
                         }
                         .padding(.horizontal, 14)
