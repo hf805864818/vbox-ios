@@ -167,30 +167,16 @@ class UpdateManager: ObservableObject {
 
     // MARK: - 代理节点动态获取 + 本地测速
 
-    /// 从 github.akams.cn 获取在线节点，本地 HEAD 测速后按响应时间排序
+    /// 从 github.akams.cn 的 JS 文件中动态提取代理节点，本地 HEAD 测速排序
     private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
-        var nodes: [String] = []
-
-        do {
-            var request = URLRequest(url: URL(string: "https://github.akams.cn")!)
-            request.timeoutInterval = 8
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            guard let html = String(data: data, encoding: .utf8) else { throw NSError(domain: "", code: -1) }
-            nodes = parseProxyNodes(from: html)
-            print("[UpdateManager] 从 github.akams.cn 解析到 \(nodes.count) 个在线节点")
-        } catch {
-            print("[UpdateManager] 获取节点列表失败: \(error.localizedDescription)")
-        }
-
+        let nodes = await fetchProxyNodesFromJS()
         if nodes.isEmpty {
-            print("[UpdateManager] 无可用代理节点，直连 GitHub")
+            print("[UpdateManager] 未获取到代理节点，直连 GitHub")
             return [URL(string: githubURL)!]
         }
 
-        // 本地 HEAD 测速：对每个节点发 HEAD 请求，记录响应时间
-        print("[UpdateManager] 开始本地测速 \(nodes.count) 个节点...")
+        print("[UpdateManager] 获取到 \(nodes.count) 个代理节点，开始本地测速...")
+
         var ranked: [(url: URL, latencyMs: Double)] = []
 
         await withTaskGroup(of: (host: String, latencyMs: Double?).self) { group in
@@ -224,32 +210,66 @@ class UpdateManager: ObservableObject {
             print("[UpdateManager]   #\(i+1) \(r.url.host ?? "?") \(String(format: "%.0f", r.latencyMs))ms")
         }
 
-        let urls = ranked.map { $0.url }
-        // 直连 GitHub 兜底
-        var result = urls
+        if ranked.isEmpty {
+            print("[UpdateManager] 所有代理节点不可用，直连 GitHub")
+            return [URL(string: githubURL)!]
+        }
+
+        var result = ranked.map { $0.url }
         result.append(URL(string: githubURL)!)
         return result
     }
 
-    /// 解析页面中所有在线节点的域名
-    private func parseProxyNodes(from html: String) -> [String] {
-        // 匹配: 域名 延迟数字 单位(ms|s)，离线节点(--)自动过滤
-        let pattern = #"(([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,})-*(\d+\.?\d*)\s*(ms|s)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+    /// 从 github.akams.cn 的 JS 文件中动态提取代理节点域名列表
+    private func fetchProxyNodesFromJS() async -> [String] {
+        do {
+            // 第一步：获取页面 HTML，提取所有 JS chunk 的 URL
+            var pageReq = URLRequest(url: URL(string: "https://github.akams.cn")!)
+            pageReq.timeoutInterval = 8
+            pageReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (pageData, _) = try await URLSession.shared.data(for: pageReq)
+            guard let html = String(data: pageData, encoding: .utf8) else { return [] }
 
-        let range = NSRange(html.startIndex..., in: html)
-        let matches = regex.matches(in: html, options: [], range: range)
+            // 提取所有 /_next/static/chunks/*.js 的 src
+            let chunkPattern = #"/_next/static/chunks/[a-f0-9]+\.js"#
+            guard let chunkRegex = try? NSRegularExpression(pattern: chunkPattern, options: []) else { return [] }
+            let chunkMatches = chunkRegex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+            let chunkURLs: [String] = chunkMatches.compactMap {
+                Range($0.range, in: html).map { String(html[$0]) }
+            }
 
-        var seen = Set<String>()
-        var nodes: [String] = []
+            // 第二步：下载 JS 文件，搜索包含代理域名的文件
+            for chunkURL in chunkURLs.prefix(6) {
+                let fullURL = "https://github.akams.cn\(chunkURL)"
+                var jsReq = URLRequest(url: URL(string: fullURL)!)
+                jsReq.timeoutInterval = 5
+                guard let (jsData, _) = try? await URLSession.shared.data(for: jsReq),
+                      let js = String(data: jsData, encoding: .utf8) else { continue }
 
-        for match in matches {
-            guard let hostRange = Range(match.range(at: 1), in: html) else { continue }
-            let host = String(html[hostRange])
-            guard host.contains("."), seen.insert(host).inserted else { continue }
-            nodes.append(host)
+                // 提取所有域名（包含 gh/proxy/git/github 关键词的）
+                let domainPattern = #""([a-zA-Z][-a-zA-Z0-9]*\.[-a-zA-Z0-9]+\.[a-zA-Z]{2,})""#
+                guard let domainRegex = try? NSRegularExpression(pattern: domainPattern, options: []) else { continue }
+                let domainMatches = domainRegex.matches(in: js, range: NSRange(js.startIndex..., in: js))
+
+                var domains = Set<String>()
+                for match in domainMatches {
+                    guard let r = Range(match.range(at: 1), in: js) else { continue }
+                    let domain = String(js[r])
+                    guard domain.contains("gh") || domain.contains("proxy") || domain.contains("git") || domain.contains("github") else { continue }
+                    guard !domain.contains("akams.cn") && !domain.contains("cdn.") && !domain.contains("umami.") else { continue }
+                    domains.insert(domain)
+                }
+
+                if !domains.isEmpty {
+                    let result = Array(domains).sorted()
+                    print("[UpdateManager] 从 \(chunkURL) 提取到 \(result.count) 个代理节点")
+                    return result
+                }
+            }
+        } catch {
+            print("[UpdateManager] 获取节点列表失败: \(error.localizedDescription)")
         }
-        return nodes
+        return []
     }
 
     /// 执行实际下载
