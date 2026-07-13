@@ -533,6 +533,7 @@ final class CloudDriveAuthManager: ObservableObject {
         let token: String
         let clientId: String
         let pollClientId: String
+        let requestId: String
         let qrPayload: String
     }
 
@@ -545,13 +546,15 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
+        let requestId = UUID().uuidString.lowercased()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         // 对齐欧歌源 config.jar 实测参数（__dt/__t），旧版 client_id/v/request_id 作为兜底保留
         components.queryItems = [
             URLQueryItem(name: "__dt", value: "641254"),
             URLQueryItem(name: "__t", value: timestampMS()),
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "v", value: "1.2")
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: requestId)
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
@@ -579,76 +582,67 @@ final class CloudDriveAuthManager: ObservableObject {
                 ?? extractNestedString(json, path: ["result", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
-        print("[VBox UC CreateToken] token: \(token) clientId: \(clientId)")
-        return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
+        // 提取响应中的 request_id（若有），否则使用请求中生成的
+        let respRequestId = extractString(json, keys: ["request_id", "requestId"])
+            ?? extractNestedString(json, path: ["data", "members", "request_id"])
+            ?? extractNestedString(json, path: ["data", "request_id"])
+            ?? requestId
+        print("[VBox UC CreateToken] token: \(token) clientId: \(clientId) requestId: \(respRequestId)")
+        return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, requestId: respRequestId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // 尝试两种轮询参数：旧版 client_id/v 风格 和 欧歌源风格
-        let paramSets: [[URLQueryItem]] = [
-            [
-                URLQueryItem(name: "__dt", value: "18884"),
-                URLQueryItem(name: "__t", value: timestampMS()),
-                URLQueryItem(name: "client_id", value: token.pollClientId),
-                URLQueryItem(name: "v", value: "1.2"),
-                URLQueryItem(name: "token", value: token.token)
-            ],
-            [
-                URLQueryItem(name: "__dt", value: "18884"),
-                URLQueryItem(name: "__t", value: timestampMS()),
-                URLQueryItem(name: "token", value: token.token)
-            ]
+        // 对齐夸克/欧歌源轮询参数：client_id + v + request_id + token
+        var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: token.pollClientId),
+            URLQueryItem(name: "v", value: "1.2"),
+            URLQueryItem(name: "request_id", value: token.requestId),
+            URLQueryItem(name: "token", value: token.token)
         ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        for (idx, queryItems) in paramSets.enumerated() {
-            var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
-            components.queryItems = queryItems
-            var request = URLRequest(url: components.url!)
-            request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-            request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
-            request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
+        let (data, response) = try await ucSession.data(for: request)
+        let json = try parseJSON(data)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox UC Poll] HTTP \(httpStatus) raw: \(rawBody)")
 
-            let (data, response) = try await ucSession.data(for: request)
-            let json = try parseJSON(data)
-            let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("[VBox UC Poll] params#\(idx) HTTP \(httpStatus) raw: \(rawBody)")
-
-            let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
-                ?? extractNestedString(json, path: ["data", "service_ticket"])
-                ?? extractNestedString(json, path: ["result", "service_ticket"])
-                ?? extractString(json, keys: ["service_ticket", "ticket"])
-            if let ticket, !ticket.isEmpty {
-                print("[VBox UC Poll] params#\(idx) 获取到 service_ticket: \(ticket)")
-                return .success(serviceTicket: ticket)
-            }
-
-            var status = json["status"] as? Int
-                ?? json["code"] as? Int
-                ?? json["status"] as? NSNumber as? Int
-                ?? json["code"] as? NSNumber as? Int
-                ?? extractNestedInt(json, path: ["data", "members", "status"])
-                ?? extractNestedInt(json, path: ["data", "status"])
-                ?? -1
-            if status == -1 {
-                if let s = json["status"] as? String ?? json["code"] as? String {
-                    status = Int(s) ?? -1
-                    if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
-                }
-            }
-            print("[VBox UC Poll] params#\(idx) parsed status: \(status)")
-
-            if [50004002, 50004003, 50004004, 50004005, 50004006, 50004007].contains(status) { return .expired }
-            if status == 50004000 { return .scanned }
-            if status == 50004001 {
-                // 如果两种参数都返回 pending，统一返回 pending 继续轮询
-                if idx == paramSets.count - 1 { return .pending }
-                continue
-            }
-            if status == 0 { return .pending }
-            if status != -1 { print("[VBox UC Poll] params#\(idx) unknown status: \(status)") }
+        let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
+            ?? extractNestedString(json, path: ["data", "service_ticket"])
+            ?? extractNestedString(json, path: ["result", "service_ticket"])
+            ?? extractString(json, keys: ["service_ticket", "ticket"])
+        if let ticket, !ticket.isEmpty {
+            print("[VBox UC Poll] 获取到 service_ticket: \(ticket)")
+            return .success(serviceTicket: ticket)
         }
+
+        var status = json["status"] as? Int
+            ?? json["code"] as? Int
+            ?? json["status"] as? NSNumber as? Int
+            ?? json["code"] as? NSNumber as? Int
+            ?? extractNestedInt(json, path: ["data", "members", "status"])
+            ?? extractNestedInt(json, path: ["data", "status"])
+            ?? -1
+        if status == -1 {
+            if let s = json["status"] as? String ?? json["code"] as? String {
+                status = Int(s) ?? -1
+                if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
+            }
+        }
+        print("[VBox UC Poll] parsed status: \(status)")
+
+        // 已知状态码映射
+        if [50004002, 50004003, 50004004, 50004005, 50004006, 50004007].contains(status) { return .expired }
+        if status == 50004000 { return .scanned }
+        // 50004001 = 等待扫码 / 50000000 = 服务器繁忙（token 尚未就绪，继续轮询）
+        if status == 50004001 || status == 50000000 { return .pending }
+        if status == 0 || status == 2000000 { return .pending }
+        if status != -1 { print("[VBox UC Poll] unknown status: \(status), treating as pending") }
         return .pending
     }
 
