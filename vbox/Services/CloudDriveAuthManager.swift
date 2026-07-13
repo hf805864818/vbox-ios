@@ -579,7 +579,7 @@ final class CloudDriveAuthManager: ObservableObject {
                 ?? extractNestedString(json, path: ["result", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
-        print("[VBox UC CreateToken] token: \(token.prefix(20))... clientId: \(clientId)")
+        print("[VBox UC CreateToken] token: \(token) clientId: \(clientId)")
         return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
     }
 
@@ -612,7 +612,7 @@ final class CloudDriveAuthManager: ObservableObject {
             ?? extractNestedString(json, path: ["result", "service_ticket"])
             ?? extractString(json, keys: ["service_ticket", "ticket"])
         if let ticket, !ticket.isEmpty {
-            print("[VBox UC Poll] 获取到 service_ticket: \(ticket.prefix(20))...")
+            print("[VBox UC Poll] 获取到 service_ticket: \(ticket)")
             return .success(serviceTicket: ticket)
         }
 
@@ -735,9 +735,9 @@ final class CloudDriveAuthManager: ObservableObject {
         let redirectCookie = cookieCollector.cookieString()
         let cookie = mergeCookieStrings([redirectCookie, responseCookie])
 
-        print("[VBox UC Exchange] redirectCookie fields: \(redirectCookie.isEmpty ? "none" : redirectCookie.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces).components(separatedBy: "=").first ?? "" }.joined(separator: ","))")
-        print("[VBox UC Exchange] responseCookie fields: \(responseCookie.isEmpty ? "none" : responseCookie.components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces).components(separatedBy: "=").first ?? "" }.joined(separator: ","))")
-        print("[VBox UC Exchange] merged cookie empty: \(cookie.isEmpty)")
+        print("[VBox UC Exchange] redirectCookie: \(redirectCookie.isEmpty ? "none" : redirectCookie)")
+        print("[VBox UC Exchange] responseCookie: \(responseCookie.isEmpty ? "none" : responseCookie)")
+        print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie)")
 
         return (cookie, data)
     }
@@ -765,7 +765,7 @@ final class CloudDriveAuthManager: ObservableObject {
             extra: [:]
         )
         saveCredential(credential)
-        print("[VBox UC Exchange] ✅ 已保存 UC Cookie (source: \(source))")
+        print("[VBox UC Exchange] ✅ 已保存 UC Cookie (source: \(source)): \(cookie)")
 
         // 异步兑换 UCTV Token，不影响登录成功返回
         Task {
