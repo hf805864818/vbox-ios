@@ -1893,15 +1893,15 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 对齐 iBox 实测：仅 uc_param_str + token，不带 client_id/ssb
-        // 加 client_id 会导致 broccoli 确认后 loginWithKpsAndQrcodeToken 返回 50000000
+        // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn 扫码确认页
+        // broccoli 页面需要 client_id 来验证 token，否则显示"登录请求已过期"
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            URLQueryItem(name: "token", value: token)
+            URLQueryItem(name: "token", value: token),
+            URLQueryItem(name: "client_id", value: clientId)
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }
