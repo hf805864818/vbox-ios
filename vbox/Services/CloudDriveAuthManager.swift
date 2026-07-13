@@ -644,105 +644,71 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
-        // UC 云盘使用自己的 CAS 体系，优先使用 drive.uc.cn 域名换取 Cookie
-        // 若 UC 自身接口失败，回退到 pan.quark.cn（兼容旧版 CAS 共享体系）
-
-        // 策略1+2: 使用 UC 自身 account/info 接口换取 Cookie
-        // 欧歌源 config.jar 使用的不带 fr/platform 的 endpoint，同时保留 vbox 旧版参数做兜底
-        let ucEndpoints: [(url: String, domain: String)] = [
-            ("https://drive.uc.cn/account/info?st=\(serviceTicket)", "https://drive.uc.cn"),
-            ("https://drive.uc.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc", "https://drive.uc.cn")
-        ]
-
-        var lastError: Error? = nil
-        var lastCookie: String? = nil
-
-        for (endpoint, domain) in ucEndpoints {
-            guard let url = URL(string: endpoint) else { continue }
-            do {
-                let (cookie, data) = try await ucFetchAccountInfoCookie(url: url, domain: domain)
-                lastCookie = cookie
-                if !cookie.isEmpty {
-                    // UC CAS 返回的 Cookie 通常是 _UP_xxx 系列；旧版可能是 __pus/__kps/__uid
-                    let cookieLower = cookie.lowercased()
-                    let hasUCLogin = cookieLower.contains("_up_") || cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=")
-                    if hasUCLogin {
-                        print("[VBox UC Exchange] ✅ 获取到 UC 登录态 Cookie")
-                        try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC drive.uc.cn")
-                        return
-                    } else {
-                        print("[VBox UC Exchange] ⚠️ 返回 Cookie 但缺少 UC 登录态字段，继续尝试")
-                    }
-                }
-            } catch {
-                lastError = error
-                print("[VBox UC Exchange] endpoint failed: \(error)")
-            }
-        }
-
-        // 策略3: 回退到 pan.quark.cn（兼容 UC CAS 与夸克共享的旧版系统）
-        print("[VBox UC Exchange] UC own endpoints failed, falling back to pan.quark.cn")
-        var components = URLComponents(string: "https://pan.quark.cn/account/info")!
+        // 对齐 iBox：使用 account/mobileinfo 而非 account/info（UC 体系专用端点）
+        // 使用 ucSession（共享）而非独立 oneShot，确保 Cookie 从轮询步骤贯通
+        var components = URLComponents(string: "https://drive.uc.cn/account/mobileinfo")!
         components.queryItems = [
-            URLQueryItem(name: "st", value: serviceTicket),
-            URLQueryItem(name: "fr", value: "pc"),
-            URLQueryItem(name: "platform", value: "pc")
+            URLQueryItem(name: "pr", value: "UCBrowser"),
+            URLQueryItem(name: "fr", value: "h5"),
+            URLQueryItem(name: "__t", value: timestampMS())
         ]
-        do {
-            let (cookie, data) = try await ucFetchAccountInfoCookie(url: components.url!, domain: "https://pan.quark.cn")
-            let finalCookie = cookie.isEmpty ? (lastCookie ?? "") : cookie
-            guard !finalCookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
-
-            let cookieLower = finalCookie.lowercased()
-            let mustHave = ["__kps", "__pus", "__uid", "_up_"]
-            for key in mustHave where !cookieLower.contains(key) {
-                print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
-            }
-            guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("_up_") else {
-                throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid/_up_)，登录可能无效")
-            }
-            try await ucSaveCredentialFromCookie(cookie: finalCookie, data: data, source: "UC pan.quark.cn fallback")
-        } catch {
-            if let lastError = lastError {
-                throw lastError
-            }
-            throw error
-        }
-    }
-
-    private func ucFetchAccountInfoCookie(url: URL, domain: String) async throws -> (cookie: String, data: Data) {
-        var request = URLRequest(url: url)
-        request.setValue(domain, forHTTPHeaderField: "Origin")
-        request.setValue("\(domain)/", forHTTPHeaderField: "Referer")
+        var request = URLRequest(url: components.url!)
+        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        let cookieCollector = RedirectCookieCollector()
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieAcceptPolicy = .always
-        config.httpShouldSetCookies = true
-        let oneShot = URLSession(configuration: config, delegate: cookieCollector, delegateQueue: nil)
-        defer { oneShot.finishTasksAndInvalidate() }
-
-        let (data, response) = try await oneShot.data(for: request)
+        let (data, response) = try await ucSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        guard let http = response as? HTTPURLResponse else {
-            throw AuthError.invalidResponse("UC account/info 无响应")
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox UC Exchange] HTTP \(httpStatus): \(rawBody.prefix(300))")
+
+        // 收集 ucSession 中积累的全部 Cookie（来自 getToken + 轮询 + 本次 exchange）
+        let allCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://drive.uc.cn")!)
+        let headerCookie = collectCookies(from: response as? HTTPURLResponse, storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
+        let cookie = mergeCookieStrings([allCookies, headerCookie])
+        print("[VBox UC Exchange] session cookies: \(allCookies.isEmpty ? "none" : allCookies.prefix(100))...")
+        print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie.prefix(100))...")
+
+        // 如果手机端已确认登录，ucSession 中应已有 _UP_xxx Cookie
+        let cookieLower = cookie.lowercased()
+        let hasUCLogin = cookieLower.contains("_up_") || cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=")
+        if hasUCLogin {
+            print("[VBox UC Exchange] ✅ 获取到 UC 登录态 Cookie")
+            try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC mobileinfo")
+            return
         }
-        let httpStatusCode = http.statusCode
-        print("[VBox UC Exchange] endpoint: \(url.absoluteString.prefix(60))... HTTP \(httpStatusCode): \(rawBody.prefix(300))")
 
-        // 收集重定向 Cookie + 最终响应 Cookie + URLSession 自动存储的 Cookie
-        let domainURL = URL(string: domain)!
-        let responseCookie = collectCookies(from: http, storage: oneShot.configuration.httpCookieStorage, url: domainURL)
-        let redirectCookie = cookieCollector.cookieString()
-        let cookie = mergeCookieStrings([redirectCookie, responseCookie])
+        // 回退：尝试 pan.quark.cn account/info（兼容旧版 CAS）
+        print("[VBox UC Exchange] mobileinfo 未返回登录态 Cookie，回退 pan.quark.cn")
+        let fallbackUrl = URL(string: "https://pan.quark.cn/account/info?st=\(serviceTicket)&fr=pc&platform=pc")!
+        var fbRequest = URLRequest(url: fallbackUrl)
+        fbRequest.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
+        fbRequest.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
+        fbRequest.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+        fbRequest.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        print("[VBox UC Exchange] redirectCookie: \(redirectCookie.isEmpty ? "none" : redirectCookie)")
-        print("[VBox UC Exchange] responseCookie: \(responseCookie.isEmpty ? "none" : responseCookie)")
-        print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie)")
+        let (fbData, fbResponse) = try await ucSession.data(for: fbRequest)
+        let fbBody = String(data: fbData, encoding: .utf8) ?? "nil"
+        let fbHttpStatus = (fbResponse as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox UC Exchange] fallback HTTP \(fbHttpStatus): \(fbBody.prefix(300))")
 
-        return (cookie, data)
+        let fbAllCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://pan.quark.cn")!)
+        let fbHeaderCookie = collectCookies(from: fbResponse as? HTTPURLResponse, storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
+        let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, allCookies])
+        print("[VBox UC Exchange] fallback merged cookie: \(fbCookie.isEmpty ? "none" : fbCookie.prefix(100))...")
+
+        let fbCookieLower = fbCookie.lowercased()
+        guard fbCookieLower.contains("__pus=") || fbCookieLower.contains("__kps=") || fbCookieLower.contains("__uid=") || fbCookieLower.contains("_up_") else {
+            throw AuthError.invalidResponse("UC Cookie 缺少必须字段，登录可能无效")
+        }
+        try await ucSaveCredentialFromCookie(cookie: fbCookie, data: fbData, source: "UC pan.quark.cn fallback")
+    }
+
+    private func collectAllCookiesFromSession(_ session: URLSession, for url: URL) -> String {
+        guard let storage = session.configuration.httpCookieStorage else { return "" }
+        let cookies = storage.cookies(for: url) ?? []
+        return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 
     private func ucSaveCredentialFromCookie(cookie: String, data: Data, source: String) async throws {
