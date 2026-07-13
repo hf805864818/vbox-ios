@@ -178,65 +178,89 @@ class UpdateManager: ObservableObject {
         // 删除旧文件
         try? FileManager.default.removeItem(at: destinationURL)
 
-        do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 300 // 下载超时5分钟
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        // GitHub 加速代理列表（国内访问 GitHub Releases 很慢，优先用代理）
+        let urlStr = url.absoluteString
+        let proxyURLs: [URL] = [
+            URL(string: "https://ghproxy.com/\(urlStr)")!,
+            URL(string: "https://mirror.ghproxy.com/\(urlStr)")!,
+            url  // 兜底：原始地址
+        ]
 
-            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+        for (idx, downloadURL) in proxyURLs.enumerated() {
+            if Task.isCancelled { break }
+            let isProxy = idx < proxyURLs.count - 1
+            print("[UpdateManager] 下载尝试 #\(idx+1): \(isProxy ? "代理" : "直连") \(downloadURL.host ?? "")")
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                downloadError = "服务器返回错误"
-                isDownloading = false
-                return
-            }
+            do {
+                var request = URLRequest(url: downloadURL)
+                request.timeoutInterval = 600 // 超时10分钟
+                request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
 
-            // 获取文件总大小
-            let totalBytes = httpResponse.expectedContentLength
-            var receivedBytes: Int64 = 0
+                let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
 
-            // 创建文件句柄
-            FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
-            let fileHandle = try FileHandle(forWritingTo: destinationURL)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      httpResponse.statusCode == 200 else {
+                    print("[UpdateManager] #\(idx+1) 返回非200，尝试下一个")
+                    continue
+                }
 
-            // 逐块写入
-            let bufferSize = 64 * 1024 // 64KB
-            var buffer = Data()
+                let totalBytes = httpResponse.expectedContentLength
+                var receivedBytes: Int64 = 0
+                var lastReportBytes: Int64 = 0
+                var lastReportTime = Date()
 
-            for try await byte in asyncBytes {
-                buffer.append(byte)
-                receivedBytes += 1
+                FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
+                let fileHandle = try FileHandle(forWritingTo: destinationURL)
 
-                if buffer.count >= bufferSize {
-                    try fileHandle.write(contentsOf: buffer)
-                    buffer.removeAll(keepingCapacity: true)
+                let bufferSize = 256 * 1024 // 256KB（增大缓冲提升写效率）
+                var buffer = Data()
 
-                    if totalBytes > 0 {
-                        let progress = Double(receivedBytes) / Double(totalBytes)
-                        downloadProgress = min(progress, 0.999)
+                for try await byte in asyncBytes {
+                    buffer.append(byte)
+                    receivedBytes += 1
+
+                    if buffer.count >= bufferSize {
+                        try fileHandle.write(contentsOf: buffer)
+                        buffer.removeAll(keepingCapacity: true)
+
+                        if totalBytes > 0 {
+                            let progress = Double(receivedBytes) / Double(totalBytes)
+                            downloadProgress = min(progress, 0.999)
+                        }
+
+                        // 每秒打印一次下载速度
+                        let now = Date()
+                        let elapsed = now.timeIntervalSince(lastReportTime)
+                        if elapsed >= 1.0 {
+                            let bytesInInterval = receivedBytes - lastReportBytes
+                            let speedKB = Double(bytesInInterval) / elapsed / 1024.0
+                            print("[UpdateManager] 下载进度: \(Int(downloadProgress*100))% 速度: \(String(format: "%.0f", speedKB))KB/s")
+                            lastReportBytes = receivedBytes
+                            lastReportTime = now
+                        }
                     }
                 }
+
+                if !buffer.isEmpty {
+                    try fileHandle.write(contentsOf: buffer)
+                }
+                try fileHandle.close()
+
+                downloadProgress = 1.0
+                downloadedIPAPath = destinationURL
+                print("[UpdateManager] IPA 下载完成: \(destinationURL.path)")
+                isDownloading = false
+                return
+
+            } catch {
+                if Task.isCancelled { break }
+                print("[UpdateManager] #\(idx+1) 下载失败: \(error.localizedDescription)")
+                try? FileManager.default.removeItem(at: destinationURL)
+                // 继续尝试下一个 URL
             }
-
-            // 写入剩余数据
-            if !buffer.isEmpty {
-                try fileHandle.write(contentsOf: buffer)
-            }
-
-            try fileHandle.close()
-
-            downloadProgress = 1.0
-            downloadedIPAPath = destinationURL
-            print("[UpdateManager] IPA 下载完成: \(destinationURL.path)")
-
-        } catch {
-            downloadError = "下载失败: \(error.localizedDescription)"
-            print("[UpdateManager] 下载失败: \(error)")
-            // 清理不完整文件
-            try? FileManager.default.removeItem(at: destinationURL)
         }
 
+        downloadError = "所有下载源均失败，请检查网络"
         isDownloading = false
     }
 
