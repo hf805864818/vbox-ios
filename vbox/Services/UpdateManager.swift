@@ -165,6 +165,97 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
+    // MARK: - 代理节点缓存
+
+    private struct ProxyCache: Codable {
+        let nodes: [String]
+        let timestamp: Date
+    }
+
+    private let proxyCacheKey = "vbox_proxy_nodes_cache"
+    private let proxyCacheTTL: TimeInterval = 300 // 5分钟
+
+    /// 从 github.akams.cn 获取实测最快的代理节点列表
+    private func fetchProxyNodes() async -> [String] {
+        // 先读缓存
+        if let cached = readProxyCache(), Date().timeIntervalSince(cached.timestamp) < proxyCacheTTL {
+            print("[UpdateManager] 使用缓存的代理节点: \(cached.nodes.count)个")
+            return cached.nodes
+        }
+
+        do {
+            var request = URLRequest(url: URL(string: "https://github.akams.cn")!)
+            request.timeoutInterval = 8
+            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let html = String(data: data, encoding: .utf8) else { throw NSError(domain: "", code: -1) }
+
+            let nodes = parseProxyNodes(from: html)
+            if nodes.isEmpty { throw NSError(domain: "", code: -1) }
+
+            print("[UpdateManager] 从 github.akams.cn 解析到 \(nodes.count) 个节点，最快: \(nodes.first ?? "none")")
+            saveProxyCache(nodes: nodes)
+            return nodes
+        } catch {
+            print("[UpdateManager] 获取代理节点失败: \(error.localizedDescription)，使用默认节点")
+            return fallbackProxyNodes()
+        }
+    }
+
+    /// 解析页面中所有 (域名, 延迟) 对，按延迟升序排列
+    private func parseProxyNodes(from html: String) -> [String] {
+        // 匹配模式: 域名 延迟数字 单位(ms|s)
+        // 例: "github.starrlzy.cn388 ms" → host=github.starrlzy.cn, delay=388ms
+        //     "j.1win.ggff.net1.11 s"  → host=j.1win.ggff.net, delay=1110ms
+        //     "gh.llkk.cc--"           → 不匹配（离线节点，自动过滤）
+        let pattern = #"(([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,})-*(\d+\.?\d*)\s*(ms|s)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+
+        let range = NSRange(html.startIndex..., in: html)
+        let matches = regex.matches(in: html, options: [], range: range)
+
+        var nodeDelays: [(host: String, delayMs: Double)] = []
+
+        for match in matches {
+            // group 1 = 域名, group 3 = 延迟数字, group 4 = 单位(ms/s)
+            guard let hostRange = Range(match.range(at: 1), in: html),
+                  let delayRange = Range(match.range(at: 3), in: html),
+                  let unitRange = Range(match.range(at: 4), in: html) else { continue }
+
+            let host = String(html[hostRange])
+            let delayValue = Double(html[delayRange]) ?? 0
+            let unit = String(html[unitRange])
+
+            guard !host.isEmpty, host.contains(".") else { continue }
+
+            let delayMs = unit == "s" ? delayValue * 1000 : delayValue
+            nodeDelays.append((host: host, delayMs: delayMs))
+        }
+
+        // 去重，按延迟升序排列
+        var seen = Set<String>()
+        let unique = nodeDelays.filter { seen.insert($0.host).inserted }
+        return unique.sorted { $0.delayMs < $1.delayMs }.map { $0.host }
+    }
+
+    private func fallbackProxyNodes() -> [String] {
+        return ["ghproxy.net", "ghproxy.com", "gh.con.sh", "gh.llkk.cc", "github.starrlzy.cn"]
+    }
+
+    private func readProxyCache() -> ProxyCache? {
+        guard let data = UserDefaults.standard.data(forKey: proxyCacheKey),
+              let cache = try? JSONDecoder().decode(ProxyCache.self, from: data) else { return nil }
+        return cache
+    }
+
+    private func saveProxyCache(nodes: [String]) {
+        let cache = ProxyCache(nodes: nodes, timestamp: Date())
+        if let data = try? JSONEncoder().encode(cache) {
+            UserDefaults.standard.set(data, forKey: proxyCacheKey)
+        }
+    }
+
     /// 执行实际下载
     private func performDownload(from url: URL) async {
         isDownloading = true
@@ -178,14 +269,13 @@ class UpdateManager: ObservableObject {
         // 删除旧文件
         try? FileManager.default.removeItem(at: destinationURL)
 
-        // GitHub 加速代理列表（国内访问 GitHub 很慢，优先用代理）
+        // 动态获取最快代理节点，组装下载 URL 列表
         let urlStr = url.absoluteString
-        let proxyURLs: [URL] = [
-            URL(string: "https://ghproxy.net/\(urlStr)")!,
-            URL(string: "https://ghproxy.com/\(urlStr)")!,
-            URL(string: "https://gh.con.sh/\(urlStr)")!,
-            url  // 兜底：原始地址
-        ]
+        let dynamicNodes = await fetchProxyNodes()
+        var proxyURLs: [URL] = dynamicNodes.map { URL(string: "https://\($0)/\(urlStr)")! }
+        proxyURLs.append(url) // 兜底：原始地址
+
+        print("[UpdateManager] 下载源: \(proxyURLs.map { $0.host ?? "?" }.joined(separator: ", "))")
 
         for (idx, downloadURL) in proxyURLs.enumerated() {
             if Task.isCancelled { break }
