@@ -592,9 +592,11 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // 对齐夸克/欧歌源轮询参数：client_id + v + request_id + token
+        // 对齐欧歌源 config.jar 实测轮询参数：__dt + __t + client_id + v + request_id + token
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
+            URLQueryItem(name: "__dt", value: "18884"),
+            URLQueryItem(name: "__t", value: timestampMS()),
             URLQueryItem(name: "client_id", value: token.pollClientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: token.requestId),
@@ -1931,14 +1933,15 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 对齐欧歌源 config.jar 实测的 uc_param_str，同时保留 client_id 以确保 token 有效
+        // 对齐欧歌源 config.jar 实测的 uc_param_str，同时保留 client_id + ssb=weblogin 确保服务端生成 ticket
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "client_id", value: clientId)
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ssb", value: "weblogin")
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)&ssb=weblogin"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }
