@@ -58,13 +58,12 @@ jobs:
           DATES_FILE=$(mktemp)
           cut -d'|' -f1 "$TMP_COMMITS" | sort -u > "$DATES_FILE"
 
-          # 按日期倒序生成内容
-          NEW_CONTENT=""
+          # 按日期倒序生成内容到临时文件
+          NEW_CONTENT_FILE=$(mktemp)
           while IFS= read -r date; do
-            SECTION=""
+            printf '\n## %s\n\n' "$date" >> "$NEW_CONTENT_FILE"
             while IFS='|' read -r cdate msg hash; do
               if [ "$cdate" = "$date" ]; then
-                # 分类: feat → 新增, fix → 修复, 其他 → 其他
                 if echo "$msg" | grep -qi "^feat" 2>/dev/null; then
                   tag="新增"
                 elif echo "$msg" | grep -qi "^fix" 2>/dev/null; then
@@ -74,22 +73,18 @@ jobs:
                 else
                   tag="其他"
                 fi
-                SECTION="${SECTION}  - **${tag}**: ${msg} (${hash})"$'\n'
+                printf '  - **%s**: %s (%s)\n' "$tag" "$msg" "$hash" >> "$NEW_CONTENT_FILE"
               fi
             done < "$TMP_COMMITS"
-            NEW_CONTENT="${NEW_CONTENT}
-## ${date}
-
-${SECTION}"
           done < "$DATES_FILE"
 
           # 插入到 CHANGELOG.md 顶部（标题之后）
           HEADER=$(head -6 CHANGELOG.md)
           BODY=$(tail -n +7 CHANGELOG.md)
-          printf "%s\n%s\n%s" "$HEADER" "$NEW_CONTENT" "$BODY" > CHANGELOG.md
+          printf '%s\n%s\n%s' "$HEADER" "$(cat "$NEW_CONTENT_FILE")" "$BODY" > CHANGELOG.md
 
           # 清理临时文件
-          rm -f "$TMP_COMMITS" "$DATES_FILE"
+          rm -f "$TMP_COMMITS" "$DATES_FILE" "$NEW_CONTENT_FILE"
 
           echo "更新完成"
 
