@@ -74,8 +74,7 @@ jobs:
                 else
                   tag="其他"
                 fi
-                SECTION="${SECTION}  - **${tag}**: ${msg} (${hash})
-"
+                SECTION="${SECTION}  - **${tag}**: ${msg} (${hash})"$'\n'
               fi
             done < "$TMP_COMMITS"
             NEW_CONTENT="${NEW_CONTENT}
