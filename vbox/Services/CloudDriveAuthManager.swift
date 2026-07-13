@@ -584,18 +584,18 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // 尝试两种轮询参数：欧歌源风格 和 旧版 client_id/v 风格
+        // 尝试两种轮询参数：旧版 client_id/v 风格 和 欧歌源风格
         let paramSets: [[URLQueryItem]] = [
-            [
-                URLQueryItem(name: "__dt", value: "18884"),
-                URLQueryItem(name: "__t", value: timestampMS()),
-                URLQueryItem(name: "token", value: token.token)
-            ],
             [
                 URLQueryItem(name: "__dt", value: "18884"),
                 URLQueryItem(name: "__t", value: timestampMS()),
                 URLQueryItem(name: "client_id", value: token.pollClientId),
                 URLQueryItem(name: "v", value: "1.2"),
+                URLQueryItem(name: "token", value: token.token)
+            ],
+            [
+                URLQueryItem(name: "__dt", value: "18884"),
+                URLQueryItem(name: "__t", value: timestampMS()),
                 URLQueryItem(name: "token", value: token.token)
             ]
         ]
@@ -1937,14 +1937,14 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 对齐欧歌源 config.jar 实测的 uc_param_str，确保 UC App 能正确识别二维码
-        // 欧歌源 payload 只使用 uc_param_str + token，不传 client_id
+        // 对齐欧歌源 config.jar 实测的 uc_param_str，同时保留 client_id 以确保 token 有效
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            URLQueryItem(name: "token", value: token)
+            URLQueryItem(name: "token", value: token),
+            URLQueryItem(name: "client_id", value: clientId)
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }
