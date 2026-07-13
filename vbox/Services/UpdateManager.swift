@@ -165,23 +165,11 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
-    // MARK: - 代理节点缓存
+    // MARK: - 代理节点动态获取 + 本地测速
 
-    private struct ProxyCache: Codable {
-        let nodes: [String]
-        let timestamp: Date
-    }
-
-    private let proxyCacheKey = "vbox_proxy_nodes_cache"
-    private let proxyCacheTTL: TimeInterval = 300 // 5分钟
-
-    /// 从 github.akams.cn 获取实测最快的代理节点列表
-    private func fetchProxyNodes() async -> [String] {
-        // 先读缓存
-        if let cached = readProxyCache(), Date().timeIntervalSince(cached.timestamp) < proxyCacheTTL {
-            print("[UpdateManager] 使用缓存的代理节点: \(cached.nodes.count)个")
-            return cached.nodes
-        }
+    /// 从 github.akams.cn 获取在线节点，本地 HEAD 测速后按响应时间排序
+    private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
+        var nodes: [String] = []
 
         do {
             var request = URLRequest(url: URL(string: "https://github.akams.cn")!)
@@ -190,70 +178,78 @@ class UpdateManager: ObservableObject {
 
             let (data, _) = try await URLSession.shared.data(for: request)
             guard let html = String(data: data, encoding: .utf8) else { throw NSError(domain: "", code: -1) }
-
-            let nodes = parseProxyNodes(from: html)
-            if nodes.isEmpty { throw NSError(domain: "", code: -1) }
-
-            print("[UpdateManager] 从 github.akams.cn 解析到 \(nodes.count) 个节点，最快: \(nodes.first ?? "none")")
-            saveProxyCache(nodes: nodes)
-            return nodes
+            nodes = parseProxyNodes(from: html)
+            print("[UpdateManager] 从 github.akams.cn 解析到 \(nodes.count) 个在线节点")
         } catch {
-            print("[UpdateManager] 获取代理节点失败: \(error.localizedDescription)，使用默认节点")
-            return fallbackProxyNodes()
+            print("[UpdateManager] 获取节点列表失败: \(error.localizedDescription)")
         }
+
+        if nodes.isEmpty {
+            print("[UpdateManager] 无可用代理节点，直连 GitHub")
+            return [URL(string: githubURL)!]
+        }
+
+        // 本地 HEAD 测速：对每个节点发 HEAD 请求，记录响应时间
+        print("[UpdateManager] 开始本地测速 \(nodes.count) 个节点...")
+        var ranked: [(url: URL, latencyMs: Double)] = []
+
+        await withTaskGroup(of: (host: String, latencyMs: Double?).self) { group in
+            for host in nodes {
+                group.addTask {
+                    let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
+                    let start = Date()
+                    var req = URLRequest(url: proxyURL)
+                    req.httpMethod = "HEAD"
+                    req.timeoutInterval = 3
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    do {
+                        let (_, response) = try await URLSession.shared.data(for: req)
+                        let elapsed = Date().timeIntervalSince(start) * 1000
+                        if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                            return (host, elapsed)
+                        }
+                    } catch {}
+                    return (host, nil)
+                }
+            }
+            for await result in group {
+                if let latency = result.latencyMs {
+                    ranked.append((url: URL(string: "https://\(result.host)/\(githubURL)")!, latencyMs: latency))
+                }
+            }
+        }
+
+        ranked.sort { $0.latencyMs < $1.latencyMs }
+        for (i, r) in ranked.enumerated() {
+            print("[UpdateManager]   #\(i+1) \(r.url.host ?? "?") \(String(format: "%.0f", r.latencyMs))ms")
+        }
+
+        let urls = ranked.map { $0.url }
+        // 直连 GitHub 兜底
+        var result = urls
+        result.append(URL(string: githubURL)!)
+        return result
     }
 
-    /// 解析页面中所有 (域名, 延迟) 对，按延迟升序排列
+    /// 解析页面中所有在线节点的域名
     private func parseProxyNodes(from html: String) -> [String] {
-        // 匹配模式: 域名 延迟数字 单位(ms|s)
-        // 例: "github.starrlzy.cn388 ms" → host=github.starrlzy.cn, delay=388ms
-        //     "j.1win.ggff.net1.11 s"  → host=j.1win.ggff.net, delay=1110ms
-        //     "gh.llkk.cc--"           → 不匹配（离线节点，自动过滤）
+        // 匹配: 域名 延迟数字 单位(ms|s)，离线节点(--)自动过滤
         let pattern = #"(([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,})-*(\d+\.?\d*)\s*(ms|s)"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
 
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, options: [], range: range)
 
-        var nodeDelays: [(host: String, delayMs: Double)] = []
+        var seen = Set<String>()
+        var nodes: [String] = []
 
         for match in matches {
-            // group 1 = 域名, group 3 = 延迟数字, group 4 = 单位(ms/s)
-            guard let hostRange = Range(match.range(at: 1), in: html),
-                  let delayRange = Range(match.range(at: 3), in: html),
-                  let unitRange = Range(match.range(at: 4), in: html) else { continue }
-
+            guard let hostRange = Range(match.range(at: 1), in: html) else { continue }
             let host = String(html[hostRange])
-            let delayValue = Double(html[delayRange]) ?? 0
-            let unit = String(html[unitRange])
-
-            guard !host.isEmpty, host.contains(".") else { continue }
-
-            let delayMs = unit == "s" ? delayValue * 1000 : delayValue
-            nodeDelays.append((host: host, delayMs: delayMs))
+            guard host.contains("."), seen.insert(host).inserted else { continue }
+            nodes.append(host)
         }
-
-        // 去重，按延迟升序排列
-        var seen = Set<String>()
-        let unique = nodeDelays.filter { seen.insert($0.host).inserted }
-        return unique.sorted { $0.delayMs < $1.delayMs }.map { $0.host }
-    }
-
-    private func fallbackProxyNodes() -> [String] {
-        return ["ghproxy.net", "ghproxy.com", "gh.con.sh", "gh.llkk.cc", "github.starrlzy.cn"]
-    }
-
-    private func readProxyCache() -> ProxyCache? {
-        guard let data = UserDefaults.standard.data(forKey: proxyCacheKey),
-              let cache = try? JSONDecoder().decode(ProxyCache.self, from: data) else { return nil }
-        return cache
-    }
-
-    private func saveProxyCache(nodes: [String]) {
-        let cache = ProxyCache(nodes: nodes, timestamp: Date())
-        if let data = try? JSONEncoder().encode(cache) {
-            UserDefaults.standard.set(data, forKey: proxyCacheKey)
-        }
+        return nodes
     }
 
     /// 执行实际下载
@@ -269,13 +265,8 @@ class UpdateManager: ObservableObject {
         // 删除旧文件
         try? FileManager.default.removeItem(at: destinationURL)
 
-        // 动态获取最快代理节点，组装下载 URL 列表
-        let urlStr = url.absoluteString
-        let dynamicNodes = await fetchProxyNodes()
-        var proxyURLs: [URL] = dynamicNodes.map { URL(string: "https://\($0)/\(urlStr)")! }
-        proxyURLs.append(url) // 兜底：原始地址
-
-        print("[UpdateManager] 下载源: \(proxyURLs.map { $0.host ?? "?" }.joined(separator: ", "))")
+        // 动态获取节点 + 本地测速排序
+        let proxyURLs = await fetchAndRankProxyNodes(githubURL: url.absoluteString)
 
         for (idx, downloadURL) in proxyURLs.enumerated() {
             if Task.isCancelled { break }
@@ -303,7 +294,7 @@ class UpdateManager: ObservableObject {
                 FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
                 let fileHandle = try FileHandle(forWritingTo: destinationURL)
 
-                let bufferSize = 256 * 1024 // 256KB（增大缓冲提升写效率）
+                let bufferSize = 256 * 1024 // 256KB
                 var buffer = Data()
 
                 for try await byte in asyncBytes {
@@ -319,7 +310,6 @@ class UpdateManager: ObservableObject {
                             downloadProgress = min(progress, 0.999)
                         }
 
-                        // 每秒打印一次下载速度
                         let now = Date()
                         let elapsed = now.timeIntervalSince(lastReportTime)
                         if elapsed >= 1.0 {
@@ -347,7 +337,6 @@ class UpdateManager: ObservableObject {
                 if Task.isCancelled { break }
                 print("[UpdateManager] #\(idx+1) 下载失败: \(error.localizedDescription)")
                 try? FileManager.default.removeItem(at: destinationURL)
-                // 继续尝试下一个 URL
             }
         }
 
