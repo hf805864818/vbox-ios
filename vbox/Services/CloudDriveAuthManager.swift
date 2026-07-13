@@ -584,67 +584,71 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
-        // 对齐欧歌源 config.jar 实测参数（__dt/__t）
-        components.queryItems = [
-            URLQueryItem(name: "__dt", value: "18884"),
-            URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "client_id", value: token.pollClientId),
-            URLQueryItem(name: "v", value: "1.2"),
-            URLQueryItem(name: "token", value: token.token)
+        // 尝试两种轮询参数：欧歌源风格 和 旧版 client_id/v 风格
+        let paramSets: [[URLQueryItem]] = [
+            [
+                URLQueryItem(name: "__dt", value: "18884"),
+                URLQueryItem(name: "__t", value: timestampMS()),
+                URLQueryItem(name: "token", value: token.token)
+            ],
+            [
+                URLQueryItem(name: "__dt", value: "18884"),
+                URLQueryItem(name: "__t", value: timestampMS()),
+                URLQueryItem(name: "client_id", value: token.pollClientId),
+                URLQueryItem(name: "v", value: "1.2"),
+                URLQueryItem(name: "token", value: token.token)
+            ]
         ]
-        var request = URLRequest(url: components.url!)
-        // 尝试使用 UC 自身域名作为 Origin，若 UC CAS 已独立于夸克则需要此配置
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
-        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await ucSession.data(for: request)
-        let json = try parseJSON(data)
-        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-        print("[VBox UC Poll] HTTP \(httpStatus) raw: \(rawBody)")
+        for (idx, queryItems) in paramSets.enumerated() {
+            var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
+            components.queryItems = queryItems
+            var request = URLRequest(url: components.url!)
+            request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
+            request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+            request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        // 优先直接提取 service_ticket（欧歌源/新版 UC 可能直接放在顶层或 result 下）
-        let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
-            ?? extractNestedString(json, path: ["data", "service_ticket"])
-            ?? extractNestedString(json, path: ["result", "service_ticket"])
-            ?? extractString(json, keys: ["service_ticket", "ticket"])
-        if let ticket, !ticket.isEmpty {
-            print("[VBox UC Poll] 获取到 service_ticket: \(ticket)")
-            return .success(serviceTicket: ticket)
-        }
+            let (data, response) = try await ucSession.data(for: request)
+            let json = try parseJSON(data)
+            let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("[VBox UC Poll] params#\(idx) HTTP \(httpStatus) raw: \(rawBody)")
 
-        var status = json["status"] as? Int
-            ?? json["code"] as? Int
-            ?? json["status"] as? NSNumber as? Int
-            ?? json["code"] as? NSNumber as? Int
-            ?? extractNestedInt(json, path: ["data", "members", "status"])
-            ?? extractNestedInt(json, path: ["data", "status"])
-            ?? -1
-        if status == -1 {
-            if let s = json["status"] as? String ?? json["code"] as? String {
-                status = Int(s) ?? -1
-                if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
+            let ticket = extractNestedString(json, path: ["data", "members", "service_ticket"])
+                ?? extractNestedString(json, path: ["data", "service_ticket"])
+                ?? extractNestedString(json, path: ["result", "service_ticket"])
+                ?? extractString(json, keys: ["service_ticket", "ticket"])
+            if let ticket, !ticket.isEmpty {
+                print("[VBox UC Poll] params#\(idx) 获取到 service_ticket: \(ticket)")
+                return .success(serviceTicket: ticket)
             }
-        }
-        print("[VBox UC Poll] parsed status: \(status)")
 
-        if status == -2 {
-            // -2 在部分版本中表示"未扫描"或临时状态，继续轮询而非直接失败
-            return .pending
+            var status = json["status"] as? Int
+                ?? json["code"] as? Int
+                ?? json["status"] as? NSNumber as? Int
+                ?? json["code"] as? NSNumber as? Int
+                ?? extractNestedInt(json, path: ["data", "members", "status"])
+                ?? extractNestedInt(json, path: ["data", "status"])
+                ?? -1
+            if status == -1 {
+                if let s = json["status"] as? String ?? json["code"] as? String {
+                    status = Int(s) ?? -1
+                    if status == -1, s == "SUCCESS" || s.caseInsensitiveCompare("ok") == .orderedSame { status = 0 }
+                }
+            }
+            print("[VBox UC Poll] params#\(idx) parsed status: \(status)")
+
+            if [50004002, 50004003, 50004004, 50004005, 50004006, 50004007].contains(status) { return .expired }
+            if status == 50004000 { return .scanned }
+            if status == 50004001 {
+                // 如果两种参数都返回 pending，统一返回 pending 继续轮询
+                if idx == paramSets.count - 1 { return .pending }
+                continue
+            }
+            if status == 0 { return .pending }
+            if status != -1 { print("[VBox UC Poll] params#\(idx) unknown status: \(status)") }
         }
-        // 新版 UC 常见状态码：50004001=待扫码，50004000=已扫码，50004002+=过期/取消
-        if [50004002, 50004003, 50004004, 50004005, 50004006, 50004007].contains(status) { return .expired }
-        if status == 50004000 { return .scanned }
-        if status == 50004001 { return .pending }
-        // 有些版本用 0/-1 表示成功/等待，也兜底处理
-        if status == 0 {
-            // 已返回成功状态但没有 ticket，继续轮询一次
-            return .pending
-        }
-        if status != -1 { print("[VBox UC Poll] unknown status: \(status)") }
         return .pending
     }
 
@@ -668,8 +672,16 @@ final class CloudDriveAuthManager: ObservableObject {
                 let (cookie, data) = try await ucFetchAccountInfoCookie(url: url, domain: domain)
                 lastCookie = cookie
                 if !cookie.isEmpty {
-                    try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC drive.uc.cn")
-                    return
+                    // UC CAS 返回的 Cookie 通常是 _UP_xxx 系列；旧版可能是 __pus/__kps/__uid
+                    let cookieLower = cookie.lowercased()
+                    let hasUCLogin = cookieLower.contains("_up_") || cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=")
+                    if hasUCLogin {
+                        print("[VBox UC Exchange] ✅ 获取到 UC 登录态 Cookie")
+                        try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC drive.uc.cn")
+                        return
+                    } else {
+                        print("[VBox UC Exchange] ⚠️ 返回 Cookie 但缺少 UC 登录态字段，继续尝试")
+                    }
                 }
             } catch {
                 lastError = error
@@ -691,12 +703,12 @@ final class CloudDriveAuthManager: ObservableObject {
             guard !finalCookie.isEmpty else { throw AuthError.invalidResponse("UC 未返回 Cookie") }
 
             let cookieLower = finalCookie.lowercased()
-            let mustHave = ["__kps", "__pus", "__uid"]
-            for key in mustHave where !cookieLower.contains("\(key.lowercased())=") {
+            let mustHave = ["__kps", "__pus", "__uid", "_up_"]
+            for key in mustHave where !cookieLower.contains(key) {
                 print("[VBox UC Exchange] 警告: 缺少必须Cookie字段 \(key)")
             }
-            guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") else {
-                throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid)，登录可能无效")
+            guard cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=") || cookieLower.contains("_up_") else {
+                throw AuthError.invalidResponse("UC/quark Cookie 缺少必须字段 (__pus/__kps/__uid/_up_)，登录可能无效")
             }
             try await ucSaveCredentialFromCookie(cookie: finalCookie, data: data, source: "UC pan.quark.cn fallback")
         } catch {
@@ -1926,13 +1938,15 @@ final class CloudDriveAuthManager: ObservableObject {
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
         // 对齐欧歌源 config.jar 实测的 uc_param_str，确保 UC App 能正确识别二维码
+        // 欧歌源 payload 只使用 uc_param_str + token，不传 client_id
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "client_id", value: clientId)
+            URLQueryItem(name: "token", value: token)
         ]
-        return components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)"
+        print("[VBox UC Payload] QR payload: \(payload)")
+        return payload
     }
 
     private func timestampMS() -> String {
