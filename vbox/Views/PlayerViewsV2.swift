@@ -3395,8 +3395,34 @@ struct PlayerContainerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
 
+    // 5秒无触摸自动隐藏控制栏
+    @State private var autoHideTask: Task<Void, Never>?
+
     private var isAliPlayerBuildAvailable: Bool {
         return NSClassFromString("AliPlayer") != nil
+    }
+
+    private func resetAutoHideTimer() {
+        autoHideTask?.cancel()
+        // 弹窗打开时不自动隐藏
+        guard !playerState.showSettings,
+              !playerState.showEpisodePicker,
+              !playerState.showQualityPicker,
+              !playerState.showDanmakuSettings,
+              !playerState.showEnginePicker,
+              !playerState.showDanmakuInput,
+              !playerState.isSeeking,
+              !playerState.isOrientationLocked else { return }
+        guard playerState.showControls, playerState.isPlaying else { return }
+        autoHideTask = Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    playerState.showControls = false
+                }
+            }
+        }
     }
     
     var body: some View {
@@ -3496,6 +3522,9 @@ struct PlayerContainerView: View {
                       !playerState.showEnginePicker else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     playerState.showControls.toggle()
+                }
+                if playerState.showControls {
+                    resetAutoHideTimer()
                 }
             }
             .ignoresSafeArea()
@@ -3808,6 +3837,21 @@ struct PlayerContainerView: View {
                 }
             }
         }
+        .onAppear {
+            resetAutoHideTimer()
+        }
+        .onChange(of: playerState.showControls) { newValue in
+            if newValue {
+                resetAutoHideTimer()
+            } else {
+                autoHideTask?.cancel()
+            }
+        }
+        .onChange(of: playerState.isPlaying) { newValue in
+            if newValue && playerState.showControls {
+                resetAutoHideTimer()
+            }
+        }
     }
 }
 
@@ -3916,9 +3960,31 @@ struct ErrorViewWithLogs: View {
 // MARK: - 播放器顶部栏
 struct PlayerTopBarView: View {
     let isPortrait: Bool
+    let videoName: String
     @ObservedObject var playerState: PlayerState
     var onTogglePiP: () -> Void
     var onDismiss: () -> Void
+
+    // 时间+电量
+    @State private var currentDate = Date()
+    @State private var batteryLevel: Float = UIDevice.current.batteryLevel
+    private let timeTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    // 名称滚动
+    @State private var nameScrollOffset: CGFloat = 0
+    @State private var nameNeedsScroll = false
+    @State private var nameScrollTask: Task<Void, Never>?
+
+    private var timeString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: currentDate)
+    }
+
+    private var batteryString: String {
+        let level = batteryLevel < 0 ? 1.0 : batteryLevel
+        return "\(Int(level * 100))%"
+    }
 
     var body: some View {
         if isPortrait {
@@ -3937,8 +4003,8 @@ struct PlayerTopBarView: View {
             .padding(.horizontal, 12)
             .padding(.top, 4)
         } else {
-            // 横屏状态：返回键 + 右侧功能按钮（未锁屏时显示，锁屏时全部隐藏）
-            HStack {
+            // 横屏状态：返回键 + 资源名称 + 居中时间电量 + 右侧功能按钮
+            HStack(spacing: 0) {
                 if !playerState.isOrientationLocked {
                     Button(action: { onDismiss() }) {
                         Image(systemName: "chevron.left")
@@ -3948,12 +4014,35 @@ struct PlayerTopBarView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(PlainButtonStyle())
+
+                    // 资源名称（自动滚动长名称）
+                    VideoNameScrollingText(name: videoName)
+                        .frame(maxWidth: UIScreen.main.bounds.width * 0.25)
+                }
+
+                Spacer()
+
+                // 居中：时间 + 电量
+                if !playerState.isOrientationLocked {
+                    HStack(spacing: 6) {
+                        Text(timeString)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.8))
+
+                        HStack(spacing: 2) {
+                            Image(systemName: batteryIcon)
+                                .font(.system(size: 11))
+                            Text(batteryString)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        }
+                        .foregroundColor(batteryColor)
+                    }
                 }
 
                 Spacer()
 
                 if !playerState.isOrientationLocked {
-                    // 右侧：小窗口/投屏/屏幕拉伸（固定在右上角）
+                    // 右侧：小窗口/投屏/屏幕拉伸
                     HStack(spacing: 0) {
                         Button(action: { onTogglePiP() }) {
                             Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
@@ -3965,7 +4054,6 @@ struct PlayerTopBarView: View {
                         .buttonStyle(PlainButtonStyle())
                         .disabled(!playerState.isPiPSupported)
 
-                        // 投送按键（AirPlay）
                         AirPlayViewV2()
                             .frame(width: 44, height: 44)
 
@@ -3984,7 +4072,75 @@ struct PlayerTopBarView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
+            .onReceive(timeTimer) { _ in
+                currentDate = Date()
+                batteryLevel = UIDevice.current.batteryLevel
+            }
+            .onAppear {
+                UIDevice.current.isBatteryMonitoringEnabled = true
+                batteryLevel = UIDevice.current.batteryLevel
+            }
         }
+    }
+
+    private var batteryIcon: String {
+        let level = batteryLevel < 0 ? 1.0 : batteryLevel
+        if level >= 0.9 { return "battery.100" }
+        if level >= 0.6 { return "battery.75" }
+        if level >= 0.3 { return "battery.50" }
+        return "battery.25"
+    }
+
+    private var batteryColor: Color {
+        let level = batteryLevel < 0 ? 1.0 : batteryLevel
+        if level <= 0.1 { return .red.opacity(0.8) }
+        if level <= 0.2 { return .orange.opacity(0.8) }
+        return .white.opacity(0.7)
+    }
+}
+
+// MARK: - 视频名称自动滚动组件
+struct VideoNameScrollingText: View {
+    let name: String
+    @State private var animate = false
+    @State private var showName = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let font = UIFont.systemFont(ofSize: 13, weight: .medium)
+            let textWidth = (name as NSString).size(withAttributes: [.font: font]).width
+            let needsScroll = textWidth > geo.size.width - 8
+
+            if needsScroll {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .offset(x: animate ? -(textWidth - geo.size.width + 20) : geo.size.width)
+                    .animation(
+                        .linear(duration: max(4.0, textWidth / 30.0))
+                        .delay(2)
+                        .repeatForever(autoreverses: false),
+                        value: animate
+                    )
+                    .mask(
+                        HStack(spacing: 0) {
+                            Color.black
+                            LinearGradient(gradient: Gradient(colors: [.black, .clear]), startPoint: .trailing, endPoint: .leading)
+                                .frame(width: 20)
+                        }
+                    )
+                    .onAppear { animate = true }
+            } else {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .padding(.leading, 8)
+            }
+        }
+        .clipped()
     }
 }
 
@@ -4366,6 +4522,7 @@ struct PlayerControlsView: View {
         VStack {
             PlayerTopBarView(
                 isPortrait: playerState.isPortrait,
+                videoName: video.vodName,
                 playerState: playerState,
                 onTogglePiP: { togglePiP() },
                 onDismiss: { dismiss() }

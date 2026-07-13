@@ -233,6 +233,7 @@ struct EpisodePickerPanelV2: View {
     @Binding var isPresented: Bool
     var isPortrait: Bool = true
     @EnvironmentObject private var settings: AppSettings
+    @State private var isReversed = false
 
     /// 自适应皮肤的按钮背景色
     private var buttonBackground: Color {
@@ -263,9 +264,41 @@ struct EpisodePickerPanelV2: View {
         return Color.white.opacity(0.5)
     }
 
+    private var sortedEpisodes: [EpisodeItem] {
+        isReversed ? Array(playerState.episodeItems.reversed()) : playerState.episodeItems
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if !playerState.episodeItems.isEmpty {
+                // 排序按钮
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isReversed.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: isReversed ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(isReversed ? "倒序" : "正序")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .padding(.horizontal, isPortrait ? 14 : 10)
+                .padding(.top, isPortrait ? 6 : 4)
+                .padding(.bottom, 2)
+
                 // 河马剧场风格：浅蓝色按钮网格
                 ScrollView(showsIndicators: true) {
                     if isPortrait {
@@ -292,7 +325,7 @@ struct EpisodePickerPanelV2: View {
 
     @ViewBuilder
     private func episodeGridItems() -> some View {
-        ForEach(playerState.episodeItems) { episode in
+        ForEach(sortedEpisodes) { episode in
             Button(action: {
                 playerState.switchToEpisode(index: episode.id)
                 isPresented = false
