@@ -296,69 +296,84 @@ struct FloatingDownloadBubble: View {
         )
     }
 
+    private func snapToEdgeX(currentX: CGFloat) -> CGFloat {
+        let leftEdge = bubbleSize / 2 + 16
+        let rightEdge = screenWidth - bubbleSize / 2 - 16
+        return currentX > screenWidth / 2
+            ? rightEdge - defaultPosition.x
+            : leftEdge - defaultPosition.x
+    }
+
+    private func snapToEdgeY(currentY: CGFloat) -> CGFloat {
+        let topEdge = bubbleSize / 2 + 60
+        let bottomEdge = screenHeight - bubbleSize / 2 - 60
+        return currentY - defaultPosition.y
+    }
+
     var body: some View {
         Button(action: {
-            // 如果没在拖拽，则触发点击
             if !isDragging {
                 onTap()
             }
         }) {
-            ZStack {
-                // 外圈进度环
-                Circle()
-                    .stroke(Color.white.opacity(0.2), lineWidth: 3)
-                    .frame(width: bubbleSize, height: bubbleSize)
-
-                Circle()
-                    .trim(from: 0, to: max(0.05, CGFloat(updateManager.downloadProgress)))
-                    .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .frame(width: bubbleSize, height: bubbleSize)
-                    .rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.3), value: updateManager.downloadProgress)
-
-                // 内部图标
-                Image(systemName: "arrow.down.circle.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 38, height: 38)
-                    .foregroundColor(Color(hex: "00A8FF"))
-                    .background(
-                        Circle()
-                            .fill(Color(uiColor: .systemBackground))
-                            .frame(width: 38, height: 38)
-                    )
-                    .clipShape(Circle())
-            }
-            .frame(width: bubbleSize, height: bubbleSize)
-            .background(
-                Circle()
-                    .fill(Color(uiColor: .systemBackground))
-                    .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
-            )
+            bubbleContent
         }
         .buttonStyle(PlainButtonStyle())
         .position(defaultPosition)
         .offset(offset)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    isDragging = true
-                    offset = value.translation
-                }
-                .onEnded { value in
-                    isDragging = false
-                    // 松手后吸附到最近边缘
-                    let newX = defaultPosition.x + value.translation.width
-                    let newY = defaultPosition.y + value.translation.height
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        offset = CGSize(
-                            width: newX > screenWidth / 2 ? screenWidth - bubbleSize / 2 - 16 - defaultPosition.x : -(defaultPosition.x - bubbleSize / 2 - 16),
-                            height: min(max(newY - defaultPosition.y, -(defaultPosition.y - bubbleSize / 2 - 60)), screenHeight - bubbleSize / 2 - 60 - defaultPosition.y)
-                        )
-                    }
-                }
-        )
+        .gesture(dragGesture)
         .transition(.scale.combined(with: .opacity))
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: offset)
+    }
+
+    private var bubbleContent: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.2), lineWidth: 3)
+                .frame(width: bubbleSize, height: bubbleSize)
+
+            Circle()
+                .trim(from: 0, to: max(0.05, CGFloat(updateManager.downloadProgress)))
+                .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .frame(width: bubbleSize, height: bubbleSize)
+                .rotationEffect(.degrees(-90))
+                .animation(.linear(duration: 0.3), value: updateManager.downloadProgress)
+
+            Image(systemName: "arrow.down.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 38, height: 38)
+                .foregroundColor(Color(hex: "00A8FF"))
+                .background(
+                    Circle()
+                        .fill(Color(uiColor: .systemBackground))
+                        .frame(width: 38, height: 38)
+                )
+                .clipShape(Circle())
+        }
+        .frame(width: bubbleSize, height: bubbleSize)
+        .background(
+            Circle()
+                .fill(Color(uiColor: .systemBackground))
+                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+        )
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                isDragging = true
+                offset = value.translation
+            }
+            .onEnded { value in
+                isDragging = false
+                let newX = defaultPosition.x + value.translation.width
+                let newY = defaultPosition.y + value.translation.height
+                let snapX = snapToEdgeX(currentX: newX)
+                let snapY = snapToEdgeY(currentY: newY)
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    offset = CGSize(width: snapX, height: snapY)
+                }
+            }
     }
 }
