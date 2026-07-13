@@ -3599,34 +3599,8 @@ struct PlayerContainerView: View {
                 if playerState.isPortrait && playerState.showEpisodePicker {
                     EpisodePickerPopupWrapper(playerState: playerState, isPresented: $playerState.showEpisodePicker)
                 } else if !playerState.isPortrait && playerState.showEpisodePicker {
-                    // 横屏：小弹窗，宽度足够显示5列网格
-                    GeometryReader { geo in
-                        // 点击空白区域关闭弹窗
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    playerState.showEpisodePicker = false
-                                }
-                            }
-
-                        EpisodePickerPanelV2(playerState: playerState, isPresented: $playerState.showEpisodePicker, isPortrait: false, isReversed: .constant(false))
-                            .environmentObject(settings)
-                            .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 300))
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(settings.usesFrostedSkin ? Color(uiColor: .secondarySystemBackground) : Color.black.opacity(0.85))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
-                            )
-                            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
-                            // 屏幕居中偏上（与弹幕弹窗同位置）
-                            .position(x: geo.size.width / 2, y: geo.size.height / 2 - 40)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // 横屏：小弹窗，带标题栏
+                    LandscapeEpisodePickerOverlay(playerState: playerState, isPresented: $playerState.showEpisodePicker)
                 }
             }
             // 侧边栏弹窗 - 清晰度
@@ -4666,6 +4640,87 @@ struct PlayerControlsView: View {
             playerState.showQualityPicker = false
             playerState.showEnginePicker = false
         }
+    }
+}
+
+// MARK: - 横屏选集弹窗（标题栏 + 排序按钮 + 网格）
+struct LandscapeEpisodePickerOverlay: View {
+    @ObservedObject var playerState: PlayerState
+    @Binding var isPresented: Bool
+    @State private var isReversed = false
+    @EnvironmentObject private var settings: AppSettings
+
+    private var panelBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.85)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPresented = false
+                    }
+                }
+
+            VStack(spacing: 0) {
+                // 标题栏
+                HStack {
+                    Text("选集")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white)
+                    Spacer()
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isReversed.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: isReversed ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(isReversed ? "倒序" : "正序")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+                    .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+
+                EpisodePickerPanelV2(
+                    playerState: playerState,
+                    isPresented: $isPresented,
+                    isPortrait: false,
+                    isReversed: $isReversed
+                )
+                .environmentObject(settings)
+            }
+            .frame(width: min(geo.size.width * 0.5, 320), height: min(geo.size.height * 0.5, 320))
+            .background(panelBackground)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
+            .position(x: geo.size.width / 2, y: geo.size.height / 2 - 40)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
