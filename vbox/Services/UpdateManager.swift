@@ -178,11 +178,12 @@ class UpdateManager: ObservableObject {
         // 删除旧文件
         try? FileManager.default.removeItem(at: destinationURL)
 
-        // GitHub 加速代理列表（国内访问 GitHub Releases 很慢，优先用代理）
+        // GitHub 加速代理列表（国内访问 GitHub 很慢，优先用代理）
         let urlStr = url.absoluteString
         let proxyURLs: [URL] = [
+            URL(string: "https://ghproxy.net/\(urlStr)")!,
             URL(string: "https://ghproxy.com/\(urlStr)")!,
-            URL(string: "https://mirror.ghproxy.com/\(urlStr)")!,
+            URL(string: "https://gh.con.sh/\(urlStr)")!,
             url  // 兜底：原始地址
         ]
 
