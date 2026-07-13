@@ -665,7 +665,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
         // 收集 ucSession 中积累的全部 Cookie（来自 getToken + 轮询 + 本次 exchange）
         let allCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://drive.uc.cn")!)
-        let headerCookie = collectCookies(from: response as? HTTPURLResponse, storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
+        let headerCookie = collectCookies(from: (response as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
         let cookie = mergeCookieStrings([allCookies, headerCookie])
         print("[VBox UC Exchange] session cookies: \(allCookies.isEmpty ? "none" : allCookies.prefix(100))...")
         print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie.prefix(100))...")
@@ -694,7 +694,7 @@ final class CloudDriveAuthManager: ObservableObject {
         print("[VBox UC Exchange] fallback HTTP \(fbHttpStatus): \(fbBody.prefix(300))")
 
         let fbAllCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://pan.quark.cn")!)
-        let fbHeaderCookie = collectCookies(from: fbResponse as? HTTPURLResponse, storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
+        let fbHeaderCookie = collectCookies(from: (fbResponse as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
         let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, allCookies])
         print("[VBox UC Exchange] fallback merged cookie: \(fbCookie.isEmpty ? "none" : fbCookie.prefix(100))...")
 
