@@ -29,6 +29,8 @@ class UpdateManager: ObservableObject {
     @Published var downloadError: String?
     /// 是否安装了 TrollStore
     @Published var hasTrollStore = false
+    /// 下载弹窗是否已缩小为悬浮图标
+    @Published var isMinimized = false
 
     // B 仓库配置 — APP 从这里检查更新和下载 IPA
     private let repoOwner = "hfkj520"
