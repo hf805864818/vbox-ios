@@ -2405,7 +2405,13 @@ globalThis.__JS_SPIDER__ = _spider;
                 for pattern in patterns {
                     if let regex = try? NSRegularExpression(pattern: pattern),
                        let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) {
-                        let range = Range(match.range(at: 1), in: html) ?? Range(match.range(at: 0), in: html)
+                        // 部分正则没有捕获组（如 m3u8/mp4 URL 匹配），range(at:1) 会越界崩溃
+                        let range: Range<String.Index>?
+                        if match.numberOfRanges > 1 {
+                            range = Range(match.range(at: 1), in: html)
+                        } else {
+                            range = Range(match.range(at: 0), in: html)
+                        }
                         if let r = range {
                             var result = String(html[r])
                             // 清理结果
