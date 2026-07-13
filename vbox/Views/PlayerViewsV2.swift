@@ -535,8 +535,11 @@ struct VideoPlayerViewV2: View {
             NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active {
-                // 回到前台：关闭系统画中画，让用户继续全屏看
+            switch newPhase {
+            case .background, .inactive:
+                playerState.handleSceneBackground()
+            case .active:
+                // 关闭系统画中画 + 异步恢复播放（带超时保护）
                 if playerState.isPiPActive {
                     #if canImport(Libmpv)
                     MPVPiPManager.shared.stopPiP()
@@ -546,6 +549,9 @@ struct VideoPlayerViewV2: View {
                     #endif
                     playerState.isPiPActive = false
                 }
+                playerState.handleSceneForeground()
+            @unknown default:
+                break
             }
         }
     }
@@ -697,6 +703,9 @@ class PlayerState: ObservableObject {
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
     @Published var baiduCachedTimeRanges: [(start: Double, end: Double)] = []
+    /// 场景恢复保护：防止 watchdog 因主线程阻塞杀进程
+    @Published var isRestoringFromBackground = false
+    private var sceneRestorationTask: Task<Void, Never>?
     @Published var isFavorite: Bool = false  // 当前视频是否已收藏
     
     // 通用集数列表（所有资源类型共用）
@@ -1808,6 +1817,16 @@ class PlayerState: ObservableObject {
     
     func setupPlayer(video: VodItem) {
         currentTask?.cancel()
+        // 场景恢复期间不启动新播放器，避免主线程阻塞触发 watchdog
+        if isRestoringFromBackground {
+            log("[PlayerV2] 场景恢复中，延迟播放器初始化")
+            sceneRestorationTask?.cancel()
+            sceneRestorationTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await MainActor.run { self?.setupPlayer(video: video) }
+            }
+            return
+        }
         currentVideo = video
         brightness = UIScreen.main.brightness
         volume = Double(AVAudioSession.sharedInstance().outputVolume)
@@ -1829,10 +1848,47 @@ class PlayerState: ObservableObject {
             await resolvePlayUrl(video: video)
         }
     }
-    
+
+    // MARK: - 场景生命周期保护（防止 watchdog 超时杀进程）
+
+    /// 进入后台时调用：暂停播放器，取消耗时任务
+    func handleSceneBackground() {
+        sceneRestorationTask?.cancel()
+        sceneRestorationTask = nil
+        currentTask?.cancel()
+        currentTask = nil
+        player?.pause()
+        isPlaying = false
+        savePlaybackProgress(force: true)
+        log("[PlayerV2] 进入后台，已暂停播放器并取消任务")
+    }
+
+    /// 回到前台时调用：异步恢复播放器，带超时保护
+    func handleSceneForeground() {
+        guard !isRestoringFromBackground else { return }
+        isRestoringFromBackground = true
+        sceneRestorationTask?.cancel()
+        sceneRestorationTask = Task { [weak self] in
+            guard let self = self else { return }
+            // 给场景更新 2 秒宽限期，避免主线程阻塞触发 watchdog
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            await MainActor.run {
+                self.isRestoringFromBackground = false
+                // 只恢复播放，不做任何重解析/网络请求
+                if self.player?.currentItem != nil, self.player?.rate == 0 {
+                    self.player?.play()
+                    self.isPlaying = true
+                    self.log("[PlayerV2] 回到前台，已恢复播放")
+                }
+            }
+        }
+    }
+
     func cleanup() {
         currentTask?.cancel()
         currentTask = nil
+        sceneRestorationTask?.cancel()
+        sceneRestorationTask = nil
         danmakuTask?.cancel()
         danmakuTask = nil
         savePlaybackProgress(force: true)
@@ -3244,6 +3300,17 @@ class PlayerState: ObservableObject {
         if !noReferer { hasRetriedNoReferer = false }
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         detectVideoQuality(from: url.absoluteString)
+
+        // 场景恢复保护：延迟 AVPlayer 创建，避免主线程阻塞触发 watchdog
+        if isRestoringFromBackground {
+            log("[PlayerV2] 场景恢复中，延迟播放器创建(200ms)")
+            sceneRestorationTask?.cancel()
+            sceneRestorationTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                await MainActor.run { self?.initPlayer(url: url, noReferer: noReferer, customHeaders: customHeaders) }
+            }
+            return
+        }
 
         if shouldRouteDirectURLToMPV(url) {
             log("[PlayerV2] 直链资源分流到 MPV-MoltenVK：\(url.pathExtension.lowercased())")
