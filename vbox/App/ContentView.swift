@@ -143,6 +143,32 @@ struct ContentView: View {
                     .transition(.opacity)
                     .zIndex(1)
             }
+            // 悬浮下载图标（下载弹窗缩小后显示）
+            if UpdateManager.shared.isMinimized && !showUpdateSheet {
+                if UpdateManager.shared.isDownloading {
+                    FloatingDownloadBubble(onTap: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            UpdateManager.shared.isMinimized = false
+                        }
+                        showUpdateSheet = true
+                    })
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(2)
+                } else {
+                    // 下载完成或失败，自动弹出弹窗
+                    Color.clear.onAppear {
+                        UpdateManager.shared.isMinimized = false
+                        showUpdateSheet = true
+                    }
+                }
+            }
+        }
+        .onChange(of: UpdateManager.shared.isMinimized) { _ in
+            // 下载完成时自动弹出（isMinimized 仍为 true，但 isDownloading 变为 false）
+            if UpdateManager.shared.isMinimized && !UpdateManager.shared.isDownloading {
+                UpdateManager.shared.isMinimized = false
+                showUpdateSheet = true
+            }
         }
     }
 
