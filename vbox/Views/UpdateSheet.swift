@@ -101,11 +101,8 @@ struct UpdateSheet: View {
                     if updateManager.isDownloading {
                         Button(action: minimize) {
                             Image(systemName: "arrow.down.right.and.arrow.up.left")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(.gray)
-                                .frame(width: 24, height: 24)
-                                .background(Color.gray.opacity(0.12))
-                                .clipShape(Circle())
                         }
                     }
                     Spacer()
@@ -215,9 +212,9 @@ struct UpdateSheet: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                     }
-                    .frame(height: min(CGFloat(notes.count * 30) + 24, 180))
+                    .frame(height: max(180, min(CGFloat(notes.count * 36) + 24, 280)))
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, 12)
                 }
 
                 Spacer(minLength: 16)
@@ -287,7 +284,7 @@ struct FloatingDownloadBubble: View {
     /// 默认位置：右下角
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
-    private let bubbleSize: CGFloat = 56
+    private let bubbleSize: CGFloat = 44
 
     private var defaultPosition: CGPoint {
         CGPoint(
@@ -329,12 +326,12 @@ struct FloatingDownloadBubble: View {
     private var bubbleContent: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.2), lineWidth: 3)
+                .stroke(Color.white.opacity(0.2), lineWidth: 2.5)
                 .frame(width: bubbleSize, height: bubbleSize)
 
             Circle()
                 .trim(from: 0, to: max(0.05, CGFloat(updateManager.downloadProgress)))
-                .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .frame(width: bubbleSize, height: bubbleSize)
                 .rotationEffect(.degrees(-90))
                 .animation(.linear(duration: 0.3), value: updateManager.downloadProgress)
@@ -342,12 +339,12 @@ struct FloatingDownloadBubble: View {
             Image(systemName: "arrow.down.circle.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 38, height: 38)
+                .frame(width: 30, height: 30)
                 .foregroundColor(Color(hex: "00A8FF"))
                 .background(
                     Circle()
                         .fill(Color(uiColor: .systemBackground))
-                        .frame(width: 38, height: 38)
+                        .frame(width: 30, height: 30)
                 )
                 .clipShape(Circle())
         }
@@ -355,7 +352,7 @@ struct FloatingDownloadBubble: View {
         .background(
             Circle()
                 .fill(Color(uiColor: .systemBackground))
-                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 3)
         )
     }
 
