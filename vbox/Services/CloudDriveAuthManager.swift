@@ -548,13 +548,11 @@ final class CloudDriveAuthManager: ObservableObject {
     func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
         let requestId = UUID().uuidString.lowercased()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
-        // 对齐欧歌源 config.jar 实测参数（__dt/__t），旧版 client_id/v/request_id 作为兜底保留
+        // 对齐 iBox 实测参数：仅 __dt + __t，不带 client_id/v/request_id
+        // 过多参数会导致 token 绑定错误的客户端上下文，broccoli 确认后 loginWithKpsAndQrcodeToken 返回 50000000
         components.queryItems = [
-            URLQueryItem(name: "__dt", value: "641254"),
-            URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "v", value: "1.2"),
-            URLQueryItem(name: "request_id", value: requestId)
+            URLQueryItem(name: "__dt", value: "2951"),
+            URLQueryItem(name: "__t", value: timestampMS())
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
@@ -592,14 +590,11 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // 对齐欧歌源 config.jar 实测轮询参数：__dt + __t + client_id + v + request_id + token
+        // 对齐 iBox 实测轮询参数：__dt + __t + token，不带 client_id/v/request_id
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
-            URLQueryItem(name: "__dt", value: "18884"),
+            URLQueryItem(name: "__dt", value: "10314"),
             URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "client_id", value: token.pollClientId),
-            URLQueryItem(name: "v", value: "1.2"),
-            URLQueryItem(name: "request_id", value: token.requestId),
             URLQueryItem(name: "token", value: token.token)
         ]
         var request = URLRequest(url: components.url!)
@@ -1933,15 +1928,14 @@ final class CloudDriveAuthManager: ObservableObject {
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn（UC自己的域名）
-        // 对齐欧歌源 config.jar 实测的 uc_param_str，同时保留 client_id + ssb=weblogin 确保服务端生成 ticket
+        // 对齐 iBox 实测：仅 uc_param_str + token，不带 client_id/ssb
+        // 加 client_id 会导致 broccoli 确认后 loginWithKpsAndQrcodeToken 返回 50000000
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
             URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "ssb", value: "weblogin")
+            URLQueryItem(name: "token", value: token)
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)&ssb=weblogin"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }
