@@ -1160,6 +1160,34 @@ class PlayerState: ObservableObject {
         }
     }
 
+    /// 从URL中检测视频画质并更新 selectedQuality（0=标清, 1=高清, 2=蓝光）
+    func detectVideoQuality(from urlString: String) {
+        let lower = urlString.lowercased()
+        // 蓝光/4K
+        if lower.contains("蓝光") || lower.contains("bd") || lower.contains("bluray") ||
+           lower.contains("2160") || lower.contains("4k") || lower.contains("uhd") {
+            selectedQuality = 2
+            log("[PlayerV2] 画质检测: 蓝光")
+            return
+        }
+        // 高清/1080p
+        if lower.contains("高清") || lower.contains("1080") || lower.contains("超清") ||
+           lower.contains("hd") || lower.contains("fhd") || lower.contains("full") {
+            selectedQuality = 1
+            log("[PlayerV2] 画质检测: 高清")
+            return
+        }
+        // 标清/720p及以下
+        if lower.contains("标清") || lower.contains("720") || lower.contains("480") ||
+           lower.contains("360") || lower.contains("sd") || lower.contains("low") {
+            selectedQuality = 0
+            log("[PlayerV2] 画质检测: 标清")
+            return
+        }
+        // 默认高清
+        log("[PlayerV2] 画质检测: 默认高清")
+    }
+
     private func loadDanmaku(for video: VodItem, fileName: String) {
         danmakuTask?.cancel()
         allDanmakuItems = []
@@ -2234,6 +2262,7 @@ class PlayerState: ObservableObject {
                 compatibilityEngineName = engineName
                 compatibilityURL = urlObj
                 compatibilityHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
+                detectVideoQuality(from: urlObj.absoluteString)
                 isPlaying = true
                 isLoading = false
             }
@@ -2607,6 +2636,7 @@ class PlayerState: ObservableObject {
         compatibilityEngineName = "MPV-MoltenVK"
         compatibilityURL = url
         compatibilityHeaders = headers
+        detectVideoQuality(from: url.absoluteString)
         playbackEngineMode = .compatibility
         compatibilityHint = "系统内核无视频画面"
         isPlaying = true
@@ -3069,16 +3099,30 @@ class PlayerState: ObservableObject {
         // 确定使用哪个源的URL块
         let urlBlock: String
         if playUrl.contains("$$$") {
-            // 多源：取第一个有http的源
-            let froms = playFrom.components(separatedBy: "$$$")
+            // 多源：选包含最多集数（#最多）的源
             let urlBlocks = playUrl.components(separatedBy: "$$$")
             var bestBlock = urlBlocks.first ?? ""
-            for i in 0..<min(froms.count, urlBlocks.count) {
-                let block = urlBlocks[i]
-                let firstUrl = extractFirstEpisodeUrl(block)
-                if firstUrl.hasPrefix("http") {
+            var bestEpisodeCount = 0
+            for block in urlBlocks {
+                let count = block.components(separatedBy: "#").filter { part in
+                    let trimmed = part.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty else { return false }
+                    // 检查是否包含有效的URL
+                    return trimmed.contains("http") || trimmed.contains("m3u8") || trimmed.contains("mp4")
+                }.count
+                if count > bestEpisodeCount {
+                    bestEpisodeCount = count
                     bestBlock = block
-                    break
+                }
+            }
+            if bestEpisodeCount == 0 {
+                // 没有URL格式的集数，取第一个有http的源
+                for block in urlBlocks {
+                    let firstUrl = extractFirstEpisodeUrl(block)
+                    if firstUrl.hasPrefix("http") {
+                        bestBlock = block
+                        break
+                    }
                 }
             }
             urlBlock = bestBlock
@@ -3199,6 +3243,7 @@ class PlayerState: ObservableObject {
     private func initPlayer(url: URL, noReferer: Bool = false, customHeaders: [String: String]? = nil) {
         if !noReferer { hasRetriedNoReferer = false }
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
+        detectVideoQuality(from: url.absoluteString)
 
         if shouldRouteDirectURLToMPV(url) {
             log("[PlayerV2] 直链资源分流到 MPV-MoltenVK：\(url.pathExtension.lowercased())")
@@ -4671,7 +4716,7 @@ struct LandscapeEpisodePickerOverlay: View {
                 // 标题栏
                 HStack {
                     Text("选集")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white)
                     Spacer()
                     Button(action: {
@@ -4687,19 +4732,20 @@ struct LandscapeEpisodePickerOverlay: View {
                         }
                         .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 3)
                         .background(
-                            RoundedRectangle(cornerRadius: 5)
+                            RoundedRectangle(cornerRadius: 4)
                                 .fill(settings.usesFrostedSkin ? Color(uiColor: .tertiarySystemBackground) : Color.white.opacity(0.1))
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
 
                 Divider()
-                    .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.1))
+                    .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.08))
 
                 EpisodePickerPanelV2(
                     playerState: playerState,
