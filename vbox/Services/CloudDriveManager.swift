@@ -72,6 +72,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     private let session: URLSession
+    private let ucSession: URLSession
     private let defaults = UserDefaults.standard
     private let tokenKey = "saved_drive_tokens"
     private let baiduPersistedPlayCacheKey = "baidu_play_result_cache_v1"
@@ -218,6 +219,11 @@ class CloudDriveManager: ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
+        
+        let ucConfig = URLSessionConfiguration.ephemeral
+        ucConfig.timeoutIntervalForRequest = 30
+        ucSession = URLSession(configuration: ucConfig)
+        
         loadTokens()
         loadQuarkVboxFolderCache()
         startCleanupWorkerIfNeeded()
@@ -6338,23 +6344,33 @@ class CloudDriveManager: ObservableObject {
         do {
             transcodeURL = try await ucGetPlayURL(fileId: fileId, cookie: authCookie)
         } catch {
-            print("[UC] ⚠️ v2/play 失败，继续尝试 download_url：\(error.localizedDescription)")
+            print("[UC] ⚠️ v2/play 失败，继续尝试：\(error.localizedDescription)")
         }
-        let download = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
-        var playURL = download.isEmpty ? transcodeURL : download
-        var source = download.isEmpty ? "v2-play" : "download_url"
+        let downloadURL = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
 
-        // 兜底：当 pc-api.uc.cn 无法拿到播放地址时，使用 UCTV Token 请求 open-api-drive.uc.cn/file
-        if playURL.isEmpty,
-           let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+        // 优先级：TV Token（高速） > v2/play（转码） > download_url（慢速）
+        var playURL = ""
+        var source = ""
+
+        if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
            !tvToken.isEmpty {
             do {
                 playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
                 source = "uc_tv_token"
-                print("[UC] ✅ 使用 UCTV Token 获取到播放地址")
+                print("[UC] ✅ TV Token 高速通道获取到播放地址")
             } catch {
-                print("[UC] ⚠️ UCTV Token 播放兜底失败：\(error.localizedDescription)")
+                print("[UC] ⚠️ TV Token 播放失败，降级：\(error.localizedDescription)")
             }
+        }
+
+        if playURL.isEmpty && !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play"
+        }
+
+        if playURL.isEmpty {
+            playURL = downloadURL
+            source = "download_url"
         }
 
         guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url、转码地址和 UCTV Token 兜底均为空") }
@@ -6367,9 +6383,9 @@ class CloudDriveManager: ObservableObject {
             headers: headers,
             driveType: .uc,
             source: source,
-            fallbackURL: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? transcodeURL : nil,
-            fallbackHeaders: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? headers : nil,
-            fallbackSource: (!download.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? "v2-play-m3u8" : nil
+            fallbackURL: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? transcodeURL : nil,
+            fallbackHeaders: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? headers : nil,
+            fallbackSource: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? "v2-play-m3u8" : nil
         )
     }
 
@@ -6442,7 +6458,7 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
 
         let respStr = String(data: data, encoding: .utf8) ?? ""
         print("[UC] save 响应：\(respStr.prefix(800))")
@@ -6490,7 +6506,7 @@ class CloudDriveManager: ObservableObject {
         let body: [String: Any] = ["pwd_id": pwdId, "passcode": passcode]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
@@ -6523,7 +6539,7 @@ class CloudDriveManager: ObservableObject {
             "_fetch_total": 1
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (listData, listResp) = try await session.data(for: req)
+        let (listData, listResp) = try await ucSession.data(for: req)
         let mergedCookie = quarkMergeSetCookie(from: listResp, into: cookie)
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
             let code = listJson["code"] as? Int ?? 0
@@ -6552,7 +6568,7 @@ class CloudDriveManager: ObservableObject {
         ucSetCommonHeaders(&createReq, cookie: cookie)
         let createBody: [String: Any] = ["pdir_fid": "0", "file_name": "vbox", "dir": true, "dir_path": ""]
         createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
-        let (createData, createResp) = try await session.data(for: createReq)
+        let (createData, createResp) = try await ucSession.data(for: createReq)
         let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookie)
         if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
            let code = createJson["code"] as? Int,
@@ -6566,7 +6582,7 @@ class CloudDriveManager: ObservableObject {
         reReq.httpMethod = "POST"
         ucSetCommonHeaders(&reReq, cookie: cookie)
         reReq.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (reData, reResp) = try await session.data(for: reReq)
+        let (reData, reResp) = try await ucSession.data(for: reReq)
         let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookie)
         if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
             if let data = reJson["data"] as? [String: Any],
@@ -6594,7 +6610,7 @@ class CloudDriveManager: ObservableObject {
         ucSetCommonHeaders(&req, cookie: cookie)
         let body: [String: Any] = ["action_type": 2, "filelist": fileIds, "exclude_fids": []]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        let _ = try? await session.data(for: req)
+        let _ = try? await ucSession.data(for: req)
         self.log("[CloudDrive] ✅ UC 已删除 \(fileIds.count) 个转存文件")
     }
 
@@ -6626,7 +6642,7 @@ class CloudDriveManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         ucSetCommonHeaders(&request, cookie: cookie, referer: ucShareReferer(pwdId: pwdId))
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
@@ -6660,7 +6676,7 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
@@ -6692,7 +6708,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "POST"
         ucSetCommonHeaders(&request, cookie: cookie)
         request.httpBody = try JSONSerialization.data(withJSONObject: ["fids": [fileId]])
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
@@ -6728,7 +6744,7 @@ class CloudDriveManager: ObservableObject {
             "supports": "fmp4,m3u8"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }

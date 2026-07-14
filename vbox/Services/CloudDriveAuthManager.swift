@@ -779,12 +779,25 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeTVToken(cookie: String) async throws -> String {
-        // 优先 HTTPS，失败再回退 HTTP（HTTP 需要 Info.plist 配置 ATS 例外）
+        // 优先走 OAuth 授权流程（需要用户扫码），登录后异步调用时先尝试直接兑换
+        // ext screen 服务需要 code 参数，无法用 Cookie 直接兑换
+        // 此方法保留作为兼容入口，实际应通过 ucStartTVAuth → ucPollTVAuth → ucExchangeTVCode 流程获取
         let endpoints = ["https://api.extscreen.com/ucdrive/token", "http://api.extscreen.com/ucdrive/token"]
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let body: [String: Any] = [
-            "token": "",
-            "device_type": "ios",
-            "app_version": "1.0.0"
+            "build_device": "iPhone",
+            "device_name": "iPhone",
+            "device_id": deviceId,
+            "build_product": "iPhone",
+            "platform": "tv",
+            "req_id": reqId,
+            "app_ver": "1.6.8",
+            "device_model": "iPhone",
+            "device_brand": "Apple",
+            "device_gpu": "Apple",
+            "channel": "UCTVOFFICIALWEB",
+            "activity_rect": "%7B%7D"
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         var lastError: Error?
@@ -793,10 +806,13 @@ final class CloudDriveAuthManager: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Mozilla/5.0 (Linux; U; Android 12; zh-cn; V2238A Build/V417IR) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
             request.httpBody = bodyData
             do {
                 let (data, _) = try await session.data(for: request)
+                let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+                print("[VBox UC] UCTV Token 响应: \(rawBody.prefix(500))")
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw AuthError.invalidResponse("UCTV Token 返回无法解析")
                 }
@@ -807,7 +823,7 @@ final class CloudDriveAuthManager: ObservableObject {
                     throw AuthError.remoteError(json["message"] as? String ?? "code=\(code)")
                 }
                 let dataObj = json["data"] as? [String: Any] ?? json
-                guard let token = dataObj["token"] as? String ?? dataObj["uc_tv_token"] as? String ?? dataObj["access_token"] as? String, !token.isEmpty else {
+                guard let token = dataObj["access_token"] as? String ?? dataObj["token"] as? String ?? dataObj["uc_tv_token"] as? String, !token.isEmpty else {
                     throw AuthError.invalidResponse("UCTV Token 返回为空")
                 }
                 return token
@@ -816,7 +832,181 @@ final class CloudDriveAuthManager: ObservableObject {
                 print("[VBox UC] UCTV Token 端点 \(endpoint) 失败: \(error)")
             }
         }
-        throw lastError ?? AuthError.remoteError("UCTV Token 兑换失败")
+        throw lastError ?? AuthError.remoteError("UCTV Token 兑换失败，请使用扫码授权 UC TV")
+    }
+
+    // MARK: - UC TV OAuth 授权流程
+
+    struct UCTVAuthQR {
+        let qrData: String
+        let queryToken: String
+        let reqId: String
+        let deviceId: String
+    }
+
+    /// 启动 UC TV 授权，返回二维码数据（base64 PNG）和 query_token
+    func ucStartTVAuth() async throws -> UCTVAuthQR {
+        let clientId = "5acf882d27b74502b7040b0c65519aa7"
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString.replacingOccurrences(of: "-", with: "") ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
+
+        var components = URLComponents(string: "https://open-api-drive.uc.cn/oauth/authorize")!
+        components.queryItems = [
+            URLQueryItem(name: "access_token", value: ""),
+            URLQueryItem(name: "activity_rect", value: "%7B%7D"),
+            URLQueryItem(name: "app_ver", value: "1.6.8"),
+            URLQueryItem(name: "auth_type", value: "code"),
+            URLQueryItem(name: "build_device", value: "iPhone"),
+            URLQueryItem(name: "build_product", value: "iPhone"),
+            URLQueryItem(name: "channel", value: "UCTVOFFICIALWEB"),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "device_brand", value: "Apple"),
+            URLQueryItem(name: "device_gpu", value: "Apple"),
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "device_model", value: "iPhone"),
+            URLQueryItem(name: "platform", value: "tv"),
+            URLQueryItem(name: "qr_height", value: "460"),
+            URLQueryItem(name: "qr_width", value: "460"),
+            URLQueryItem(name: "qrcode", value: "1"),
+            URLQueryItem(name: "req_id", value: reqId),
+            URLQueryItem(name: "scope", value: "netdisk")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("Mozilla/5.0 (Linux; U; Android 12; zh-cn; V2238A Build/V417IR) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
+        request.setValue(clientId, forHTTPHeaderField: "x-pan-client-id")
+        request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
+
+        let (data, _) = try await session.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[VBox UC TV] authorize 响应: \(rawBody.prefix(500))")
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? Int, status == 0,
+              let qrData = json["qr_data"] as? String,
+              let queryToken = json["query_token"] as? String else {
+            throw AuthError.invalidResponse("UC TV 授权：无法获取二维码，可能需要 x-pan-token 签名")
+        }
+        return UCTVAuthQR(qrData: qrData, queryToken: queryToken, reqId: reqId, deviceId: deviceId)
+    }
+
+    /// 轮询 UC TV 授权状态，返回 code 或 nil（未确认）
+    func ucPollTVAuth(queryToken: String, deviceId: String) async throws -> String? {
+        let clientId = "5acf882d27b74502b7040b0c65519aa7"
+        let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
+
+        var components = URLComponents(string: "https://open-api-drive.uc.cn/oauth/code")!
+        components.queryItems = [
+            URLQueryItem(name: "access_token", value: ""),
+            URLQueryItem(name: "activity_rect", value: "%7B%7D"),
+            URLQueryItem(name: "app_ver", value: "1.6.8"),
+            URLQueryItem(name: "build_device", value: "iPhone"),
+            URLQueryItem(name: "build_product", value: "iPhone"),
+            URLQueryItem(name: "channel", value: "UCTVOFFICIALWEB"),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "device_brand", value: "Apple"),
+            URLQueryItem(name: "device_gpu", value: "Apple"),
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "device_model", value: "iPhone"),
+            URLQueryItem(name: "platform", value: "tv"),
+            URLQueryItem(name: "query_token", value: queryToken),
+            URLQueryItem(name: "req_id", value: reqId),
+            URLQueryItem(name: "scope", value: "netdisk")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue("Mozilla/5.0 (Linux; U; Android 12; zh-cn; V2238A Build/V417IR) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
+        request.setValue(clientId, forHTTPHeaderField: "x-pan-client-id")
+        request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
+
+        let (data, _) = try await session.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[VBox UC TV] code 轮询响应: \(rawBody.prefix(500))")
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // status=-1 errno=11003 表示用户未确认
+        if let errno = json["errno"] as? Int, errno == 11003 {
+            return nil
+        }
+        if let status = json["status"] as? Int, status == 0,
+           let code = json["code"] as? String ?? json["data"] as? String {
+            if !code.isEmpty { return code }
+        }
+        if let dataObj = json["data"] as? [String: Any],
+           let code = dataObj["code"] as? String, !code.isEmpty {
+            return code
+        }
+        return nil
+    }
+
+    /// 用授权码换取 UC TV Token
+    func ucExchangeTVCode(code: String, deviceId: String) async throws -> String {
+        let endpoints = ["https://api.extscreen.com/ucdrive/token", "http://api.extscreen.com/ucdrive/token"]
+        let reqId = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let body: [String: Any] = [
+            "build_device": "iPhone",
+            "code": code,
+            "activity_rect": "%7B%7D",
+            "device_name": "iPhone",
+            "device_id": deviceId,
+            "build_product": "iPhone",
+            "platform": "tv",
+            "req_id": reqId,
+            "app_ver": "1.6.8",
+            "device_model": "iPhone",
+            "device_brand": "Apple",
+            "device_gpu": "Apple",
+            "channel": "UCTVOFFICIALWEB"
+        ]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        var lastError: Error?
+        for endpoint in endpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Mozilla/5.0 (Linux; U; Android 12; zh-cn; V2238A Build/V417IR) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
+            request.httpBody = bodyData
+            do {
+                let (data, _) = try await session.data(for: request)
+                let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+                print("[VBox UC TV] token 兑换响应: \(rawBody.prefix(500))")
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw AuthError.invalidResponse("UC TV Token 返回无法解析")
+                }
+                if let code = json["code"] as? Int, code != 0, code != 200 {
+                    throw AuthError.remoteError(json["message"] as? String ?? "code=\(code)")
+                }
+                let dataObj = json["data"] as? [String: Any] ?? json
+                guard let token = dataObj["access_token"] as? String ?? dataObj["token"] as? String, !token.isEmpty else {
+                    throw AuthError.invalidResponse("UC TV Token 返回为空")
+                }
+                print("[VBox UC TV] ✅ 获取到 TV Token")
+                return token
+            } catch {
+                lastError = error
+                print("[VBox UC TV] Token 端点 \(endpoint) 失败: \(error)")
+            }
+        }
+        throw lastError ?? AuthError.remoteError("UC TV Token 兑换失败")
+    }
+
+    /// 保存 UC TV Token 到 credential
+    func ucSaveTVToken(_ token: String) {
+        guard var cred = credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
+        var extra = cred.extra
+        extra["uc_tv_token"] = token
+        cred.extra = extra
+        cred.statusMessage = "UC 扫码登录成功（已获取 UC TV Token）"
+        credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
+        persist()
+        CloudDriveAuthManager.logSensitive("[VBox UC] UC TV Token 已保存", value: token)
     }
 
     // MARK: - 百度原生扫码

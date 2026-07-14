@@ -1208,6 +1208,7 @@ struct CloudAuthCenterView: View {
     @State private var showTokenFetcher = false
     @State private var showQuarkNativeQR = false
     @State private var showUCNativeQR = false
+    @State private var showUCTVAuth = false
     @State private var showBaiduNativeQR = false
     @State private var showAliNativeQR = false
     @State private var show123NativeQR = false
@@ -1262,6 +1263,9 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $showUCNativeQR) {
                 NativeCloudQRLoginView(driveType: .uc)
+            }
+            .sheet(isPresented: $showUCTVAuth) {
+                UCTVAuthQRView()
             }
             .sheet(isPresented: $showBaiduNativeQR) {
                 NativeCloudQRLoginView(driveType: .baidu)
@@ -1507,6 +1511,9 @@ struct CloudAuthCenterView: View {
                 } else if type == .uc {
                     Button(action: { showUCNativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
+                    }
+                    Button(action: { showUCTVAuth = true }) {
+                        authButtonLabel("授权 TV", icon: "tv")
                     }
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel("网页登录兜底", icon: "globe")
@@ -4007,5 +4014,183 @@ struct NativeCloudQRLoginView: View {
         let context = CIContext()
         guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
         return UIImage(cgImage: cgImage)
+    }
+}
+
+// MARK: - UC TV 授权二维码视图
+
+struct UCTVAuthQRView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var qrImage: UIImage? = nil
+    @State private var statusText = "正在获取授权二维码..."
+    @State private var detailText = ""
+    @State private var errorText = ""
+    @State private var isPolling = false
+    @State private var pollCount = 0
+    @State private var authQR: CloudDriveAuthManager.UCTVAuthQR? = nil
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text("UC TV 画质授权")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .padding(.top, 20)
+
+                    if let qrImage = qrImage {
+                        Image(uiImage: qrImage)
+                            .resizable()
+                            .interpolation(.none)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 240, height: 240)
+                            .padding(12)
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .shadow(radius: 4)
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(.systemGray6))
+                                .frame(width: 240, height: 240)
+                            if errorText.isEmpty {
+                                ProgressView()
+                                    .scaleEffect(1.5)
+                            } else {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .font(.largeTitle)
+                                        .foregroundColor(.orange)
+                                    Text("获取失败")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    VStack(spacing: 8) {
+                        Text(statusText)
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(statusText.contains("成功") ? .green : .primary)
+
+                        if !detailText.isEmpty {
+                            Text(detailText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+
+                        if !errorText.isEmpty {
+                            Text(errorText)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                    }
+
+                    if !errorText.isEmpty && !isPolling {
+                        Button(action: { startAuth() }) {
+                            Label("重新获取二维码", systemImage: "arrow.clockwise")
+                                .font(.headline)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if isPolling {
+                        Text("已轮询 \(pollCount) 次")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+        .onAppear { startAuth() }
+    }
+
+    private func startAuth() {
+        errorText = ""
+        statusText = "正在获取授权二维码..."
+        detailText = "请稍候..."
+
+        Task {
+            do {
+                let qr = try await CloudDriveAuthManager.shared.ucStartTVAuth()
+                authQR = qr
+                if let imgData = Data(base64Encoded: qr.qrData),
+                   let img = UIImage(data: imgData) {
+                    qrImage = img
+                }
+                statusText = "请使用 UC 浏览器扫码授权"
+                detailText = "扫码后可解锁普画 2K 画质，提升播放速度"
+                isPolling = true
+                pollCount = 0
+                await pollTVCode()
+            } catch {
+                errorText = error.localizedDescription
+                statusText = "获取二维码失败"
+                detailText = ""
+            }
+        }
+    }
+
+    private func pollTVCode() async {
+        guard let qr = authQR else { return }
+        let maxPoll = 120 // 4分钟
+        var netRetry = 0
+        while isPolling && pollCount < maxPoll {
+            pollCount += 1
+            do {
+                if let code = try await CloudDriveAuthManager.shared.ucPollTVAuth(
+                    queryToken: qr.queryToken,
+                    deviceId: qr.deviceId
+                ) {
+                    statusText = "授权成功，正在获取 TV Token..."
+                    detailText = ""
+                    let token = try await CloudDriveAuthManager.shared.ucExchangeTVCode(
+                        code: code,
+                        deviceId: qr.deviceId
+                    )
+                    CloudDriveAuthManager.shared.ucSaveTVToken(token)
+                    isPolling = false
+                    statusText = "✅ UC TV 授权成功"
+                    detailText = "已解锁普画 2K 画质，播放速度将大幅提升"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                    return
+                }
+                netRetry = 0
+                statusText = "等待扫码授权"
+                detailText = "请使用 UC 浏览器扫描二维码并确认授权（剩余 \(maxPoll - pollCount) 次）"
+            } catch {
+                netRetry += 1
+                if netRetry > 3 {
+                    isPolling = false
+                    errorText = error.localizedDescription
+                    statusText = "轮询失败"
+                    detailText = ""
+                    return
+                }
+                statusText = "网络波动，重试中 (\(netRetry)/3)"
+                detailText = error.localizedDescription
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "二维码已过期"
+            detailText = "请点击重新获取"
+        }
     }
 }
