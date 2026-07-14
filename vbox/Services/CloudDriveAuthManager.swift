@@ -107,9 +107,8 @@ final class CloudDriveAuthManager: ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
-        let ucConfig = URLSessionConfiguration.default
+        let ucConfig = URLSessionConfiguration.ephemeral
         ucConfig.timeoutIntervalForRequest = 30
-        // 移除全信任证书 Delegate，恢复系统默认证书校验
         ucSession = URLSession(configuration: ucConfig)
         load()
         syncLegacyTokensIfNeeded()
@@ -758,25 +757,6 @@ final class CloudDriveAuthManager: ObservableObject {
         )
         saveCredential(credential)
         print("[VBox UC Exchange] ✅ 已保存 UC Cookie (source: \(source)): \(cookie)")
-
-        // 异步兑换 UCTV Token，不影响登录成功返回
-        Task {
-            do {
-                let tvToken = try await self.ucExchangeTVToken(cookie: cookie)
-                await MainActor.run {
-                    guard var cred = self.credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
-                    var extra = cred.extra
-                    extra["uc_tv_token"] = tvToken
-                    cred.extra = extra
-                    cred.statusMessage = "UC 扫码登录成功（已获取 UCTV Token）"
-                    self.credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
-                    self.persist()
-                    CloudDriveAuthManager.logSensitive("[VBox UC] UCTV Token 已保存", value: tvToken)
-                }
-            } catch {
-                print("[VBox UC] UCTV Token 兑换失败（非阻断）: \(error)")
-            }
-        }
     }
 
     func ucExchangeTVToken(cookie: String) async throws -> String {
@@ -903,7 +883,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
         request.setValue(xPanToken, forHTTPHeaderField: "x-pan-token")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         print("[VBox UC TV] authorize 响应: \(rawBody.prefix(500))")
 
@@ -949,7 +929,7 @@ final class CloudDriveAuthManager: ObservableObject {
         request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
         request.setValue(xPanToken, forHTTPHeaderField: "x-pan-token")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await ucSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         print("[VBox UC TV] code 轮询响应: \(rawBody.prefix(500))")
 
@@ -1004,7 +984,7 @@ final class CloudDriveAuthManager: ObservableObject {
             request.setValue(ucTVUserAgent, forHTTPHeaderField: "User-Agent")
             request.httpBody = bodyData
             do {
-                let (data, _) = try await session.data(for: request)
+                let (data, _) = try await ucSession.data(for: request)
                 let rawBody = String(data: data, encoding: .utf8) ?? "nil"
                 print("[VBox UC TV] token 兑换响应: \(rawBody.prefix(500))")
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
