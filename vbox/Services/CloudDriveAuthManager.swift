@@ -1896,14 +1896,14 @@ final class CloudDriveAuthManager: ObservableObject {
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn 扫码确认页
         // broccoli 页面需要 client_id 来验证 token，否则显示"登录请求已过期"
-        // 去掉 uc_param_str：这个参数是 UC 标准参数编码，会屏蔽 token/client_id 等自定义参数
-        // 导致 broccoli 页面拿不到 token，确认后 CAS 无法匹配
+        // uc_param_str 是 su.uc.cn 短链服务必需的参数编码描述符，去掉会导致重定向失败
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
+            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId)
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }
