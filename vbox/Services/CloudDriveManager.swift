@@ -6678,6 +6678,9 @@ class CloudDriveManager: ObservableObject {
         }
         if let code = json["code"] as? Int, code != 0 {
             let message = json["message"] as? String ?? "code=\(code)"
+            if message.contains("非法token") || message.contains("token") {
+                self.log("[CloudDrive] ⚠️ UC Cookie 已过期，请重新扫码登录")
+            }
             throw DriveError.noPlayURL("UC 文件列表失败：\(message)")
         }
         guard let dataObj = json["data"] as? [String: Any],
@@ -6764,13 +6767,19 @@ class CloudDriveManager: ObservableObject {
         let clientId = "5acf882d27b74502b7040b0c65519aa7"
         let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
         let pathname = "/file"
-        let tokenData = "POST&\(pathname)&\(timestamp)&\(signKey)"
+        // alist 用 GET 请求 /file 获取下载链接
+        let tokenData = "GET&\(pathname)&\(timestamp)&\(signKey)"
         let xPanToken = SHA256.hash(data: Data(tokenData.utf8)).map { String(format: "%02x", $0) }.joined()
         let deviceId = UIDevice.current.identifierForVendor?.uuidString.replacingOccurrences(of: "-", with: "") ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let reqId = Insecure.MD5.hash(data: Data("\(deviceId)\(timestamp)".utf8)).map { String(format: "%02x", $0) }.joined()
 
         var components = URLComponents(string: "https://open-api-drive.uc.cn\(pathname)")!
         components.queryItems = [
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "group_by", value: "source"),
+            URLQueryItem(name: "fid", value: fileId),
+            URLQueryItem(name: "resolution", value: "low,normal,high,super,2k,4k"),
+            URLQueryItem(name: "support", value: "dolby_vision"),
             URLQueryItem(name: "access_token", value: tvToken),
             URLQueryItem(name: "app_ver", value: "1.6.8"),
             URLQueryItem(name: "device_id", value: deviceId),
@@ -6787,31 +6796,32 @@ class CloudDriveManager: ObservableObject {
         ]
 
         var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "GET"
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         request.setValue(clientId, forHTTPHeaderField: "x-pan-client-id")
         request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
         request.setValue(xPanToken, forHTTPHeaderField: "x-pan-token")
         request.setValue("Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
 
-        let body: [String: Any] = [
-            "fid": fileId,
-            "resolutions": "normal,low,high,super,2k,4k",
-            "supports": "fmp4,m3u8"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await ucSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        print("[UC] TV Token play URL 响应: \(rawBody.prefix(500))")
+        self.log("[CloudDrive] TV Token API 响应: \(rawBody.prefix(300))")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
-        if let code = json["code"] as? Int, code != 0 {
-            let message = json["message"] as? String ?? "code=\(code)"
-            throw DriveError.noPlayURL("UCTV Token 获取播放地址失败：\(message)")
+        // errno 10001 + status -1 = token 过期
+        if let errno = json["errno"] as? Int, errno == 10001,
+           let status = json["status"] as? Int, status == -1 {
+            throw DriveError.noPlayURL("TV Token 已过期，请重新授权 TV")
         }
+        if let status = json["status"] as? Int, status == -1 {
+            let info = json["error_info"] as? String ?? json["message"] as? String ?? "status=-1"
+            throw DriveError.noPlayURL("UCTV Token 获取播放地址失败：\(info)")
+        }
+        // alist 返回格式: { "data": { "download_url": "https://..." } }
         if let dataObj = json["data"] as? [String: Any] {
+            if let url = dataObj["download_url"] as? String, !url.isEmpty { return url }
+            // 兼容旧字段
             if let url = dataObj["url"] as? String, !url.isEmpty { return url }
             if let url = dataObj["play_url"] as? String, !url.isEmpty { return url }
             if let list = dataObj["video_list"] as? [[String: Any]] {
@@ -6823,8 +6833,7 @@ class CloudDriveManager: ObservableObject {
                 }
             }
         }
-        if let url = json["url"] as? String, !url.isEmpty { return url }
-        if let url = json["play_url"] as? String, !url.isEmpty { return url }
+        self.log("[CloudDrive] ⚠️ TV Token 响应解析失败: \(rawBody.prefix(500))")
         throw DriveError.noPlayURL("UCTV Token 返回中未找到播放地址")
     }
 
