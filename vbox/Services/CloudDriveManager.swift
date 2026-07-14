@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 
 /// 用于 CloudDriveManager 向播放器 Debug Overlay 广播日志
 extension Notification.Name {
@@ -6354,6 +6355,7 @@ class CloudDriveManager: ObservableObject {
 
         if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
            !tvToken.isEmpty {
+            print("[UC] 🔍 TV Token 已找到，尝试高速通道...")
             do {
                 playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
                 source = "uc_tv_token"
@@ -6361,6 +6363,8 @@ class CloudDriveManager: ObservableObject {
             } catch {
                 print("[UC] ⚠️ TV Token 播放失败，降级：\(error.localizedDescription)")
             }
+        } else {
+            print("[UC] ℹ️ 未找到 TV Token，将使用 Cookie 通道")
         }
 
         if playURL.isEmpty && !transcodeURL.isEmpty {
@@ -6544,16 +6548,16 @@ class CloudDriveManager: ObservableObject {
         let listBody = String(data: listData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder list 响应: \(listBody.prefix(500))")
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
+            var looksLikeAuthError = false
             if let code = listJson["code"] as? Int, code != 0 {
                 print("[UC] ensureFolder list 返回 code=\(code): \(listJson["message"] as? String ?? "")")
-                // 只对明显的鉴权错误码抛异常，其他继续尝试 create
+                // 只对明显的鉴权错误码抛异常，其他继续尝试
                 if code == 10001 || code == 10002 || code == 10003 {
+                    looksLikeAuthError = true
                     throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code))")
                 }
             }
-            let code = listJson["code"] as? Int ?? 0
-            let status = listJson["status"] as? Int ?? 200
-            if code == 0 && status == 200 {
+            if !looksLikeAuthError {
                 if let data = listJson["data"] as? [String: Any],
                    let files = data["list"] as? [[String: Any]] {
                     for f in files {
@@ -6571,14 +6575,17 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
+        // 使用合并后的 Cookie（包含 list 响应 Set-Cookie），避免后续请求因缺少 session cookie 而失败
+        let cookieAfterList = mergedCookie
+
         let createURL = ucAPIURL("/1/clouddrive/file")
         var createReq = URLRequest(url: createURL)
         createReq.httpMethod = "POST"
-        ucSetCommonHeaders(&createReq, cookie: cookie)
+        ucSetCommonHeaders(&createReq, cookie: cookieAfterList)
         let createBody: [String: Any] = ["pdir_fid": "0", "file_name": "vbox", "dir": true, "dir_path": ""]
         createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
         let (createData, createResp) = try await ucSession.data(for: createReq)
-        let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookie)
+        let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookieAfterList)
         let createBodyStr = String(data: createData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder create 响应: \(createBodyStr.prefix(300))")
         if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any] {
@@ -6598,13 +6605,14 @@ class CloudDriveManager: ObservableObject {
                 return (fid, createMergedCookie)
             }
         }
-        // 文件夹可能已存在（code 非 0），重新 list 一次
+        // 文件夹可能已存在（code 非 0），重新 list 一次（使用最新合并 Cookie）
+        let cookieAfterCreate = createMergedCookie
         var reReq = URLRequest(url: listURL)
         reReq.httpMethod = "POST"
-        ucSetCommonHeaders(&reReq, cookie: cookie)
+        ucSetCommonHeaders(&reReq, cookie: cookieAfterCreate)
         reReq.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (reData, reResp) = try await ucSession.data(for: reReq)
-        let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookie)
+        let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookieAfterCreate)
         let reBodyStr = String(data: reData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder re-list 响应: \(reBodyStr.prefix(300))")
         if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
@@ -6759,14 +6767,41 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
-        let url = URL(string: "https://open-api-drive.uc.cn/file")!
-        var request = URLRequest(url: url)
+        let signKey = "l3srvtd7p42l0d0x1u8d7yc8ye9kki4d"
+        let clientId = "5acf882d27b74502b7040b0c65519aa7"
+        let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
+        let pathname = "/file"
+        let tokenData = "POST&\(pathname)&\(timestamp)&\(signKey)"
+        let xPanToken = SHA256.hash(data: Data(tokenData.utf8)).map { String(format: "%02x", $0) }.joined()
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString.replacingOccurrences(of: "-", with: "") ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let reqId = Insecure.MD5.hash(data: Data("\(deviceId)\(timestamp)".utf8)).map { String(format: "%02x", $0) }.joined()
+
+        var components = URLComponents(string: "https://open-api-drive.uc.cn\(pathname)")!
+        components.queryItems = [
+            URLQueryItem(name: "access_token", value: tvToken),
+            URLQueryItem(name: "app_ver", value: "1.6.8"),
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "device_brand", value: "Apple"),
+            URLQueryItem(name: "platform", value: "tv"),
+            URLQueryItem(name: "device_name", value: "iPhone"),
+            URLQueryItem(name: "device_model", value: "iPhone"),
+            URLQueryItem(name: "build_device", value: "iPhone"),
+            URLQueryItem(name: "build_product", value: "iPhone"),
+            URLQueryItem(name: "device_gpu", value: "Apple"),
+            URLQueryItem(name: "activity_rect", value: "{}"),
+            URLQueryItem(name: "channel", value: "UCTVOFFICIALWEB"),
+            URLQueryItem(name: "req_id", value: reqId)
+        ]
+
+        var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(tvToken, forHTTPHeaderField: "Authorization")
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue(clientId, forHTTPHeaderField: "x-pan-client-id")
+        request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
+        request.setValue(xPanToken, forHTTPHeaderField: "x-pan-token")
+        request.setValue("Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
+
         let body: [String: Any] = [
             "fid": fileId,
             "resolutions": "normal,low,high,super,2k,4k",
@@ -6774,6 +6809,8 @@ class CloudDriveManager: ObservableObject {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await ucSession.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[UC] TV Token play URL 响应: \(rawBody.prefix(500))")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
