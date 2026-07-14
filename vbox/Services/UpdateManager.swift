@@ -167,21 +167,102 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
-    // MARK: - 下载地址构建（代理直转，无需测速）
+    // MARK: - 代理节点动态获取 + 本地测速
 
-    /// 直接用 GitHub 代理转发下载，省去节点提取 + 测速步骤
-    /// 代理格式: https://gh.akams.cn/https://github.com/.../vbox.ipa
-    private func buildDownloadURLs(githubURL: String) -> [URL] {
-        let proxies = [
-            "https://gh.akams.cn/",
-            "https://github.akams.cn/",
-            "https://ghproxy.net/",
-            "https://gh.con.sh/",
-            "https://gh.ddlc.top/",
-        ]
-        var urls = proxies.compactMap { URL(string: $0 + githubURL) }
-        urls.append(URL(string: githubURL)!) // 直连兜底
-        return urls
+    /// 从 github.akams.cn 页面提取代理域名列表 + 本地 HEAD 测速排序
+    /// 返回按用户设备实际延迟排序的下载 URL 列表
+    private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
+        let nodes = await fetchProxyNodesFromPage()
+        print("[UpdateManager] 从页面提取到 \(nodes.count) 个代理节点")
+
+        if nodes.isEmpty {
+            // 兜底：直接用 gh.akams.cn + 直连
+            print("[UpdateManager] 提取失败，使用 gh.akams.cn 兜底")
+            return [URL(string: "https://gh.akams.cn/\(githubURL)")!, URL(string: githubURL)!]
+        }
+
+        print("[UpdateManager] 开始本地测速 \(nodes.count) 个节点...")
+        var ranked: [(url: URL, latencyMs: Double)] = []
+
+        await withTaskGroup(of: (host: String, latencyMs: Double?).self) { group in
+            var running = 0
+            let maxConcurrent = 15
+            for host in nodes {
+                if running >= maxConcurrent {
+                    if let result = await group.next() {
+                        if let lat = result.latencyMs {
+                            ranked.append((URL(string: "https://\(result.host)/\(githubURL)")!, lat))
+                        }
+                        running -= 1
+                    }
+                }
+                running += 1
+                group.addTask { [host] in
+                    let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
+                    var req = URLRequest(url: proxyURL)
+                    req.httpMethod = "HEAD"
+                    req.timeoutInterval = 2.5
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let start = Date()
+                    do {
+                        let (_, resp) = try await URLSession.shared.data(for: req)
+                        let ms = Date().timeIntervalSince(start) * 1000
+                        if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                            return (host, ms)
+                        }
+                    } catch {}
+                    return (host, nil)
+                }
+            }
+            for await result in group {
+                if let lat = result.latencyMs {
+                    ranked.append((URL(string: "https://\(result.host)/\(githubURL)")!, lat))
+                }
+            }
+        }
+
+        ranked.sort { $0.latencyMs < $1.latencyMs }
+        for (i, r) in ranked.enumerated().prefix(10) {
+            print("[UpdateManager]   #\(i+1) \(r.url.host ?? "?") \(String(format: "%.0f", r.latencyMs))ms")
+        }
+
+        var result = ranked.map { $0.url }
+        result.append(URL(string: githubURL)!) // 直连兜底
+        return result
+    }
+
+    /// 从 github.akams.cn 页面 HTML 提取所有代理域名
+    private func fetchProxyNodesFromPage() async -> [String] {
+        do {
+            var req = URLRequest(url: URL(string: "https://github.akams.cn")!)
+            req.timeoutInterval = 8
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+
+            // 页面中代理域名格式: [标签]gh.xxx.xx 或 [标签]xxx.xxx.xx
+            // 匹配方括号标签后的域名
+            let pattern = #"\]\s*([a-zA-Z][-a-zA-Z0-9]*(?:\.[a-zA-Z][-a-zA-Z0-9]*)+(?:\.[a-zA-Z]{2,}))"#
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+            var seen = Set<String>()
+            var domains: [String] = []
+            for m in matches {
+                guard let r = Range(m.range(at: 1), in: html) else { continue }
+                let domain = String(html[r]).lowercased()
+                // 过滤掉非代理站点
+                guard !domain.contains("akams.cn") && !domain.contains("github.com")
+                      && !domain.contains("google") && !domain.hasPrefix("www.") else { continue }
+                if seen.insert(domain).inserted {
+                    domains.append(domain)
+                }
+            }
+            return domains
+        } catch {
+            print("[UpdateManager] 获取页面失败: \(error.localizedDescription)")
+        }
+        return []
     }
 
     /// 执行实际下载
@@ -197,8 +278,8 @@ class UpdateManager: ObservableObject {
         // 删除旧文件
         try? FileManager.default.removeItem(at: destinationURL)
 
-        // 代理直转下载地址
-        let proxyURLs = buildDownloadURLs(githubURL: url.absoluteString)
+        // 动态获取节点 + 本地测速排序
+        let proxyURLs = await fetchAndRankProxyNodes(githubURL: url.absoluteString)
         print("[UpdateManager] 下载地址: \(proxyURLs.count) 个 (代理+直连兜底)")
 
         for (idx, downloadURL) in proxyURLs.enumerated() {
