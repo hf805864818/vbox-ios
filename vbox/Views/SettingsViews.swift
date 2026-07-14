@@ -3637,7 +3637,8 @@ struct NativeCloudQRLoginView: View {
     @MainActor
     private func pollUC(_ token: CloudDriveAuthManager.UCQrLoginToken) async {
         var consecutiveErrors = 0
-        while isPolling && pollCount < 90 {
+        var serviceTicket: String?
+        while isPolling && pollCount < 90 && serviceTicket == nil {
             pollCount += 1
             do {
                 let result = try await CloudDriveAuthManager.shared.ucPollQrStatus(token: token)
@@ -3650,13 +3651,7 @@ struct NativeCloudQRLoginView: View {
                     statusText = "已扫码，等待确认"
                     detailText = "请在手机端确认登录。"
                 case .success(let ticket):
-                    statusText = "已确认，正在换取 Cookie"
-                    try await CloudDriveAuthManager.shared.ucExchangeServiceTicket(ticket)
-                    isPolling = false
-                    statusText = "UC 扫码登录成功"
-                    detailText = "Cookie 已保存到授权中心。"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
-                    return
+                    serviceTicket = ticket
                 case .expired:
                     isPolling = false
                     statusText = "二维码已过期"
@@ -3692,10 +3687,45 @@ struct NativeCloudQRLoginView: View {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         // 超时（3分钟）或中途被取消
-        if pollCount >= 90 {
+        if pollCount >= 90 && serviceTicket == nil {
             isPolling = false
             statusText = "登录超时"
             detailText = "二维码已超过 3 分钟有效期，请重新生成。"
+            return
+        }
+
+        // 轮询成功拿到 serviceTicket，单独做 exchange（带网络重试，不跳回轮询）
+        guard let ticket = serviceTicket else { return }
+        statusText = "已确认，正在换取 Cookie"
+        detailText = ""
+        for exchangeAttempt in 1...5 {
+            do {
+                try await CloudDriveAuthManager.shared.ucExchangeServiceTicket(ticket)
+                isPolling = false
+                statusText = "UC 扫码登录成功"
+                detailText = "Cookie 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
+                return
+            } catch {
+                let nsError = error as NSError
+                let isNetworkError = nsError.domain == NSURLErrorDomain &&
+                    (nsError.code == NSURLErrorNetworkConnectionLost ||
+                     nsError.code == NSURLErrorNotConnectedToInternet ||
+                     nsError.code == NSURLErrorTimedOut ||
+                     nsError.code == NSURLErrorCannotConnectToHost ||
+                     nsError.code == NSURLErrorCannotFindHost ||
+                     nsError.code == NSURLErrorDNSLookupFailed ||
+                     nsError.code == NSURLErrorSecureConnectionFailed)
+                if isNetworkError && exchangeAttempt < 5 {
+                    detailText = "换取Cookie网络波动，重试…（\(exchangeAttempt)/5）"
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    continue
+                }
+                isPolling = false
+                statusText = "换取Cookie失败"
+                errorText = error.localizedDescription
+                return
+            }
         }
     }
 
