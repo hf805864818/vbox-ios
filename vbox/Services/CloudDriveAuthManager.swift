@@ -590,12 +590,13 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // 对齐 iBox 实测轮询参数：__dt + __t + token，不带 client_id/v/request_id
+        // QR 码包含 client_id，轮询也需要带上以匹配确认请求
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
             URLQueryItem(name: "__dt", value: "10314"),
             URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "token", value: token.token)
+            URLQueryItem(name: "token", value: token.token),
+            URLQueryItem(name: "client_id", value: token.pollClientId)
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
@@ -1895,13 +1896,14 @@ final class CloudDriveAuthManager: ObservableObject {
     private func ucQRCodePayload(token: String, clientId: String) -> String {
         // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn 扫码确认页
         // broccoli 页面需要 client_id 来验证 token，否则显示"登录请求已过期"
+        // 去掉 uc_param_str：这个参数是 UC 标准参数编码，会屏蔽 token/client_id 等自定义参数
+        // 导致 broccoli 页面拿不到 token，确认后 CAS 无法匹配
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         components.queryItems = [
-            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId)
         ]
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?token=\(token)&client_id=\(clientId)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
     }

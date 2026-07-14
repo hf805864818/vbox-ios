@@ -1149,6 +1149,25 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // ========== 四路并发搜索（网盘 + 站源 + API切片 + QuickJS 同时发起） ==========
         // 每一路独立通过 onBatch 实时回调，互不阻塞
+        // 先捕获 MainActor 上的值，避免 TaskGroup 闭包内 await self 编译错误
+        let spiderAllSites = self.allSites
+        let fallbackEnabled = self.fallbackEnabled
+        let fallbackSites = self.allFallbackSites
+        let engines = self.engines
+
+        // 预构建 API 站点列表（在 MainActor 上完成，避免闭包内调用 resolveSiteMode）
+        struct Site { let name: String; let api: String }
+        var apiSites: [Site] = []
+        for s in spiderAllSites where s.api?.isEmpty == false {
+            let mode = resolveSiteMode(site: s)
+            if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
+                if let api = s.api { apiSites.append(Site(name: s.name, api: api)) }
+            }
+        }
+        if fallbackEnabled {
+            for fb in fallbackSites { apiSites.append(Site(name: fb.name, api: fb.api)) }
+        }
+
         await withTaskGroup(of: Void.self) { group in
 
             // 0. 网盘站搜索
@@ -1174,24 +1193,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
             // 2. API 站点 + 兜底源（切片资源）
             group.addTask {
-                struct Site { let name: String; let api: String }
-                var sites: [Site] = []
-                let spiderAllSites = self.allSites
-                for s in spiderAllSites where s.api?.isEmpty == false {
-                    let mode = self.resolveSiteMode(site: s)
-                    if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
-                        if let api = s.api { sites.append(Site(name: s.name, api: api)) }
-                    }
-                }
-                if self.fallbackEnabled {
-                    for fb in self.allFallbackSites { sites.append(Site(name: fb.name, api: fb.api)) }
-                }
-                guard !sites.isEmpty else { return }
+                guard !apiSites.isEmpty else { return }
 
                 await withTaskGroup(of: (name: String, items: [VodItem]?).self) { innerGroup in
                     var running = 0
                     let maxConcurrent = 60
-                    for site in sites {
+                    for site in apiSites {
                         if running >= maxConcurrent {
                             if let r = await innerGroup.next() {
                                 if let items = r.items, !items.isEmpty {
@@ -1215,7 +1222,7 @@ globalThis.__JS_SPIDER__ = _spider;
 
             // 3. QuickJS 蜘蛛
             group.addTask {
-                for (key, engine) in self.engines {
+                for (key, engine) in engines {
                     do {
                         if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
                             var tagged = items
