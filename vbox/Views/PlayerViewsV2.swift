@@ -913,9 +913,10 @@ class PlayerState: ObservableObject {
         guard isIJKBuildAvailable else { return false }
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
-        // 夸克直链优先 IJKPlayer
+        // 夸克/UC/百度直链优先 IJKPlayer
         if text.contains("quark-stream") { return true }
         if text.contains("quark-m3u8") { return true }
+        if text.contains("uc-stream") { return true }
         if text.contains("baidu-stream") { return true }
         return false
     }
@@ -2240,8 +2241,9 @@ class PlayerState: ObservableObject {
         let isQuarkM3U8LocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("quark-m3u8")
         let resourceName = currentPlaybackResourceName(fallbackURL: urlObj, originalURL: url)
         let playlistKind = await probeM3U8IfNeeded(url: urlObj, headers: headers)
+        let isUCLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("uc-stream")
         let isCloudLocalProxy = urlObj.host == "127.0.0.1"
-            && (urlObj.path.contains("ali-stream") || urlObj.path.contains("uc-stream") || urlObj.path.contains("115-stream"))
+            && (urlObj.path.contains("ali-stream") || isUCLocalProxy || urlObj.path.contains("115-stream"))
         await MainActor.run {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
@@ -2267,6 +2269,25 @@ class PlayerState: ObservableObject {
             } else if isVLCBuildAvailable {
                 logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "\(proxyType) IJK/MPV/MDK 均不可用")
                 log("[Quark] IJK/MPV/MDK 均不可用，\(proxyType)降级使用 VLC")
+            }
+        } else if isUCLocalProxy && enginePreference == .auto {
+            // UC网盘直链：优先 IJKPlayer，其次 MPV/MDK/VLC
+            await MainActor.run {
+                playbackEngineMode = .compatibility
+                compatibilityHint = "UC网盘直链"
+            }
+            if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "uc-stream 优先 IJKPlayer")
+                log("[UC] 自动模式下 uc-stream 优先使用 IJKPlayer")
+            } else if isMPVBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "uc-stream（IJKPlayer 不可用）")
+                log("[UC] IJKPlayer 不可用，uc-stream 降级使用 MPV-MoltenVK")
+            } else if isMDKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "uc-stream（IJK/MPV 不可用）")
+                log("[UC] IJK/MPV 不可用，uc-stream 降级使用 MDK")
+            } else if isVLCBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "uc-stream IJK/MPV/MDK 均不可用")
+                log("[UC] IJK/MPV/MDK 均不可用，uc-stream 降级使用 VLC")
             }
         } else if isBaiduLocalProxy && enginePreference == .auto {
             // 百度原画：保持原有 MPV → MDK → VLC 降级链
