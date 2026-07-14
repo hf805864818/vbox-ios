@@ -1521,9 +1521,6 @@ struct CloudAuthCenterView: View {
                     Button(action: { showUCNativeQR = true }) {
                         authButtonLabel("原生扫码", icon: "qrcode")
                     }
-                    Button(action: { showUCTVAuth = true }) {
-                        authButtonLabel("授权 TV", icon: "tv")
-                    }
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel("网页登录兜底", icon: "globe")
                     }

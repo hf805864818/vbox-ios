@@ -6541,6 +6541,8 @@ class CloudDriveManager: ObservableObject {
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (listData, listResp) = try await ucSession.data(for: req)
         let mergedCookie = quarkMergeSetCookie(from: listResp, into: cookie)
+        let listBody = String(data: listData, encoding: .utf8) ?? "nil"
+        print("[UC] ensureFolder list 响应: \(listBody.prefix(500))")
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
             let code = listJson["code"] as? Int ?? 0
             let status = listJson["status"] as? Int ?? 200
@@ -6570,6 +6572,8 @@ class CloudDriveManager: ObservableObject {
         createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
         let (createData, createResp) = try await ucSession.data(for: createReq)
         let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookie)
+        let createBodyStr = String(data: createData, encoding: .utf8) ?? "nil"
+        print("[UC] ensureFolder create 响应: \(createBodyStr.prefix(300))")
         if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
            let code = createJson["code"] as? Int,
            code == 0,
@@ -6584,6 +6588,8 @@ class CloudDriveManager: ObservableObject {
         reReq.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (reData, reResp) = try await ucSession.data(for: reReq)
         let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookie)
+        let reBodyStr = String(data: reData, encoding: .utf8) ?? "nil"
+        print("[UC] ensureFolder re-list 响应: \(reBodyStr.prefix(300))")
         if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
             if let data = reJson["data"] as? [String: Any],
                let files = data["list"] as? [[String: Any]] {
