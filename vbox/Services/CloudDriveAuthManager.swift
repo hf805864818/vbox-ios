@@ -649,7 +649,8 @@ final class CloudDriveAuthManager: ObservableObject {
         components.queryItems = [
             URLQueryItem(name: "pr", value: "UCBrowser"),
             URLQueryItem(name: "fr", value: "h5"),
-            URLQueryItem(name: "__t", value: timestampMS())
+            URLQueryItem(name: "__t", value: timestampMS()),
+            URLQueryItem(name: "st", value: serviceTicket)
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
@@ -1993,42 +1994,22 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        // 对齐 iBox 实测 payload：su.uc.cn/1_n0ZCv 后带完整 UC 浏览器参数
-        // 这些参数让 UC 浏览器识别为内部页面，从而调用正确的原生确认流程
+        // 精简 payload：UC App 扫码后在自带浏览器中打开，设备指纹由 App 自行携带，
+        // QR 码只需 token + client_id + 少量必要参数即可，避免 payload 过长导致 QR 生成失败
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
         let ucParams: [(String, String)] = [
-            ("uc_param_str", "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            ("ds", ucEncodedDeviceId()),
-            ("dn", "76728740306-3c26d777"),
+            ("uc_param_str", "frpfbive"),
             ("fr", "iphone"),
             ("pf", "44"),
             ("bi", "997"),
             ("ve", "18.9.8.2995"),
-            ("ss", "393x852"),
-            ("gi", ucEncodedDeviceId()),
-            ("mi", "iPhone15,2"),
-            ("bt", "UC"),
-            ("bm", "WWW"),
-            ("ni", ucEncodedDeviceId()),
-            ("jb", "2"),
-            ("la", "zh-cn"),
-            ("up", "s:iP6.x|f:iphone|m:iPhone 5|b:apple"),
-            ("ut", ucEncodedDeviceId()),
-            ("og", "GR"),
-            ("pi", "1179x2556"),
-            ("nt", "2"),
-            ("nw", "WIFI"),
-            ("pr", "UCBrowser"),
-            ("ch", "2148612848"),
-            ("mt", ucEncodedDeviceId()),
-            ("pc", ucEncodedDeviceId()),
             ("token", token),
             ("client_id", clientId),
             ("uc_biz_str", "S:custom|C:titlebar_fix")
         ]
         components.queryItems = ucParams.map { URLQueryItem(name: $0.0, value: $0.1) }
-        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
-        print("[VBox UC Payload] QR payload: \(payload)")
+        let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=frpfbive&fr=iphone&pf=44&bi=997&ve=18.9.8.2995&token=\(token)&client_id=\(clientId)&uc_biz_str=S:custom|C:titlebar_fix"
+        print("[VBox UC Payload] QR payload length: \(payload.utf8.count) bytes")
         return payload
     }
 
