@@ -6419,11 +6419,10 @@ class CloudDriveManager: ObservableObject {
     private func ucPlaybackHeaders(cookie: String) -> [String: String] {
         [
             "Cookie": cookie,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36",
             "Referer": "https://drive.uc.cn/",
             "Origin": "https://drive.uc.cn",
-            "Accept": "*/*",
-            "Accept-Encoding": "identity"
+            "Accept": "*/*"
         ]
     }
 
@@ -6516,7 +6515,6 @@ class CloudDriveManager: ObservableObject {
         var req = URLRequest(url: listURL)
         req.httpMethod = "POST"
         ucSetCommonHeaders(&req, cookie: cookie)
-        // 对齐夸克API规范：参数需要带下划线
         let body: [String: Any] = [
             "pdir_fid": "0",
             "_sort": "file_type:asc,file_name:asc",
@@ -6525,29 +6523,67 @@ class CloudDriveManager: ObservableObject {
             "_fetch_total": 1
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        if let (data, response) = try? await session.data(for: req),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let list = json["data"] as? [String: Any],
-           let files = list["list"] as? [[String: Any]] {
-            let mergedCookie = quarkMergeSetCookie(from: response, into: cookie)
-            for f in files {
-                if let name = f["file_name"] as? String, name == "vbox",
-                   let fid = f["fid"] as? String { return (fid, mergedCookie) }
+        let (listData, listResp) = try await session.data(for: req)
+        let mergedCookie = quarkMergeSetCookie(from: listResp, into: cookie)
+        if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
+            let code = listJson["code"] as? Int ?? 0
+            let status = listJson["status"] as? Int ?? 200
+            if code == 0 && status == 200 {
+                if let data = listJson["data"] as? [String: Any],
+                   let files = data["list"] as? [[String: Any]] {
+                    for f in files {
+                        if let name = f["file_name"] as? String, name == "vbox",
+                           let fid = f["fid"] as? String { return (fid, mergedCookie) }
+                    }
+                }
+                // data 也可能是数组
+                if let files = listJson["data"] as? [[String: Any]] {
+                    for f in files {
+                        if let name = f["file_name"] as? String, name == "vbox",
+                           let fid = f["fid"] as? String { return (fid, mergedCookie) }
+                    }
+                }
             }
         }
+
         let createURL = ucAPIURL("/1/clouddrive/file")
         var createReq = URLRequest(url: createURL)
         createReq.httpMethod = "POST"
         ucSetCommonHeaders(&createReq, cookie: cookie)
         let createBody: [String: Any] = ["pdir_fid": "0", "file_name": "vbox", "dir": true, "dir_path": ""]
         createReq.httpBody = try JSONSerialization.data(withJSONObject: createBody)
-        if let (createData, response) = try? await session.data(for: createReq),
-           let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
+        let (createData, createResp) = try await session.data(for: createReq)
+        let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookie)
+        if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
+           let code = createJson["code"] as? Int,
+           code == 0,
            let d = createJson["data"] as? [String: Any],
            let fid = d["fid"] as? String {
-            return (fid, quarkMergeSetCookie(from: response, into: cookie))
+            return (fid, createMergedCookie)
         }
-        return ("0", cookie)
+        // 文件夹可能已存在（code 非 0），重新 list 一次
+        var reReq = URLRequest(url: listURL)
+        reReq.httpMethod = "POST"
+        ucSetCommonHeaders(&reReq, cookie: cookie)
+        reReq.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (reData, reResp) = try await session.data(for: reReq)
+        let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookie)
+        if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
+            if let data = reJson["data"] as? [String: Any],
+               let files = data["list"] as? [[String: Any]] {
+                for f in files {
+                    if let name = f["file_name"] as? String, name == "vbox",
+                       let fid = f["fid"] as? String { return (fid, reMergedCookie) }
+                }
+            }
+            if let files = reJson["data"] as? [[String: Any]] {
+                for f in files {
+                    if let name = f["file_name"] as? String, name == "vbox",
+                       let fid = f["fid"] as? String { return (fid, reMergedCookie) }
+                }
+            }
+        }
+        throw DriveError.noPlayURL("UC: 无法找到或创建 vbox 文件夹")
     }
 
     private func ucDeleteFiles(fileIds: [String], cookie: String) async {
@@ -6628,6 +6664,10 @@ class CloudDriveManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
+        if let code = json["code"] as? Int, code != 0 {
+            let message = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("UC v2/play 失败: \(message)")
+        }
         if let dataObj = json["data"] as? [String: Any],
            let videos = dataObj["video_list"] as? [[String: Any]] {
             for item in videos {
@@ -6660,9 +6700,14 @@ class CloudDriveManager: ObservableObject {
             let message = json["message"] as? String ?? "code=\(code)"
             throw DriveError.noPlayURL("UC download_url 获取失败：\(message)")
         }
+        // data 可能是数组 [{download_url: ...}] 也可能是字典 {download_url: ...}
         if let list = json["data"] as? [[String: Any]],
            let first = list.first,
            let url = first["download_url"] as? String {
+            return url
+        }
+        if let dataObj = json["data"] as? [String: Any],
+           let url = dataObj["download_url"] as? String {
             return url
         }
         return ""
