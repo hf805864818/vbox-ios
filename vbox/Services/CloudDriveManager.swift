@@ -6545,9 +6545,11 @@ class CloudDriveManager: ObservableObject {
         print("[UC] ensureFolder list 响应: \(listBody.prefix(500))")
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
             if let code = listJson["code"] as? Int, code != 0 {
-                let msg = listJson["message"] as? String ?? "code=\(code)"
-                let errno = listJson["errno"] as? Int
-                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+                print("[UC] ensureFolder list 返回 code=\(code): \(listJson["message"] as? String ?? "")")
+                // 只对明显的鉴权错误码抛异常，其他继续尝试 create
+                if code == 10001 || code == 10002 || code == 10003 {
+                    throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code))")
+                }
             }
             let code = listJson["code"] as? Int ?? 0
             let status = listJson["status"] as? Int ?? 200
@@ -6583,7 +6585,12 @@ class CloudDriveManager: ObservableObject {
             if let code = createJson["code"] as? Int, code != 0 {
                 let msg = createJson["message"] as? String ?? "code=\(code)"
                 let errno = createJson["errno"] as? Int
-                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (create code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+                // 23008 = 同名冲突（文件夹已存在），不是错误，继续 re-list
+                if code == 23008 {
+                    print("[UC] ensureFolder create: 文件夹已存在 (code=23008)，重新 list")
+                } else {
+                    throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (create code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+                }
             }
             if let code = createJson["code"] as? Int, code == 0,
                let d = createJson["data"] as? [String: Any],
@@ -6602,9 +6609,10 @@ class CloudDriveManager: ObservableObject {
         print("[UC] ensureFolder re-list 响应: \(reBodyStr.prefix(300))")
         if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
             if let code = reJson["code"] as? Int, code != 0 {
-                let msg = reJson["message"] as? String ?? "code=\(code)"
-                let errno = reJson["errno"] as? Int
-                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (re-list code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+                print("[UC] ensureFolder re-list 返回 code=\(code): \(reJson["message"] as? String ?? "")")
+                if code == 10001 || code == 10002 || code == 10003 {
+                    throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (re-list code=\(code))")
+                }
             }
             if let data = reJson["data"] as? [String: Any],
                let files = data["list"] as? [[String: Any]] {
