@@ -545,7 +545,10 @@ final class CloudDriveAuthManager: ObservableObject {
         case failed(message: String)
     }
 
-    func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
+    // UC 网盘 web 端 client_id 用 "100"；"532" 是 UC 浏览器，在 broccoli 确认页会导致前端卡住。
+    private static let ucWebClientId = "100"
+
+    func ucCreateQrToken(clientId: String = ucWebClientId, pollClientId: String = ucWebClientId) async throws -> UCQrLoginToken {
         let requestId = UUID().uuidString.lowercased()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
         // token 创建必须带 client_id，否则 CAS 无法将 broccoli 确认请求与 token 关联
@@ -1463,6 +1466,107 @@ final class CloudDriveAuthManager: ObservableObject {
                 return token
             }
             return nil
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+        }
+    }
+
+    // MARK: - UC 网盘网页登录兜底
+
+    @MainActor
+    final class UCWebLoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        func startLogin() {
+            statusText = "正在加载 UC 网盘登录页面..."
+            guard let url = URL(string: "https://drive.uc.cn/") else { return }
+            var req = URLRequest(url: url)
+            req.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+            webView.load(req)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            self.errorText = "页面加载失败"
+            self.statusText = "请检查网络后重试"
+            print("[UC Web] didFail navigation: \(error)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.errorText = "链接失败: \(error.localizedDescription)"
+            self.statusText = "加载失败"
+            print("[UC Web] didFailProvisionalNavigation: \(error)")
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                self.statusText = "请在页面中登录 UC 网盘（短信/账号/扫码）"
+                for _ in 1...180 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                    print("[UC Web] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
+
+                    let lower = cookieStr.lowercased()
+                    let hasLoginCookie = lower.contains("__pus=") || lower.contains("__kps=") || lower.contains("__uid=") || lower.contains("_up_")
+
+                    if hasLoginCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            print("[UC Web] login success, cookieStr length: \(cookieStr.count)")
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .uc, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时（6分钟），请重试"
+                    self.statusText = "登录超时"
+                }
+            }
         }
 
         private func getAllCookies() async -> [HTTPCookie] {

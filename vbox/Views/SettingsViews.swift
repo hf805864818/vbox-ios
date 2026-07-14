@@ -3329,6 +3329,13 @@ struct Pan115WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+struct UCWebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct NativeCloudQRLoginView: View {
     @Environment(\.dismiss) private var dismiss
     let driveType: CloudDriveManager.DriveType
@@ -3349,6 +3356,7 @@ struct NativeCloudQRLoginView: View {
     @StateObject private var pan189Helper = CloudDriveAuthManager.Pan189LoginHelper()
     @StateObject private var pan123Helper = CloudDriveAuthManager.Pan123LoginHelper()
     @StateObject private var pan115Helper = CloudDriveAuthManager.Pan115LoginHelper()
+    @StateObject private var ucWebHelper = CloudDriveAuthManager.UCWebLoginHelper()
 
     var body: some View {
         NavigationView {
@@ -3375,6 +3383,21 @@ struct NativeCloudQRLoginView: View {
                             .cornerRadius(12)
                     }
                     .disabled(isGenerating)
+
+                    if driveType == .uc {
+                        Button(action: {
+                            isPolling = false
+                            ucToken = nil
+                            qrImage = nil
+                            errorText = ""
+                            ucWebHelper.startLogin()
+                        }) {
+                            Text("网页登录兜底")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color(hex: "E11D48"))
+                        }
+                        .disabled(isGenerating || isPolling)
+                    }
 
                     if driveType == .ali {
                         Button(action: {
@@ -3406,6 +3429,9 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .one15 {
                     pan115Helper.cleanup()
                 }
+                if driveType == .uc {
+                    ucWebHelper.cleanup()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -3435,6 +3461,11 @@ struct NativeCloudQRLoginView: View {
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if driveType == .one15 {
                 Pan115WebView(webView: pan115Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .uc {
+                UCWebView(webView: ucWebHelper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3516,7 +3547,7 @@ struct NativeCloudQRLoginView: View {
         case .one15:
             return "请在页面中登录115网盘（扫码或账号密码）。登录成功后自动获取 Cookie，用于解析播放文件链接。"
         default:
-            return "请使用 UC / UC网盘客户端扫码确认。若私有 CAS 接口失效，可回到授权中心使用网页登录兜底。"
+            return "请使用 UC / UC网盘客户端扫码确认。若点击确认后卡住，请点击下方「网页登录兜底」在页面中登录。"
         }
     }
 
