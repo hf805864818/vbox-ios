@@ -3285,10 +3285,18 @@ struct QuarkNativeQRLoginTestView: View {
 
     private func makeQRCode(from text: String) -> UIImage? {
         let data = Data(text.utf8)
-        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        print("[QRCode] payload length: \(data.count) bytes")
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else {
+            print("[QRCode] CIQRCodeGenerator not available")
+            return nil
+        }
         filter.setValue(data, forKey: "inputMessage")
-        filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage else { return nil }
+        // 长 payload 用 L 纠错级别（容量更大），M 级别可能生成失败
+        filter.setValue(data.count > 800 ? "L" : "M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else {
+            print("[QRCode] outputImage nil, payload too long for QR")
+            return nil
+        }
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
         let context = CIContext()
         guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
