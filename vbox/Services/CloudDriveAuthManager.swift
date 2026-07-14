@@ -666,7 +666,16 @@ final class CloudDriveAuthManager: ObservableObject {
         // 收集 ucSession 中积累的全部 Cookie（来自 getToken + 轮询 + 本次 exchange）
         let allCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://drive.uc.cn")!)
         let headerCookie = collectCookies(from: (response as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
-        let cookie = mergeCookieStrings([allCookies, headerCookie])
+
+        // mobileinfo 的 JSON body 里也包含 __pus / kps / uid，补充到 Cookie 中
+        let bodyJSON = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let bodyData = bodyJSON?["data"] as? [String: Any] ?? [:]
+        var bodyCookies: [String] = []
+        if let pus = bodyData["__pus"] as? String, !pus.isEmpty { bodyCookies.append("__pus=\(pus)") }
+        if let kps = bodyData["kps"] as? String, !kps.isEmpty { bodyCookies.append("kps=\(kps)") }
+        if let uid = bodyData["uid"] { bodyCookies.append("__uid=\(uid)") }
+
+        let cookie = mergeCookieStrings([allCookies, headerCookie] + (bodyCookies.isEmpty ? [] : [bodyCookies.joined(separator: "; ")]))
         print("[VBox UC Exchange] session cookies: \(allCookies.isEmpty ? "none" : allCookies.prefix(100))...")
         print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie.prefix(100))...")
 
@@ -696,7 +705,16 @@ final class CloudDriveAuthManager: ObservableObject {
 
         let fbAllCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://pan.quark.cn")!)
         let fbHeaderCookie = collectCookies(from: (fbResponse as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
-        let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, allCookies])
+
+        // fallback 的 JSON body 也可能包含 __pus / kps / uid
+        let fbBodyJSON = (try? JSONSerialization.jsonObject(with: fbData)) as? [String: Any]
+        let fbBodyData = fbBodyJSON?["data"] as? [String: Any] ?? [:]
+        var fbBodyCookies: [String] = []
+        if let pus = fbBodyData["__pus"] as? String, !pus.isEmpty { fbBodyCookies.append("__pus=\(pus)") }
+        if let kps = fbBodyData["kps"] as? String, !kps.isEmpty { fbBodyCookies.append("kps=\(kps)") }
+        if let uid = fbBodyData["uid"] { fbBodyCookies.append("__uid=\(uid)") }
+
+        let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, allCookies] + (fbBodyCookies.isEmpty ? [] : [fbBodyCookies.joined(separator: "; ")]))
         print("[VBox UC Exchange] fallback merged cookie: \(fbCookie.isEmpty ? "none" : fbCookie.prefix(100))...")
 
         let fbCookieLower = fbCookie.lowercased()
