@@ -548,11 +548,12 @@ final class CloudDriveAuthManager: ObservableObject {
     func ucCreateQrToken(clientId: String = "532", pollClientId: String = "532") async throws -> UCQrLoginToken {
         let requestId = UUID().uuidString.lowercased()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
-        // 对齐 iBox 实测参数：仅 __dt + __t，不带 client_id/v/request_id
-        // 过多参数会导致 token 绑定错误的客户端上下文，broccoli 确认后 loginWithKpsAndQrcodeToken 返回 50000000
+        // token 创建必须带 client_id，否则 CAS 无法将 broccoli 确认请求与 token 关联
+        // 导致轮询永远返回 50004001 (Query result is empty)
         components.queryItems = [
             URLQueryItem(name: "__dt", value: "2951"),
-            URLQueryItem(name: "__t", value: timestampMS())
+            URLQueryItem(name: "__t", value: timestampMS()),
+            URLQueryItem(name: "client_id", value: clientId)
         ]
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
