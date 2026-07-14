@@ -171,7 +171,14 @@ class UpdateManager: ObservableObject {
 
     /// 从 github.akams.cn 的 JS 文件中动态提取代理节点，本地 HEAD 测速排序
     private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
-        let nodes = await fetchProxyNodesFromJS()
+        var nodes = await fetchProxyNodesFromJS()
+        
+        // JS 提取失败时使用硬编码兜底列表
+        if nodes.isEmpty {
+            nodes = fallbackProxyNodes()
+            print("[UpdateManager] JS提取失败，使用硬编码代理节点: \(nodes.count) 个")
+        }
+        
         if nodes.isEmpty {
             print("[UpdateManager] 未获取到代理节点，直连 GitHub")
             return [URL(string: githubURL)!]
@@ -181,9 +188,21 @@ class UpdateManager: ObservableObject {
 
         var ranked: [(url: URL, latencyMs: Double)] = []
 
-        await withTaskGroup(of: (host: String, latencyMs: Double?).self) { group in
-            for host in nodes {
-                group.addTask {
+        // 增加测速并发数，同时最多测 20 个节点
+        await withTaskGroup(of: (index: Int, host: String, latencyMs: Double?).self) { group in
+            var running = 0
+            let maxConcurrent = 20
+            for (i, host) in nodes.enumerated() {
+                if running >= maxConcurrent {
+                    if let result = await group.next() {
+                        if let latency = result.latencyMs {
+                            ranked.append((url: URL(string: "https://\(result.host)/\(githubURL)")!, latencyMs: latency))
+                        }
+                        running -= 1
+                    }
+                }
+                running += 1
+                group.addTask { [i, host] in
                     let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
                     let start = Date()
                     var req = URLRequest(url: proxyURL)
@@ -194,10 +213,10 @@ class UpdateManager: ObservableObject {
                         let (_, response) = try await URLSession.shared.data(for: req)
                         let elapsed = Date().timeIntervalSince(start) * 1000
                         if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                            return (host, elapsed)
+                            return (index: i, host: host, elapsed)
                         }
                     } catch {}
-                    return (host, nil)
+                    return (index: i, host: host, nil)
                 }
             }
             for await result in group {
@@ -272,6 +291,24 @@ class UpdateManager: ObservableObject {
             print("[UpdateManager] 获取节点列表失败: \(error.localizedDescription)")
         }
         return []
+    }
+
+    /// 硬编码 GitHub 代理镜像列表（当 JS 提取失败时兜底）
+    private func fallbackProxyNodes() -> [String] {
+        return [
+            "gh.akams.cn",
+            "gh-proxy.com",
+            "ghproxy.com",
+            "gh.api.99988866.xyz",
+            "gh.con.sh",
+            "gh.ddlc.top",
+            "mirror.ghproxy.com",
+            "download.fastgit.org",
+            "gh.tryxd.cn",
+            "hub.nuaa.cf",
+            "github.moeyy.xyz",
+            "github.akams.cn"
+        ]
     }
 
     /// 执行实际下载
