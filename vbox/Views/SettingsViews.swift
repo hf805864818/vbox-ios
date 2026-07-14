@@ -1209,6 +1209,7 @@ struct CloudAuthCenterView: View {
     @State private var showQuarkNativeQR = false
     @State private var showUCNativeQR = false
     @State private var showUCTVAuth = false
+    @State private var ucLoginJustCompleted = false
     @State private var showBaiduNativeQR = false
     @State private var showAliNativeQR = false
     @State private var show123NativeQR = false
@@ -1262,10 +1263,18 @@ struct CloudAuthCenterView: View {
                 QuarkNativeQRLoginTestView(cloudDriveManager: cloudDriveManager)
             }
             .sheet(isPresented: $showUCNativeQR) {
-                NativeCloudQRLoginView(driveType: .uc)
+                NativeCloudQRLoginView(driveType: .uc, onUCLoginSuccess: $ucLoginJustCompleted)
             }
             .sheet(isPresented: $showUCTVAuth) {
                 UCTVAuthQRView()
+            }
+            .onChange(of: showUCNativeQR) { newValue in
+                if !newValue && ucLoginJustCompleted {
+                    ucLoginJustCompleted = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        showUCTVAuth = true
+                    }
+                }
             }
             .sheet(isPresented: $showBaiduNativeQR) {
                 NativeCloudQRLoginView(driveType: .baidu)
@@ -3354,6 +3363,7 @@ struct UCWebView: UIViewRepresentable {
 struct NativeCloudQRLoginView: View {
     @Environment(\.dismiss) private var dismiss
     let driveType: CloudDriveManager.DriveType
+    var onUCLoginSuccess: Binding<Bool>? = nil
     @State private var qrImage: UIImage? = nil
     @State private var statusText = "准备生成二维码"
     @State private var detailText = ""
@@ -3711,6 +3721,7 @@ struct NativeCloudQRLoginView: View {
                 isPolling = false
                 statusText = "UC 扫码登录成功"
                 detailText = "Cookie 已保存到授权中心。"
+                onUCLoginSuccess?.wrappedValue = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
                 return
             } catch {
@@ -4159,11 +4170,11 @@ struct UCTVAuthQRView: View {
                 ) {
                     statusText = "授权成功，正在获取 TV Token..."
                     detailText = ""
-                    let token = try await CloudDriveAuthManager.shared.ucExchangeTVCode(
+                    let result = try await CloudDriveAuthManager.shared.ucExchangeTVCode(
                         code: code,
                         deviceId: qr.deviceId
                     )
-                    CloudDriveAuthManager.shared.ucSaveTVToken(token)
+                    CloudDriveAuthManager.shared.ucSaveTVToken(accessToken: result.accessToken, refreshToken: result.refreshToken)
                     isPolling = false
                     statusText = "✅ UC TV 授权成功"
                     detailText = "已解锁普画 2K 画质，播放速度将大幅提升"
