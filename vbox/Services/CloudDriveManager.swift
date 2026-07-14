@@ -6532,17 +6532,17 @@ class CloudDriveManager: ObservableObject {
 
     private func ucEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
         let listURL = ucAPIURL("/1/clouddrive/file/sort")
-        var req = URLRequest(url: listURL)
-        req.httpMethod = "POST"
-        ucSetCommonHeaders(&req, cookie: cookie)
-        let body: [String: Any] = [
-            "pdir_fid": "0",
-            "_sort": "file_type:asc,file_name:asc",
-            "_page": 1,
-            "_size": 100,
-            "_fetch_total": 1
+        var listComponents = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
+        listComponents.queryItems = [
+            URLQueryItem(name: "pdir_fid", value: "0"),
+            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_size", value: "100"),
+            URLQueryItem(name: "_fetch_total", value: "1")
         ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        var req = URLRequest(url: listComponents.url!)
+        req.httpMethod = "GET"
+        ucSetCommonHeaders(&req, cookie: cookie)
         let (listData, listResp) = try await ucSession.data(for: req)
         let mergedCookie = quarkMergeSetCookie(from: listResp, into: cookie)
         let listBody = String(data: listData, encoding: .utf8) ?? "nil"
@@ -6551,7 +6551,6 @@ class CloudDriveManager: ObservableObject {
             var looksLikeAuthError = false
             if let code = listJson["code"] as? Int, code != 0 {
                 print("[UC] ensureFolder list 返回 code=\(code): \(listJson["message"] as? String ?? "")")
-                // 只对明显的鉴权错误码抛异常，其他继续尝试
                 if code == 10001 || code == 10002 || code == 10003 {
                     looksLikeAuthError = true
                     throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code))")
@@ -6565,7 +6564,6 @@ class CloudDriveManager: ObservableObject {
                            let fid = f["fid"] as? String { return (fid, mergedCookie) }
                     }
                 }
-                // data 也可能是数组
                 if let files = listJson["data"] as? [[String: Any]] {
                     for f in files {
                         if let name = f["file_name"] as? String, name == "vbox",
@@ -6575,7 +6573,6 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
-        // 使用合并后的 Cookie（包含 list 响应 Set-Cookie），避免后续请求因缺少 session cookie 而失败
         let cookieAfterList = mergedCookie
 
         let createURL = ucAPIURL("/1/clouddrive/file")
@@ -6592,7 +6589,6 @@ class CloudDriveManager: ObservableObject {
             if let code = createJson["code"] as? Int, code != 0 {
                 let msg = createJson["message"] as? String ?? "code=\(code)"
                 let errno = createJson["errno"] as? Int
-                // 23008 = 同名冲突（文件夹已存在），不是错误，继续 re-list
                 if code == 23008 {
                     print("[UC] ensureFolder create: 文件夹已存在 (code=23008)，重新 list")
                 } else {
@@ -6605,12 +6601,19 @@ class CloudDriveManager: ObservableObject {
                 return (fid, createMergedCookie)
             }
         }
-        // 文件夹可能已存在（code 非 0），重新 list 一次（使用最新合并 Cookie）
+
         let cookieAfterCreate = createMergedCookie
-        var reReq = URLRequest(url: listURL)
-        reReq.httpMethod = "POST"
+        var reComponents = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
+        reComponents.queryItems = [
+            URLQueryItem(name: "pdir_fid", value: "0"),
+            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_size", value: "100"),
+            URLQueryItem(name: "_fetch_total", value: "1")
+        ]
+        var reReq = URLRequest(url: reComponents.url!)
+        reReq.httpMethod = "GET"
         ucSetCommonHeaders(&reReq, cookie: cookieAfterCreate)
-        reReq.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (reData, reResp) = try await ucSession.data(for: reReq)
         let reMergedCookie = quarkMergeSetCookie(from: reResp, into: cookieAfterCreate)
         let reBodyStr = String(data: reData, encoding: .utf8) ?? "nil"
