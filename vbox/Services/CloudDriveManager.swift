@@ -6355,16 +6355,16 @@ class CloudDriveManager: ObservableObject {
 
         if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
            !tvToken.isEmpty {
-            print("[UC] 🔍 TV Token 已找到，尝试高速通道...")
+            self.log("[CloudDrive] 🔍 检测到 UC TV Token，走高速通道")
             do {
                 playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
                 source = "uc_tv_token"
-                print("[UC] ✅ TV Token 高速通道获取到播放地址")
+                self.log("[CloudDrive] ✅ TV Token 高速通道成功")
             } catch {
-                print("[UC] ⚠️ TV Token 播放失败，降级：\(error.localizedDescription)")
+                self.log("[CloudDrive] ⚠️ TV Token 失败，降级: \(error.localizedDescription)")
             }
         } else {
-            print("[UC] ℹ️ 未找到 TV Token，将使用 Cookie 通道")
+            self.log("[CloudDrive] ℹ️ 无 TV Token，使用 Cookie 通道")
         }
 
         if playURL.isEmpty && !transcodeURL.isEmpty {
@@ -6378,6 +6378,8 @@ class CloudDriveManager: ObservableObject {
         }
 
         guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url、转码地址和 UCTV Token 兜底均为空") }
+
+        self.log("[CloudDrive] ℹ️ UC 播放源: \(source)")
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
