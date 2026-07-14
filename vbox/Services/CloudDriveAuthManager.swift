@@ -670,9 +670,10 @@ final class CloudDriveAuthManager: ObservableObject {
         print("[VBox UC Exchange] session cookies: \(allCookies.isEmpty ? "none" : allCookies.prefix(100))...")
         print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie.prefix(100))...")
 
-        // 如果手机端已确认登录，ucSession 中应已有 _UP_xxx Cookie
+        // 必须包含 __pus / __kps / __uid 才算真正获取到登录态 Cookie
+        // _up_ 只是 CAS 追踪 Cookie，不是登录态，不能作为判断依据
         let cookieLower = cookie.lowercased()
-        let hasUCLogin = cookieLower.contains("_up_") || cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=")
+        let hasUCLogin = cookieLower.contains("__pus=") || cookieLower.contains("__kps=") || cookieLower.contains("__uid=")
         if hasUCLogin {
             print("[VBox UC Exchange] ✅ 获取到 UC 登录态 Cookie")
             try await ucSaveCredentialFromCookie(cookie: cookie, data: data, source: "UC mobileinfo")
@@ -699,7 +700,7 @@ final class CloudDriveAuthManager: ObservableObject {
         print("[VBox UC Exchange] fallback merged cookie: \(fbCookie.isEmpty ? "none" : fbCookie.prefix(100))...")
 
         let fbCookieLower = fbCookie.lowercased()
-        guard fbCookieLower.contains("__pus=") || fbCookieLower.contains("__kps=") || fbCookieLower.contains("__uid=") || fbCookieLower.contains("_up_") else {
+        guard fbCookieLower.contains("__pus=") || fbCookieLower.contains("__kps=") || fbCookieLower.contains("__uid=") else {
             throw AuthError.invalidResponse("UC Cookie 缺少必须字段，登录可能无效")
         }
         try await ucSaveCredentialFromCookie(cookie: fbCookie, data: fbData, source: "UC pan.quark.cn fallback")
