@@ -6544,6 +6544,11 @@ class CloudDriveManager: ObservableObject {
         let listBody = String(data: listData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder list 响应: \(listBody.prefix(500))")
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
+            if let code = listJson["code"] as? Int, code != 0 {
+                let msg = listJson["message"] as? String ?? "code=\(code)"
+                let errno = listJson["errno"] as? Int
+                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+            }
             let code = listJson["code"] as? Int ?? 0
             let status = listJson["status"] as? Int ?? 200
             if code == 0 && status == 200 {
@@ -6574,12 +6579,17 @@ class CloudDriveManager: ObservableObject {
         let createMergedCookie = quarkMergeSetCookie(from: createResp, into: cookie)
         let createBodyStr = String(data: createData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder create 响应: \(createBodyStr.prefix(300))")
-        if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any],
-           let code = createJson["code"] as? Int,
-           code == 0,
-           let d = createJson["data"] as? [String: Any],
-           let fid = d["fid"] as? String {
-            return (fid, createMergedCookie)
+        if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any] {
+            if let code = createJson["code"] as? Int, code != 0 {
+                let msg = createJson["message"] as? String ?? "code=\(code)"
+                let errno = createJson["errno"] as? Int
+                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (create code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+            }
+            if let code = createJson["code"] as? Int, code == 0,
+               let d = createJson["data"] as? [String: Any],
+               let fid = d["fid"] as? String {
+                return (fid, createMergedCookie)
+            }
         }
         // 文件夹可能已存在（code 非 0），重新 list 一次
         var reReq = URLRequest(url: listURL)
@@ -6591,6 +6601,11 @@ class CloudDriveManager: ObservableObject {
         let reBodyStr = String(data: reData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder re-list 响应: \(reBodyStr.prefix(300))")
         if let reJson = try? JSONSerialization.jsonObject(with: reData) as? [String: Any] {
+            if let code = reJson["code"] as? Int, code != 0 {
+                let msg = reJson["message"] as? String ?? "code=\(code)"
+                let errno = reJson["errno"] as? Int
+                throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (re-list code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+            }
             if let data = reJson["data"] as? [String: Any],
                let files = data["list"] as? [[String: Any]] {
                 for f in files {
