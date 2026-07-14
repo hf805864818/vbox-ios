@@ -643,8 +643,13 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     func ucExchangeServiceTicket(_ serviceTicket: String) async throws {
-        // 对齐 iBox：使用 account/mobileinfo 而非 account/info（UC 体系专用端点）
-        // 使用 ucSession（共享）而非独立 oneShot，确保 Cookie 从轮询步骤贯通
+        // 使用独立干净的 URLSession（不携带 CAS 追踪 Cookie），匹配 iBox 行为
+        // mobileinfo 是给 WebView 内嵌页面用的端点，需要 Android WebView UA
+        let exchangeSession: URLSession = {
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 30
+            return URLSession(configuration: config)
+        }()
         var components = URLComponents(string: "https://drive.uc.cn/account/mobileinfo")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "UCBrowser"),
@@ -655,19 +660,18 @@ final class CloudDriveAuthManager: ObservableObject {
         var request = URLRequest(url: components.url!)
         request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
-        request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
 
-        let (data, response) = try await ucSession.data(for: request)
+        let (data, response) = try await exchangeSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
         print("[VBox UC Exchange] HTTP \(httpStatus): \(rawBody.prefix(300))")
 
-        // 收集 ucSession 中积累的全部 Cookie（来自 getToken + 轮询 + 本次 exchange）
-        let allCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://drive.uc.cn")!)
-        let headerCookie = collectCookies(from: (response as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
+        // 只从本次 exchange 响应中收集 Cookie（Set-Cookie 头 + JSON body）
+        // 不需要 CAS 追踪 Cookie，mobileinfo 端点会直接返回 __pus 登录态 Cookie
+        let headerCookie = collectCookies(from: (response as? HTTPURLResponse) ?? HTTPURLResponse(), storage: exchangeSession.configuration.httpCookieStorage, url: URL(string: "https://drive.uc.cn")!)
 
-        // mobileinfo 的 JSON body 里也包含 __pus / kps / uid，补充到 Cookie 中
         let bodyJSON = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let bodyData = bodyJSON?["data"] as? [String: Any] ?? [:]
         var bodyCookies: [String] = []
@@ -675,8 +679,8 @@ final class CloudDriveAuthManager: ObservableObject {
         if let kps = bodyData["kps"] as? String, !kps.isEmpty { bodyCookies.append("kps=\(kps)") }
         if let uid = bodyData["uid"] { bodyCookies.append("__uid=\(uid)") }
 
-        let cookie = mergeCookieStrings([allCookies, headerCookie] + (bodyCookies.isEmpty ? [] : [bodyCookies.joined(separator: "; ")]))
-        print("[VBox UC Exchange] session cookies: \(allCookies.isEmpty ? "none" : allCookies.prefix(100))...")
+        let cookie = mergeCookieStrings([headerCookie] + (bodyCookies.isEmpty ? [] : [bodyCookies.joined(separator: "; ")]))
+        print("[VBox UC Exchange] header cookie: \(headerCookie.isEmpty ? "none" : headerCookie.prefix(100))...")
         print("[VBox UC Exchange] merged cookie: \(cookie.isEmpty ? "none" : cookie.prefix(100))...")
 
         // 必须包含 __pus / __kps / __uid 才算真正获取到登录态 Cookie
@@ -695,18 +699,17 @@ final class CloudDriveAuthManager: ObservableObject {
         var fbRequest = URLRequest(url: fallbackUrl)
         fbRequest.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         fbRequest.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        fbRequest.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
-        fbRequest.setValue("*/*", forHTTPHeaderField: "Accept")
+        fbRequest.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
+        fbRequest.setValue("zh-Hans-001;q=1.0", forHTTPHeaderField: "Accept-Language")
 
-        let (fbData, fbResponse) = try await ucSession.data(for: fbRequest)
+        let (fbData, fbResponse) = try await exchangeSession.data(for: fbRequest)
         let fbBody = String(data: fbData, encoding: .utf8) ?? "nil"
         let fbHttpStatus = (fbResponse as? HTTPURLResponse)?.statusCode ?? 0
         print("[VBox UC Exchange] fallback HTTP \(fbHttpStatus): \(fbBody.prefix(300))")
 
-        let fbAllCookies = collectAllCookiesFromSession(ucSession, for: URL(string: "https://pan.quark.cn")!)
-        let fbHeaderCookie = collectCookies(from: (fbResponse as? HTTPURLResponse) ?? HTTPURLResponse(), storage: ucSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
+        let fbAllCookies = collectAllCookiesFromSession(exchangeSession, for: URL(string: "https://pan.quark.cn")!)
+        let fbHeaderCookie = collectCookies(from: (fbResponse as? HTTPURLResponse) ?? HTTPURLResponse(), storage: exchangeSession.configuration.httpCookieStorage, url: URL(string: "https://pan.quark.cn")!)
 
-        // fallback 的 JSON body 也可能包含 __pus / kps / uid
         let fbBodyJSON = (try? JSONSerialization.jsonObject(with: fbData)) as? [String: Any]
         let fbBodyData = fbBodyJSON?["data"] as? [String: Any] ?? [:]
         var fbBodyCookies: [String] = []
@@ -714,7 +717,7 @@ final class CloudDriveAuthManager: ObservableObject {
         if let kps = fbBodyData["kps"] as? String, !kps.isEmpty { fbBodyCookies.append("kps=\(kps)") }
         if let uid = fbBodyData["uid"] { fbBodyCookies.append("__uid=\(uid)") }
 
-        let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, allCookies] + (fbBodyCookies.isEmpty ? [] : [fbBodyCookies.joined(separator: "; ")]))
+        let fbCookie = mergeCookieStrings([fbAllCookies, fbHeaderCookie, headerCookie] + (fbBodyCookies.isEmpty ? [] : [fbBodyCookies.joined(separator: "; ")]))
         print("[VBox UC Exchange] fallback merged cookie: \(fbCookie.isEmpty ? "none" : fbCookie.prefix(100))...")
 
         let fbCookieLower = fbCookie.lowercased()
