@@ -6533,16 +6533,15 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func ucEnsureFolderWithCookie(cookie: String) async throws -> (folderId: String, cookie: String) {
-        let listURL = ucAPIURL("/1/clouddrive/file/sort")
-        var listComponents = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
-        listComponents.queryItems = [
+        let sortQueryItems: [URLQueryItem] = [
             URLQueryItem(name: "pdir_fid", value: "0"),
             URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
             URLQueryItem(name: "_page", value: "1"),
             URLQueryItem(name: "_size", value: "100"),
             URLQueryItem(name: "_fetch_total", value: "1")
         ]
-        var req = URLRequest(url: listComponents.url!)
+        let listURL = ucAPIURL("/1/clouddrive/file/sort", extra: sortQueryItems)
+        var req = URLRequest(url: listURL)
         req.httpMethod = "GET"
         ucSetCommonHeaders(&req, cookie: cookie)
         let (listData, listResp) = try await ucSession.data(for: req)
@@ -6550,27 +6549,23 @@ class CloudDriveManager: ObservableObject {
         let listBody = String(data: listData, encoding: .utf8) ?? "nil"
         print("[UC] ensureFolder list 响应: \(listBody.prefix(500))")
         if let listJson = try? JSONSerialization.jsonObject(with: listData) as? [String: Any] {
-            var looksLikeAuthError = false
             if let code = listJson["code"] as? Int, code != 0 {
                 print("[UC] ensureFolder list 返回 code=\(code): \(listJson["message"] as? String ?? "")")
                 if code == 10001 || code == 10002 || code == 10003 {
-                    looksLikeAuthError = true
                     throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (list code=\(code))")
                 }
             }
-            if !looksLikeAuthError {
-                if let data = listJson["data"] as? [String: Any],
-                   let files = data["list"] as? [[String: Any]] {
-                    for f in files {
-                        if let name = f["file_name"] as? String, name == "vbox",
-                           let fid = f["fid"] as? String { return (fid, mergedCookie) }
-                    }
+            if let data = listJson["data"] as? [String: Any],
+               let files = data["list"] as? [[String: Any]] {
+                for f in files {
+                    if let name = f["file_name"] as? String, name == "vbox",
+                       let fid = f["fid"] as? String { return (fid, mergedCookie) }
                 }
-                if let files = listJson["data"] as? [[String: Any]] {
-                    for f in files {
-                        if let name = f["file_name"] as? String, name == "vbox",
-                           let fid = f["fid"] as? String { return (fid, mergedCookie) }
-                    }
+            }
+            if let files = listJson["data"] as? [[String: Any]] {
+                for f in files {
+                    if let name = f["file_name"] as? String, name == "vbox",
+                       let fid = f["fid"] as? String { return (fid, mergedCookie) }
                 }
             }
         }
@@ -6589,12 +6584,11 @@ class CloudDriveManager: ObservableObject {
         print("[UC] ensureFolder create 响应: \(createBodyStr.prefix(300))")
         if let createJson = try? JSONSerialization.jsonObject(with: createData) as? [String: Any] {
             if let code = createJson["code"] as? Int, code != 0 {
-                let msg = createJson["message"] as? String ?? "code=\(code)"
-                let errno = createJson["errno"] as? Int
                 if code == 23008 {
                     print("[UC] ensureFolder create: 文件夹已存在 (code=23008)，重新 list")
                 } else {
-                    throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (create code=\(code) errno=\(errno ?? -1) msg=\(msg))")
+                    let msg = createJson["message"] as? String ?? "code=\(code)"
+                    throw DriveError.noPlayURL("UC: Cookie 可能已失效，请重新登录 (create code=\(code) msg=\(msg))")
                 }
             }
             if let code = createJson["code"] as? Int, code == 0,
@@ -6604,16 +6598,10 @@ class CloudDriveManager: ObservableObject {
             }
         }
 
+        // 文件夹可能已存在（code=23008 或 code 非 0），用 GET 重新 list
         let cookieAfterCreate = createMergedCookie
-        var reComponents = URLComponents(url: listURL, resolvingAgainstBaseURL: false)!
-        reComponents.queryItems = [
-            URLQueryItem(name: "pdir_fid", value: "0"),
-            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
-            URLQueryItem(name: "_page", value: "1"),
-            URLQueryItem(name: "_size", value: "100"),
-            URLQueryItem(name: "_fetch_total", value: "1")
-        ]
-        var reReq = URLRequest(url: reComponents.url!)
+        let reListURL = ucAPIURL("/1/clouddrive/file/sort", extra: sortQueryItems)
+        var reReq = URLRequest(url: reListURL)
         reReq.httpMethod = "GET"
         ucSetCommonHeaders(&reReq, cookie: cookieAfterCreate)
         let (reData, reResp) = try await ucSession.data(for: reReq)
