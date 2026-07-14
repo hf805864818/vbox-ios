@@ -405,7 +405,7 @@ final class DoubanImageProxyServer {
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else if item.provider == "uc" {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
-                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.5 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/ucpan_other_ch", forHTTPHeaderField: "User-Agent")
+                request.setValue("Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/97.0.4692.98 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent")
             }
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
@@ -413,7 +413,6 @@ final class DoubanImageProxyServer {
             if request.value(forHTTPHeaderField: "Origin") == nil {
                 request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
             }
-            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else if item.provider == "115" {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
                 request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
