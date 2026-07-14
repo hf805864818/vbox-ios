@@ -108,6 +108,8 @@ final class CloudDriveAuthManager: ObservableObject {
         session = URLSession(configuration: config)
         let ucConfig = URLSessionConfiguration.default
         ucConfig.timeoutIntervalForRequest = 30
+        ucConfig.timeoutIntervalForResource = 60
+        ucConfig.waitsForConnectivity = true
         // 移除全信任证书 Delegate，恢复系统默认证书校验
         ucSession = URLSession(configuration: ucConfig)
         load()
