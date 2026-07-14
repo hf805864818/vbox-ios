@@ -4668,6 +4668,10 @@ struct PlayerControlsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             updateOrientation()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            // 回到前台时重新检测方向（faceUp 时 UIDevice.orientation 不会变，但 interfaceOrientation 可能是竖屏）
+            updateOrientation()
+        }
     }
 
     private func togglePiP() {
@@ -4740,10 +4744,7 @@ struct PlayerControlsView: View {
     }
 
     private func updateOrientation() {
-        let newOrientation = UIDevice.current.orientation
-        // 忽略 faceUp / faceDown / unknown，保持当前方向不变
-        guard newOrientation.isPortrait || newOrientation.isLandscape else { return }
-        let newIsPortrait = newOrientation.isPortrait
+        let newIsPortrait = currentInterfaceOrientation?.isPortrait ?? false
         if newIsPortrait != playerState.isPortrait {
             playerState.isPortrait = newIsPortrait
             // 方向变化时关闭所有弹窗，避免横竖屏弹窗互相干扰
@@ -4752,6 +4753,21 @@ struct PlayerControlsView: View {
             playerState.showQualityPicker = false
             playerState.showEnginePicker = false
         }
+    }
+
+    /// 获取当前 UI 窗口方向（faceUp 时仍返回正确方向，不受物理设备姿态影响）
+    private var currentInterfaceOrientation: UIInterfaceOrientation? {
+        // 优先使用第一个 foreground active 场景
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) {
+            return scene.interfaceOrientation
+        }
+        // 回退：任意 window scene
+        return (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first)?
+            .interfaceOrientation
     }
 }
 
