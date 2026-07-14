@@ -545,24 +545,24 @@ final class CloudDriveAuthManager: ObservableObject {
         case failed(message: String)
     }
 
-    // UC 网盘 web 端 client_id 用 "100"；"532" 是 UC 浏览器，在 broccoli 确认页会导致前端卡住。
-    private static let ucWebClientId = "100"
+    // 对齐 iBox 实测：UC 扫码登录 web 端 client_id 为 381，请求为 POST + form body
+    private static let ucWebClientId = "381"
 
     func ucCreateQrToken(clientId: String = ucWebClientId, pollClientId: String = ucWebClientId) async throws -> UCQrLoginToken {
-        let requestId = UUID().uuidString.lowercased()
+        let ts = timestampMS()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin")!
-        // token 创建必须带 client_id，否则 CAS 无法将 broccoli 确认请求与 token 关联
-        // 导致轮询永远返回 50004001 (Query result is empty)
         components.queryItems = [
             URLQueryItem(name: "__dt", value: "2951"),
-            URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "client_id", value: clientId)
+            URLQueryItem(name: "__t", value: ts)
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://broccoli.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://broccoli.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.httpBody = "client_id=\(clientId)&request_id=\(ts)&v=1.2".data(using: .utf8)
 
         let (data, response) = try await ucSession.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -571,12 +571,10 @@ final class CloudDriveAuthManager: ObservableObject {
         let json = try parseJSON(data)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
         print("[VBox UC CreateToken] raw: \(rawBody)")
-        // 校验接口状态码，避免拿到过期/无效 token
         let apiStatus = (json["status"] as? Int) ?? -1
         if apiStatus != 2000000 && apiStatus != -1 {
             let msg = json["message"] as? String ?? "未知错误"
             print("[VBox UC CreateToken] API status: \(apiStatus) message: \(msg)")
-            // 状态码不是 2000000 时继续尝试提取 token（UC 接口可能不返回 2000000）
         }
         guard let token = extractString(json, keys: ["token", "qrcode_token"])
                 ?? extractNestedString(json, path: ["data", "members", "token"])
@@ -584,29 +582,25 @@ final class CloudDriveAuthManager: ObservableObject {
                 ?? extractNestedString(json, path: ["result", "token"]) else {
             throw AuthError.invalidResponse("UC 未返回二维码 token")
         }
-        // 提取响应中的 request_id（若有），否则使用请求中生成的
-        let respRequestId = extractString(json, keys: ["request_id", "requestId"])
-            ?? extractNestedString(json, path: ["data", "members", "request_id"])
-            ?? extractNestedString(json, path: ["data", "request_id"])
-            ?? requestId
-        print("[VBox UC CreateToken] token: \(token) clientId: \(clientId) requestId: \(respRequestId)")
-        return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, requestId: respRequestId, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
+        print("[VBox UC CreateToken] token: \(token) clientId: \(clientId) requestId: \(ts)")
+        return UCQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, requestId: ts, qrPayload: ucQRCodePayload(token: token, clientId: pollClientId))
     }
 
     func ucPollQrStatus(token: UCQrLoginToken) async throws -> UCQrPollResult {
-        // QR 码包含 client_id，轮询也需要带上以匹配确认请求
+        let ts = timestampMS()
         var components = URLComponents(string: "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
             URLQueryItem(name: "__dt", value: "10314"),
-            URLQueryItem(name: "__t", value: timestampMS()),
-            URLQueryItem(name: "token", value: token.token),
-            URLQueryItem(name: "client_id", value: token.pollClientId)
+            URLQueryItem(name: "__t", value: ts)
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("https://drive.uc.cn", forHTTPHeaderField: "Origin")
-        request.setValue("https://drive.uc.cn/", forHTTPHeaderField: "Referer")
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://broccoli.uc.cn", forHTTPHeaderField: "Origin")
+        request.setValue("https://broccoli.uc.cn/", forHTTPHeaderField: "Referer")
         request.setValue(ucUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.httpBody = "client_id=\(token.pollClientId)&request_id=\(ts)&token=\(token.token)&v=1.2".data(using: .utf8)
 
         let (data, response) = try await ucSession.data(for: request)
         let json = try parseJSON(data)
@@ -1999,18 +1993,49 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     private func ucQRCodePayload(token: String, clientId: String) -> String {
-        // UC 使用 1_n0ZCv 路径，重定向到 broccoli.uc.cn 扫码确认页
-        // broccoli 页面需要 client_id 来验证 token，否则显示"登录请求已过期"
-        // uc_param_str 是 su.uc.cn 短链服务必需的参数编码描述符，去掉会导致重定向失败
+        // 对齐 iBox 实测 payload：su.uc.cn/1_n0ZCv 后带完整 UC 浏览器参数
+        // 这些参数让 UC 浏览器识别为内部页面，从而调用正确的原生确认流程
         var components = URLComponents(string: "https://su.uc.cn/1_n0ZCv")!
-        components.queryItems = [
-            URLQueryItem(name: "uc_param_str", value: "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
-            URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "client_id", value: clientId)
+        let ucParams: [(String, String)] = [
+            ("uc_param_str", "dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt"),
+            ("ds", ucEncodedDeviceId()),
+            ("dn", "76728740306-3c26d777"),
+            ("fr", "iphone"),
+            ("pf", "44"),
+            ("bi", "997"),
+            ("ve", "18.9.8.2995"),
+            ("ss", "393x852"),
+            ("gi", ucEncodedDeviceId()),
+            ("mi", "iPhone15,2"),
+            ("bt", "UC"),
+            ("bm", "WWW"),
+            ("ni", ucEncodedDeviceId()),
+            ("jb", "2"),
+            ("la", "zh-cn"),
+            ("up", "s:iP6.x|f:iphone|m:iPhone 5|b:apple"),
+            ("ut", ucEncodedDeviceId()),
+            ("og", "GR"),
+            ("pi", "1179x2556"),
+            ("nt", "2"),
+            ("nw", "WIFI"),
+            ("pr", "UCBrowser"),
+            ("ch", "2148612848"),
+            ("mt", ucEncodedDeviceId()),
+            ("pc", ucEncodedDeviceId()),
+            ("token", token),
+            ("client_id", clientId),
+            ("uc_biz_str", "S:custom|C:titlebar_fix")
         ]
+        components.queryItems = ucParams.map { URLQueryItem(name: $0.0, value: $0.1) }
         let payload = components.url?.absoluteString ?? "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token=\(token)&client_id=\(clientId)"
         print("[VBox UC Payload] QR payload: \(payload)")
         return payload
+    }
+
+    /// 生成一个看起来像 UC 浏览器设备标识的 base64 字符串
+    private func ucEncodedDeviceId() -> String {
+        let data = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(32).data(using: .utf8) ?? Data()
+        return data.base64EncodedString()
     }
 
     private func timestampMS() -> String {
