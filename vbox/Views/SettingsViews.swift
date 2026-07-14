@@ -4161,37 +4161,57 @@ struct UCTVAuthQRView: View {
         while isPolling && pollCount < maxPoll {
             pollCount += 1
             do {
-                if let code = try await CloudDriveAuthManager.shared.ucPollTVAuth(
+                let code = try await CloudDriveAuthManager.shared.ucPollTVAuth(
                     queryToken: qr.queryToken,
                     deviceId: qr.deviceId
-                ) {
+                )
+                if let code = code {
+                    // 拿到了授权码，兑换 TV Token
                     statusText = "授权成功，正在获取 TV Token..."
                     detailText = ""
-                    let result = try await CloudDriveAuthManager.shared.ucExchangeTVCode(
-                        code: code,
-                        deviceId: qr.deviceId
-                    )
-                    CloudDriveAuthManager.shared.ucSaveTVToken(accessToken: result.accessToken, refreshToken: result.refreshToken)
-                    isPolling = false
-                    statusText = "✅ UC TV 授权成功"
-                    detailText = "已解锁普画 2K 画质，播放速度将大幅提升"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
-                    return
+                    do {
+                        let result = try await CloudDriveAuthManager.shared.ucExchangeTVCode(
+                            code: code,
+                            deviceId: qr.deviceId
+                        )
+                        CloudDriveAuthManager.shared.ucSaveTVToken(accessToken: result.accessToken, refreshToken: result.refreshToken)
+                        isPolling = false
+                        statusText = "✅ UC TV 授权成功"
+                        detailText = "已解锁普画 2K 画质，播放速度将大幅提升"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { dismiss() }
+                        return
+                    } catch {
+                        // Token 兑换失败，直接报错不重试
+                        isPolling = false
+                        errorText = "Token 兑换失败: \(error.localizedDescription)"
+                        statusText = "授权失败"
+                        detailText = ""
+                        return
+                    }
                 }
                 netRetry = 0
                 statusText = "等待扫码授权"
                 detailText = "请使用 UC 浏览器扫描二维码并确认授权（剩余 \(maxPoll - pollCount) 次）"
             } catch {
+                // 轮询出错（网络错误、二维码过期等）
+                let errMsg = error.localizedDescription
+                if errMsg.contains("已过期") {
+                    isPolling = false
+                    errorText = errMsg
+                    statusText = "二维码已过期"
+                    detailText = "请点击重新获取"
+                    return
+                }
                 netRetry += 1
                 if netRetry > 3 {
                     isPolling = false
-                    errorText = error.localizedDescription
+                    errorText = errMsg
                     statusText = "轮询失败"
                     detailText = ""
                     return
                 }
                 statusText = "网络波动，重试中 (\(netRetry)/3)"
-                detailText = error.localizedDescription
+                detailText = errMsg
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }

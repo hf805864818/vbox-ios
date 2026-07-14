@@ -936,16 +936,44 @@ final class CloudDriveAuthManager: ObservableObject {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        if let errno = json["errno"] as? Int, errno == 11003 {
-            return nil
+
+        // 检查 errno：11003=用户未确认（继续轮询），其他非零=错误（抛出异常）
+        if let errno = json["errno"] as? Int {
+            if errno == 11003 { return nil }  // 用户未确认，继续轮询
+            if errno != 0 {
+                let info = json["error_info"] as? String ?? "errno=\(errno)"
+                if errno == 10002 {
+                    throw AuthError.remoteError("二维码已过期，请重新获取")
+                }
+                throw AuthError.remoteError("UC TV 授权错误: \(info)")
+            }
         }
+
+        // 检查 status：-1 表示错误
+        if let status = json["status"] as? Int, status == -1 {
+            let info = json["error_info"] as? String ?? json["message"] as? String ?? "status=-1"
+            throw AuthError.remoteError("UC TV 授权错误: \(info)")
+        }
+
+        // 成功获取 code：status=0 且 code 为 32 位 hex 字符串
         if let status = json["status"] as? Int, status == 0,
            let code = json["code"] as? String, !code.isEmpty {
-            return code
+            let hexPattern = try? NSRegularExpression(pattern: "^[0-9a-f]{32}$")
+            if hexPattern?.firstMatch(in: code, range: NSRange(location: 0, length: code.count)) != nil {
+                return code
+            }
+            // code 格式不对，可能是错误信息
+            print("[VBox UC TV] ⚠️ code 格式异常（非32位hex），忽略: \(code)")
+            return nil
         }
         if let dataObj = json["data"] as? [String: Any],
            let code = dataObj["code"] as? String, !code.isEmpty {
-            return code
+            let hexPattern = try? NSRegularExpression(pattern: "^[0-9a-f]{32}$")
+            if hexPattern?.firstMatch(in: code, range: NSRange(location: 0, length: code.count)) != nil {
+                return code
+            }
+            print("[VBox UC TV] ⚠️ data.code 格式异常（非32位hex），忽略: \(code)")
+            return nil
         }
         return nil
     }
@@ -1010,14 +1038,17 @@ final class CloudDriveAuthManager: ObservableObject {
 
     /// 保存 UC TV Token 到 credential
     func ucSaveTVToken(accessToken: String, refreshToken: String = "") {
-        guard var cred = credentials[CloudDriveManager.DriveType.uc.rawValue] else { return }
+        guard var cred = credentials[CloudDriveManager.DriveType.uc.rawValue] else {
+            print("[VBox UC TV] ⚠️ 无法保存 TV Token：credential 不存在，请先登录 UC 网页端")
+            return
+        }
         var extra = cred.extra
         extra["uc_tv_token"] = accessToken
         if !refreshToken.isEmpty {
             extra["uc_tv_refresh_token"] = refreshToken
         }
         cred.extra = extra
-        cred.statusMessage = "UC 扫码登录成功（已获取 UC TV Token）"
+        cred.statusMessage = "UC 已授权 TV（高速通道已就绪）"
         credentials[CloudDriveManager.DriveType.uc.rawValue] = cred
         persist()
         CloudDriveAuthManager.logSensitive("[VBox UC] UC TV Token 已保存", value: accessToken)
