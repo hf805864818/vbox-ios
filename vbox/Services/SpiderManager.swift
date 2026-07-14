@@ -1142,124 +1142,95 @@ globalThis.__JS_SPIDER__ = _spider;
     func searchStream(keyword: String, onBatch: @escaping ([VodItem]) -> Void, onLog: ((String) -> Void)? = nil) async {
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
         let log = onLog ?? { print("[searchStream] \($0)") }
-        log("====== 开始流式搜索: \(keyword) ======")
+        log("====== 开始流式搜索: \(keyword) (\(Set(self.allSites.compactMap { $0.name }).count) 源) ======")
 
         // 写入搜索历史
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
-        // ========== 0. 网盘站优先搜索 ==========
-        log("☁️ 网盘站优先搜索...")
-        await cloudSearch(keyword: keyword, onBatch: { items in
-            if !items.isEmpty {
-                log("☁️ 网盘站优先返回 \(items.count) 条")
-                onBatch(items)
-            }
-        }, onLog: onLog)
+        // ========== 四路并发搜索（网盘 + 站源 + API切片 + QuickJS 同时发起） ==========
+        // 每一路独立通过 onBatch 实时回调，互不阻塞
+        await withTaskGroup(of: Void.self) { group in
 
-        // ========== 1. zhanyuan 原生搜索（Swift + Kanna）==========
-        await ZhanyuanSearchService.searchAllZhanyuan(keyword: keyword, onBatch: { items in
-            if !items.isEmpty {
-                onBatch(items)
+            // 0. 网盘站搜索
+            group.addTask {
+                await self.cloudSearch(keyword: keyword, onBatch: { items in
+                    if !items.isEmpty {
+                        log("☁️ 网盘 +\(items.count)条")
+                        onBatch(items)
+                    }
+                }, onLog: onLog)
             }
-        }, onLog: { msg in
-            log("zhanyuan: \(msg)")
-        })
 
-        // ========== 2. API 站点 + 兜底源 ==========
-        struct Site { let name: String; let api: String }
-        var sites: [Site] = []
-        // 使用 self.allSites（包含 ibox_sources.json 加载的内置站）
-        let spiderAllSites = self.allSites
-        log("allSites: \(spiderAllSites.count) 个")
-        // 扩展筛选：包含 type=0/1 以及 API 模式的 type=3 站点
-        for s in spiderAllSites where s.api?.isEmpty == false {
-            let mode = resolveSiteMode(site: s)
-            if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
-                if let api = s.api {
-                    sites.append(Site(name: s.name, api: api))
-                }
+            // 1. zhanyuan 站源搜索
+            group.addTask {
+                await ZhanyuanSearchService.searchAllZhanyuan(keyword: keyword, onBatch: { items in
+                    if !items.isEmpty {
+                        onBatch(items)
+                    }
+                }, onLog: { msg in
+                    log("zhanyuan: \(msg)")
+                })
             }
-        }
-        log("API模式站点: \(sites.count) 个")
-        // 兜底源补充（内置 + 自定义）
-        if fallbackEnabled {
-            log("兜底站: \(allFallbackSites.count) 个")
-            for fb in allFallbackSites {
-                sites.append(Site(name: fb.name, api: fb.api))
-            }
-        }
-        log("合计搜索站点: \(sites.count) 个")
 
-        guard !sites.isEmpty else {
-            log("⚠️ 无可用搜索站点，退出")
-            return
-        }
-
-        // ========== 4. 全部站点并发搜索，每个站点完成立即回调 ==========
-        let allSites = Array(sites)
-        log("合计搜索站点: \(allSites.count) 个（全部并发）")
-        var successCount = 0
-        var failCount = 0
-        var emptyCount = 0
-        let maxConcurrent = 60
-        await withTaskGroup(of: (name: String, items: [VodItem]?).self) { group in
-            var runningCount = 0
-            for site in allSites {
-                if runningCount >= maxConcurrent {
-                    if let result = await group.next() {
-                        if let items = result.items, !items.isEmpty {
-                            log("✅ \(result.name) +\(items.count)条")
-                            successCount += 1
-                            onBatch(items)
-                        } else if result.items == nil {
-                            log("❌ \(result.name) 请求失败")
-                            failCount += 1
-                        } else {
-                            emptyCount += 1
-                        }
-                        runningCount -= 1
+            // 2. API 站点 + 兜底源（切片资源）
+            group.addTask {
+                struct Site { let name: String; let api: String }
+                var sites: [Site] = []
+                let spiderAllSites = self.allSites
+                for s in spiderAllSites where s.api?.isEmpty == false {
+                    let mode = self.resolveSiteMode(site: s)
+                    if mode == .apiEndpoint || s.type == 0 || s.type == 1 {
+                        if let api = s.api { sites.append(Site(name: s.name, api: api)) }
                     }
                 }
-                runningCount += 1
-                group.addTask {
-                    let result = await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW)
-                    return (name: site.name, items: result)
+                if self.fallbackEnabled {
+                    for fb in self.allFallbackSites { sites.append(Site(name: fb.name, api: fb.api)) }
                 }
-            }
-            // 等待剩余任务完成
-            for await result in group {
-                if let items = result.items, !items.isEmpty {
-                    log("✅ \(result.name) +\(items.count)条")
-                    successCount += 1
-                    onBatch(items)
-                } else if result.items == nil {
-                    log("❌ \(result.name) 请求失败")
-                    failCount += 1
-                } else {
-                    emptyCount += 1
-                }
-            }
-        }
-        log("====== API+兜底源完成: 成功\(successCount)/空\(emptyCount)/失败\(failCount) ======")
+                guard !sites.isEmpty else { return }
 
-        // ========== 3. QuickJS 蜘蛛（兜底，放最后）==========
-        log("QuickJS引擎: \(engines.count) 个")
-        for (key, engine) in engines {
-            do {
-                if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
-                    var tagged = items
-                    for i in 0..<tagged.count {
-                        if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
-                            tagged[i].vodRemarks = key
+                await withTaskGroup(of: (name: String, items: [VodItem]?).self) { innerGroup in
+                    var running = 0
+                    let maxConcurrent = 60
+                    for site in sites {
+                        if running >= maxConcurrent {
+                            if let r = await innerGroup.next() {
+                                if let items = r.items, !items.isEmpty {
+                                    log("✅ \(r.name) +\(items.count)条"); onBatch(items)
+                                }
+                                running -= 1
+                            }
+                        }
+                        running += 1
+                        innerGroup.addTask {
+                            (name: site.name, items: await self.searchOneSite(name: site.name, api: site.api, keyword: encodedKW))
                         }
                     }
-                    log("✅ QuickJS[\(key)] +\(tagged.count)条")
-                    onBatch(tagged)
-                } else {
-                    log("⬜ QuickJS[\(key)] 0条")
+                    for await r in innerGroup {
+                        if let items = r.items, !items.isEmpty {
+                            log("✅ \(r.name) +\(items.count)条"); onBatch(items)
+                        }
+                    }
                 }
-            } catch {
-                log("❌ QuickJS[\(key)] 错误: \(error.localizedDescription.prefix(50))")
+            }
+
+            // 3. QuickJS 蜘蛛
+            group.addTask {
+                for (key, engine) in self.engines {
+                    do {
+                        if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
+                            var tagged = items
+                            for i in 0..<tagged.count {
+                                if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
+                                    tagged[i].vodRemarks = key
+                                }
+                            }
+                            log("✅ QuickJS[\(key)] +\(tagged.count)条")
+                            onBatch(tagged)
+                        }
+                    } catch {
+                        log("❌ QuickJS[\(key)] \(error.localizedDescription.prefix(30))")
+                    }
+                }
             }
         }
         log("====== Stream全部完成 ======")
