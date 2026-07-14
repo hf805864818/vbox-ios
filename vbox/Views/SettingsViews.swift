@@ -3636,10 +3636,12 @@ struct NativeCloudQRLoginView: View {
 
     @MainActor
     private func pollUC(_ token: CloudDriveAuthManager.UCQrLoginToken) async {
+        var consecutiveErrors = 0
         while isPolling && pollCount < 90 {
             pollCount += 1
             do {
                 let result = try await CloudDriveAuthManager.shared.ucPollQrStatus(token: token)
+                consecutiveErrors = 0
                 switch result {
                 case .pending:
                     statusText = "等待 UC 扫码确认"
@@ -3667,9 +3669,24 @@ struct NativeCloudQRLoginView: View {
                     return
                 }
             } catch {
+                consecutiveErrors += 1
+                let nsError = error as NSError
+                let isNetworkError = nsError.domain == NSURLErrorDomain &&
+                    (nsError.code == NSURLErrorNetworkConnectionLost ||
+                     nsError.code == NSURLErrorNotConnectedToInternet ||
+                     nsError.code == NSURLErrorTimedOut ||
+                     nsError.code == NSURLErrorCannotConnectToHost ||
+                     nsError.code == NSURLErrorCannotFindHost ||
+                     nsError.code == NSURLErrorDNSLookupFailed ||
+                     nsError.code == NSURLErrorSecureConnectionFailed)
+                if isNetworkError && consecutiveErrors < 5 {
+                    detailText = "网络波动，正在重试…（\(consecutiveErrors)/5）"
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    continue
+                }
                 isPolling = false
                 statusText = "轮询异常"
-                errorText = error.localizedDescription
+                errorText = consecutiveErrors >= 5 ? "网络连接异常，已重试\(consecutiveErrors)次" : error.localizedDescription
                 return
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
