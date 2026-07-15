@@ -19,6 +19,7 @@ struct WelfareSettingsView: View {
         ("香肠派对", "party.popper.fill", ["https://xiang512.xiang.party/xcpd"]),
         ("香蕉秀", "heart.fill", []),
         ("萝莉AV", "heart.circle.fill", ["https://212602.luoliav.cc"]),
+        ("麻豆免费", "play.tv.fill", ["https://c-you.hair"]),
     ]
 
     var body: some View {
@@ -213,6 +214,7 @@ struct WelfareSettingsView: View {
         case "每日大乱斗": DailyBattleService.shared.reprobe()
         case "每日大赛": DailyBattleService.contest.reprobe()
         case "萝莉AV": LuoliAVService.shared.reprobe()
+        case "麻豆免费": MadouFreeService.shared.reprobe()
         default: break
         }
     }
@@ -223,6 +225,7 @@ struct WelfareSettingsView: View {
         case "每日大乱斗": DailyBattleService.shared.resetDomain()
         case "每日大赛": DailyBattleService.contest.resetDomain()
         case "萝莉AV": LuoliAVService.shared.resetDomain()
+        case "麻豆免费": MadouFreeService.shared.resetDomain()
         default: break
         }
     }

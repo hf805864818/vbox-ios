@@ -30,6 +30,7 @@
 		24ECB21A0411E4DBEDA9F15B /* hogweed.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45410F150AD33568D996B571 /* hogweed.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		2789C67E88E95C3033EBD462 /* Libdovi.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */; };
+		AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70363C93B7E4A60A895A08B /* MadouFreeService.swift */; };
 		298BCE972FC626E85E68058C /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */; };
 		2B5C387D5552BAB2763DD550 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E27763D993B6E8409086841 /* libbz2.tbd */; };
 		2C0B80DE1984B1BAAAB95993 /* IJKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */; };
@@ -53,6 +54,7 @@
 		53873C0B408C557A4B2E8906 /* Libavdevice.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		53A4EEAAFB85002511F0912D /* Libuchardet.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */; };
+		D062D7DAF9844F198AF617FC /* MadouFreeHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */; };
 		5C7128A19FE75B033241A8CC /* IOSurface.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CFF33E1BB4E9046F17208D3E /* IOSurface.framework */; };
 		5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AEA5E3D59D5893B8304746 /* MDTVService.swift */; };
 		62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -281,6 +283,7 @@
 		424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformAsyncImage.swift; sourceTree = "<group>"; };
 		45410F150AD33568D996B571 /* hogweed.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = hogweed.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/hogweed.xcframework; sourceTree = SOURCE_ROOT; };
 		455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVHomeView.swift; sourceTree = "<group>"; };
+		2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeHomeView.swift; sourceTree = "<group>"; };
 		4959B121CB3DFFFB86D6BEFC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		4CBD4AE667D94F1CDEDFD62A /* AliPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerRepresentable.swift; sourceTree = "<group>"; };
 		51D064347CEF883DED6CEE39 /* Libfribidi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfribidi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfribidi.xcframework; sourceTree = SOURCE_ROOT; };
@@ -420,6 +423,7 @@
 		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
+		E70363C93B7E4A60A895A08B /* MadouFreeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
 		F73C15E736105CF390FD2313 /* MDTVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVViews.swift; sourceTree = "<group>"; };
@@ -638,6 +642,7 @@
 				04A80014896281C5C1B943BE /* SihuVideoService.swift */,
 				04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */,
 				E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */,
+				E70363C93B7E4A60A895A08B /* MadouFreeService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 			);
 			path = Services;
@@ -671,6 +676,7 @@
 				F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */,
 				F73C15E736105CF390FD2313 /* MDTVViews.swift */,
 				455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */,
+				2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -911,9 +917,11 @@
 				2EA577E0E4961A799C3DE3AA /* OnePlatformService.swift in Sources */,
 				5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */,
 				28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */,
+				AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */,
 				8CFE777E79B66B49E936B16F /* OnePlatformViews.swift in Sources */,
 				B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */,
 				54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */,
+				D062D7DAF9844F198AF617FC /* MadouFreeHomeView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
