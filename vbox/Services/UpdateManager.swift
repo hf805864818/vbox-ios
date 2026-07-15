@@ -167,48 +167,70 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
-    // MARK: - 代理节点（页面排名前2 + 本地测速）
+    // MARK: - 代理节点（页面排名前8 + 并行GET Range竞速）
 
-    /// 从 github.akams.cn 页面取排名前2的代理，本地 HEAD 测速后选最快
-    /// 页面已按服务器端速度排序，前2名基本就是当前最快节点
+    /// 从 github.akams.cn 页面取排名前8的代理，并行 GET Range 测速后选最快
+    /// 页面已按服务器端速度排序，前几名基本就是当前最快节点
     private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
-        let top2 = await fetchTopProxyNodesFromPage(count: 2)
-        print("[UpdateManager] 页面提取到前2节点: \(top2)")
+        let top8 = await fetchTopProxyNodesFromPage(count: 8)
+        print("[UpdateManager] 页面提取到前\(top8.count)个节点: \(top8)")
 
-        if top2.isEmpty {
+        if top8.isEmpty {
             print("[UpdateManager] 提取失败，直连 GitHub")
             return [URL(string: githubURL)!]
         }
 
-        // 本地测速这2个节点
-        var best: (url: URL, ms: Double)?
-        for host in top2 {
-            let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
-            var req = URLRequest(url: proxyURL)
-            req.httpMethod = "HEAD"
-            req.timeoutInterval = 2.5
-            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            let start = Date()
-            do {
-                let (_, resp) = try await URLSession.shared.data(for: req)
-                let ms = Date().timeIntervalSince(start) * 1000
-                if let http = resp as? HTTPURLResponse, http.statusCode == 200 {
-                    if best == nil || ms < best!.ms { best = (proxyURL, ms) }
-                    print("[UpdateManager]   \(host) \(String(format: "%.0f", ms))ms")
-                }
-            } catch {
-                print("[UpdateManager]   \(host) 不可达")
-            }
-        }
+        // 并行 GET Range 测速（前5个节点同时竞速，取第一个成功的）
+        let best = await raceProxyNodes(top8, githubURL: githubURL)
 
         if let best {
-            print("[UpdateManager] 最快: \(best.url.host ?? "?") \(String(format: "%.0f", best.ms))ms")
+            print("[UpdateManager] 竞速胜出: \(best.url.host ?? "?") \(String(format: "%.0f", best.ms))ms")
             return [best.url, URL(string: githubURL)!]
         }
 
-        // 2个都不可达，直连
+        // 全部失败，直连
         print("[UpdateManager] 节点均不可达，直连 GitHub")
         return [URL(string: githubURL)!]
+    }
+
+    /// 并行 GET Range 竞速，返回第一个成功的代理节点
+    private func raceProxyNodes(_ hosts: [String], githubURL: String) async -> (url: URL, ms: Double)? {
+        await withTaskGroup(of: (url: URL, ms: Double)?.self) { group in
+            let maxConcurrent = min(5, hosts.count)
+            for (idx, host) in hosts.prefix(maxConcurrent).enumerated() {
+                let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
+                group.addTask {
+                    var req = URLRequest(url: proxyURL)
+                    req.httpMethod = "GET"
+                    req.setValue("bytes=0-65535", forHTTPHeaderField: "Range")
+                    req.timeoutInterval = 4.0
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let start = Date()
+                    do {
+                        let (data, resp) = try await URLSession.shared.data(for: req)
+                        let ms = Date().timeIntervalSince(start) * 1000
+                        if let http = resp as? HTTPURLResponse,
+                           (http.statusCode == 200 || http.statusCode == 206),
+                           !data.isEmpty {
+                            print("[UpdateManager]   #\(idx+1) \(host) \(String(format: "%.0f", ms))ms ✅")
+                            return (proxyURL, ms)
+                        } else {
+                            print("[UpdateManager]   #\(idx+1) \(host) HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
+                            return nil
+                        }
+                    } catch {
+                        print("[UpdateManager]   #\(idx+1) \(host) 不可达: \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+            }
+
+            // 第一个成功的返回
+            for await result in group {
+                if let result { return result }
+            }
+            return nil
+        }
     }
 
     /// 从 github.akams.cn 页面提取排名前 N 的代理域名（页面已按速度排序）
@@ -221,8 +243,8 @@ class UpdateManager: ObservableObject {
             guard let html = String(data: data, encoding: .utf8) else { return [] }
 
             // 页面格式: [标签]域名延迟值 单位-  (如 [贡献]github.starrlzy.cn388 ms-)
-            // 跳过无延迟的 (--标记)
-            let pattern = #"\]\s*([a-zA-Z][-a-zA-Z0-9]*(?:\.[a-zA-Z][-a-zA-Z0-9]*)+(?:\.[a-zA-Z]{2,}))\d"#
+            // 匹配: ] 空白 域名(含数字开头, 如 777.z321.cc.cd) 紧跟数字(延迟)
+            let pattern = #"\]\s*([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(?:\.[a-zA-Z]{2,}))\d"#
             guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
             let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
@@ -238,6 +260,8 @@ class UpdateManager: ObservableObject {
                     if domains.count >= count { break }
                 }
             }
+
+            print("[UpdateManager] 正则匹配到 \(domains.count) 个节点")
             return domains
         } catch {
             print("[UpdateManager] 页面获取失败: \(error.localizedDescription)")
