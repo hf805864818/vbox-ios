@@ -6394,7 +6394,10 @@ class CloudDriveManager: ObservableObject {
 
         self.log("[CloudDrive] ℹ️ UC 播放源: \(source)")
         if source == "uc_tv_token" {
-            self.log("[CloudDrive] 🔗 TV CDN: \(playURL.prefix(100))")
+            self.log("[CloudDrive] 🔗 TV CDN: \(playURL.prefix(200))")
+            if playURL.contains("sp=100") || playURL.contains("sp=50") {
+                self.log("[CloudDrive] ⚠️ CDN 含限速参数 sp，速度可能受限")
+            }
         }
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
@@ -6575,14 +6578,54 @@ class CloudDriveManager: ObservableObject {
         let fileIds: [String]
     }
 
+    /// 检查 vbox 文件夹中是否已有同名文件，有则返回其 fid，避免重复转存
+    private func ucFindExistingFileInVBox(fileName: String, folderId: String, cookie: String) async throws -> String? {
+        let sortQueryItems: [URLQueryItem] = [
+            URLQueryItem(name: "pdir_fid", value: folderId),
+            URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
+            URLQueryItem(name: "_page", value: "1"),
+            URLQueryItem(name: "_size", value: "50"),
+            URLQueryItem(name: "_fetch_total", value: "1")
+        ]
+        let listURL = ucAPIURL("/1/clouddrive/file/sort", extra: sortQueryItems)
+        var request = URLRequest(url: listURL)
+        request.httpMethod = "GET"
+        ucSetCommonHeaders(&request, cookie: cookie)
+        let (data, _) = try await ucSession.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let dataObj = json["data"] as? [String: Any],
+           let files = dataObj["list"] as? [[String: Any]] {
+            for f in files {
+                if let name = f["file_name"] as? String, name == fileName,
+                   let fid = f["fid"] as? String { return fid }
+            }
+        }
+        if let files = json["data"] as? [[String: Any]] {
+            for f in files {
+                if let name = f["file_name"] as? String, name == fileName,
+                   let fid = f["fid"] as? String { return fid }
+            }
+        }
+        return nil
+    }
+
     private func ucResolveUCShareFile(pwdId: String, passcode: String, stoken: String, folderId: String, cookie: String) async throws -> UCResolveResult {
+        /// 转存前检查是否已存在，避免重复转存
+        func trySave(_ file: UCShareFile, _ tk: String) async throws -> UCResolveResult {
+            if let existingFid = try? await ucFindExistingFileInVBox(fileName: file.fileName, folderId: folderId, cookie: cookie) {
+                self.log("[CloudDrive] ♻️ 文件已存在，跳过转存: \(file.fileName)")
+                return UCResolveResult(sourceFile: file, fileId: existingFid, fileIds: [existingFid])
+            }
+            let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: tk, file: file, folderId: folderId, cookie: cookie)
+            guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+            return UCResolveResult(sourceFile: file, fileId: fileId, fileIds: fileIds)
+        }
+
         // 1. 正常路径
         do {
             let sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: cookie)
             print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
-            let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folderId, cookie: cookie)
-            guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
-            return UCResolveResult(sourceFile: sourceFile, fileId: fileId, fileIds: fileIds)
+            return try await trySave(sourceFile, stoken)
         } catch let error as DriveError {
             let errMsg = error.localizedDescription
             if errMsg.contains("非法token") || errMsg.contains("token") {
@@ -6592,10 +6635,8 @@ class CloudDriveManager: ObservableObject {
                     let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
                     let sf = try await ucFirstPlayableFile(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: cookie)
                     print("[UC] stoken 刷新后选中资源：\(sf.fileName), fid=\(sf.fid)")
-                    let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folderId, cookie: cookie)
-                    guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
                     self.log("[CloudDrive] ✅ stoken 刷新成功")
-                    return UCResolveResult(sourceFile: sf, fileId: fileId, fileIds: fileIds)
+                    return try await trySave(sf, newStoken)
                 } catch {
                     // 3. TV Token 兜底
                     if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
@@ -6924,34 +6965,13 @@ class CloudDriveManager: ObservableObject {
         if let list = json["data"] as? [[String: Any]],
            let first = list.first,
            let url = first["download_url"] as? String {
-            return stripCDNSpeedLimit(url)
+            return url
         }
         if let dataObj = json["data"] as? [String: Any],
            let url = dataObj["download_url"] as? String {
-            return stripCDNSpeedLimit(url)
+            return url
         }
         return ""
-    }
-
-    /// 去掉 CDN 下载 URL 中的 sp 限速参数（阿里云 CDN sp=100 限制 ≈100KB/s）
-    /// 使用正则直接替换，避免 URLComponents 对 ork=...=... 等复杂参数重编码导致 URL 损坏
-    private func stripCDNSpeedLimit(_ urlString: String) -> String {
-        // 移除 &sp=数字
-        var result = urlString.replacingOccurrences(of: "&sp=100", with: "")
-        result = result.replacingOccurrences(of: "&sp=50", with: "")
-        result = result.replacingOccurrences(of: "&sp=200", with: "")
-        result = result.replacingOccurrences(of: "&sp=500", with: "")
-        // 处理 sp 是第一个 query 参数: ?sp=数字& → ?
-        if let r = result.range(of: "?sp=100&") { result.replaceSubrange(r, with: "?") }
-        if let r = result.range(of: "?sp=50&")  { result.replaceSubrange(r, with: "?") }
-        if let r = result.range(of: "?sp=200&") { result.replaceSubrange(r, with: "?") }
-        if let r = result.range(of: "?sp=500&") { result.replaceSubrange(r, with: "?") }
-        // 处理 sp 是唯一 query 参数: ?sp=数字(末尾)
-        if let r = result.range(of: "?sp=100"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
-        if let r = result.range(of: "?sp=50"),  result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
-        if let r = result.range(of: "?sp=200"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
-        if let r = result.range(of: "?sp=500"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
-        return result
     }
 
     private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
@@ -7013,16 +7033,16 @@ class CloudDriveManager: ObservableObject {
         // alist 返回格式: { "data": { "download_url": "https://..." } }
         if let dataObj = json["data"] as? [String: Any] {
             if let url = dataObj["download_url"] as? String, !url.isEmpty {
-                return stripCDNSpeedLimit(url)
+                return url
             }
             // 兼容旧字段
-            if let url = dataObj["url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
-            if let url = dataObj["play_url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
+            if let url = dataObj["url"] as? String, !url.isEmpty { return url }
+            if let url = dataObj["play_url"] as? String, !url.isEmpty { return url }
             if let list = dataObj["video_list"] as? [[String: Any]] {
                 for item in list {
                     if let info = item["video_info"] as? [String: Any],
                        let url = info["url"] as? String, !url.isEmpty {
-                        return stripCDNSpeedLimit(url)
+                        return url
                     }
                 }
             }
