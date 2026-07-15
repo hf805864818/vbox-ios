@@ -6934,11 +6934,24 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 去掉 CDN 下载 URL 中的 sp 限速参数（阿里云 CDN sp=100 限制 ≈100KB/s）
+    /// 使用正则直接替换，避免 URLComponents 对 ork=...=... 等复杂参数重编码导致 URL 损坏
     private func stripCDNSpeedLimit(_ urlString: String) -> String {
-        guard var components = URLComponents(string: urlString) else { return urlString }
-        // 移除 sp 参数
-        components.queryItems = components.queryItems?.filter { $0.name != "sp" }
-        return components.string ?? urlString
+        // 移除 &sp=数字
+        var result = urlString.replacingOccurrences(of: "&sp=100", with: "")
+        result = result.replacingOccurrences(of: "&sp=50", with: "")
+        result = result.replacingOccurrences(of: "&sp=200", with: "")
+        result = result.replacingOccurrences(of: "&sp=500", with: "")
+        // 处理 sp 是第一个 query 参数: ?sp=数字& → ?
+        if let r = result.range(of: "?sp=100&") { result.replaceSubrange(r, with: "?") }
+        if let r = result.range(of: "?sp=50&")  { result.replaceSubrange(r, with: "?") }
+        if let r = result.range(of: "?sp=200&") { result.replaceSubrange(r, with: "?") }
+        if let r = result.range(of: "?sp=500&") { result.replaceSubrange(r, with: "?") }
+        // 处理 sp 是唯一 query 参数: ?sp=数字(末尾)
+        if let r = result.range(of: "?sp=100"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
+        if let r = result.range(of: "?sp=50"),  result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
+        if let r = result.range(of: "?sp=200"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
+        if let r = result.range(of: "?sp=500"), result[r.upperBound...].isEmpty { result.replaceSubrange(r, with: "") }
+        return result
     }
 
     private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
