@@ -6843,7 +6843,13 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func ucGetPlayURL(fileId: String, cookie: String) async throws -> String {
-        var request = URLRequest(url: ucAPIURL("/1/clouddrive/file/v2/play"))
+        // iBox 加了 pr/fr/sys/ve 参数，返回更高质量/更兼容的流
+        var request = URLRequest(url: ucAPIURL("/1/clouddrive/file/v2/play", extra: [
+            URLQueryItem(name: "pr", value: "UCBrowser"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "ios"),
+            URLQueryItem(name: "ve", value: "1.8.5")
+        ]))
         request.httpMethod = "POST"
         ucSetCommonHeaders(&request, cookie: cookie)
 
@@ -7021,7 +7027,7 @@ class CloudDriveManager: ObservableObject {
 
         var components = URLComponents(string: "https://open-api-drive.uc.cn\(pathname)")!
         components.queryItems = [
-            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "method", value: "streaming"),  // iBox 用 streaming 返回流媒体地址，download 返回 OSS 下载地址
             URLQueryItem(name: "group_by", value: "source"),
             URLQueryItem(name: "fid", value: fileId),
             URLQueryItem(name: "resolution", value: "low,normal,high,super,2k,4k"),
@@ -7051,7 +7057,7 @@ class CloudDriveManager: ObservableObject {
 
         let (data, _) = try await ucSession.data(for: request)
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        self.log("[CloudDrive] TV Token API 响应: \(rawBody.prefix(300))")
+        self.log("[CloudDrive] TV Token streaming 响应: \(rawBody.prefix(300))")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DriveError.invalidResponse
         }
@@ -7064,9 +7070,12 @@ class CloudDriveManager: ObservableObject {
             let info = json["error_info"] as? String ?? json["message"] as? String ?? "status=-1"
             throw DriveError.noPlayURL("UCTV Token 获取播放地址失败：\(info)")
         }
-        // alist 返回格式: { "data": { "download_url": "https://..." } }
+        // streaming 端点返回格式: { "data": { "download_url" / "stream_url" / "url" / "play_url" / "video_list" } }
         if let dataObj = json["data"] as? [String: Any] {
             if let url = dataObj["download_url"] as? String, !url.isEmpty {
+                return stripCDNSpeedLimit(url)
+            }
+            if let url = dataObj["stream_url"] as? String, !url.isEmpty {
                 return stripCDNSpeedLimit(url)
             }
             // 兼容旧字段
