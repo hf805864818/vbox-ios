@@ -168,6 +168,8 @@
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */; };
+		F60FF25B /* MadouService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F738F2F /* MadouService.swift */; };
+		3FC86AA8 /* MadouViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5150ED21 /* MadouViews.swift */; };
 		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 		B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C15E736105CF390FD2313 /* MDTVViews.swift */; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -306,6 +308,8 @@
 		A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = alivcffmpeg.framework; path = vbox/Libraries/alivcffmpeg.framework; sourceTree = SOURCE_ROOT; };
 		AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareDomainStore.swift; sourceTree = "<group>"; };
+		4F738F2F /* MadouService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouService.swift; sourceTree = "<group>"; };
+		5150ED21 /* MadouViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouViews.swift; sourceTree = "<group>"; };
 		B0F74E8951368DECD8322237 /* Libbluray.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libbluray.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libbluray.xcframework; sourceTree = SOURCE_ROOT; };
 		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -678,7 +682,8 @@
 				04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */,
 				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
-			);
+			
+					5150ED21 /* MadouViews.swift */,);
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -907,6 +912,8 @@
 				8CFE777E79B66B49E936B16F /* OnePlatformViews.swift in Sources */,
 				B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
+				F60FF25B /* MadouService.swift in Sources */,
+				3FC86AA8 /* MadouViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
 				A10127 /* ShortDramaView.swift in Sources */,
