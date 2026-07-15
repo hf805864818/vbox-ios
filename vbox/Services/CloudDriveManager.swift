@@ -6357,32 +6357,30 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
 
-        // 优先级：v2/play（m3u8流，可靠） > TV Token（高速CDN） > download_url（慢速）
+        // 优先级：TV Token（原片最高画质） > v2/play（m3u8转码流） > download_url（慢速）
         var playURL = ""
         var source = ""
 
-        // 1. 优先 v2/play — m3u8 流，播放器兼容性最好
-        if !transcodeURL.isEmpty {
-            playURL = transcodeURL
-            source = "v2-play"
-            self.log("[CloudDrive] 🎬 使用 v2/play m3u8 流")
+        // 1. 优先 TV Token — 原片 CDN 直链，最高画质
+        if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+           !tvToken.isEmpty {
+            self.log("[CloudDrive] 🔍 TV Token 高速通道...")
+            do {
+                playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
+                source = "uc_tv_token"
+                self.log("[CloudDrive] ✅ TV Token 高速通道成功")
+            } catch {
+                self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
+            }
+        } else {
+            self.log("[CloudDrive] ℹ️ 无 TV Token")
         }
 
-        // 2. v2/play 失败，尝试 TV Token 高速通道
-        if playURL.isEmpty {
-            if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
-               !tvToken.isEmpty {
-                self.log("[CloudDrive] 🔍 v2/play 不可用，尝试 TV Token 高速通道")
-                do {
-                    playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
-                    source = "uc_tv_token"
-                    self.log("[CloudDrive] ✅ TV Token 高速通道成功")
-                } catch {
-                    self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
-                }
-            } else {
-                self.log("[CloudDrive] ℹ️ 无 TV Token")
-            }
+        // 2. TV Token 不可用，尝试 v2/play m3u8 流
+        if playURL.isEmpty && !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play"
+            self.log("[CloudDrive] 🎬 降级到 v2/play m3u8 流")
         }
 
         // 3. 兜底 download_url
@@ -6401,35 +6399,24 @@ class CloudDriveManager: ObservableObject {
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
-        // v2/play（m3u8）和 download_url 需要 UC Cookie 头
-        // TV Token CDN 直链只需要 Referer，不需要 Cookie
+        // TV Token CDN 直链：不传自定义 Header，让播放器原生网络栈处理 Range 请求
+        // v2/play m3u8 和 download_url：需要 UC Cookie 头
         let headers: [String: String]
         let fallbackURL: String?
         let fallbackHeaders: [String: String]?
         let fallbackSource: String?
 
         switch source {
+        case "uc_tv_token":
+            // 空 headers — 播放器原生处理，避免自定义 UA/Referer 导致 CDN 拒绝 Range 请求
+            headers = [:]
+            fallbackURL = !transcodeURL.isEmpty ? transcodeURL : (!downloadURL.isEmpty ? downloadURL : nil)
+            fallbackHeaders = !transcodeURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : (!downloadURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : nil)
+            fallbackSource = !transcodeURL.isEmpty ? "v2-play" : (!downloadURL.isEmpty ? "download_url" : nil)
         case "v2-play":
             headers = ucPlaybackHeaders(cookie: authCookie)
-            // v2/play 失败时，尝试 TV Token 或 download_url
-            if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
-               !tvToken.isEmpty {
-                fallbackURL = nil  // download_url 作为兜底，TV Token 需要异步获取
-                fallbackHeaders = nil
-                fallbackSource = nil
-            } else {
-                fallbackURL = !downloadURL.isEmpty ? downloadURL : nil
-                fallbackHeaders = !downloadURL.isEmpty ? headers : nil
-                fallbackSource = !downloadURL.isEmpty ? "download_url" : nil
-            }
-        case "uc_tv_token":
-            headers = [
-                "User-Agent": "Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1",
-                "Referer": "https://drive.uc.cn/",
-                "Accept": "*/*"
-            ]
             fallbackURL = !downloadURL.isEmpty ? downloadURL : nil
-            fallbackHeaders = !downloadURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : nil
+            fallbackHeaders = !downloadURL.isEmpty ? headers : nil
             fallbackSource = !downloadURL.isEmpty ? "download_url" : nil
         default: // download_url
             headers = ucPlaybackHeaders(cookie: authCookie)
