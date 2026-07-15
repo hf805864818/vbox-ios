@@ -23,6 +23,7 @@ struct WelfareSettingsView: View {
         ("久久網", "film.stack.fill", ["https://ww.jiujiu.one"]),
         ("韩国色情电影", "flag.fill", ["https://koreanpornmovie.com"]),
         ("今日看料", "eye.fill", ["https://kanliao2.one"]),
+        ("黑料不打烊", "flame.circle.fill", ["https://heiliao.com"]),
     ]
 
     var body: some View {
@@ -221,6 +222,7 @@ struct WelfareSettingsView: View {
         case "久久網": JiujiuService.shared.reprobe()
         case "韩国色情电影": KoreanPornService.shared.reprobe()
         case "今日看料": KanliaoService.shared.reprobe()
+        case "黑料不打烊": HeiliaoService.shared.reprobe()
         default: break
         }
     }
@@ -235,6 +237,7 @@ struct WelfareSettingsView: View {
         case "久久網": JiujiuService.shared.resetDomain()
         case "韩国色情电影": KoreanPornService.shared.resetDomain()
         case "今日看料": KanliaoService.shared.resetDomain()
+        case "黑料不打烊": HeiliaoService.shared.resetDomain()
         default: break
         }
     }
