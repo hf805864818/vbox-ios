@@ -6337,57 +6337,17 @@ class CloudDriveManager: ObservableObject {
         let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
         // 尝试获取文件列表，stoken 失效时自动刷新
-        let sourceFile: UCShareFile
-        let fileId: String
-        let fileIds: [String]
-        do {
-            sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie)
-            print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
-            fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
-            guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
-            fileId = fid
-        } catch let error as DriveError {
-            let errMsg = error.localizedDescription
-            if errMsg.contains("非法token") || errMsg.contains("token") {
-                self.log("[CloudDrive] ⚠️ stoken 失效，尝试刷新...")
-                // 刷新 stoken 并重试
-                do {
-                    let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
-                    let sf = try await ucFirstPlayableFile(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: authCookie)
-                    print("[UC] stoken 刷新后选中资源：\(sf.fileName), fid=\(sf.fid)")
-                    fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folder.folderId, cookie: authCookie)
-                    guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
-                    fileId = fid
-                    sourceFile = sf
-                    self.log("[CloudDrive] ✅ stoken 刷新成功")
-                } catch {
-                    // 刷新也失败，尝试 TV Token 兜底
-                    if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
-                       !tvToken.isEmpty {
-                        self.log("[CloudDrive] 🔄 stoken 刷新失败，尝试 TV Token 兜底...")
-                        let tvFiles = try await ucListFilesWithTVToken(tvToken: tvToken)
-                        let playable = tvFiles.first(where: { f in
-                            let name = f["filename"] as? String ?? ""
-                            let isDir = (f["isdir"] as? Int) == 1
-                            return !isDir && quarkIsPlayableFileName(name)
-                        })
-                        if let pf = playable, let fid = pf["fid"] as? String {
-                            fileId = fid
-                            fileIds = [fid]
-                            sourceFile = UCShareFile(fid: fid, fileName: pf["filename"] as? String ?? "", shareFidToken: "", pdirFid: "0", isDir: false)
-                            self.log("[CloudDrive] ✅ TV Token 兜底找到文件: \(sourceFile.fileName)")
-                        } else {
-                            self.log("[CloudDrive] ❌ TV Token 兜底也未找到可播放文件")
-                            throw error
-                        }
-                    } else {
-                        throw error
-                    }
-                }
-            } else {
-                throw error
-            }
-        }
+        let resolveResult = try await ucResolveUCShareFile(
+            pwdId: pwdId,
+            passcode: passcode,
+            stoken: stoken,
+            folderId: folder.folderId,
+            cookie: authCookie
+        )
+        let sourceFile = resolveResult.sourceFile
+        let fileId = resolveResult.fileId
+        let fileIds = resolveResult.fileIds
+        print("[UC] 最终选中资源：\(sourceFile.fileName), fid=\(fileId)")
 
         var transcodeURL = ""
         do {
@@ -6602,6 +6562,65 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("UC 未返回 stoken")
         }
         return stoken
+    }
+
+    private struct UCResolveResult {
+        let sourceFile: UCShareFile
+        let fileId: String
+        let fileIds: [String]
+    }
+
+    private func ucResolveUCShareFile(pwdId: String, passcode: String, stoken: String, folderId: String, cookie: String) async throws -> UCResolveResult {
+        // 1. 正常路径
+        do {
+            let sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: cookie)
+            print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
+            let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folderId, cookie: cookie)
+            guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+            return UCResolveResult(sourceFile: sourceFile, fileId: fileId, fileIds: fileIds)
+        } catch let error as DriveError {
+            let errMsg = error.localizedDescription
+            if errMsg.contains("非法token") || errMsg.contains("token") {
+                self.log("[CloudDrive] ⚠️ stoken 失效，尝试刷新...")
+                // 2. 刷新 stoken 并重试
+                do {
+                    let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
+                    let sf = try await ucFirstPlayableFile(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: cookie)
+                    print("[UC] stoken 刷新后选中资源：\(sf.fileName), fid=\(sf.fid)")
+                    let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folderId, cookie: cookie)
+                    guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+                    self.log("[CloudDrive] ✅ stoken 刷新成功")
+                    return UCResolveResult(sourceFile: sf, fileId: fileId, fileIds: fileIds)
+                } catch {
+                    // 3. TV Token 兜底
+                    if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+                       !tvToken.isEmpty {
+                        self.log("[CloudDrive] 🔄 stoken 刷新失败，尝试 TV Token 兜底...")
+                        let tvFiles = try await ucListFilesWithTVToken(tvToken: tvToken)
+                        let playable = tvFiles.first(where: { f in
+                            let name = f["filename"] as? String ?? ""
+                            let isDir = (f["isdir"] as? Int) == 1
+                            return !isDir && quarkIsPlayableFileName(name)
+                        })
+                        if let pf = playable, let fid = pf["fid"] as? String {
+                            self.log("[CloudDrive] ✅ TV Token 兜底找到文件: \(pf["filename"] as? String ?? "")")
+                            return UCResolveResult(
+                                sourceFile: UCShareFile(fid: fid, fileName: pf["filename"] as? String ?? "", shareFidToken: "", pdirFid: "0", isDir: false),
+                                fileId: fid,
+                                fileIds: [fid]
+                            )
+                        } else {
+                            self.log("[CloudDrive] ❌ TV Token 兜底也未找到可播放文件")
+                            throw error
+                        }
+                    } else {
+                        throw error
+                    }
+                }
+            } else {
+                throw error
+            }
+        }
     }
 
     private func ucEnsureFolder(cookie: String) async throws -> String {
