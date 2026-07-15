@@ -6832,11 +6832,20 @@ class CloudDriveManager: ObservableObject {
         }
         if let dataObj = json["data"] as? [String: Any],
            let videos = dataObj["video_list"] as? [[String: Any]] {
-            for item in videos {
+            // 按分辨率从高到低排序：4k > 2k > super > high > normal > low
+            let order: [String] = ["4k", "2k", "super", "high", "normal", "low"]
+            let sorted = videos.sorted { a, b in
+                let ra = (a["video_info"] as? [String: Any])?["resolution"] as? String ?? ""
+                let rb = (b["video_info"] as? [String: Any])?["resolution"] as? String ?? ""
+                return (order.firstIndex(of: ra) ?? 99) < (order.firstIndex(of: rb) ?? 99)
+            }
+            for item in sorted {
                 guard (item["accessable"] as? Bool) != false,
                       let info = item["video_info"] as? [String: Any],
                       let url = info["url"] as? String,
                       !url.isEmpty else { continue }
+                let res = info["resolution"] as? String ?? "?"
+                self.log("[CloudDrive] 🎬 v2/play 选中分辨率: \(res)")
                 return url
             }
         }
