@@ -271,6 +271,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://212602.luoliav.cc", desc: "精选分类视频"),
             YBoxPlatform2(name: "麻豆免费", icon: "play.tv.fill", type: .video,
                          baseURL: "https://c-you.hair", desc: "在线免费播放"),
+            YBoxPlatform2(name: "久久網", icon: "film.stack.fill", type: .video,
+                         baseURL: "https://ww.jiujiu.one", desc: "23个分类视频站"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
