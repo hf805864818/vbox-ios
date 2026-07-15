@@ -175,6 +175,18 @@ struct WelfareHomeView: View {
             return AnyView(HeiliaoHomeView())
         } else if platform.name == "通用吸瓜" {
             return AnyView(XiguaMainView(platform: platform))
+        } else if platform.name == "熊猫视频" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: PandaVideoService.shared))
+        } else if platform.name == "4H视频" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: FourHVideoService.shared))
+        } else if platform.name == "FullHD" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: FullHDService.shared))
+        } else if platform.name == "歪比" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: WaibiService.shared))
+        } else if platform.name == "小鸭子看看" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: DuckVideoService.shared))
+        } else if platform.name == "香蕉视频" {
+            return AnyView(FuliPlatformMainView(platform: platform, service: BananaVideoService.shared))
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -189,7 +201,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" || $0.name == "今日看料" || $0.name == "黑料不打烊" || $0.name == "通用吸瓜" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" || $0.name == "今日看料" || $0.name == "黑料不打烊" || $0.name == "通用吸瓜" || $0.name == "熊猫视频" || $0.name == "4H视频" || $0.name == "FullHD" || $0.name == "歪比" || $0.name == "小鸭子看看" || $0.name == "香蕉视频" }
     }
 
     // MARK: - 颜色工具
@@ -231,6 +243,12 @@ struct WelfareHomeView: View {
             "今日看料":        [Color(hex: "8B5CF6"), Color(hex: "7C3AED")],
             "黑料不打烊":      [Color(hex: "F97316"), Color(hex: "EA580C")],
             "通用吸瓜":        [Color(hex: "22C55E"), Color(hex: "16A34A")],
+            "熊猫视频":        [Color(hex: "14B8A6"), Color(hex: "0D9488")],
+            "4H视频":          [Color(hex: "EF4444"), Color(hex: "DC2626")],
+            "FullHD":          [Color(hex: "3B82F6"), Color(hex: "2563EB")],
+            "歪比":            [Color(hex: "8B5CF6"), Color(hex: "7C3AED")],
+            "小鸭子看看":      [Color(hex: "F59E0B"), Color(hex: "D97706")],
+            "香蕉视频":        [Color(hex: "FBBF24"), Color(hex: "F59E0B")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
     }

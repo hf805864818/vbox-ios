@@ -25,6 +25,12 @@ struct WelfareSettingsView: View {
         ("今日看料", "eye.fill", ["https://kanliao2.one"]),
         ("黑料不打烊", "flame.circle.fill", ["https://heiliao.com"]),
         ("通用吸瓜", "flame.fill", ["https://advise.nlwkmsv.cc"]),
+        ("熊猫视频", "pawprint.fill", ["https://spiderscloudcn2.51111666.com", "https://spiderscloudcn1.51111666.com"]),
+        ("4H视频", "film.fill", ["https://4h05.cc", "https://4h04.cc", "https://4h03.cc"]),
+        ("FullHD", "display", ["https://fullhd.cc", "https://fullhd.tv", "https://fullhd.me"]),
+        ("歪比", "cube.fill", ["https://waibi.com", "https://waibi.tv", "https://waibi.net"]),
+        ("小鸭子看看", "bird.fill", ["https://www.xiaoyazikankan.com"]),
+        ("香蕉视频", "play.rectangle.fill", ["https://618013.xyz", "https://618012.xyz", "https://618011.xyz"]),
     ]
 
     var body: some View {
@@ -225,6 +231,12 @@ struct WelfareSettingsView: View {
         case "今日看料": KanliaoService.shared.reprobe()
         case "黑料不打烊": HeiliaoService.shared.reprobe()
         case "通用吸瓜": XiguaService.shared.reprobe()
+        case "熊猫视频": PandaVideoService.shared.reprobe()
+        case "4H视频": FourHVideoService.shared.reprobe()
+        case "FullHD": FullHDService.shared.reprobe()
+        case "歪比": WaibiService.shared.reprobe()
+        case "小鸭子看看": DuckVideoService.shared.reprobe()
+        case "香蕉视频": BananaVideoService.shared.reprobe()
         default: break
         }
     }
@@ -241,6 +253,12 @@ struct WelfareSettingsView: View {
         case "今日看料": KanliaoService.shared.resetDomain()
         case "黑料不打烊": HeiliaoService.shared.resetDomain()
         case "通用吸瓜": XiguaService.shared.resetDomain()
+        case "熊猫视频": PandaVideoService.shared.resetDomain()
+        case "4H视频": FourHVideoService.shared.resetDomain()
+        case "FullHD": FullHDService.shared.resetDomain()
+        case "歪比": WaibiService.shared.resetDomain()
+        case "小鸭子看看": DuckVideoService.shared.resetDomain()
+        case "香蕉视频": BananaVideoService.shared.resetDomain()
         default: break
         }
     }
