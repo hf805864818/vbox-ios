@@ -6983,23 +6983,24 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 去掉 CDN URL 中的下载/限速参数，优化为流式播放
-    /// sp=100: 阿里云 CDN 限速 ~100KB/s
+    /// sp=100/50/200/500: 阿里云 CDN 下载限速，仅出现在 dl-c- 下载域名
+    /// sp=1301 等大值: 流媒体 profile ID，出现在 video-play 域名，不可移除！
     /// response-content-disposition=attachment: 强制下载模式，播放器 Range 请求被拒
     /// x-oss-traffic-limit: 额外限速参数
-    /// 这些参数都不是 auth_key 签名的一部分，安全移除
     private func stripCDNSpeedLimit(_ urlString: String) -> String {
         var result = urlString
-        // &sp=数字
-        if let re = try? NSRegularExpression(pattern: "&sp=\\d+", options: []) {
-            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
-        }
-        // ?sp=数字&
-        if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+&", options: []) {
-            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "?")
-        }
-        // ?sp=数字 末尾
-        if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+$", options: []) {
-            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        // 仅对下载 CDN (dl-c-) 去除 sp 限速参数，流媒体 CDN (video-play) 的 sp 是 profile ID
+        let isDownloadCDN = result.contains("dl-c-") || result.contains("response-content-disposition")
+        if isDownloadCDN {
+            if let re = try? NSRegularExpression(pattern: "&sp=\\d+", options: []) {
+                result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+            }
+            if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+&", options: []) {
+                result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "?")
+            }
+            if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+$", options: []) {
+                result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+            }
         }
         // &response-content-disposition=attachment... (强制下载，破坏流式播放)
         if let re = try? NSRegularExpression(pattern: "&response-content-disposition=[^&]+", options: []) {
