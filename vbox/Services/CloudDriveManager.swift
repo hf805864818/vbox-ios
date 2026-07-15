@@ -6426,6 +6426,9 @@ class CloudDriveManager: ObservableObject {
         guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url、转码地址和 UCTV Token 兜底均为空") }
 
         self.log("[CloudDrive] ℹ️ UC 播放源: \(source)")
+        if source == "uc_tv_token" {
+            self.log("[CloudDrive] 🔗 TV CDN: \(playURL.prefix(100))")
+        }
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
@@ -6435,6 +6438,7 @@ class CloudDriveManager: ObservableObject {
         if source == "uc_tv_token" {
             headers = [
                 "User-Agent": "Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1",
+                "Referer": "https://drive.uc.cn/",
                 "Accept": "*/*"
             ]
             // TV Token 失败时降级到 v2/play（m3u8 流），不是 download_url
