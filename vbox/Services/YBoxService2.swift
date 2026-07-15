@@ -273,6 +273,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://c-you.hair", desc: "在线免费播放"),
             YBoxPlatform2(name: "久久網", icon: "film.stack.fill", type: .video,
                          baseURL: "https://ww.jiujiu.one", desc: "23个分类视频站"),
+            YBoxPlatform2(name: "韩国色情电影", icon: "flag.fill", type: .video,
+                         baseURL: "https://koreanpornmovie.com", desc: "4级回退播放地址"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [

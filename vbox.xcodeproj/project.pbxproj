@@ -30,6 +30,8 @@
 		24ECB21A0411E4DBEDA9F15B /* hogweed.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45410F150AD33568D996B571 /* hogweed.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		2789C67E88E95C3033EBD462 /* Libdovi.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */; };
+		9C3D4E5F6789ABCDEF012345 /* KoreanPornService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */; };
+		0D4E5F6789ABCDEF012345678 /* KoreanPornHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */; };
 		298BCE972FC626E85E68058C /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */; };
 		2B5C387D5552BAB2763DD550 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E27763D993B6E8409086841 /* libbz2.tbd */; };
 		2C0B80DE1984B1BAAAB95993 /* IJKPlayerRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */; };
@@ -286,6 +288,7 @@
 		424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformAsyncImage.swift; sourceTree = "<group>"; };
 		45410F150AD33568D996B571 /* hogweed.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = hogweed.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/hogweed.xcframework; sourceTree = SOURCE_ROOT; };
 		455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVHomeView.swift; sourceTree = "<group>"; };
+		D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornHomeView.swift; sourceTree = "<group>"; };
 		4959B121CB3DFFFB86D6BEFC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		4CBD4AE667D94F1CDEDFD62A /* AliPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerRepresentable.swift; sourceTree = "<group>"; };
 		51D064347CEF883DED6CEE39 /* Libfribidi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfribidi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfribidi.xcframework; sourceTree = SOURCE_ROOT; };
@@ -427,6 +430,7 @@
 		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
+		C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
 		E70363C93B7E4A60A895A08B /* MadouFreeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeService.swift; sourceTree = "<group>"; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
@@ -648,6 +652,7 @@
 				E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */,
 				E70363C93B7E4A60A895A08B /* MadouFreeService.swift */,
 				A1B2C3D4E5F6789ABCDEF0123 /* JiujiuService.swift */,
+				C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 			);
 			path = Services;
@@ -683,6 +688,7 @@
 				455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */,
 				2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */,
 				B2C3D4E5F6789ABCDEF01234 /* JiujiuHomeView.swift */,
+				D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -930,6 +936,8 @@
 				54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */,
 				D062D7DAF9844F198AF617FC /* MadouFreeHomeView.swift in Sources */,
 				8B2C3D4E5F6789ABCDEF0123 /* JiujiuHomeView.swift in Sources */,
+				9C3D4E5F6789ABCDEF012345 /* KoreanPornService.swift in Sources */,
+				0D4E5F6789ABCDEF012345678 /* KoreanPornHomeView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
