@@ -2210,13 +2210,10 @@ class PlayerState: ObservableObject {
                 log("[PlayerV2] ⚠️ 阿里云盘本地代理创建失败，回退直连")
             }
         } else if isUCPlaybackURL(url) {
-            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "uc") {
-                finalURLString = localURL.absoluteString
-                log("[PlayerV2] UC网盘走本地代理: \(finalURLString)")
-            } else {
-                finalURLString = url
-                log("[PlayerV2] ⚠️ UC本地代理创建失败，回退直连")
-            }
+            // UC CDN 直链不走本地代理，本地代理注入的 Android UA + Referer 会导致 CDN 拒绝 Range 请求
+            // 播放器原生网络栈直接请求 CDN，兼容性更好
+            finalURLString = url
+            log("[PlayerV2] UC网盘直连 (不走代理)")
         } else if is115PlaybackURL(url) {
             if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "115") {
                 finalURLString = localURL.absoluteString
