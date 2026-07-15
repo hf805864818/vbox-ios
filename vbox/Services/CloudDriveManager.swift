@@ -6335,11 +6335,57 @@ class CloudDriveManager: ObservableObject {
         let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
         authCookie = folder.cookie
         let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
-        let sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie)
-        print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
 
-        let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
-        guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+        // 尝试获取文件列表，stoken 失效时自动刷新
+        let sourceFile: UCShareFile
+        let fileId: String
+        do {
+            sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie)
+            print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
+            let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
+            guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+            fileId = fid
+        } catch let error as DriveError {
+            let errMsg = error.localizedDescription
+            if errMsg.contains("非法token") || errMsg.contains("token") {
+                self.log("[CloudDrive] ⚠️ stoken 失效，尝试刷新...")
+                // 刷新 stoken 并重试
+                do {
+                    let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+                    let sf = try await ucFirstPlayableFile(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: authCookie)
+                    print("[UC] stoken 刷新后选中资源：\(sf.fileName), fid=\(sf.fid)")
+                    let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folder.folderId, cookie: authCookie)
+                    guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
+                    fileId = fid
+                    sourceFile = sf
+                    self.log("[CloudDrive] ✅ stoken 刷新成功")
+                } catch {
+                    // 刷新也失败，尝试 TV Token 兜底
+                    if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+                       !tvToken.isEmpty {
+                        self.log("[CloudDrive] 🔄 stoken 刷新失败，尝试 TV Token 兜底...")
+                        let tvFiles = try await ucListFilesWithTVToken(tvToken: tvToken)
+                        let playable = tvFiles.first(where: { f in
+                            let name = f["filename"] as? String ?? ""
+                            let isDir = (f["isdir"] as? Int) == 1
+                            return !isDir && quarkIsPlayableFileName(name)
+                        })
+                        if let pf = playable, let fid = pf["fid"] as? String {
+                            fileId = fid
+                            sourceFile = UCShareFile(fid: fid, fileName: pf["filename"] as? String ?? "", shareFidToken: "", pdirFid: "0", isDir: false)
+                            self.log("[CloudDrive] ✅ TV Token 兜底找到文件: \(sourceFile.fileName)")
+                        } else {
+                            self.log("[CloudDrive] ❌ TV Token 兜底也未找到可播放文件")
+                            throw error
+                        }
+                    } else {
+                        throw error
+                    }
+                }
+            } else {
+                throw error
+            }
+        }
 
         var transcodeURL = ""
         do {
@@ -6758,6 +6804,68 @@ class CloudDriveManager: ObservableObject {
         }
         if let playURL = json["play_url"] as? String, !playURL.isEmpty { return playURL }
         throw DriveError.noPlayURL("UC: 未返回播放地址")
+    }
+
+    /// 使用 TV Token 列出云盘根目录文件，用于 stoken 失效时的兜底
+    private func ucListFilesWithTVToken(tvToken: String, parentFid: String = "0") async throws -> [[String: Any]] {
+        let signKey = "l3srvtd7p42l0d0x1u8d7yc8ye9kki4d"
+        let clientId = "5acf882d27b74502b7040b0c65519aa7"
+        let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
+        let pathname = "/file"
+        let tokenData = "GET&\(pathname)&\(timestamp)&\(signKey)"
+        let xPanToken = SHA256.hash(data: Data(tokenData.utf8)).map { String(format: "%02x", $0) }.joined()
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString.replacingOccurrences(of: "-", with: "") ?? UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let reqId = Insecure.MD5.hash(data: Data("\(deviceId)\(timestamp)".utf8)).map { String(format: "%02x", $0) }.joined()
+
+        var components = URLComponents(string: "https://open-api-drive.uc.cn\(pathname)")!
+        components.queryItems = [
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "parent_fid", value: parentFid),
+            URLQueryItem(name: "order_by", value: "3"),
+            URLQueryItem(name: "desc", value: "1"),
+            URLQueryItem(name: "category", value: ""),
+            URLQueryItem(name: "source", value: ""),
+            URLQueryItem(name: "ex_source", value: ""),
+            URLQueryItem(name: "list_all", value: "0"),
+            URLQueryItem(name: "page_size", value: "100"),
+            URLQueryItem(name: "page_index", value: "0"),
+            URLQueryItem(name: "access_token", value: tvToken),
+            URLQueryItem(name: "app_ver", value: "1.6.8"),
+            URLQueryItem(name: "device_id", value: deviceId),
+            URLQueryItem(name: "device_brand", value: "Apple"),
+            URLQueryItem(name: "platform", value: "tv"),
+            URLQueryItem(name: "device_name", value: "iPhone"),
+            URLQueryItem(name: "device_model", value: "iPhone"),
+            URLQueryItem(name: "build_device", value: "iPhone"),
+            URLQueryItem(name: "build_product", value: "iPhone"),
+            URLQueryItem(name: "device_gpu", value: "Apple"),
+            URLQueryItem(name: "activity_rect", value: "{}"),
+            URLQueryItem(name: "channel", value: "UCTVOFFICIALWEB"),
+            URLQueryItem(name: "req_id", value: reqId)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue(clientId, forHTTPHeaderField: "x-pan-client-id")
+        request.setValue(timestamp, forHTTPHeaderField: "x-pan-tm")
+        request.setValue(xPanToken, forHTTPHeaderField: "x-pan-token")
+        request.setValue("Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1", forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await ucSession.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        self.log("[CloudDrive] TV Token 列表响应: \(rawBody.prefix(200))")
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+        if let status = json["status"] as? Int, status == -1 {
+            let info = json["error_info"] as? String ?? "status=-1"
+            throw DriveError.noPlayURL("TV Token 列表失败：\(info)")
+        }
+        if let dataObj = json["data"] as? [String: Any],
+           let files = dataObj["files"] as? [[String: Any]] {
+            return files
+        }
+        return []
     }
 
     private func ucGetDownloadURL(fileId: String, cookie: String) async throws -> String {
