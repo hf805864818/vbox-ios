@@ -6383,15 +6383,39 @@ class CloudDriveManager: ObservableObject {
 
         scheduleCleanup(drive: .uc, fileIds: fileIds, token: authCookie, delay: 60 * 60)
 
-        let headers = ucPlaybackHeaders(cookie: authCookie)
+        // TV Token 返回的是 CDN 直链，不需要 UC Cookie，否则 CDN 可能拒绝请求
+        let headers: [String: String]
+        let fallbackHeaders: [String: String]?
+        if source == "uc_tv_token" {
+            headers = [
+                "User-Agent": "Mozilla/5.0 (Linux; U; Android 13; zh-cn; M2004J7AC Build/UKQ1.231108.001) AppleWebKit/533.1 (KHTML, like Gecko) Mobile Safari/533.1",
+                "Accept": "*/*"
+            ]
+            // TV Token 失败时降级到 v2/play（m3u8 流），不是 download_url
+            fallbackHeaders = !transcodeURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : nil
+        } else {
+            headers = ucPlaybackHeaders(cookie: authCookie)
+            fallbackHeaders = (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? headers : nil
+        }
+
+        let fallbackURL: String?
+        let fallbackSource: String?
+        if source == "uc_tv_token" {
+            fallbackURL = !transcodeURL.isEmpty ? transcodeURL : (!downloadURL.isEmpty ? downloadURL : nil)
+            fallbackSource = !transcodeURL.isEmpty ? "v2-play-m3u8" : (!downloadURL.isEmpty ? "download_url" : nil)
+        } else {
+            fallbackURL = (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? transcodeURL : nil
+            fallbackSource = (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? "v2-play-m3u8" : nil
+        }
+
         return PlayResult(
             url: playURL,
             headers: headers,
             driveType: .uc,
             source: source,
-            fallbackURL: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? transcodeURL : nil,
-            fallbackHeaders: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? headers : nil,
-            fallbackSource: (!downloadURL.isEmpty && !transcodeURL.isEmpty && source != "v2-play") ? "v2-play-m3u8" : nil
+            fallbackURL: fallbackURL,
+            fallbackHeaders: fallbackHeaders,
+            fallbackSource: fallbackSource
         )
     }
 
