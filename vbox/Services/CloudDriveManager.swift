@@ -6357,32 +6357,30 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
 
-        // 优先级：v2/play（m3u8流媒体，可靠） > TV Token（OSS直链，高画质） > download_url（慢速）
+        // 优先级：TV Token streaming（原片最高画质） > v2/play（m3u8转码流） > download_url（慢速）
         var playURL = ""
         var source = ""
 
-        // 1. 优先 v2/play — m3u8 流媒体协议，播放器原生支持 Range/缓冲/自适应
-        if !transcodeURL.isEmpty {
-            playURL = transcodeURL
-            source = "v2-play"
-            self.log("[CloudDrive] 🎬 使用 v2/play m3u8 流媒体")
+        // 1. 优先 TV Token streaming — 原片流媒体直链，最高画质，不限速
+        if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+           !tvToken.isEmpty {
+            self.log("[CloudDrive] 🔍 TV Token 高速通道...")
+            do {
+                playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
+                source = "uc_tv_token"
+                self.log("[CloudDrive] ✅ TV Token 高速通道成功")
+            } catch {
+                self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
+            }
+        } else {
+            self.log("[CloudDrive] ℹ️ 无 TV Token")
         }
 
-        // 2. v2/play 不可用，尝试 TV Token — OSS 直链原片，需去掉下载参数
-        if playURL.isEmpty {
-            if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
-               !tvToken.isEmpty {
-                self.log("[CloudDrive] 🔍 v2/play 不可用，尝试 TV Token...")
-                do {
-                    playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
-                    source = "uc_tv_token"
-                    self.log("[CloudDrive] ✅ TV Token 高速通道成功")
-                } catch {
-                    self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
-                }
-            } else {
-                self.log("[CloudDrive] ℹ️ 无 TV Token")
-            }
+        // 2. TV Token 不可用，降级到 v2/play m3u8 转码流
+        if playURL.isEmpty && !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play"
+            self.log("[CloudDrive] 🎬 降级到 v2/play m3u8 流")
         }
 
         // 3. 兜底 download_url
