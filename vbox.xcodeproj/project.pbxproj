@@ -13,6 +13,7 @@
 		04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A80014896281C5C1B943BE /* SihuVideoService.swift */; };
 		04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */; };
 		04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */; };
+		28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */; };
 		04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */; };
 		0B8A0BC12EB59E31457F7A26 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */; };
 		0C3CE0504210081ED3E2C384 /* Libplacebo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -170,6 +171,7 @@
 		AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */; };
 		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 		B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C15E736105CF390FD2313 /* MDTVViews.swift */; };
+		54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		BF1133BC00ADC634CEAEF832 /* Libunibreak.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C0MISSAV001 /* MissAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10155 /* MissAVService.swift */; };
@@ -259,6 +261,7 @@
 		04A80014896281C5C1B943BE /* SihuVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoService.swift; sourceTree = "<group>"; };
 		04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoView.swift; sourceTree = "<group>"; };
 		04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPService.swift; sourceTree = "<group>"; };
+		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
 		04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPView.swift; sourceTree = "<group>"; };
 		06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuchardet.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuchardet.xcframework; sourceTree = SOURCE_ROOT; };
 		074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libshaderc_combined.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libshaderc_combined.xcframework; sourceTree = SOURCE_ROOT; };
@@ -419,6 +422,7 @@
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
 		F73C15E736105CF390FD2313 /* MDTVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVViews.swift; sourceTree = "<group>"; };
+		455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVHomeView.swift; sourceTree = "<group>"; };
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
@@ -633,6 +637,7 @@
 				1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */,
 				04A80014896281C5C1B943BE /* SihuVideoService.swift */,
 				04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */,
+				E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 			);
 			path = Services;
@@ -665,6 +670,7 @@
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
 				F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */,
 				F73C15E736105CF390FD2313 /* MDTVViews.swift */,
+				455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -904,8 +910,10 @@
 				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
 				2EA577E0E4961A799C3DE3AA /* OnePlatformService.swift in Sources */,
 				5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */,
+				28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */,
 				8CFE777E79B66B49E936B16F /* OnePlatformViews.swift in Sources */,
 				B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */,
+				54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,

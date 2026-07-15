@@ -267,6 +267,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://api.em1oifd0.com", desc: "AES加密视频站"),
             YBoxPlatform2(name: "麻豆平台", icon: "tv.circle.fill", type: .video,
                          baseURL: "https://api.nzp1ve.com", desc: "MDTV加密视频站"),
+            YBoxPlatform2(name: "萝莉AV", icon: "heart.circle.fill", type: .video,
+                         baseURL: "https://212602.luoliav.cc", desc: "精选分类视频"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [

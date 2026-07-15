@@ -17,7 +17,8 @@ struct WelfareSettingsView: View {
         ("神秘电影", "theatermasks.fill", ["https://h4ivs.sm431.vip"]),
         ("四虎视频", "film.fill", ["https://www.sihuhu.xyz"]),
         ("香肠派对", "party.popper.fill", ["https://xiang512.xiang.party/xcpd"]),
-        ("香蕉秀", "heart.fill", [])
+        ("香蕉秀", "heart.fill", []),
+        ("萝莉AV", "heart.circle.fill", ["https://212602.luoliav.cc"]),
     ]
 
     var body: some View {
@@ -211,6 +212,7 @@ struct WelfareSettingsView: View {
         switch name {
         case "每日大乱斗": DailyBattleService.shared.reprobe()
         case "每日大赛": DailyBattleService.contest.reprobe()
+        case "萝莉AV": LuoliAVService.shared.reprobe()
         default: break
         }
     }
@@ -220,6 +222,7 @@ struct WelfareSettingsView: View {
         switch name {
         case "每日大乱斗": DailyBattleService.shared.resetDomain()
         case "每日大赛": DailyBattleService.contest.resetDomain()
+        case "萝莉AV": LuoliAVService.shared.resetDomain()
         default: break
         }
     }
