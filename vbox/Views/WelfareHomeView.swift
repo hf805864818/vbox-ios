@@ -163,6 +163,8 @@ struct WelfareHomeView: View {
             return AnyView(MDTVHomeView(platform: platform))
         } else if platform.name == "萝莉AV" {
             return AnyView(LuoliAVHomeView())
+        } else if platform.name == "麻豆免费" {
+            return AnyView(MadouFreeHomeView())
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -177,7 +179,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" }
     }
 
     // MARK: - 颜色工具
@@ -213,6 +215,7 @@ struct WelfareHomeView: View {
             "神秘电影":      [Color(hex: "6C5CE7"), Color(hex: "A855F7")],
             "One平台":       [Color(hex: "10B981"), Color(hex: "059669")],
             "萝莉AV":        [Color(hex: "EC4899"), Color(hex: "BE185D")],
+            "麻豆免费":       [Color(hex: "F59E0B"), Color(hex: "D97706")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
     }
