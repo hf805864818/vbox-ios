@@ -279,6 +279,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://kanliao2.one", desc: "动态域名+自适应分类"),
             YBoxPlatform2(name: "黑料不打烊", icon: "flame.circle.fill", type: .video,
                          baseURL: "https://heiliao.com", desc: "AES图片解密+19分类"),
+            YBoxPlatform2(name: "通用吸瓜", icon: "flame.fill", type: .video,
+                         baseURL: "https://advise.nlwkmsv.cc", desc: "动态域名+自适应分类"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
