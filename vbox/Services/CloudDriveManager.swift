@@ -6357,30 +6357,32 @@ class CloudDriveManager: ObservableObject {
         }
         let downloadURL = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
 
-        // 优先级：TV Token（原片最高画质） > v2/play（m3u8转码流） > download_url（慢速）
+        // 优先级：v2/play（m3u8流媒体，可靠） > TV Token（OSS直链，高画质） > download_url（慢速）
         var playURL = ""
         var source = ""
 
-        // 1. 优先 TV Token — 原片 CDN 直链，最高画质
-        if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
-           !tvToken.isEmpty {
-            self.log("[CloudDrive] 🔍 TV Token 高速通道...")
-            do {
-                playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
-                source = "uc_tv_token"
-                self.log("[CloudDrive] ✅ TV Token 高速通道成功")
-            } catch {
-                self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
-            }
-        } else {
-            self.log("[CloudDrive] ℹ️ 无 TV Token")
-        }
-
-        // 2. TV Token 不可用，尝试 v2/play m3u8 流
-        if playURL.isEmpty && !transcodeURL.isEmpty {
+        // 1. 优先 v2/play — m3u8 流媒体协议，播放器原生支持 Range/缓冲/自适应
+        if !transcodeURL.isEmpty {
             playURL = transcodeURL
             source = "v2-play"
-            self.log("[CloudDrive] 🎬 降级到 v2/play m3u8 流")
+            self.log("[CloudDrive] 🎬 使用 v2/play m3u8 流媒体")
+        }
+
+        // 2. v2/play 不可用，尝试 TV Token — OSS 直链原片，需去掉下载参数
+        if playURL.isEmpty {
+            if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+               !tvToken.isEmpty {
+                self.log("[CloudDrive] 🔍 v2/play 不可用，尝试 TV Token...")
+                do {
+                    playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
+                    source = "uc_tv_token"
+                    self.log("[CloudDrive] ✅ TV Token 高速通道成功")
+                } catch {
+                    self.log("[CloudDrive] ⚠️ TV Token 失败: \(error.localizedDescription)")
+                }
+            } else {
+                self.log("[CloudDrive] ℹ️ 无 TV Token")
+            }
         }
 
         // 3. 兜底 download_url
@@ -6976,20 +6978,31 @@ class CloudDriveManager: ObservableObject {
         return ""
     }
 
-    /// 去掉 CDN URL 中的 sp 限速参数（阿里云 CDN sp=100 限制 ≈100KB/s）
-    /// sp 不是 auth_key 签名的一部分，安全移除。用正则精确匹配，避免误伤其他参数。
+    /// 去掉 CDN URL 中的下载/限速参数，优化为流式播放
+    /// sp=100: 阿里云 CDN 限速 ~100KB/s
+    /// response-content-disposition=attachment: 强制下载模式，播放器 Range 请求被拒
+    /// x-oss-traffic-limit: 额外限速参数
+    /// 这些参数都不是 auth_key 签名的一部分，安全移除
     private func stripCDNSpeedLimit(_ urlString: String) -> String {
         var result = urlString
-        // &sp=数字 — 中间参数
+        // &sp=数字
         if let re = try? NSRegularExpression(pattern: "&sp=\\d+", options: []) {
             result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
         }
-        // ?sp=数字& — 第一个参数
+        // ?sp=数字&
         if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+&", options: []) {
             result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "?")
         }
-        // ?sp=数字 末尾 — 唯一参数
+        // ?sp=数字 末尾
         if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+$", options: []) {
+            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        // &response-content-disposition=attachment... (强制下载，破坏流式播放)
+        if let re = try? NSRegularExpression(pattern: "&response-content-disposition=[^&]+", options: []) {
+            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        // &x-oss-traffic-limit=数字
+        if let re = try? NSRegularExpression(pattern: "&x-oss-traffic-limit=\\d+", options: []) {
             result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
         }
         return result
