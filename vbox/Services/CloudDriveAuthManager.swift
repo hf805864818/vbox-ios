@@ -1632,9 +1632,10 @@ final class CloudDriveAuthManager: ObservableObject {
                     let localToken = await self.evaluateLocalStorageToken()
                     let accessToken = (bearerToken ?? localToken)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                    print("[Pan123] polling cookies count: \(cookies.count), names: \(cookies.map { $0.name }.joined(separator: ", "))")
+                    print("[Pan123] polling cookies count: \(cookies.count), names: \(cookies.map { "\($0.name)(\($0.value.prefix(10)))" }.joined(separator: ", "))")
 
                     // 检测登录成功的标志：精确 Cookie 或 JS Token
+                    // 123pan 登录后常见 Cookie: 123pan_uid, 123pan_token, pan123_*, authorization, __uid 等
                     let hasLoginCookie = cookies.contains { cookie in
                         let name = cookie.name.lowercased()
                         let value = cookie.value
@@ -1642,15 +1643,24 @@ final class CloudDriveAuthManager: ObservableObject {
                                 name == "token" ||
                                 name == "userid" ||
                                 name == "uid" ||
+                                name == "__uid" ||
+                                name.hasPrefix("pan123") ||
+                                name.hasPrefix("123pan") ||
+                                name.hasPrefix("123_") ||
                                 name.contains("passport") ||
-                                name.contains("login")) && value.count > 10
+                                name.contains("login") ||
+                                name.contains("_token") ||
+                                name.contains("session")) && value.count > 10
                     } || (accessToken?.count ?? 0 > 10)
 
-                    if hasLoginCookie {
+                    // 宽松检测：登录后 123pan 通常会设置至少 3 个 Cookie，总长度 > 100
+                    let hasManyCookies = cookies.count >= 3 && cookieStr.count > 100
+
+                    if hasLoginCookie || hasManyCookies {
                         await MainActor.run {
                             self.isLoggedIn = true
                             self.statusText = "登录成功，正在保存 Token..."
-                            print("[Pan123] login success, cookieStr length: \(cookieStr.count), token length: \(accessToken?.count ?? 0)")
+                            print("[Pan123] login success, cookieStr length: \(cookieStr.count), token length: \(accessToken?.count ?? 0), reason: \(hasLoginCookie ? "cookie_match" : "many_cookies")")
                             CloudDriveAuthManager.shared.saveWebViewCookie(type: .pan123, cookie: cookieStr, accessToken: accessToken)
                         }
                         return
@@ -1661,7 +1671,11 @@ final class CloudDriveAuthManager: ObservableObject {
                        (currentURL.contains("123pan.com/home") ||
                         currentURL.contains("123pan.com/dashboard") ||
                         currentURL.contains("123pan.com/disk") ||
-                        currentURL.contains("123684.com/home")) {
+                        currentURL.contains("123684.com/home") ||
+                        currentURL.contains("123684.com/dashboard") ||
+                        currentURL.contains("123684.com/disk") ||
+                        (currentURL.contains("123pan.com") && !currentURL.contains("login") && !currentURL.contains("passport")) ||
+                        (currentURL.contains("123684.com") && !currentURL.contains("login") && !currentURL.contains("passport"))) {
                         await MainActor.run {
                             self.isLoggedIn = true
                             self.statusText = "登录成功（检测到页面跳转），正在保存 Token..."

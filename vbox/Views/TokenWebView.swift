@@ -294,7 +294,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             case .pan123:
                 return lower.contains("authorization") || lower.contains("token") || lower.contains("auth") ||
                        lower.contains("session") || lower.contains("login") || lower.contains("userid") ||
-                       lower.contains("uid=") || lower.contains("passport")
+                       lower.contains("uid=") || lower.contains("passport") || lower.contains("pan123") ||
+                       lower.contains("123pan") || lower.contains("123_") || lower.contains("__uid")
             case .pan139:
                 return lower.contains("ssotoken") || lower.contains("sso_token") || lower.contains("mcloud") || lower.contains("sessionid")
             case .pan189:
