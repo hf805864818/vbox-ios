@@ -30,7 +30,17 @@ struct LuoliAVHomeView: View {
         }
         .navigationTitle("萝莉AV")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await loadCategories() }
+        .onAppear { loadCategories() }
+    }
+
+    private func loadCategories() {
+        Task {
+            let result = await svc.fetchCategories()
+            await MainActor.run {
+                categories = result
+                isLoading = false
+            }
+        }
     }
 
     // MARK: - 分类横向滚动
@@ -184,7 +194,6 @@ struct LuoliAVPlayerView: View {
     @State private var errorMsg: String?
     @State private var showPlayer = false
     @State private var vodItem: VodItem?
-    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         VStack(spacing: 12) {
