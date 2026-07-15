@@ -205,7 +205,9 @@ class XiguaService: ObservableObject {
         guard encryptedData.count > 0 else { return nil }
         let keyData = Data(aesKey)
         let ivData = Data(aesIV)
-        var decryptedData = Data(count: encryptedData.count + kCCBlockSizeAES128)
+        let encryptedCount = encryptedData.count
+        let bufferSize = encryptedCount + kCCBlockSizeAES128
+        var decryptedData = Data(count: bufferSize)
         var decryptedLength = 0
         let status = decryptedData.withUnsafeMutableBytes { decryptedBytes in
             encryptedData.withUnsafeBytes { encryptedBytes in
@@ -215,8 +217,8 @@ class XiguaService: ObservableObject {
                             CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES),
                             CCOptions(kCCOptionPKCS7Padding),
                             keyBytes.baseAddress!, kCCKeySizeAES128, ivBytes.baseAddress!,
-                            encryptedBytes.baseAddress!, encryptedData.count,
-                            decryptedBytes.baseAddress!, decryptedData.count,
+                            encryptedBytes.baseAddress!, encryptedCount,
+                            decryptedBytes.baseAddress!, bufferSize,
                             &decryptedLength
                         )
                     }
