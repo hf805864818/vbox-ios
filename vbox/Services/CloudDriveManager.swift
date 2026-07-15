@@ -6924,13 +6924,21 @@ class CloudDriveManager: ObservableObject {
         if let list = json["data"] as? [[String: Any]],
            let first = list.first,
            let url = first["download_url"] as? String {
-            return url
+            return stripCDNSpeedLimit(url)
         }
         if let dataObj = json["data"] as? [String: Any],
            let url = dataObj["download_url"] as? String {
-            return url
+            return stripCDNSpeedLimit(url)
         }
         return ""
+    }
+
+    /// 去掉 CDN 下载 URL 中的 sp 限速参数（阿里云 CDN sp=100 限制 ≈100KB/s）
+    private func stripCDNSpeedLimit(_ urlString: String) -> String {
+        guard var components = URLComponents(string: urlString) else { return urlString }
+        // 移除 sp 参数
+        components.queryItems = components.queryItems?.filter { $0.name != "sp" }
+        return components.string ?? urlString
     }
 
     private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
@@ -6991,15 +6999,17 @@ class CloudDriveManager: ObservableObject {
         }
         // alist 返回格式: { "data": { "download_url": "https://..." } }
         if let dataObj = json["data"] as? [String: Any] {
-            if let url = dataObj["download_url"] as? String, !url.isEmpty { return url }
+            if let url = dataObj["download_url"] as? String, !url.isEmpty {
+                return stripCDNSpeedLimit(url)
+            }
             // 兼容旧字段
-            if let url = dataObj["url"] as? String, !url.isEmpty { return url }
-            if let url = dataObj["play_url"] as? String, !url.isEmpty { return url }
+            if let url = dataObj["url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
+            if let url = dataObj["play_url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
             if let list = dataObj["video_list"] as? [[String: Any]] {
                 for item in list {
                     if let info = item["video_info"] as? [String: Any],
                        let url = info["url"] as? String, !url.isEmpty {
-                        return url
+                        return stripCDNSpeedLimit(url)
                     }
                 }
             }
