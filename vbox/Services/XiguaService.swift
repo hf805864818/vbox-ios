@@ -81,8 +81,7 @@ class XiguaService: ObservableObject {
                       let html = String(data: data, encoding: .utf8) else { continue }
 
                 if let doc = try? HTML(html: html, encoding: .utf8) {
-                    let articles = doc.css("#index article a")
-                    if !articles.isEmpty {
+                    if doc.css("#index article a").first != nil {
                         await MainActor.run {
                             self.currentHost = host
                             self.isHostReady = true
@@ -287,7 +286,7 @@ class XiguaService: ObservableObject {
 
     private func extractDescription(_ doc: HTMLDocument) -> String {
         let keywordLinks = doc.css(".tags .keywords a")
-        if !keywordLinks.isEmpty {
+        if keywordLinks.first != nil {
             let tags = keywordLinks.compactMap { link -> String? in
                 guard let title = link.text, let href = link["href"], !title.isEmpty, !href.isEmpty else { return nil }
                 return title
