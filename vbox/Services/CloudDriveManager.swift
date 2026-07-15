@@ -6395,8 +6395,10 @@ class CloudDriveManager: ObservableObject {
         self.log("[CloudDrive] ℹ️ UC 播放源: \(source)")
         if source == "uc_tv_token" {
             self.log("[CloudDrive] 🔗 TV CDN: \(playURL.prefix(200))")
-            if playURL.contains("sp=100") || playURL.contains("sp=50") {
-                self.log("[CloudDrive] ⚠️ CDN 含限速参数 sp，速度可能受限")
+            if playURL.contains("sp=") {
+                self.log("[CloudDrive] ⚠️ CDN 仍含 sp 参数，限速未解除！")
+            } else {
+                self.log("[CloudDrive] ✅ CDN 限速已解除")
             }
         }
 
@@ -6965,13 +6967,32 @@ class CloudDriveManager: ObservableObject {
         if let list = json["data"] as? [[String: Any]],
            let first = list.first,
            let url = first["download_url"] as? String {
-            return url
+            return stripCDNSpeedLimit(url)
         }
         if let dataObj = json["data"] as? [String: Any],
            let url = dataObj["download_url"] as? String {
-            return url
+            return stripCDNSpeedLimit(url)
         }
         return ""
+    }
+
+    /// 去掉 CDN URL 中的 sp 限速参数（阿里云 CDN sp=100 限制 ≈100KB/s）
+    /// sp 不是 auth_key 签名的一部分，安全移除。用正则精确匹配，避免误伤其他参数。
+    private func stripCDNSpeedLimit(_ urlString: String) -> String {
+        var result = urlString
+        // &sp=数字 — 中间参数
+        if let re = try? NSRegularExpression(pattern: "&sp=\\d+", options: []) {
+            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        // ?sp=数字& — 第一个参数
+        if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+&", options: []) {
+            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "?")
+        }
+        // ?sp=数字 末尾 — 唯一参数
+        if let re = try? NSRegularExpression(pattern: "\\?sp=\\d+$", options: []) {
+            result = re.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "")
+        }
+        return result
     }
 
     private func ucGetPlayURLWithTVToken(fileId: String, tvToken: String) async throws -> String {
@@ -7033,16 +7054,16 @@ class CloudDriveManager: ObservableObject {
         // alist 返回格式: { "data": { "download_url": "https://..." } }
         if let dataObj = json["data"] as? [String: Any] {
             if let url = dataObj["download_url"] as? String, !url.isEmpty {
-                return url
+                return stripCDNSpeedLimit(url)
             }
             // 兼容旧字段
-            if let url = dataObj["url"] as? String, !url.isEmpty { return url }
-            if let url = dataObj["play_url"] as? String, !url.isEmpty { return url }
+            if let url = dataObj["url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
+            if let url = dataObj["play_url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
             if let list = dataObj["video_list"] as? [[String: Any]] {
                 for item in list {
                     if let info = item["video_info"] as? [String: Any],
                        let url = info["url"] as? String, !url.isEmpty {
-                        return url
+                        return stripCDNSpeedLimit(url)
                     }
                 }
             }
