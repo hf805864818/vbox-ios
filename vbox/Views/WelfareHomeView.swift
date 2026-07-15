@@ -167,6 +167,8 @@ struct WelfareHomeView: View {
             return AnyView(MadouFreeHomeView())
         } else if platform.name == "久久網" {
             return AnyView(JiujiuHomeView())
+        } else if platform.name == "韩国色情电影" {
+            return AnyView(KoreanPornHomeView())
         } else {
             return AnyView(YBoxXjspMainView(platform: platform))
         }
@@ -181,7 +183,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" }
     }
 
     // MARK: - 颜色工具
@@ -219,6 +221,7 @@ struct WelfareHomeView: View {
             "萝莉AV":        [Color(hex: "EC4899"), Color(hex: "BE185D")],
             "麻豆免费":       [Color(hex: "F59E0B"), Color(hex: "D97706")],
             "久久網":         [Color(hex: "06B6D4"), Color(hex: "0891B2")],
+            "韩国色情电影":    [Color(hex: "DC2626"), Color(hex: "B91C1C")],
         ]
         return colorMap[name, default: [Color(hex: "636E72"), Color(hex: "B2BEC3")]]
     }
