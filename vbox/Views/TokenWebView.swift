@@ -236,6 +236,13 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
                     cookieString += "\(cookie.name)=\(cookie.value); "
                 }
 
+                // 阿里云盘特殊处理：refresh_token 在页面中显示，不在 Cookie 里
+                // 优先从页面内容提取，Cookie 检测仅作为兜底
+                if self.parent.driveType == .ali {
+                    self.extractAliToken(from: webView, cookieString: cookieString)
+                    return
+                }
+
                 // 尝试从页面内容提取 token
                 webView.evaluateJavaScript("document.body.innerText") { result, error in
                     if let text = result as? String {
@@ -258,6 +265,85 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
                     }
                 }
             }
+        }
+
+        /// 阿里云盘专用：从页面 DOM 提取 refresh_token
+        /// alist 页面会在 input/textarea 或页面文本中展示 refresh_token
+        private func extractAliToken(from webView: WKWebView, cookieString: String) {
+            // 多种 JS 提取方式，按优先级尝试
+            let scripts = [
+                // 1. 读取 input/textarea 中的值（alist 页面的 token 显示在输入框）
+                "document.querySelector('input[type=text], textarea')?.value",
+                // 2. 读取所有 input 元素找 token
+                "Array.from(document.querySelectorAll('input, textarea')).map(e => e.value).find(v => v && v.length > 20)",
+                // 3. 读取页面显式文本
+                "document.body.innerText",
+            ]
+
+            func tryNextScript(_ index: Int) {
+                guard index < scripts.count, !hasDetected else { return }
+                webView.evaluateJavaScript(scripts[index]) { result, error in
+                    if let text = result as? String, let token = self.extractAliRefreshToken(text) {
+                        DispatchQueue.main.async {
+                            self.parent.token = token
+                            self.hasDetected = true
+                            self.cookieTimer?.invalidate()
+                        }
+                        return
+                    }
+                    // 尝试下一个脚本
+                    tryNextScript(index + 1)
+                }
+            }
+            tryNextScript(0)
+
+            // Cookie 兜底：alist 登录后可能有 refresh_token 相关 cookie
+            // 但仅当 cookie 中明确包含 refresh_token 时才用
+            if cookieString.lowercased().contains("refresh_token") {
+                let patterns = [
+                    "refresh_token=([^;]+)",
+                ]
+                for pattern in patterns {
+                    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                          let match = regex.firstMatch(in: cookieString, range: NSRange(cookieString.startIndex..., in: cookieString)),
+                          match.numberOfRanges > 1,
+                          let range = Range(match.range(at: 1), in: cookieString) else { continue }
+                    let token = String(cookieString[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if token.count > 20 {
+                        DispatchQueue.main.async {
+                            self.parent.token = token
+                            self.hasDetected = true
+                            self.cookieTimer?.invalidate()
+                        }
+                        return
+                    }
+                }
+            }
+        }
+
+        /// 从页面文本提取阿里云盘 refresh_token（支持多种格式）
+        private func extractAliRefreshToken(_ text: String) -> String? {
+            let patterns = [
+                // 标准格式: refresh_token: xxx 或 refresh_token：xxx
+                "refresh_token[:：]\\s*([a-zA-Z0-9_-]{20,})",
+                // 纯 token 格式（alist 页面可能直接显示 token 值）
+                "([a-zA-Z0-9_-]{32,})",
+            ]
+            for pattern in patterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                      let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                      match.numberOfRanges > 1,
+                      let range = Range(match.range(at: 1), in: text) else { continue }
+                let token = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                // 阿里 refresh_token 通常是较长字符串
+                if token.count > 20 { return token }
+            }
+            // 如果整个文本就是 token（纯 token 无标签）
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count > 20 && trimmed.count < 500 && !trimmed.contains(" ") && !trimmed.contains("\n") {
+                return trimmed
+            }
+            return nil
         }
 
         private func extractTokenFromText(_ text: String) -> String? {
@@ -414,9 +500,9 @@ struct CloudDriveWebAuthView: View {
         let credential = CloudDriveCredential(
             driveType: driveType.rawValue,
             authType: .webView,
-            accessToken: nil,
-            refreshToken: nil,
-            cookie: token,
+            accessToken: driveType == .ali ? token : nil,
+            refreshToken: driveType == .ali ? token : nil,
+            cookie: driveType == .ali ? nil : token,
             driveId: nil,
             userId: nil,
             userName: nil,
