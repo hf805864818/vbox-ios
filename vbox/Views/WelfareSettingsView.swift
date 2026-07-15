@@ -22,6 +22,7 @@ struct WelfareSettingsView: View {
         ("麻豆免费", "play.tv.fill", ["https://c-you.hair"]),
         ("久久網", "film.stack.fill", ["https://ww.jiujiu.one"]),
         ("韩国色情电影", "flag.fill", ["https://koreanpornmovie.com"]),
+        ("今日看料", "eye.fill", ["https://kanliao2.one"]),
     ]
 
     var body: some View {
@@ -219,6 +220,7 @@ struct WelfareSettingsView: View {
         case "麻豆免费": MadouFreeService.shared.reprobe()
         case "久久網": JiujiuService.shared.reprobe()
         case "韩国色情电影": KoreanPornService.shared.reprobe()
+        case "今日看料": KanliaoService.shared.reprobe()
         default: break
         }
     }
@@ -232,6 +234,7 @@ struct WelfareSettingsView: View {
         case "麻豆免费": MadouFreeService.shared.resetDomain()
         case "久久網": JiujiuService.shared.resetDomain()
         case "韩国色情电影": KoreanPornService.shared.resetDomain()
+        case "今日看料": KanliaoService.shared.resetDomain()
         default: break
         }
     }
