@@ -275,6 +275,8 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://ww.jiujiu.one", desc: "23个分类视频站"),
             YBoxPlatform2(name: "韩国色情电影", icon: "flag.fill", type: .video,
                          baseURL: "https://koreanpornmovie.com", desc: "4级回退播放地址"),
+            YBoxPlatform2(name: "今日看料", icon: "eye.fill", type: .video,
+                         baseURL: "https://kanliao2.one", desc: "动态域名+自适应分类"),
         ]
 
         let yboxLive: [YBoxPlatform2] = [
