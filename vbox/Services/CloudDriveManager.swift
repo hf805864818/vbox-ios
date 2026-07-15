@@ -6390,6 +6390,16 @@ class CloudDriveManager: ObservableObject {
             self.log("[CloudDrive] ⚠️ 降级到 download_url")
         }
 
+        return try resolveUCPlayResult(playURL: playURL, source: source, transcodeURL: transcodeURL, downloadURL: downloadURL, fileIds: fileIds, authCookie: authCookie)
+    }
+
+    /// 构建 UC 播放结果（复用逻辑，供 resolveUCPlayURL 和 resolveUCPlayURLForFile 共用）
+    private func resolveUCPlayResult(playURL: String, source: String, transcodeURL: String, downloadURL: String, fileIds: [String], authCookie: String) throws -> PlayResult {
+        var playURL = playURL
+        var source = source
+        var transcodeURL = transcodeURL
+        var downloadURL = downloadURL
+
         guard !playURL.isEmpty else { throw DriveError.noPlayURL("UC: download_url、转码地址和 UCTV Token 兜底均为空") }
 
         self.log("[CloudDrive] ℹ️ UC 播放源: \(source)")
@@ -6413,7 +6423,6 @@ class CloudDriveManager: ObservableObject {
 
         switch source {
         case "uc_tv_token":
-            // 空 headers — 播放器原生处理，避免自定义 UA/Referer 导致 CDN 拒绝 Range 请求
             headers = [:]
             fallbackURL = !transcodeURL.isEmpty ? transcodeURL : (!downloadURL.isEmpty ? downloadURL : nil)
             fallbackHeaders = !transcodeURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : (!downloadURL.isEmpty ? ucPlaybackHeaders(cookie: authCookie) : nil)
@@ -6441,7 +6450,63 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
-    private struct UCShareFile {
+    /// 解析指定 UC 文件的播放地址（切换集数使用）
+    func resolveUCPlayURLForFile(shareURL: String, cookie: String, fileFid: String, shareFidToken: String) async throws -> PlayResult {
+        print("[UC] 切集解析: fid=\(fileFid)")
+        let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
+        guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
+
+        var authCookie = cookie
+        let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
+        authCookie = folder.cookie
+        let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+
+        // 构建指定文件的 UCShareFile
+        let sourceFile = UCShareFile(fid: fileFid, fileName: "", shareFidToken: shareFidToken, pdirFid: "0", isDir: false)
+
+        // 转存到 vbox
+        let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
+        guard let fileId = fileIds.first else { throw DriveError.noPlayURL("UC: 切集转存后未返回文件ID") }
+
+        print("[UC] 切集转存成功: fileId=\(fileId)")
+
+        var transcodeURL = ""
+        do {
+            transcodeURL = try await ucGetPlayURL(fileId: fileId, cookie: authCookie)
+        } catch {
+            print("[UC] ⚠️ v2/play 失败: \(error.localizedDescription)")
+        }
+        let downloadURL = try await ucGetDownloadURL(fileId: fileId, cookie: authCookie)
+
+        // 优先级：TV Token streaming（原片最高画质） > v2/play（m3u8转码流） > download_url（慢速）
+        var playURL = ""
+        var source = ""
+
+        if let tvToken = CloudDriveAuthManager.shared.credential(for: .uc)?.extra["uc_tv_token"],
+           !tvToken.isEmpty {
+            do {
+                playURL = try await ucGetPlayURLWithTVToken(fileId: fileId, tvToken: tvToken)
+                source = "uc_tv_token"
+            } catch {
+                self.log("[CloudDrive] ⚠️ 切集 TV Token 失败: \(error.localizedDescription)")
+            }
+        }
+        if playURL.isEmpty && !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play"
+        }
+        if playURL.isEmpty {
+            playURL = downloadURL
+            source = "download_url"
+        }
+
+        return try resolveUCPlayResult(
+            playURL: playURL, source: source, transcodeURL: transcodeURL,
+            downloadURL: downloadURL, fileIds: fileIds, authCookie: authCookie
+        )
+    }
+
+    struct UCShareFile {
         let fid: String
         let fileName: String
         let shareFidToken: String
@@ -6800,13 +6865,51 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("UC 分享内未找到可播放视频")
     }
 
-    private func ucGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String) async throws -> [UCShareFile] {
+    // MARK: - UC 网盘完整文件列表获取（选集用）
+
+    /// 获取 UC 分享链接中所有可播放文件（供选集列表使用）
+    func ucGetFileList(shareURL: String, cookie: String) async throws -> [UCShareFile] {
+        let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
+        guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
+
+        let shareToken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
+
+        var allPlayable: [UCShareFile] = []
+        try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: cookie, result: &allPlayable)
+        return allPlayable
+    }
+
+    /// 递归收集 UC 分享中所有可播放文件（支持分页和子目录）
+    private func ucCollectAllPlayableFiles(pwdId: String, stoken: String, pdirFid: String, cookie: String, result: inout [UCShareFile]) async throws {
+        var page = 1
+        var hasMore = true
+        while hasMore {
+            let files = try await ucGetShareDetail(pwdId: pwdId, stoken: stoken, pdirFid: pdirFid, cookie: cookie, page: page, size: 100)
+            for file in files where !file.isDir && quarkIsPlayableFileName(file.fileName) {
+                result.append(file)
+            }
+            // 收集子目录，稍后递归
+            var subDirs: [UCShareFile] = []
+            for file in files where file.isDir {
+                subDirs.append(file)
+            }
+            // 递归进入子目录
+            for dir in subDirs {
+                try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: dir.fid, cookie: cookie, result: &result)
+            }
+            hasMore = files.count >= 100
+            page += 1
+            if page > 20 { break } // 安全限制，最多20页
+        }
+    }
+
+    private func ucGetShareDetail(pwdId: String, stoken: String, pdirFid: String, cookie: String, page: Int = 1, size: Int = 100) async throws -> [UCShareFile] {
         let url = ucAPIURL("/1/clouddrive/share/sharepage/detail", extra: [
             URLQueryItem(name: "__t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
             URLQueryItem(name: "_fetch_banner", value: "1"),
             URLQueryItem(name: "_fetch_total", value: "1"),
-            URLQueryItem(name: "_page", value: "1"),
-            URLQueryItem(name: "_size", value: "100"),
+            URLQueryItem(name: "_page", value: String(page)),
+            URLQueryItem(name: "_size", value: String(size)),
             URLQueryItem(name: "_sort", value: "file_type:asc,file_name:asc"),
             URLQueryItem(name: "pdir_fid", value: pdirFid),
             URLQueryItem(name: "pwd_id", value: pwdId),

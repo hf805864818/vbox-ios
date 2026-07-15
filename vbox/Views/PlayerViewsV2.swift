@@ -569,6 +569,10 @@ struct EpisodeItem: Identifiable {
     var baiduFileIndex: Int?
     /// 夸克文件索引（仅夸克网盘使用）
     var quarkFileIndex: Int?
+    /// UC 文件 fid（仅 UC 网盘切换集数使用）
+    var ucFileFid: String?
+    /// UC 文件 shareFidToken（仅 UC 网盘切换集数使用）
+    var ucShareFidToken: String?
     /// 播放头信息
     var headers: [String: String] = [:]
     /// 是否需要兼容内核
@@ -2138,6 +2142,53 @@ class PlayerState: ObservableObject {
             }
         }
         
+        // UC 网盘：先获取完整文件列表，多文件则展示选集列表
+        if driveType == .uc {
+            guard let token = tokens.first else {
+                await MainActor.run {
+                    loadError = "未配置UC网盘 Cookie"
+                    isLoading = false
+                }
+                return
+            }
+            log("[UC] ①获取完整文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.ucGetFileList(shareURL: urlString, cookie: token.value)
+                log("[UC] ✅ 成功，共\(files.count)个可播放文件")
+                
+                await MainActor.run {
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: urlString,
+                                    sourceType: .drive, ucFileFid: f.fid, ucShareFidToken: f.shareFidToken)
+                    }
+                }
+            } catch {
+                log("[UC] ⚠️ 获取文件列表失败，降级到单文件: \(error.localizedDescription)")
+            }
+            
+            // 播放第一个文件
+            do {
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                await playResolvedDriveVideo(result)
+            } catch let error as DriveError {
+                let msg: String
+                switch error {
+                case .tokenNotConfigured: msg = "未配置UC网盘 Token"
+                case .noPlayURL(let reason): msg = reason
+                case .invalidShareURL: msg = "无效的分享链接"
+                case .saveFailed: msg = "转存失败"
+                case .invalidResponse: msg = "服务器响应异常"
+                case .notImplemented: msg = "暂不支持"
+                }
+                log("[PlayerV2] ❌ UC网盘 播放失败: \(msg)")
+                await MainActor.run { loadError = msg; isLoading = false }
+            } catch {
+                log("[PlayerV2] ❌ UC网盘 解析异常: \(error.localizedDescription)")
+                await MainActor.run { loadError = "UC解析异常: \(error.localizedDescription)"; isLoading = false }
+            }
+            return
+        }
+        
         do {
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
             await playResolvedDriveVideo(result)
@@ -3283,8 +3334,13 @@ class PlayerState: ObservableObject {
                 // 夸克网盘：解析并播放
                 await self.playQuarkEpisode(episode: episode)
             case .drive:
-                // 其他网盘
-                await self.playDriveVideo(url: episode.url, headers: episode.headers)
+                // UC 网盘：使用专用切集逻辑
+                if let ucFid = episode.ucFileFid, let ucToken = episode.ucShareFidToken {
+                    await self.playUCEpisode(episode: episode)
+                } else {
+                    // 其他网盘
+                    await self.playDriveVideo(url: episode.url, headers: episode.headers)
+                }
             }
         }
     }
@@ -3309,6 +3365,39 @@ class PlayerState: ObservableObject {
             log("[Quark] 切集失败: \(error.localizedDescription)")
             await MainActor.run {
                 loadError = "夸克切集失败: \(error.localizedDescription)"
+                isLoading = false
+            }
+        }
+    }
+    
+    /// 播放 UC 网盘指定集数
+    private func playUCEpisode(episode: EpisodeItem) async {
+        guard let ucFid = episode.ucFileFid,
+              let ucShareToken = episode.ucShareFidToken else { return }
+        
+        log("[UC] 切集播放: \(episode.name) (fid=\(ucFid))")
+        await MainActor.run { isLoading = true }
+        
+        guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
+            await MainActor.run { loadError = "未配置UC网盘 Token"; isLoading = false }
+            return
+        }
+        
+        do {
+            let result = try await CloudDriveManager.shared.resolveUCPlayURLForFile(
+                shareURL: episode.url,
+                cookie: token.value,
+                fileFid: ucFid,
+                shareFidToken: ucShareToken
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[UC] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                loadError = "UC切集失败: \(error.localizedDescription)"
                 isLoading = false
             }
         }
