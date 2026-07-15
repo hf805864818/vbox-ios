@@ -52,6 +52,36 @@ final class LuoliAVService: ObservableObject {
 
     private var cachedCategories: [LuoliAVCategory]?
 
+    // MARK: - 辅助正则方法
+
+    private func firstMatch(pattern: String, in text: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else { return nil }
+        var groups: [String] = []
+        for i in 0..<match.numberOfRanges {
+            if let r = Range(match.range(at: i), in: text) {
+                groups.append(String(text[r]))
+            }
+        }
+        return groups
+    }
+
+    private func allMatches(pattern: String, in text: String) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, options: [], range: range)
+        return matches.map { match in
+            var groups: [String] = []
+            for i in 0..<match.numberOfRanges {
+                if let r = Range(match.range(at: i), in: text) {
+                    groups.append(String(text[r]))
+                }
+            }
+            return groups
+        }
+    }
+
     // MARK: - 自适应分类获取
 
     func fetchCategories() async -> [LuoliAVCategory] {
@@ -146,12 +176,13 @@ final class LuoliAVService: ObservableObject {
 
     private func parseCategories(from html: String) -> [LuoliAVCategory] {
         var categories: [LuoliAVCategory] = []
-        let pattern = #/<a[^>]*href="[^"]*list\.php\?cid=(\d+)[^"]*"[^>]*>([^<]+)</a>/#
-        let matches = html.matches(of: pattern)
+        let pattern = "<a[^>]*href=\"[^\"]*list\\.php\\?cid=(\\d+)[^\"]*\"[^>]*>([^<]+)</a>"
+        let matches = allMatches(pattern: pattern, in: html)
         var seen: Set<String> = []
-        for match in matches {
-            let cid = String(match.1)
-            let name = String(match.2).trimmingCharacters(in: .whitespaces)
+        for groups in matches {
+            guard groups.count >= 3 else { continue }
+            let cid = groups[1]
+            let name = groups[2].trimmingCharacters(in: .whitespaces)
             if !seen.contains(cid) {
                 seen.insert(cid)
                 categories.append(LuoliAVCategory(cid: cid, name: name))
@@ -165,13 +196,14 @@ final class LuoliAVService: ObservableObject {
     private func parseVideoList(from html: String, base: String) -> [LuoliAVVideo] {
         var videos: [LuoliAVVideo] = []
 
-        let itemPattern = #/<div[^>]*class="[^"]*group[^"]*item[^"]*"[^>]*>(.*?)</div>\s*</div>\s*</div>/#
-        let itemMatches = html.matches(of: itemPattern.anchorsMatchLineEndings())
+        let itemPattern = "<div[^>]*class=\"[^\"]*group[^\"]*item[^\"]*\"[^>]*>(.*?)</div>\\s*</div>\\s*</div>"
+        let itemMatches = allMatches(pattern: itemPattern, in: html)
 
-        for itemMatch in itemMatches {
-            let item = String(itemMatch.1)
-            guard let vod = parseVideoItem(item, base: base) else { continue }
-            videos.append(vod)
+        for groups in itemMatches {
+            guard groups.count >= 2 else { continue }
+            if let vod = parseVideoItem(groups[1], base: base) {
+                videos.append(vod)
+            }
         }
 
         if videos.isEmpty {
@@ -182,9 +214,12 @@ final class LuoliAVService: ObservableObject {
     }
 
     private func parseVideoItem(_ item: String, base: String) -> LuoliAVVideo? {
-        guard let hrefMatch = item.firstMatch(of: #/<a[^>]*href="([^"]+)"[^>]*>/#/) else { return nil }
-        var vodId = String(hrefMatch.1)
-        vodId = vodId.replacingOccurrences(of: #/\?.*$/#, with: "", options: .regularExpression)
+        guard let hrefGroups = firstMatch(pattern: "<a[^>]*href=\"([^\"]+)\"[^>]*>", in: item),
+              hrefGroups.count >= 2 else { return nil }
+        var vodId = hrefGroups[1]
+        if let r = vodId.range(of: "\\?.*$", options: .regularExpression) {
+            vodId.removeSubrange(r)
+        }
 
         let pageUrl: String
         if vodId.hasPrefix("http") {
@@ -195,14 +230,17 @@ final class LuoliAVService: ObservableObject {
             pageUrl = "\(base)/\(vodId)"
         }
 
-        guard let imgMatch = item.firstMatch(of: #/<img[^>]*data-original="([^"]+)"[^>]*>/#/) else { return nil }
-        let pic = normalizeImageURL(String(imgMatch.1), base: base)
+        guard let imgGroups = firstMatch(pattern: "<img[^>]*data-original=\"([^\"]+)\"[^>]*>", in: item),
+              imgGroups.count >= 2 else { return nil }
+        let pic = normalizeImageURL(imgGroups[1], base: base)
 
         let title: String
-        if let titleMatch = item.firstMatch(of: #/<a[^>]*class="[^"]*font-bold[^"]*"[^>]*>([^<]+)</a>#/) {
-            title = String(titleMatch.1).trimmingCharacters(in: .whitespaces)
-        } else if let titleMatch = item.firstMatch(of: #/<a[^>]*>([^<]+)</a>\s*</div>\s*$/#/) {
-            title = String(titleMatch.1).trimmingCharacters(in: .whitespaces)
+        if let titleGroups = firstMatch(pattern: "<a[^>]*class=\"[^\"]*font-bold[^\"]*\"[^>]*>([^<]+)</a>", in: item),
+           titleGroups.count >= 2 {
+            title = titleGroups[1].trimmingCharacters(in: .whitespaces)
+        } else if let titleGroups = firstMatch(pattern: "<a[^>]*>([^<]+)</a>\\s*</div>\\s*$", in: item),
+                  titleGroups.count >= 2 {
+            title = titleGroups[1].trimmingCharacters(in: .whitespaces)
         } else {
             return nil
         }
@@ -212,20 +250,23 @@ final class LuoliAVService: ObservableObject {
 
     private func parseVideoListAlt(from html: String, base: String) -> [LuoliAVVideo] {
         var videos: [LuoliAVVideo] = []
-        let pattern = #/<div class="group[^"]*item[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>.*?<img[^>]*data-original="([^"]+)"[^>]*>.*?<a[^>]*class="[^"]*font-bold[^"]*"[^>]*>([^<]+)</a>/#
-        let matches = html.matches(of: pattern.anchorsMatchLineEndings())
+        let pattern = "<div class=\"group[^\"]*item[^>]*>.*?<a[^>]*href=\"([^\"]+)\"[^>]*>.*?<img[^>]*data-original=\"([^\"]+)\"[^>]*>.*?<a[^>]*class=\"[^\"]*font-bold[^\"]*\"[^>]*>([^<]+)</a>"
+        let matches = allMatches(pattern: pattern, in: html)
 
-        for match in matches {
-            var vodId = String(match.1)
-            vodId = vodId.replacingOccurrences(of: #/\?.*$/#, with: "", options: .regularExpression)
+        for groups in matches {
+            guard groups.count >= 4 else { continue }
+            var vodId = groups[1]
+            if let r = vodId.range(of: "\\?.*$", options: .regularExpression) {
+                vodId.removeSubrange(r)
+            }
 
             let pageUrl: String
             if vodId.hasPrefix("http") { pageUrl = vodId }
             else if vodId.hasPrefix("/") { pageUrl = "\(base)\(vodId)" }
             else { pageUrl = "\(base)/\(vodId)" }
 
-            let pic = normalizeImageURL(String(match.2), base: base)
-            let title = String(match.3).trimmingCharacters(in: .whitespaces)
+            let pic = normalizeImageURL(groups[2], base: base)
+            let title = groups[3].trimmingCharacters(in: .whitespaces)
             videos.append(LuoliAVVideo(vodId: vodId, title: title, cover: pic, pageUrl: pageUrl))
         }
         return videos
@@ -241,12 +282,11 @@ final class LuoliAVService: ObservableObject {
     // MARK: - HTML 解析：分页
 
     private func parsePageCount(from html: String, cid: String, currentPage: Int) -> Int {
-        let pattern = try? NSRegularExpression(pattern: #"list\.php\?cid=\#(cid)&amp;page=(\d+)"#)
-        let range = NSRange(html.startIndex..., in: html)
-        let matches = pattern?.matches(in: html, range: range) ?? []
-        let pages = matches.compactMap { match -> Int? in
-            guard let r = Range(match.range(at: 2), in: html) else { return nil }
-            return Int(html[r])
+        let pattern = "list\\.php\\?cid=\(cid)&amp;page=(\\d+)"
+        let matches = allMatches(pattern: pattern, in: html)
+        let pages = matches.compactMap { groups -> Int? in
+            guard groups.count >= 2 else { return nil }
+            return Int(groups[1])
         }
         return pages.max() ?? (currentPage + 2)
     }
@@ -254,14 +294,17 @@ final class LuoliAVService: ObservableObject {
     // MARK: - HTML 解析：播放地址
 
     private func extractPlayURL(from html: String) -> String? {
-        if let match = html.firstMatch(of: #/(https?://[^"'\s]+\.m3u8[^"'\s]*)/#/) {
-            return String(match.1)
+        if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*)", in: html),
+           groups.count >= 2 {
+            return groups[1]
         }
-        if let match = html.firstMatch(of: #/(https?://[^"'\s]+\.mp4[^"'\s]*)/#/) {
-            return String(match.1)
+        if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.mp4[^\"'\\s]*)", in: html),
+           groups.count >= 2 {
+            return groups[1]
         }
-        if let match = html.firstMatch(of: #/var[^;]*video[^=]*=\s*["']([^"']+\.m3u8[^"']*)["']/#/) {
-            return String(match.1)
+        if let groups = firstMatch(pattern: "var[^;]*video[^=]*=\\s*[\"']([^\"']+\\.m3u8[^\"']*)[\"']", in: html),
+           groups.count >= 2 {
+            return groups[1]
         }
         return nil
     }
