@@ -6339,10 +6339,11 @@ class CloudDriveManager: ObservableObject {
         // 尝试获取文件列表，stoken 失效时自动刷新
         let sourceFile: UCShareFile
         let fileId: String
+        let fileIds: [String]
         do {
             sourceFile = try await ucFirstPlayableFile(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie)
             print("[UC] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid)")
-            let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
+            fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)
             guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
             fileId = fid
         } catch let error as DriveError {
@@ -6354,7 +6355,7 @@ class CloudDriveManager: ObservableObject {
                     let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
                     let sf = try await ucFirstPlayableFile(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: authCookie)
                     print("[UC] stoken 刷新后选中资源：\(sf.fileName), fid=\(sf.fid)")
-                    let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folder.folderId, cookie: authCookie)
+                    fileIds = try await ucSaveShare(pwdId: pwdId, stoken: newStoken, file: sf, folderId: folder.folderId, cookie: authCookie)
                     guard let fid = fileIds.first else { throw DriveError.noPlayURL("UC: 转存后未返回文件ID") }
                     fileId = fid
                     sourceFile = sf
@@ -6372,6 +6373,7 @@ class CloudDriveManager: ObservableObject {
                         })
                         if let pf = playable, let fid = pf["fid"] as? String {
                             fileId = fid
+                            fileIds = [fid]
                             sourceFile = UCShareFile(fid: fid, fileName: pf["filename"] as? String ?? "", shareFidToken: "", pdirFid: "0", isDir: false)
                             self.log("[CloudDrive] ✅ TV Token 兜底找到文件: \(sourceFile.fileName)")
                         } else {
