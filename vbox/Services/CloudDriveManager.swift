@@ -7068,7 +7068,8 @@ class CloudDriveManager: ObservableObject {
             let info = json["error_info"] as? String ?? json["message"] as? String ?? "status=-1"
             throw DriveError.noPlayURL("UCTV Token 获取播放地址失败：\(info)")
         }
-        // streaming 端点返回格式: { "data": { "download_url" / "stream_url" / "url" / "play_url" / "video_list" } }
+        // streaming 端点返回格式: { "data": { "download_url" / "stream_url" / "video_info": [{ "url" }] } }
+        // download 端点返回格式: { "data": { "download_url" / "video_list": [{ "video_info": { "url" } }] } }
         if let dataObj = json["data"] as? [String: Any] {
             if let url = dataObj["download_url"] as? String, !url.isEmpty {
                 return stripCDNSpeedLimit(url)
@@ -7076,9 +7077,17 @@ class CloudDriveManager: ObservableObject {
             if let url = dataObj["stream_url"] as? String, !url.isEmpty {
                 return stripCDNSpeedLimit(url)
             }
-            // 兼容旧字段
             if let url = dataObj["url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
             if let url = dataObj["play_url"] as? String, !url.isEmpty { return stripCDNSpeedLimit(url) }
+            // streaming 端点: video_info 直接在 data 下
+            if let videoInfoList = dataObj["video_info"] as? [[String: Any]] {
+                for item in videoInfoList {
+                    if let url = item["url"] as? String, !url.isEmpty {
+                        return stripCDNSpeedLimit(url)
+                    }
+                }
+            }
+            // download 端点: video_list 嵌套 video_info
             if let list = dataObj["video_list"] as? [[String: Any]] {
                 for item in list {
                     if let info = item["video_info"] as? [String: Any],
