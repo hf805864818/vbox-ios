@@ -187,6 +187,7 @@
 		AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70363C93B7E4A60A895A08B /* MadouFreeService.swift */; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */; };
+		D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */; };
 		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 		B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C15E736105CF390FD2313 /* MDTVViews.swift */; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -343,6 +344,7 @@
 		A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = alivcffmpeg.framework; path = vbox/Libraries/alivcffmpeg.framework; sourceTree = SOURCE_ROOT; };
 		AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareDomainStore.swift; sourceTree = "<group>"; };
+		CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareProxyStore.swift; sourceTree = "<group>"; };
 		B0F74E8951368DECD8322237 /* Libbluray.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libbluray.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libbluray.xcframework; sourceTree = SOURCE_ROOT; };
 		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -696,6 +698,7 @@
 				F6789ABCDEF0123456789012 /* KanliaoService.swift */,
 				BBBB000000000000000000001 /* HeiliaoService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
+				CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */,
 				9635B11828EC465785E74A90 /* BananaVideoService.swift */,
 				D62F6461A137466FAE5F133B /* DuckVideoService.swift */,
 				E4B44716C2FC412BACA38D26 /* WaibiService.swift */,
@@ -1026,6 +1029,7 @@
 				F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */,
 				B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */,
 				AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */,
+				D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */,
 				290F6A90927942109B5BEABC /* BananaVideoService.swift in Sources */,
 				5D994F6D0D7A4F6A8CE6FB66 /* DuckVideoService.swift in Sources */,
 				9C9F2E85386B45EAB0C010B8 /* WaibiService.swift in Sources */,

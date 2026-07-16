@@ -1,24 +1,5 @@
 import Foundation
 
-// MARK: - GBK 编码扩展
-extension String.Encoding {
-    static let gbk: String.Encoding = {
-        let cfEnc = CFStringEncodings.GB_18030_2000
-        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
-        return String.Encoding(rawValue: nsEnc)
-    }()
-    static let big5: String.Encoding = {
-        let cfEnc = CFStringEncodings.big5
-        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
-        return String.Encoding(rawValue: nsEnc)
-    }()
-    static let gb2312: String.Encoding = {
-        let cfEnc = CFStringEncodings.GB_2312_80
-        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
-        return String.Encoding(rawValue: nsEnc)
-    }()
-}
-
 // MARK: - 萝莉AV 数据模型
 
 struct LuoliAVCategory: Identifiable {
