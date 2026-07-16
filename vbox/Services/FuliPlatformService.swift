@@ -1,6 +1,25 @@
 import Foundation
 import Combine
 
+// MARK: - GBK/Big5 等中文编码扩展
+extension String.Encoding {
+    static let gbk: String.Encoding = {
+        let cfEnc = CFStringEncodings.GB_18030_2000
+        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
+        return String.Encoding(rawValue: nsEnc)
+    }()
+    static let big5: String.Encoding = {
+        let cfEnc = CFStringEncodings.big5
+        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
+        return String.Encoding(rawValue: nsEnc)
+    }()
+    static let gb2312: String.Encoding = {
+        let cfEnc = CFStringEncodings.GB_2312_80
+        let nsEnc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEnc.rawValue))
+        return String.Encoding(rawValue: nsEnc)
+    }()
+}
+
 // MARK: - 通用福利平台服务协议
 protocol FuliPlatformService: ObservableObject {
     /// 平台唯一名称（与 WelfareSettingsView 中配置一致）
@@ -182,5 +201,10 @@ class FuliBaseService: ObservableObject, FuliPlatformService {
     }
     func fetchSearch(keyword: String, page: Int) async -> FuliSearchResult {
         FuliSearchResult(videos: [], page: page, hasMore: false)
+    }
+
+    func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+        let direct = episode.url.contains(".m3u8") || episode.url.contains(".mp4") || episode.url.contains(".ts")
+        return FuliPlayerResult(url: episode.url, headers: defaultHeaders(host: currentHost), parse: direct ? 0 : 1)
     }
 }
