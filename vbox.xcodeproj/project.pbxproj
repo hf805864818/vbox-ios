@@ -1041,8 +1041,6 @@
 				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
 				04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */,
 				04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */,
-				385F07D3D464C0CB901A1710 /* PushPlayStore.swift in Sources */,
-				EF0173E4D3D446DEEEA31BA8 /* PushPlayView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

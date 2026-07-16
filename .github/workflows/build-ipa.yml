@@ -41,6 +41,33 @@ jobs:
           gem install xcodeproj --no-document
           ruby scripts/configure_mpvkit_link.rb
 
+      - name: 🔧 恢复源文件 (mpvkit脚本后)
+        run: |
+          ruby << 'RBEOF'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('vbox.xcodeproj')
+          target = project.targets.find { |t| t.name == 'vbox' }
+          raise "Target 'vbox' not found" unless target
+          files_to_add = [
+            { path: 'vbox/Services/PushPlayStore.swift', group: 'vbox/Services' },
+            { path: 'vbox/Views/PushPlayView.swift', group: 'vbox/Views' },
+          ]
+          files_to_add.each do |fi|
+            filename = File.basename(fi[:path])
+            already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
+            if already_in
+              puts "#{filename} already in sources build phase"
+            else
+              group = project.main_group.find_subpath(fi[:group], true)
+              file_ref = group.new_file(fi[:path])
+              target.source_build_phase.add_file_reference(file_ref)
+              puts "Added #{filename} to target"
+            end
+          end
+          project.save
+          puts "Project saved successfully"
+          RBEOF
+
       - name: 🔢 自动递增版本号
         run: |
           # 读取当前版本号
@@ -92,36 +119,34 @@ jobs:
 
       - name: 🔧 恢复手动添加的源文件 (pod install 后)
         run: |
-          python3 << 'PYEOF'
-          import uuid, re
-          def gen():
-              return uuid.uuid4().hex[:24].upper()
-          proj = "vbox.xcodeproj/project.pbxproj"
-          with open(proj) as f:
-              c = f.read()
-          # 确保 PBXBuildFile / PBXFileReference / Group 存在
-          if "PushPlayView.swift" not in c:
-              anchor_build = 'A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };'
-              anchor_fr = '1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourHVideoService.swift; sourceTree = "<group>"; };'
-              anchor_grp = '\t\t\t\t\t\t\t1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */,'
-              for fn in ["PushPlayStore.swift", "PushPlayView.swift"]:
-                  bid, fid = gen(), gen()
-                  c = c.replace(anchor_build, anchor_build + '\n' + f'\t\t\t{bid} /* {fn} in Sources */ = {{isa = PBXBuildFile; fileRef = {fid} /* {fn} */; }};')
-                  c = c.replace(anchor_fr, anchor_fr + '\n' + f'\t\t\t{fid} /* {fn} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {fn}; sourceTree = "<group>"; }};')
-                  c = c.replace(anchor_grp, anchor_grp + '\n' + f'\t\t\t\t\t\t\t{fid} /* {fn} */,')
-          # 确保 Sources Build Phase 存在
-          if "PushPlayView.swift in Sources," not in c:
-              anchor_src = '\t\t\t\tA477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */,'
-              pv_id = re.search(r'([A-F0-9]+) /\* PushPlayView\.swift in Sources \*/', c)
-              ps_id = re.search(r'([A-F0-9]+) /\* PushPlayStore\.swift in Sources \*/', c)
-              if pv_id and ps_id:
-                  c = c.replace(anchor_src, anchor_src + '\n' +
-                      f'\t\t\t\t{pv_id.group(1)} /* PushPlayView.swift in Sources */,\n' +
-                      f'\t\t\t\t{ps_id.group(1)} /* PushPlayStore.swift in Sources */,')
-          with open(proj, "w") as f:
-              f.write(c)
-          print("PushPlayView/PushPlayStore 已恢复到 project.pbxproj")
-          PYEOF
+          ruby << 'RBEOF'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('vbox.xcodeproj')
+          target = project.targets.find { |t| t.name == 'vbox' }
+          raise "Target 'vbox' not found" unless target
+
+          files_to_add = [
+            { path: 'vbox/Services/PushPlayStore.swift', group: 'vbox/Services' },
+            { path: 'vbox/Views/PushPlayView.swift', group: 'vbox/Views' },
+          ]
+
+          files_to_add.each do |fi|
+            filename = File.basename(fi[:path])
+            # 检查是否已在 Sources Build Phase 中
+            already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
+            if already_in
+              puts "#{filename} already in sources build phase"
+            else
+              group = project.main_group.find_subpath(fi[:group], true)
+              file_ref = group.new_file(fi[:path])
+              target.source_build_phase.add_file_reference(file_ref)
+              puts "Added #{filename} to target"
+            end
+          end
+
+          project.save
+          puts "Project saved successfully"
+          RBEOF
 
       - name: 🏗️ Clean
         run: |
