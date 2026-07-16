@@ -167,33 +167,100 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
-    // MARK: - 代理节点（页面动态提取 + 硬编码兜底 + 并行GET Range竞速）
+    // MARK: - 代理节点（页面动态提取 + JS源码提取 + 并行GET Range竞速）
 
-    /// 硬编码代理节点兜底列表
-    /// 当 github.akams.cn 页面提取失败时使用，国内可直接访问这些 GitHub 加速镜像
-    private let fallbackProxyNodes: [String] = [
-        "gh-proxy.com",
-        "ghproxy.net",
-        "mirror.ghproxy.com",
-        "gh.dpik.top",
-        "github.starrlzy.cn",
-        "gh.tryxd.cn",
-        "cdn.akaere.online",
-        "github-proxy.memory-echoes.cn",
-        "gitproxy.127731.xyz",
-        "github.tbap.top",
-    ]
+    /// 从 github.akams.cn 的 JS 源码中提取完整代理节点列表（61个镜像站）
+    /// 页面为 Next.js 客户端渲染，节点数据在 JS chunk 中而非 HTML
+    /// 定期从页面动态获取 JS chunk URL 再提取，保持节点池最新
+    private func fetchAllProxyNodesFromJS() async -> [String] {
+        do {
+            // 1. 先请求页面，找出包含节点数据的 JS chunk URL
+            var pageReq = URLRequest(url: URL(string: "https://github.akams.cn")!)
+            pageReq.timeoutInterval = 8
+            pageReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            pageReq.setValue("RSC", forHTTPHeaderField: "1") // Next.js RSC 协议
+            let (pageData, _) = try await URLSession.shared.data(for: pageReq)
+            guard let pageText = String(data: pageData, encoding: .utf8) else { return [] }
 
-    /// 获取代理节点：优先页面动态提取，失败用硬编码兜底，并行 GET Range 测速后选最快
+            // 找 JS chunk URL（格式: /_next/static/chunks/xxxx.js，包含节点数据的那个）
+            let chunkPattern = #"/_next/static/chunks/([a-f0-9]+\.js)"#
+            guard let chunkRegex = try? NSRegularExpression(pattern: chunkPattern) else { return [] }
+            let chunkMatches = chunkRegex.matches(in: pageText, range: NSRange(pageText.startIndex..., in: pageText))
+
+            var nodeChunkURL: String?
+            for m in chunkMatches {
+                guard let r = Range(m.range(at: 0), in: pageText) else { continue }
+                let url = String(pageText[r])
+                // 通过请求 chunk 内容判断是否包含节点数据
+                if let fullURL = URL(string: "https://github.akams.cn\(url)") {
+                    var chunkReq = URLRequest(url: fullURL)
+                    chunkReq.timeoutInterval = 6
+                    chunkReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    if let (chunkData, _) = try? await URLSession.shared.data(for: chunkReq),
+                       let chunkText = String(data: chunkData, encoding: .utf8),
+                       chunkText.contains(#""value":"#) || chunkText.contains("value:\"") {
+                        nodeChunkURL = url
+                        print("[UpdateManager] 找到节点 JS chunk: \(url)")
+                        break
+                    }
+                }
+            }
+
+            guard let chunkURL = nodeChunkURL,
+                  let fullChunkURL = URL(string: "https://github.akams.cn\(chunkURL)") else { return [] }
+
+            // 2. 从 JS chunk 中提取所有节点域名
+            var chunkReq = URLRequest(url: fullChunkURL)
+            chunkReq.timeoutInterval = 6
+            chunkReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (chunkData, _) = try await URLSession.shared.data(for: chunkReq)
+            guard let chunkText = String(data: chunkData, encoding: .utf8) else { return [] }
+
+            // 匹配 value:"域名" 格式
+            let nodePattern = #"value:"([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(?:\.[a-zA-Z]{2,}))""#
+            guard let nodeRegex = try? NSRegularExpression(pattern: nodePattern) else { return [] }
+            let nodeMatches = nodeRegex.matches(in: chunkText, range: NSRange(chunkText.startIndex..., in: chunkText))
+
+            var seen = Set<String>()
+            var nodes: [String] = []
+            for m in nodeMatches {
+                guard let r = Range(m.range(at: 1), in: chunkText) else { continue }
+                let domain = String(chunkText[r]).lowercased()
+                if seen.insert(domain).inserted {
+                    nodes.append(domain)
+                }
+            }
+
+            print("[UpdateManager] JS 源码提取到 \(nodes.count) 个节点")
+            return nodes
+        } catch {
+            print("[UpdateManager] JS 源码提取节点失败: \(error.localizedDescription)")
+        }
+        return []
+    }
+
+    /// 获取代理节点：优先页面 HTML 正则提取，失败则从 JS 源码提取，并行 GET Range 测速后选最快
     private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
+        // 第一优先：尝试从页面 HTML 直接提取（最快）
         let top8 = await fetchTopProxyNodesFromPage(count: 8)
         print("[UpdateManager] 页面提取到前\(top8.count)个节点: \(top8)")
 
-        // 页面提取失败时，用硬编码节点兜底（国内用户无代理也能访问这些镜像站）
-        let candidates = top8.isEmpty ? fallbackProxyNodes : top8
+        // 第二优先：从 JS 源码提取完整节点列表
+        let candidates: [String]
+        if !top8.isEmpty {
+            candidates = top8
+        } else {
+            let jsNodes = await fetchAllProxyNodesFromJS()
+            candidates = jsNodes.isEmpty ? [] : jsNodes
+        }
         print("[UpdateManager] 候选代理节点: \(candidates.count) 个")
 
-        // 并行 GET Range 测速（前5个节点同时竞速，取第一个成功的）
+        if candidates.isEmpty {
+            print("[UpdateManager] 无可用代理节点，直连 GitHub")
+            return [URL(string: githubURL)!]
+        }
+
+        // 并行 GET Range 测速（前12个节点同时竞速，取第一个成功的）
         let best = await raceProxyNodes(candidates, githubURL: githubURL)
 
         if let best {
@@ -209,7 +276,7 @@ class UpdateManager: ObservableObject {
     /// 并行 GET Range 竞速，返回第一个成功的代理节点
     private func raceProxyNodes(_ hosts: [String], githubURL: String) async -> (url: URL, ms: Double)? {
         await withTaskGroup(of: (url: URL, ms: Double)?.self) { group in
-            let maxConcurrent = min(5, hosts.count)
+            let maxConcurrent = min(12, hosts.count)
             for (idx, host) in hosts.prefix(maxConcurrent).enumerated() {
                 let proxyURL = URL(string: "https://\(host)/\(githubURL)")!
                 group.addTask {
