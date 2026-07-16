@@ -97,6 +97,20 @@ extension PlatformAsyncImage {
     static func dailyBattle(_ urlString: String) -> PlatformAsyncImage {
         PlatformAsyncImage(urlString: urlString, mode: .dailyBattle)
     }
+
+    /// 多源发现封面图（支持 Referer 防盗链）
+    /// - Parameters:
+    ///   - urlString: 图片 URL
+    ///   - referer: 源站 Referer（如 "https://www.91panta.cn/"），nil 则不注入
+    static func sourceCover(_ urlString: String, referer: String?) -> PlatformAsyncImage {
+        let finalURL: String
+        if let ref = referer, !ref.isEmpty {
+            finalURL = "\(urlString)@Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36@\(ref)"
+        } else {
+            finalURL = urlString
+        }
+        return PlatformAsyncImage(urlString: finalURL, mode: .mysteryMovie)
+    }
 }
 
 // MARK: - PlatformImageLoader 缓存键扩展
