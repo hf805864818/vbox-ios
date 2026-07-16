@@ -48,18 +48,14 @@ jobs:
           project = Xcodeproj::Project.open('vbox.xcodeproj')
           target = project.targets.find { |t| t.name == 'vbox' }
           raise "Target 'vbox' not found" unless target
-          files_to_add = [
-            { path: 'vbox/Services/PushPlayStore.swift', group: 'vbox/Services' },
-            { path: 'vbox/Views/PushPlayView.swift', group: 'vbox/Views' },
-          ]
-          files_to_add.each do |fi|
-            filename = File.basename(fi[:path])
+          files_to_add = ['vbox/Services/PushPlayStore.swift', 'vbox/Views/PushPlayView.swift']
+          files_to_add.each do |path|
+            filename = File.basename(path)
             already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
             if already_in
               puts "#{filename} already in sources build phase"
             else
-              group = project.main_group.find_subpath(fi[:group], true)
-              file_ref = group.new_file(fi[:path])
+              file_ref = project.new_file(path)
               target.source_build_phase.add_file_reference(file_ref)
               puts "Added #{filename} to target"
             end
@@ -125,20 +121,15 @@ jobs:
           target = project.targets.find { |t| t.name == 'vbox' }
           raise "Target 'vbox' not found" unless target
 
-          files_to_add = [
-            { path: 'vbox/Services/PushPlayStore.swift', group: 'vbox/Services' },
-            { path: 'vbox/Views/PushPlayView.swift', group: 'vbox/Views' },
-          ]
+          files_to_add = ['vbox/Services/PushPlayStore.swift', 'vbox/Views/PushPlayView.swift']
 
-          files_to_add.each do |fi|
-            filename = File.basename(fi[:path])
-            # 检查是否已在 Sources Build Phase 中
+          files_to_add.each do |path|
+            filename = File.basename(path)
             already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
             if already_in
               puts "#{filename} already in sources build phase"
             else
-              group = project.main_group.find_subpath(fi[:group], true)
-              file_ref = group.new_file(fi[:path])
+              file_ref = project.new_file(path)
               target.source_build_phase.add_file_reference(file_ref)
               puts "Added #{filename} to target"
             end
