@@ -41,28 +41,8 @@ jobs:
           gem install xcodeproj --no-document
           ruby scripts/configure_mpvkit_link.rb
 
-      - name: 🔧 恢复源文件 (mpvkit脚本后)
-        run: |
-          ruby << 'RBEOF'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('vbox.xcodeproj')
-          target = project.targets.find { |t| t.name == 'vbox' }
-          raise "Target 'vbox' not found" unless target
-          files_to_add = ['vbox/Services/PushPlayStore.swift', 'vbox/Views/PushPlayView.swift']
-          files_to_add.each do |path|
-            filename = File.basename(path)
-            already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
-            if already_in
-              puts "#{filename} already in sources build phase"
-            else
-              file_ref = project.new_file(path)
-              target.source_build_phase.add_file_reference(file_ref)
-              puts "Added #{filename} to target"
-            end
-          end
-          project.save
-          puts "Project saved successfully"
-          RBEOF
+      - name: 🔧 修复 PushPlayView/PushPlayStore 路径 (mpvkit脚本后)
+        run: python3 scripts/fix_pushplay_pbxproj.py
 
       - name: 🔢 自动递增版本号
         run: |
@@ -113,31 +93,8 @@ jobs:
           sudo gem install cocoapods --no-document
           pod install --repo-update
 
-      - name: 🔧 恢复手动添加的源文件 (pod install 后)
-        run: |
-          ruby << 'RBEOF'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('vbox.xcodeproj')
-          target = project.targets.find { |t| t.name == 'vbox' }
-          raise "Target 'vbox' not found" unless target
-
-          files_to_add = ['vbox/Services/PushPlayStore.swift', 'vbox/Views/PushPlayView.swift']
-
-          files_to_add.each do |path|
-            filename = File.basename(path)
-            already_in = target.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?(filename) }
-            if already_in
-              puts "#{filename} already in sources build phase"
-            else
-              file_ref = project.new_file(path)
-              target.source_build_phase.add_file_reference(file_ref)
-              puts "Added #{filename} to target"
-            end
-          end
-
-          project.save
-          puts "Project saved successfully"
-          RBEOF
+      - name: 🔧 修复 PushPlayView/PushPlayStore 路径 (pod install 后)
+        run: python3 scripts/fix_pushplay_pbxproj.py
 
       - name: 🏗️ Clean
         run: |
