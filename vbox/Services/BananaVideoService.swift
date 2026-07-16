@@ -407,8 +407,9 @@ class BananaVideoService: FuliBaseService {
         var elements: [XMLElement] = []
         for xp in xpaths {
             let found = doc.xpath(xp)
-            if found.first != nil {
-                elements = found.toArray()
+            let arr = Array(found)
+            if !arr.isEmpty {
+                elements = arr
                 break
             }
         }
