@@ -308,7 +308,7 @@ struct MysteryMoviePlayerView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .onAppear { loadDetail() }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+            if let vod = vodItem { VideoPlayerViewV2(video: vod) }
         }
     }
 

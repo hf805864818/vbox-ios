@@ -23,19 +23,21 @@ struct MadouFreeVideo: Identifiable {
 final class MadouFreeService: ObservableObject {
     static let shared = MadouFreeService()
 
-    private let defaultDomain = "https://c-you.hair"
+    private let defaultDomains = ["https://c-you.hair", "https://www.yamdck.com", "https://yamdck.com"]
 
     private var activeBaseURL: String {
         let customs = WelfareDomainStore.shared.domains(for: "麻豆免费")
         if let first = customs.first { return first }
-        return defaultDomain
+        return defaultDomains.first ?? "https://c-you.hair"
     }
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
+        c.httpShouldSetCookies = true
+        c.httpCookieAcceptPolicy = .always
         c.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         ]
@@ -79,18 +81,21 @@ final class MadouFreeService: ObservableObject {
     func fetchCategories() async -> [MadouFreeCategory] {
         if let cached = cachedCategories { return cached }
 
-        let base = activeBaseURL
-        guard let html = await fetchHTML(base + "/", referer: base) else {
-            return fallbackCategories
+        // 尝试多个默认域名
+        let bases = WelfareDomainStore.shared.domains(for: "麻豆免费").isEmpty ? defaultDomains : [activeBaseURL]
+        for base in bases {
+            guard let html = await fetchHTML(base + "/", referer: base) else { continue }
+            let parsed = parseCategories(from: html)
+            if !parsed.isEmpty {
+                if WelfareDomainStore.shared.domains(for: "麻豆免费").isEmpty {
+                    WelfareDomainStore.shared.setDomains([base], for: "麻豆免费")
+                }
+                cachedCategories = parsed
+                return parsed
+            }
         }
 
-        let parsed = parseCategories(from: html)
-        if parsed.isEmpty {
-            return fallbackCategories
-        }
-
-        cachedCategories = parsed
-        return parsed
+        return fallbackCategories
     }
 
     private var fallbackCategories: [MadouFreeCategory] {
@@ -177,7 +182,12 @@ final class MadouFreeService: ObservableObject {
         do {
             let (data, resp) = try await session.data(for: req)
             guard let httpResp = resp as? HTTPURLResponse,
-                  (200...299).contains(httpResp.statusCode) else { return nil }
+                  (200...299).contains(httpResp.statusCode) else {
+                if let httpResp = resp as? HTTPURLResponse {
+                    print("[MadouFree] HTTP status: \(httpResp.statusCode) for \(urlString)")
+                }
+                return nil
+            }
             let raw = String(data: data, encoding: .utf8)
                 ?? String(data: data, encoding: .ascii)
                 ?? String(data: data, encoding: .isoLatin1)

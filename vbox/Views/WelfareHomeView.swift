@@ -181,10 +181,6 @@ struct WelfareHomeView: View {
             return AnyView(FuliPlatformMainView(platform: platform, service: FourHVideoService.shared))
         } else if platform.name == "FullHD" {
             return AnyView(FuliPlatformMainView(platform: platform, service: FullHDService.shared))
-        } else if platform.name == "歪比" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: WaibiService.shared))
-        } else if platform.name == "小鸭子看看" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: DuckVideoService.shared))
         } else if platform.name == "香蕉视频" {
             return AnyView(FuliPlatformMainView(platform: platform, service: BananaVideoService.shared))
         } else {
@@ -201,7 +197,7 @@ struct WelfareHomeView: View {
             return []
         }()
         // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" || $0.name == "今日看料" || $0.name == "黑料不打烊" || $0.name == "通用吸瓜" || $0.name == "熊猫视频" || $0.name == "4H视频" || $0.name == "FullHD" || $0.name == "歪比" || $0.name == "小鸭子看看" || $0.name == "香蕉视频" }
+        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" || $0.name == "今日看料" || $0.name == "黑料不打烊" || $0.name == "通用吸瓜" || $0.name == "熊猫视频" || $0.name == "4H视频" || $0.name == "FullHD" || $0.name == "香蕉视频" }
     }
 
     // MARK: - 颜色工具

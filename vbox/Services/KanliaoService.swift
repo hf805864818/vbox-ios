@@ -38,16 +38,19 @@ final class KanliaoService: ObservableObject {
         return candidateDomains[0]
     }
 
-    private let session: URLSession = {
+    private let _delegate = _KanliaoSessionDelegate()
+    private lazy var session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
+        c.httpShouldSetCookies = true
+        c.httpCookieAcceptPolicy = .always
+        c.tlsMinimumSupportedProtocolVersion = .TLSv10
         c.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9",
-            "Connection": "keep-alive",
         ]
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: _delegate, delegateQueue: nil)
     }()
 
     private let fallbackCategories: [KanliaoCategory] = [
@@ -371,10 +374,12 @@ final class KanliaoService: ObservableObject {
     }
 
     private func normalizeImageURL(_ url: String, base: String) -> String {
-        if url.hasPrefix("http") { return url }
-        if url.hasPrefix("//") { return "https:\(url)" }
-        if url.hasPrefix("/") { return "\(base)\(url)" }
-        return "\(base)/\(url)"
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        if trimmed.hasPrefix("http") { return trimmed }
+        if trimmed.hasPrefix("//") { return "https:\(trimmed)" }
+        if trimmed.hasPrefix("/") { return "\(base)\(trimmed)" }
+        return "\(base)/\(trimmed)"
     }
 
     // MARK: - 广告过滤
@@ -415,6 +420,7 @@ final class KanliaoService: ObservableObject {
     // MARK: - 播放地址提取
 
     private func extractPlayURL(from html: String) -> String? {
+        // 1. DPlayer data-config
         let dplayerPattern = "<div[^>]*class=\"[^\"]*dplayer[^\"]*\"[^>]*data-config=\"([^\"]+)\"[^>]*>"
         if let groups = firstMatch(pattern: dplayerPattern, in: html), groups.count >= 2 {
             let configStr = groups[1]
@@ -432,21 +438,74 @@ final class KanliaoService: ObservableObject {
             }
         }
 
+        // 2. 通用视频配置 JSON（video, playerConfig 等）
+        let configPatterns = [
+            "var\\s+video\\s*=\\s*\\{([^}]+)\\}",
+            "playerConfig\\s*=\\s*\\{([^}]+)\\}",
+            "\"video\"\\s*:\\s*\\{([^}]+)\\}",
+        ]
+        for pat in configPatterns {
+            if let groups = firstMatch(pattern: pat, in: html), groups.count >= 2 {
+                if let urlGroups = firstMatch(pattern: "\"url\"\\s*:\\s*\"([^\"]+)\"", in: groups[1]),
+                   urlGroups.count >= 2 {
+                    return urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
+                }
+                if let urlGroups = firstMatch(pattern: "\"src\"\\s*:\\s*\"([^\"]+)\"", in: groups[1]),
+                   urlGroups.count >= 2 {
+                    return urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
+                }
+            }
+        }
+
+        // 3. 直接 m3u8/mp4 URL
         if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*)", in: html),
            groups.count >= 2 {
             return groups[1]
         }
-
-        if let groups = firstMatch(pattern: "<video[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
+        if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.mp4[^\"'\\s]*)", in: html),
            groups.count >= 2 {
             return groups[1]
         }
 
+        // 4. video 标签
+        if let groups = firstMatch(pattern: "<video[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
+           groups.count >= 2 {
+            return groups[1]
+        }
+        if let groups = firstMatch(pattern: "<video[^>]*data-src=\"([^\"]+)\"[^>]*>", in: html),
+           groups.count >= 2 {
+            return groups[1]
+        }
+
+        // 5. source 标签
         if let groups = firstMatch(pattern: "<source[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
            groups.count >= 2 {
             return groups[1]
         }
 
+        // 6. iframe 内嵌播放器
+        if let groups = firstMatch(pattern: "<iframe[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
+           groups.count >= 2 {
+            let iframeSrc = groups[1]
+            if iframeSrc.contains("player") || iframeSrc.contains("play") || iframeSrc.contains(".m3u8") || iframeSrc.contains(".mp4") {
+                return iframeSrc.hasPrefix("http") ? iframeSrc : nil
+            }
+        }
+
         return nil
+    }
+}
+
+// MARK: - URLSession Delegate（允许自签名证书）
+
+class _KanliaoSessionDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+            if let serverTrust = challenge.protectionSpace.serverTrust {
+                completionHandler(.useCredential, URLCredential(trust: serverTrust))
+                return
+            }
+        }
+        completionHandler(.performDefaultHandling, nil)
     }
 }

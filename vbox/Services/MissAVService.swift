@@ -31,9 +31,9 @@ final class MissAVService: ObservableObject {
         return defaultBaseURLs
     }
 
-    private let defaultBaseURLs = ["https://missav.ws", "https://missav.com"]
+    private let defaultBaseURLs = ["https://missav.im", "https://missav.ws", "https://missav.com", "https://missav.ai", "https://missav.vc"]
 
-    private var primaryBaseURL: String { activeBaseURLs.first ?? "https://missav.ws" }
+    private var primaryBaseURL: String { activeBaseURLs.first ?? "https://missav.im" }
 
     let sections: [MissAVMenuSection] = [
         MissAVMenuSection(id: "subtitle", title: "中文字幕", icon: "captions.bubble.fill", children: [

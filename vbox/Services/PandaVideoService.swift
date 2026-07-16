@@ -158,14 +158,25 @@ class PandaVideoService: FuliBaseService {
                let result = dataObj["result"] as? [String: Any] {
 
                 let name = result["vod_name"] as? String ?? ""
-                let pic = result["vod_pic"] as? String ?? ""
+                var pic = result["vod_pic"] as? String ?? ""
                 let content = result["vod_content"] as? String
                 var videoUrl = result["vod_url"] as? String ?? ""
 
+                // 规范化封面图 URL
+                pic = normalizeUrl(pic)
+
                 // 拼接播放链接
                 if !svid.isEmpty, let linkInfo = linkMap[svid], let link2 = linkInfo["LINK_2"] {
-                    videoUrl = link2 + videoUrl
+                    // 避免重复斜杠
+                    let base = link2.hasSuffix("/") ? String(link2.dropLast()) : link2
+                    let path = videoUrl.hasPrefix("/") ? videoUrl : "/\(videoUrl)"
+                    videoUrl = base + path
                 }
+
+                // 规范化视频 URL
+                videoUrl = normalizeUrl(videoUrl)
+
+                print("[熊猫视频] 播放URL: \(videoUrl)")
 
                 let episodes: [FuliEpisode] = videoUrl.isEmpty ? [] : [FuliEpisode(name: "播放", url: videoUrl)]
                 return FuliDetail(vodId: vodId, vodName: name, vodPic: pic, vodContent: content, playFrom: "熊猫视频", episodes: episodes)
@@ -174,6 +185,25 @@ class PandaVideoService: FuliBaseService {
             print("[熊猫视频] 详情失败: \(error)")
         }
         return FuliDetail(vodId: vodId, vodName: "", vodPic: "", vodContent: nil, playFrom: "熊猫视频", episodes: [])
+    }
+
+    // MARK: - URL 规范化
+    private func normalizeUrl(_ url: String) -> String {
+        var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return "" }
+        if u.hasPrefix("http://") || u.hasPrefix("https://") {
+            return u
+        }
+        if u.hasPrefix("//") {
+            return "https:" + u
+        }
+        if u.hasPrefix("/") {
+            return currentHost + u
+        }
+        if !u.contains("://") {
+            return "https://" + u
+        }
+        return u
     }
 
     // MARK: - 搜索
@@ -214,7 +244,7 @@ class PandaVideoService: FuliBaseService {
         }
         guard !name.isEmpty else { return nil }
 
-        let pic = item["vod_pic"] as? String ?? ""
+        let pic = normalizeUrl(item["vod_pic"] as? String ?? "")
         let id2 = item["vod_server_id"] as? Int ?? 0
 
         // vodId 格式: id#serverId

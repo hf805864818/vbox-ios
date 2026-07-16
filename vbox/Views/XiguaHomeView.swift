@@ -436,10 +436,9 @@ struct XiguaPlayerView: View {
     @StateObject private var svc = XiguaService.shared
     @State private var detail: XiguaDetail?
     @State private var selectedEpisode: XiguaEpisode?
-    @State private var playerResult: XiguaPlayerResult?
     @State private var isLoading = true
     @State private var loadError: String?
-    @State private var player = AVPlayer()
+    @State private var vodItem: VodItem?
     @State private var showPlayer = false
 
     var body: some View {
@@ -467,6 +466,42 @@ struct XiguaPlayerView: View {
             } else if let detail = detail {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        // 封面 + 播放按钮
+                        ZStack(alignment: .center) {
+                            Rectangle()
+                                .fill(Color.black)
+                                .aspectRatio(16/9, contentMode: .fit)
+                                .overlay(
+                                    Group {
+                                        if let url = URL(string: cover) {
+                                            AsyncImage(url: url) { phase in
+                                                switch phase {
+                                                case .success(let image):
+                                                    image.resizable().aspectRatio(contentMode: .fill)
+                                                default:
+                                                    Color.gray.opacity(0.3)
+                                                }
+                                            }
+                                        } else {
+                                            Color.gray.opacity(0.3)
+                                        }
+                                    }
+                                )
+                                .clipped()
+
+                            if let ep = selectedEpisode {
+                                Button(action: { playEpisode(ep) }) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 64))
+                                        .foregroundColor(.white.opacity(0.9))
+                                        .background(Circle().fill(Color.black.opacity(0.3)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+
                         // 视频信息
                         VStack(alignment: .leading, spacing: 8) {
                             Text(title)
@@ -481,7 +516,7 @@ struct XiguaPlayerView: View {
                                     .padding(.horizontal, 12)
                             }
                         }
-                        .padding(.top, 12)
+                        .padding(.top, 8)
 
                         Divider().padding(.horizontal, 12)
 
@@ -519,23 +554,6 @@ struct XiguaPlayerView: View {
                                 .padding(.horizontal, 12)
                             }
                         }
-
-                        // 播放器
-                        if showPlayer, let result = playerResult {
-                            VStack(spacing: 0) {
-                                VideoPlayer(player: player)
-                                    .frame(height: 220)
-                                    .cornerRadius(8)
-                                    .padding(.horizontal, 12)
-
-                                Text("正在播放: \(selectedEpisode?.name ?? "")")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.top, 4)
-                            }
-                            .padding(.top, 8)
-                        }
                     }
                     .padding(.bottom, 40)
                 }
@@ -544,7 +562,11 @@ struct XiguaPlayerView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadDetail() }
-        .onDisappear { player.pause() }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let vod = vodItem {
+                VideoPlayerViewV2(video: vod)
+            }
+        }
     }
 
     private func loadDetail() {
@@ -562,7 +584,6 @@ struct XiguaPlayerView: View {
                     loadError = "未找到可播放视频源"
                 } else if let firstEp = result.playEpisodes.first {
                     selectedEpisode = firstEp
-                    playEpisode(firstEp)
                 }
             }
         }
@@ -570,16 +591,20 @@ struct XiguaPlayerView: View {
 
     private func playEpisode(_ episode: XiguaEpisode) {
         let result = svc.fetchPlayerURL(flag: "", videoUrl: episode.url)
-        playerResult = result
 
-        guard let url = URL(string: result.url) else {
+        guard !result.url.isEmpty else {
             loadError = "播放地址无效"
             return
         }
 
-        let playerItem = AVPlayerItem(url: url)
-        player.replaceCurrentItem(with: playerItem)
-        player.play()
+        vodItem = VodItem(
+            vodId: vodId,
+            vodName: "\(title) \(episode.name)",
+            vodPic: cover,
+            vodRemarks: "[福利]通用吸瓜",
+            vodPlayUrl: result.url,
+            customHeaders: result.headers
+        )
         showPlayer = true
     }
 }

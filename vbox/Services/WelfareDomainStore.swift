@@ -34,6 +34,14 @@ class WelfareDomainStore: ObservableObject {
         }
     }
 
+    /// 直接设置平台域名列表
+    func setDomains(_ domains: [String], for platformName: String) {
+        let trimmed = domains.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        customDomains[platformName] = trimmed
+        objectWillChange.send()
+        save()
+    }
+
     /// 删除某个平台的指定域名
     func removeDomain(for platformName: String, _ domain: String) {
         guard var list = customDomains[platformName] else { return }
