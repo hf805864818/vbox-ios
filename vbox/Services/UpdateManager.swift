@@ -167,28 +167,41 @@ class UpdateManager: ObservableObject {
         await downloadTask?.value
     }
 
-    // MARK: - 代理节点（页面排名前8 + 并行GET Range竞速）
+    // MARK: - 代理节点（页面动态提取 + 硬编码兜底 + 并行GET Range竞速）
 
-    /// 从 github.akams.cn 页面取排名前8的代理，并行 GET Range 测速后选最快
-    /// 页面已按服务器端速度排序，前几名基本就是当前最快节点
+    /// 硬编码代理节点兜底列表
+    /// 当 github.akams.cn 页面提取失败时使用，国内可直接访问这些 GitHub 加速镜像
+    private let fallbackProxyNodes: [String] = [
+        "gh-proxy.com",
+        "ghproxy.net",
+        "mirror.ghproxy.com",
+        "gh.dpik.top",
+        "github.starrlzy.cn",
+        "gh.tryxd.cn",
+        "cdn.akaere.online",
+        "github-proxy.memory-echoes.cn",
+        "gitproxy.127731.xyz",
+        "github.tbap.top",
+    ]
+
+    /// 获取代理节点：优先页面动态提取，失败用硬编码兜底，并行 GET Range 测速后选最快
     private func fetchAndRankProxyNodes(githubURL: String) async -> [URL] {
         let top8 = await fetchTopProxyNodesFromPage(count: 8)
         print("[UpdateManager] 页面提取到前\(top8.count)个节点: \(top8)")
 
-        if top8.isEmpty {
-            print("[UpdateManager] 提取失败，直连 GitHub")
-            return [URL(string: githubURL)!]
-        }
+        // 页面提取失败时，用硬编码节点兜底（国内用户无代理也能访问这些镜像站）
+        let candidates = top8.isEmpty ? fallbackProxyNodes : top8
+        print("[UpdateManager] 候选代理节点: \(candidates.count) 个")
 
         // 并行 GET Range 测速（前5个节点同时竞速，取第一个成功的）
-        let best = await raceProxyNodes(top8, githubURL: githubURL)
+        let best = await raceProxyNodes(candidates, githubURL: githubURL)
 
         if let best {
             print("[UpdateManager] 竞速胜出: \(best.url.host ?? "?") \(String(format: "%.0f", best.ms))ms")
             return [best.url, URL(string: githubURL)!]
         }
 
-        // 全部失败，直连
+        // 全部失败，直连 GitHub（最终兜底）
         print("[UpdateManager] 节点均不可达，直连 GitHub")
         return [URL(string: githubURL)!]
     }
