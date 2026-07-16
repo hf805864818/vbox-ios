@@ -8,6 +8,9 @@ struct PushPlayView: View {
     
     @State private var showAddSheet = false
     @State private var selectedVideo: VodItem? = nil
+    @State private var isEditMode: Bool = false
+    @State private var selectedItems: Set<String> = []
+    @State private var showClearConfirm: Bool = false
     
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -33,18 +36,76 @@ struct PushPlayView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("关闭") {
-                        dismiss()
+                    if isEditMode {
+                        Button("全选") {
+                            toggleSelectAll()
+                        }
+                        .foregroundColor(accentColor)
+                    } else {
+                        Button("关闭") {
+                            dismiss()
+                        }
+                        .foregroundColor(accentColor)
                     }
-                    .foregroundColor(accentColor)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showAddSheet = true
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(accentColor)
+                    HStack(spacing: 12) {
+                        if !store.items.isEmpty {
+                            if isEditMode {
+                                Button("完成") {
+                                    isEditMode = false
+                                    selectedItems.removeAll()
+                                }
+                                .foregroundColor(accentColor)
+                            } else {
+                                Menu {
+                                    Button(action: {
+                                        isEditMode = true
+                                    }) {
+                                        Label("批量删除", systemImage: "checkmark.circle")
+                                    }
+                                    Button(role: .destructive, action: {
+                                        showClearConfirm = true
+                                    }) {
+                                        Label("清空全部", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                        .font(.system(size: 18))
+                                        .foregroundColor(accentColor)
+                                }
+                            }
+                        }
+                        
+                        if !isEditMode {
+                            Button(action: {
+                                showAddSheet = true
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(accentColor)
+                            }
+                        }
+                    }
+                }
+                
+                // 编辑模式底部工具栏
+                if isEditMode {
+                    ToolbarItem(placement: .bottomBar) {
+                        HStack {
+                            Button(role: .destructive, action: {
+                                deleteSelected()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash")
+                                    Text("删除选中 (\(selectedItems.count))")
+                                }
+                                .foregroundColor(selectedItems.isEmpty ? .gray : .red)
+                            }
+                            .disabled(selectedItems.isEmpty)
+                            
+                            Spacer()
+                        }
                     }
                 }
             }
@@ -54,6 +115,14 @@ struct PushPlayView: View {
             }
             .fullScreenCover(item: $selectedVideo) { video in
                 VideoDetailView(video: video)
+            }
+            .alert("确认清空", isPresented: $showClearConfirm) {
+                Button("取消", role: .cancel) { }
+                Button("清空", role: .destructive) {
+                    store.removeAll()
+                }
+            } message: {
+                Text("确定要清空所有 \(store.items.count) 条推送链接吗？此操作不可撤销。")
             }
         }
     }
@@ -100,7 +169,11 @@ struct PushPlayView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(store.items) { item in
-                    itemCard(for: item)
+                    if isEditMode {
+                        editItemCard(for: item)
+                    } else {
+                        itemCard(for: item)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -108,6 +181,8 @@ struct PushPlayView: View {
             .padding(.bottom, 24)
         }
     }
+    
+    // MARK: - 普通卡片
     
     private func itemCard(for item: PushPlayItem) -> some View {
         HStack(spacing: 12) {
@@ -173,6 +248,86 @@ struct PushPlayView: View {
                 Label("删除", systemImage: "trash")
             }
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                store.removeItem(item)
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+        }
+    }
+    
+    // MARK: - 编辑模式卡片
+    
+    private func editItemCard(for item: PushPlayItem) -> some View {
+        HStack(spacing: 12) {
+            // 选择框
+            Image(systemName: selectedItems.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22))
+                .foregroundColor(selectedItems.contains(item.id) ? accentColor : .gray)
+            
+            // 类型图标
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(accentColor.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                
+                Image(systemName: item.type.iconName)
+                    .font(.system(size: 18))
+                    .foregroundColor(accentColor)
+            }
+            
+            // 信息区
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                
+                Text(item.type.displayName)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .cornerRadius(12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            toggleSelection(for: item)
+        }
+    }
+    
+    // MARK: - 编辑操作
+    
+    private func toggleSelection(for item: PushPlayItem) {
+        if selectedItems.contains(item.id) {
+            selectedItems.remove(item.id)
+        } else {
+            selectedItems.insert(item.id)
+        }
+    }
+    
+    private func toggleSelectAll() {
+        if selectedItems.count == store.items.count {
+            selectedItems.removeAll()
+        } else {
+            selectedItems = Set(store.items.map { $0.id })
+        }
+    }
+    
+    private func deleteSelected() {
+        for item in store.items {
+            if selectedItems.contains(item.id) {
+                store.removeItem(item)
+            }
+        }
+        selectedItems.removeAll()
+        if store.items.isEmpty {
+            isEditMode = false
+        }
     }
     
     // MARK: - 播放逻辑
@@ -196,7 +351,6 @@ struct PushPlayView: View {
         // 如果有解析好的剧集，构造包含剧集信息的 playUrl
         var playUrl: String? = nil
         if let episodes = item.episodes, !episodes.isEmpty {
-            // 格式: 集名$URL#集名$URL$$$线路名
             let episodeStr = episodes.map { "\($0.name)$\($0.url)" }.joined(separator: "#")
             playUrl = episodeStr
         }
