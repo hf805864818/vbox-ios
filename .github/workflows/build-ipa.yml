@@ -43,30 +43,38 @@ jobs:
 
       - name: 🔧 恢复手动添加的源文件 (PushPlayView/PushPlayStore)
         run: |
-          ruby << 'RBEOF'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('vbox.xcodeproj')
-          target = project.targets.find { |t| t.name == 'vbox' }
-          
-          files_to_add = [
-            { path: 'vbox/Services/PushPlayStore.swift', group: 'Services' },
-            { path: 'vbox/Views/PushPlayView.swift', group: 'Views' },
-          ]
-          
-          files_to_add.each do |file_info|
-            path = file_info[:path]
-            filename = File.basename(path)
-            next if target.source_build_phase.files.any? { |f| f.file_ref&.path == filename }
-            
-            group = project.main_group.find_subpath(file_info[:group], true)
-            file_ref = group.new_file(path)
-            target.source_build_phase.add_file_reference(file_ref)
-            puts "Added #{filename} to target"
-          end
-          
-          project.save
-          puts "Done!"
-          RBEOF
+          # 确保文件在 proj 的 Sources Build Phase 中
+          python3 << 'PYEOF'
+          proj = "vbox.xcodeproj/project.pbxproj"
+          with open(proj) as f:
+              c = f.read()
+          # 检查 PBXBuildFile 是否存在
+          if "PushPlayView.swift" not in c:
+              import uuid
+              def gen():
+                  return uuid.uuid4().hex[:24].upper()
+              anchor_build = 'A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };'
+              anchor_fr = '1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourHVideoService.swift; sourceTree = "<group>"; };'
+              anchor_grp = '\t\t\t\t\t\t\t1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */,'
+              for fn in ["PushPlayStore.swift", "PushPlayView.swift"]:
+                  bid, fid = gen(), gen()
+                  c = c.replace(anchor_build, anchor_build + '\n' + f'\t\t\t{bid} /* {fn} in Sources */ = {{isa = PBXBuildFile; fileRef = {fid} /* {fn} */; }};')
+                  c = c.replace(anchor_fr, anchor_fr + '\n' + f'\t\t\t{fid} /* {fn} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {fn}; sourceTree = "<group>"; }};')
+                  c = c.replace(anchor_grp, anchor_grp + '\n' + f'\t\t\t\t\t\t\t{fid} /* {fn} */,')
+          # 确保在 Sources Build Phase 中
+          if "PushPlayView.swift in Sources," not in c:
+              anchor_src = '\t\t\t\tA477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */,'
+              # 找到当前 build IDs
+              import re
+              pv_id = re.search(r'([A-F0-9]+) /\* PushPlayView\.swift in Sources \*/', c)
+              ps_id = re.search(r'([A-F0-9]+) /\* PushPlayStore\.swift in Sources \*/', c)
+              if pv_id and ps_id:
+                  c = c.replace(anchor_src, anchor_src + '\n' +
+                      f'\t\t\t\t{pv_id.group(1)} /* PushPlayView.swift in Sources */,\n' +
+                      f'\t\t\t\t{ps_id.group(1)} /* PushPlayStore.swift in Sources */,')
+          with open(proj, "w") as f:
+              f.write(c)
+          PYEOF
 
       - name: 🔢 自动递增版本号
         run: |
