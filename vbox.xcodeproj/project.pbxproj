@@ -181,6 +181,8 @@
 		A12035 /* SecureCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12035 /* SecureCredentialStore.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };
+			D1C3E5A6E72F44F6B4BCBA76 /* PushPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A34CE7842E4955AA61106C /* PushPlayView.swift */; };
+			5D06DA3F01834E10A6368DA0 /* PushPlayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 754597FF96E3401A9A3DA54E /* PushPlayStore.swift */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		AAAA000000000000000000001 /* HeiliaoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBB000000000000000000001 /* HeiliaoService.swift */; };
 		AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70363C93B7E4A60A895A08B /* MadouFreeService.swift */; };
@@ -294,6 +296,8 @@
 		118639D4704EF09B475A80B0 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourHVideoService.swift; sourceTree = "<group>"; };
+			00A34CE7842E4955AA61106C /* PushPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPlayView.swift; sourceTree = "<group>"; };
+			754597FF96E3401A9A3DA54E /* PushPlayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPlayStore.swift; sourceTree = "<group>"; };
 		2298D3101C1AE3DA9002687B /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IJKMediaFrameworkWithSSL.framework; path = vbox/Libraries/IJKPlayer/IJKMediaFrameworkWithSSL.framework; sourceTree = SOURCE_ROOT; };
 		2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxAPIService.swift; sourceTree = "<group>"; };
