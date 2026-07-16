@@ -219,6 +219,8 @@
 		ED466A8C3381025D33D7B279 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */; };
 		EE85FEE2D9F84D5CB8FA5188 /* FuliPlatformMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */; };
 		EF0173E4D3D446DEEEA31BA8 /* PushPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17072B53D798B9CAC7FE2853 /* PushPlayView.swift */; };
+				6B15A06349EC4D5DBC2C8035 /* SourceDiscoveryView.swift */,
+				0D89F8811CA34809845F07D0 /* SourcePickerSheet.swift */,
 		EF43A68D1A60F34CDEFFE7BA /* Libplacebo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		EF66A1860129C0CCCB84E8A6 /* Libavcodec.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F14D9EBCC712C7189C7054E2 /* Libavformat.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 933905689FCEDA2327DA3D6A /* Libavformat.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -231,6 +233,7 @@
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
+				3D0DF6871AD24246BFCCC0CA /* SourceDisplayItem.swift */,
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
 /* End PBXBuildFile section */
@@ -762,6 +765,9 @@
 				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
+		0D89F8811CA34809845F07D0 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
+		6B15A06349EC4D5DBC2C8035 /* SourceDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDiscoveryView.swift; sourceTree = "<group>"; };
+		3D0DF6871AD24246BFCCC0CA /* SourceDisplayItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDisplayItem.swift; sourceTree = "<group>"; };
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1045,6 +1051,12 @@
 				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
 				04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */,
 				04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */,
+				DE7F1EEAE40A4701BFB3EBE0 /* SourceDisplayItem.swift in Sources */,
+				E39301B0DFE3472ABAB8C31D /* SourceDiscoveryView.swift in Sources */,
+				F32983A9EBFA4215A3AE9D80 /* SourcePickerSheet.swift in Sources */,
+		F32983A9EBFA4215A3AE9D80 /* SourcePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D89F8811CA34809845F07D0 /* SourcePickerSheet.swift */; };
+		E39301B0DFE3472ABAB8C31D /* SourceDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B15A06349EC4D5DBC2C8035 /* SourceDiscoveryView.swift */; };
+		DE7F1EEAE40A4701BFB3EBE0 /* SourceDisplayItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D0DF6871AD24246BFCCC0CA /* SourceDisplayItem.swift */; };
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
