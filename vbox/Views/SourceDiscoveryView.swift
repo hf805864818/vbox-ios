@@ -148,17 +148,17 @@ struct SourceDiscoveryView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     // 推荐（默认）
-                    CategoryChip(
-                        name: "推荐",
-                        isSelected: selectedCategoryId == nil
-                    )
+                    SourceCategoryChip(
+                    name: "推荐",
+                    isSelected: selectedCategoryId == nil
+                )
                     .onTapGesture {
                         selectedCategoryId = nil
                         categoryVideos = []
                     }
 
                     ForEach(displayCategories) { cat in
-                        CategoryChip(
+                        SourceCategoryChip(
                             name: cat.typeName,
                             isSelected: selectedCategoryId == cat.typeId
                         )
@@ -192,11 +192,11 @@ struct SourceDiscoveryView: View {
         ) {
             ForEach(displayVideos) { video in
                 NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
-                    VideoCard(
-                        video: video,
-                        referer: source.referer,
-                        settings: settings
-                    )
+                    SourceVideoCard(
+                    video: video,
+                    referer: source.referer,
+                    settings: settings
+                )
                 }
                 .buttonStyle(.plain)
             }
@@ -256,11 +256,11 @@ struct SourceDiscoveryView: View {
 
 // MARK: - 分类标签
 
-private struct CategoryChip: View {
+private struct SourceCategoryChip: View {
     let name: String
     let isSelected: Bool
 
-    var body: some View {
+    var body: View {
         Text(name)
             .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
             .foregroundColor(isSelected ? .white : .primary)
@@ -268,14 +268,12 @@ private struct CategoryChip: View {
             .padding(.vertical, 7)
             .background(
                 Capsule()
-                    .fill(isSelected ? Color(hex: "E11D48") : Color(uiColor: .systemGray6))
+                    .fill(isSelected ? Color(hex: "E11B48") : Color(uiColor: .systemGray6))
             )
     }
-}
-
 // MARK: - 视频卡片
 
-private struct VideoCard: View {
+private struct SourceVideoCard: View {
     let video: VodItem
     let referer: String?
     let settings: AppSettings

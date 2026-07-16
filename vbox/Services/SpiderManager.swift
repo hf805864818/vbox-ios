@@ -2870,7 +2870,7 @@ globalThis.__JS_SPIDER__ = _spider;
             if a.category.sortOrder != b.category.sortOrder {
                 return a.category.sortOrder < b.category.sortOrder
             }
-            return a.name.localizedCompare(b.name)
+            return a.name.localizedCompare(b.name) == .orderedAscending
         }
 
         return items
