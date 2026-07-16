@@ -208,6 +208,9 @@ struct HomeView: View {
     @State private var showSearch = false
     @State private var showRanking = false
     @State private var showHistory = false
+    @State private var showSourcePicker = false
+    @State private var selectedSource: SourceDisplayItem?
+    @State private var allSources: [SourceDisplayItem] = []
     private static var cachedBannerSubjects: [DoubanSubject] = []
     private static var cachedHotMovies: [DoubanSubject] = []
     private static var cachedHotTV: [DoubanSubject] = []
@@ -243,6 +246,50 @@ struct HomeView: View {
     }
 
     var body: some View {
+        Group {
+            if let source = selectedSource {
+                // 多源发现模式
+                SourceDiscoveryView(
+                    source: source,
+                    onSwitchSource: { showSourcePicker = true },
+                    onTapVideo: { video in
+                        settings.triggerSearch(video.vodName)
+                    },
+                    onDismiss: { selectedSource = nil }
+                )
+                .environmentObject(settings)
+            } else {
+                // 豆瓣首页模式
+                doubanHomeContent
+            }
+        }
+        .sheet(isPresented: $showSourcePicker) {
+            SourcePickerSheet(
+                selectedSource: $selectedSource,
+                sources: allSources,
+                onSelect: { source in
+                    selectedSource = source
+                }
+            )
+            .environmentObject(settings)
+        }
+        .onAppear {
+            if allSources.isEmpty {
+                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
+            }
+        }
+        .onChange(of: showSourcePicker) { isShowing in
+            if isShowing {
+                // 每次打开弹窗时刷新源列表
+                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
+            }
+        }
+        .onChange(of: settings.searchRequestId) { _ in
+            if !settings.searchQuery.isEmpty { showSearch = true }
+        }
+    }
+
+    private var doubanHomeContent: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
                 if isLoading {
@@ -251,38 +298,46 @@ struct HomeView: View {
                         Text("正在加载...").font(.system(size: 14)).foregroundColor(.secondary)
                     }
                 } else {
-                    HomeSearchBar(showSearch: $showSearch, showRanking: $showRanking, showHistory: $showHistory)
-                    if !bannerSubjects.isEmpty {
-                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
-                    }
-                    CategoryTilesView(settings: settings)
-                    if !hotMovies.isEmpty {
-                        SectionHeader(title: "热门电影", icon: "flame.fill")
-                        HorizontalSubjectRow(subjects: hotMovies, settings: settings)
-                    }
-                    if !top250.isEmpty {
-                        SectionHeader(title: "TOP250", icon: "crown.fill")
-                        HorizontalSubjectRow(subjects: top250, settings: settings)
-                    }
-                    if !hotTV.isEmpty {
-                        SectionHeader(title: "热门剧集", icon: "tv.fill")
-                        HorizontalSubjectRow(subjects: hotTV, settings: settings)
-                    }
-                    if !hotVariety.isEmpty {
-                        SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
-                        HorizontalSubjectRow(subjects: hotVariety, settings: settings)
-                    }
-                    if !showingMovies.isEmpty {
-                        SectionHeader(title: "影院热映", icon: "film.fill")
-                        HorizontalSubjectRow(subjects: showingMovies, settings: settings)
-                    }
-                    if !hotGaiaMovies.isEmpty {
-                        SectionHeader(title: "豆瓣热门", icon: "flame.fill")
-                        HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
-                    }
-                    if !americanTV.isEmpty {
-                        SectionHeader(title: "值得看的英美剧", icon: "globe")
-                        HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                    Group {
+                        HomeSearchBar(
+                            showSearch: $showSearch,
+                            showRanking: $showRanking,
+                            showHistory: $showHistory,
+                            showSourcePicker: $showSourcePicker,
+                            selectedSourceName: selectedSource?.name
+                        )
+                        if !bannerSubjects.isEmpty {
+                            BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
+                        }
+                        CategoryTilesView(settings: settings)
+                        if !hotMovies.isEmpty {
+                            SectionHeader(title: "热门电影", icon: "flame.fill")
+                            HorizontalSubjectRow(subjects: hotMovies, settings: settings)
+                        }
+                        if !top250.isEmpty {
+                            SectionHeader(title: "TOP250", icon: "crown.fill")
+                            HorizontalSubjectRow(subjects: top250, settings: settings)
+                        }
+                        if !hotTV.isEmpty {
+                            SectionHeader(title: "热门剧集", icon: "tv.fill")
+                            HorizontalSubjectRow(subjects: hotTV, settings: settings)
+                        }
+                        if !hotVariety.isEmpty {
+                            SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
+                            HorizontalSubjectRow(subjects: hotVariety, settings: settings)
+                        }
+                        if !showingMovies.isEmpty {
+                            SectionHeader(title: "影院热映", icon: "film.fill")
+                            HorizontalSubjectRow(subjects: showingMovies, settings: settings)
+                        }
+                        if !hotGaiaMovies.isEmpty {
+                            SectionHeader(title: "豆瓣热门", icon: "flame.fill")
+                            HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
+                        }
+                        if !americanTV.isEmpty {
+                            SectionHeader(title: "值得看的英美剧", icon: "globe")
+                            HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                        }
                     }
                 }
             }
@@ -311,9 +366,6 @@ struct HomeView: View {
         .sheet(isPresented: $showHistory) {
             WatchHistoryView()
                 .environmentObject(settings)
-        }
-        .onChange(of: settings.searchRequestId) { _ in
-            if !settings.searchQuery.isEmpty { showSearch = true }
         }
     }
 
@@ -373,6 +425,8 @@ struct HomeSearchBar: View {
     @Binding var showSearch: Bool
     @Binding var showRanking: Bool
     @Binding var showHistory: Bool
+    @Binding var showSourcePicker: Bool
+    var selectedSourceName: String?
     @EnvironmentObject private var settings: AppSettings
     @State private var searchText = ""
 
@@ -396,6 +450,21 @@ struct HomeSearchBar: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color(uiColor: .systemGray6))
                 )
+            }
+            .buttonStyle(.plain)
+
+            // 多源选择按钮
+            Button {
+                showSourcePicker = true
+            } label: {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(selectedSourceName != nil ? Color(hex: "34C759") : Color(hex: "E11D48"))
+                    )
             }
             .buttonStyle(.plain)
 

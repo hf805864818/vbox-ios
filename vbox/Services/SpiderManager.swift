@@ -2773,4 +2773,184 @@ globalThis.__JS_SPIDER__ = _spider;
         if remarks.contains("高清") { return 2 }
         return 1
     }
+
+    // MARK: - 多源发现（方案B）
+
+    /// 从 API 地址提取域名作为 Referer
+    private func extractReferer(from api: String?) -> String? {
+        guard let api = api, let url = URL(string: api), let host = url.host else { return nil }
+        let scheme = url.scheme ?? "https"
+        return "\(scheme)://\(host)/"
+    }
+
+    /// 获取所有可用源（网盘、API、JS蜘蛛、站源），统一为 SourceDisplayItem
+    func fetchAllSourceDisplayItems() -> [SourceDisplayItem] {
+        var items: [SourceDisplayItem] = []
+
+        // 1. 网盘源（video_sources.json）
+        let cloudSites = loadCloudSitesFromJSONConfig()
+        for site in cloudSites {
+            let cat: SourceCategory
+            switch site.type {
+            case .cms: cat = .cloudCMS
+            case .forum: cat = .cloudForum
+            case .spa: cat = .cloudSPA
+            }
+            let api = site.type == .cms ? "\(site.searchurl.prefix(while: { $0 != "/" }))/api.php/provide/vod" : nil
+            items.append(SourceDisplayItem(
+                id: "cloud_\(site.name)",
+                name: site.name,
+                category: cat,
+                supportsHome: cat.supportsHome,
+                api: api,
+                searchUrl: nil,
+                engineKey: nil,
+                referer: extractReferer(from: api),
+                siteKey: site.name
+            ))
+        }
+
+        // 2. API 源（allSites 中 type=0/1）
+        let apiSites = allSites.filter { $0.type == 0 || $0.type == 1 }
+        for site in apiSites {
+            let key = site.key
+            if items.contains(where: { $0.id == "api_\(key)" }) { continue }
+            items.append(SourceDisplayItem(
+                id: "api_\(key)",
+                name: site.name,
+                category: .api,
+                supportsHome: true,
+                api: site.api,
+                searchUrl: nil,
+                engineKey: nil,
+                referer: extractReferer(from: site.api),
+                siteKey: key
+            ))
+        }
+
+        // 3. JS 蜘蛛
+        for (key, _) in engines {
+            if items.contains(where: { $0.id == "js_\(key)" }) { continue }
+            let siteConfig = allSites.first(where: { $0.key == key })
+            items.append(SourceDisplayItem(
+                id: "js_\(key)",
+                name: siteConfig?.name ?? key,
+                category: .jsSpider,
+                supportsHome: true,
+                api: nil,
+                searchUrl: nil,
+                engineKey: key,
+                referer: nil,
+                siteKey: key
+            ))
+        }
+
+        // 4. 站源（zhanyuan）
+        let zhanyuanSites = DatabaseManager.shared.queryAllZhanyuanSites()
+        for site in zhanyuanSites {
+            let id = "zhanyuan_\(site.name)"
+            if items.contains(where: { $0.id == id }) { continue }
+            let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let api = "\(baseURL)/api.php/provide/vod"
+            items.append(SourceDisplayItem(
+                id: id,
+                name: site.name,
+                category: .zhanyuan,
+                supportsHome: true,
+                api: api,
+                searchUrl: site.searchUrl,
+                engineKey: nil,
+                referer: extractReferer(from: api),
+                siteKey: site.name
+            ))
+        }
+
+        // 按分类排序（网盘在前）
+        items.sort { a, b in
+            if a.category.sortOrder != b.category.sortOrder {
+                return a.category.sortOrder < b.category.sortOrder
+            }
+            return a.name.localizedCompare(b.name)
+        }
+
+        return items
+    }
+
+    /// 获取单个源的首页数据
+    func fetchHomeData(for source: SourceDisplayItem) async -> SourceHomeData? {
+        switch source.category {
+        case .cloudCMS, .api, .zhanyuan:
+            return await fetchAPIHomeData(source: source)
+        case .jsSpider:
+            return await fetchJSSpiderHomeData(source: source)
+        case .cloudForum, .cloudSPA:
+            return nil  // 不支持首页，降级为搜索入口
+        }
+    }
+
+    /// API 源 / CMS 网盘 / 站源的 ac=home
+    private func fetchAPIHomeData(source: SourceDisplayItem) async -> SourceHomeData? {
+        guard let api = source.api else { return nil }
+
+        let baseURL: String
+        if let qIndex = api.firstIndex(of: "?") {
+            baseURL = String(api[..<qIndex])
+        } else if api.hasSuffix("/") {
+            baseURL = String(api.dropLast())
+        } else {
+            baseURL = api
+        }
+
+        let urlStr = "\(baseURL)?ac=home"
+        guard let url = URL(string: urlStr) else { return nil }
+
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            guard let httpResp = response as? HTTPURLResponse,
+                  (200...299).contains(httpResp.statusCode) else { return nil }
+
+            let raw = try JSONDecoder().decode(SourceHomeRaw.self, from: data)
+            let categories = raw.class ?? []
+            let list = raw.list ?? []
+
+            guard !list.isEmpty else { return nil }
+
+            return SourceHomeData(
+                sourceName: source.name,
+                categories: categories,
+                recommended: list,
+                sourceType: source.category
+            )
+        } catch {
+            print("[SpiderManager] fetchHomeData[\(source.name)] 失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// JS 蜘蛛的 home
+    private func fetchJSSpiderHomeData(source: SourceDisplayItem) async -> SourceHomeData? {
+        guard let key = source.engineKey, let engine = engines[key] else { return nil }
+
+        do {
+            let result = try engine.callHomeContent()
+            let categories = result.class ?? []
+            let list = result.list ?? []
+
+            guard !list.isEmpty else { return nil }
+
+            return SourceHomeData(
+                sourceName: source.name,
+                categories: categories,
+                recommended: list,
+                sourceType: .jsSpider
+            )
+        } catch {
+            print("[SpiderManager] fetchJSSpiderHome[\(source.name)] 失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
 }
