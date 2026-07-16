@@ -294,7 +294,7 @@
 		0E27763D993B6E8409086841 /* libbz2.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
 		1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SBAggregationService.swift; sourceTree = "<group>"; };
 		118639D4704EF09B475A80B0 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
-		17072B53D798B9CAC7FE2853 /* PushPlayView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayView.swift; path = vbox/Views/PushPlayView.swift; sourceTree = "<group>"; };
+		17072B53D798B9CAC7FE2853 /* PushPlayView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayView.swift; path = PushPlayView.swift; sourceTree = "<group>"; };
 		1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourHVideoService.swift; sourceTree = "<group>"; };
 		2298D3101C1AE3DA9002687B /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
@@ -461,7 +461,7 @@
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornHomeView.swift; sourceTree = "<group>"; };
 		D62F6461A137466FAE5F133B /* DuckVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckVideoService.swift; sourceTree = "<group>"; };
-		D8815F39A6013262E7F5B211 /* PushPlayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayStore.swift; path = vbox/Services/PushPlayStore.swift; sourceTree = "<group>"; };
+		D8815F39A6013262E7F5B211 /* PushPlayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayStore.swift; path = PushPlayStore.swift; sourceTree = "<group>"; };
 		DDDD000000000000000000001 /* HeiliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeiliaoHomeView.swift; sourceTree = "<group>"; };
 		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
 		E4B44716C2FC412BACA38D26 /* WaibiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaibiService.swift; sourceTree = "<group>"; };
