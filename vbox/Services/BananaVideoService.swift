@@ -148,8 +148,9 @@ class BananaVideoService: FuliBaseService {
                 var playLinks: [XMLElement] = []
                 for xp in linkXpaths {
                     let found = doc.xpath(xp)
-                    if !found.isEmpty {
-                        playLinks = found
+                    let arr = Array(found)
+                    if !arr.isEmpty {
+                        playLinks = arr
                         break
                     }
                 }

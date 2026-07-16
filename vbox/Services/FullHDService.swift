@@ -281,8 +281,9 @@ class FullHDService: FuliBaseService {
         var items: [XMLElement] = []
         for xp in xpaths {
             let found = doc.xpath(xp)
-            if found.first != nil {
-                items = found.toArray()
+            let arr = Array(found)
+            if !arr.isEmpty {
+                items = arr
                 break
             }
         }
