@@ -126,7 +126,7 @@ class FullHDService: FuliBaseService {
         }
     }
 
-    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+    func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         let url = episode.url
         // 如果已经是直接的视频URL，直接返回
         if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".ts") {
@@ -281,13 +281,21 @@ class FullHDService: FuliBaseService {
         var items: [XMLElement] = []
         for xp in xpaths {
             let found = doc.xpath(xp)
-            if !found.isEmpty {
-                items = found
+            if found.first != nil {
+                items = found.toArray()
                 break
             }
         }
         for item in items {
-            guard let a = item.xpath(".//a").first ?? (item.tagName == "a" ? item : nil) else { continue }
+            let aTag: XMLElement?
+            if let foundA = item.xpath(".//a").first {
+                aTag = foundA
+            } else if item.tagName == "a" {
+                aTag = item
+            } else {
+                aTag = nil
+            }
+            guard let a = aTag else { continue }
             let href = a["href"] ?? ""
             guard !href.isEmpty else { continue }
 
