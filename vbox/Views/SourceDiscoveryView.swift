@@ -7,7 +7,6 @@ struct SourceDiscoveryView: View {
 
     let source: SourceDisplayItem
     let onSwitchSource: () -> Void
-    let onTapVideo: (VodItem) -> Void
     let onDismiss: () -> Void
 
     @State private var homeData: SourceHomeData?
@@ -93,6 +92,7 @@ struct SourceDiscoveryView: View {
             }
         }
         .background(skinBackground)
+        .navigationBarHidden(true)
         .onAppear {
             if homeData == nil { Task { await loadData() } }
         }
@@ -191,12 +191,14 @@ struct SourceDiscoveryView: View {
             spacing: 16
         ) {
             ForEach(displayVideos) { video in
-                VideoCard(
-                    video: video,
-                    referer: source.referer,
-                    settings: settings
-                )
-                .onTapGesture { onTapVideo(video) }
+                NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
+                    VideoCard(
+                        video: video,
+                        referer: source.referer,
+                        settings: settings
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 16)

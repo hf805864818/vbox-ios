@@ -249,15 +249,15 @@ struct HomeView: View {
         Group {
             if let source = selectedSource {
                 // 多源发现模式
-                SourceDiscoveryView(
-                    source: source,
-                    onSwitchSource: { showSourcePicker = true },
-                    onTapVideo: { video in
-                        settings.triggerSearch(video.vodName)
-                    },
-                    onDismiss: { selectedSource = nil }
-                )
-                .environmentObject(settings)
+                NavigationView {
+                    SourceDiscoveryView(
+                        source: source,
+                        onSwitchSource: { showSourcePicker = true },
+                        onDismiss: { selectedSource = nil }
+                    )
+                    .environmentObject(settings)
+                }
+                .navigationViewStyle(.stack)
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
