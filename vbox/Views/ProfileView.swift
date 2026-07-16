@@ -112,9 +112,7 @@ struct ProfileView: View {
             welfareUnlockSheet
         }
         .sheet(isPresented: $showPushPlay) {
-            NavigationView {
-                PushPlayView()
-            }
+            PushPlayView()
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
