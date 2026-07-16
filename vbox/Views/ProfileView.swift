@@ -21,6 +21,7 @@ struct ProfileView: View {
     @State private var showWelfareSettings: Bool = false
     @State private var welfarePasswordInput: String = ""
     @State private var welfarePasswordError: Bool = false
+    @State private var showPushPlay: Bool = false
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -109,6 +110,11 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showWelfareSheet) {
             welfareUnlockSheet
+        }
+        .sheet(isPresented: $showPushPlay) {
+            NavigationView {
+                PushPlayView()
+            }
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
@@ -232,77 +238,60 @@ struct ProfileView: View {
     // MARK: - 功能入口
 
     private var featureEntriesSection: some View {
-        HStack(spacing: 12) {
-            // 福利专区
-            Button(action: {
-                welfarePasswordInput = ""
-                welfarePasswordError = false
-                showWelfareSheet = true
-            }) {
-                VStack(spacing: 8) {
-                    Image(systemName: "gift.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(accentColor)
-                    Text("福利专区")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                // 福利专区
+                featureButton(icon: "gift.fill", title: "福利专区") {
+                    welfarePasswordInput = ""
+                    welfarePasswordError = false
+                    showWelfareSheet = true
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-            }
-            .buttonStyle(.plain)
 
-            // 我的收藏
-            Button(action: {
-                showFavorites = true
-            }) {
-                VStack(spacing: 8) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(accentColor)
-                    Text("我的收藏")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
+                // 我的收藏
+                featureButton(icon: "star.fill", title: "我的收藏") {
+                    showFavorites = true
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
-            }
-            .buttonStyle(.plain)
 
-            // 分享免广告
-            Button(action: {
-                print("[ProfileView] 分享免广告功能暂未开放")
-            }) {
-                VStack(spacing: 8) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 24))
-                        .foregroundColor(accentColor)
-                    Text("分享免广告")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
+                // 推送播放
+                featureButton(icon: "play.rectangle.on.rectangle.fill", title: "推送播放") {
+                    showPushPlay = true
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
             }
-            .buttonStyle(.plain)
 
-            // 下载管理
-            Button(action: {
-                showDownloads = true
-            }) {
-                VStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(accentColor)
-                    Text("下载管理")
-                        .font(.system(size: 12))
-                        .foregroundColor(textColor)
+            HStack(spacing: 12) {
+                // 分享免广告
+                featureButton(icon: "square.and.arrow.up", title: "分享免广告") {
+                    print("[ProfileView] 分享免广告功能暂未开放")
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 80)
+
+                // 下载管理
+                featureButton(icon: "arrow.down.circle.fill", title: "下载管理") {
+                    showDownloads = true
+                }
+
+                // 占位
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 80)
             }
-            .buttonStyle(.plain)
         }
+    }
+
+    // 功能按钮构建器
+    private func featureButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                    .foregroundColor(accentColor)
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundColor(textColor)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 80)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 福利解锁弹窗（含功能开关）
