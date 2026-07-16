@@ -80,23 +80,42 @@ class FullHDService: FuliBaseService {
     }
 
     override func fetchDetail(vodId: String) async -> FuliDetail {
-        let url = vodId.hasPrefix("http") ? vodId : (currentHost + vodId)
+        let url = normalizeURL(vodId)
         do {
             let html = try await fetchHTML(url)
             let doc = try HTML(html: html, encoding: .utf8)
 
-            let title = doc.xpath("//h1").first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
-            let pic = doc.xpath("//meta[@property='og:image']/@content").first?.text ?? ""
+            let title = doc.xpath("//h1").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? doc.xpath("//title").first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
+            var pic = doc.xpath("//meta[@property='og:image']/@content").first?.text
+                ?? doc.xpath("//meta[@name='twitter:image']/@content").first?.text ?? ""
+            pic = normalizeURL(pic)
             let content = doc.xpath("//div[@class='video-description']").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? doc.xpath("//div[contains(@class,'description')]").first?.text?.trimmingCharacters(in: .whitespaces)
 
             var episodes: [FuliEpisode] = []
-            // 详情页直接就是播放页，返回页面URL供解析
+            var playURL: String? = nil
+
+            // 1. 直接从 video/source 标签获取
             if let videoSrc = doc.xpath("//video/source/@src").first?.text, !videoSrc.isEmpty {
-                episodes.append(FuliEpisode(name: "播放", url: videoSrc))
+                playURL = videoSrc
             } else if let videoSrc = doc.xpath("//video/@src").first?.text, !videoSrc.isEmpty {
-                episodes.append(FuliEpisode(name: "播放", url: videoSrc))
+                playURL = videoSrc
+            }
+            // 2. 从 iframe src 获取
+            if playURL == nil, let iframeSrc = doc.xpath("//iframe/@src").first?.text, !iframeSrc.isEmpty {
+                playURL = iframeSrc
+            }
+            // 3. 从 JavaScript 中提取
+            if playURL == nil {
+                playURL = extractPlayURL(from: html)
+            }
+
+            if let pu = playURL, !pu.isEmpty {
+                let normalized = normalizeURL(pu)
+                episodes.append(FuliEpisode(name: "播放", url: normalized))
             } else {
-                // 返回页面URL供web解析
+                // 返回页面URL供 fetchPlayerURL 进一步解析
                 episodes.append(FuliEpisode(name: "播放", url: url))
             }
 
@@ -104,6 +123,37 @@ class FullHDService: FuliBaseService {
         } catch {
             print("[FullHD] 详情失败: \(error)")
             return FuliDetail(vodId: vodId, vodName: "", vodPic: "", vodContent: nil, playFrom: "FullHD", episodes: [])
+        }
+    }
+
+    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+        let url = episode.url
+        // 如果已经是直接的视频URL，直接返回
+        if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".ts") {
+            let normalized = normalizeURL(url)
+            return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+        }
+        // 否则需要访问页面解析出播放地址
+        do {
+            let pageURL = normalizeURL(url)
+            let html = try await fetchHTML(pageURL)
+            if let playURL = extractPlayURL(from: html) {
+                let normalized = normalizeURL(playURL)
+                print("[FullHD] 解析到播放地址: \(normalized.prefix(100))")
+                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+            }
+            // 也尝试用 Kanna 解析
+            let doc = try HTML(html: html, encoding: .utf8)
+            if let src = doc.xpath("//video/source/@src | //video/@src | //iframe/@src").first?.text, !src.isEmpty {
+                let normalized = normalizeURL(src)
+                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+            }
+            // 最后回退：返回页面URL让 WebView 尝试解析
+            print("[FullHD] 未解析到播放地址，回退到Web解析")
+            return FuliPlayerResult(url: pageURL, headers: defaultHeaders(host: currentHost), parse: 1)
+        } catch {
+            print("[FullHD] fetchPlayerURL 失败: \(error)")
+            return FuliPlayerResult(url: url, headers: defaultHeaders(host: currentHost), parse: 1)
         }
     }
 
@@ -137,13 +187,107 @@ class FullHDService: FuliBaseService {
         return Array(ArraySlice(categories.prefix(30)))
     }
 
+    // MARK: - URL 规范化
+    private func normalizeURL(_ url: String, base: String? = nil) -> String {
+        var result = url.trimmingCharacters(in: .whitespaces)
+        guard !result.isEmpty else { return "" }
+        if result.hasPrefix("http://") || result.hasPrefix("https://") {
+            return result
+        }
+        if result.hasPrefix("//") {
+            return "https:" + result
+        }
+        let baseHost = base ?? currentHost
+        if result.hasPrefix("/") {
+            return baseHost + result
+        }
+        // 无协议无斜杠开头，当作相对路径
+        if baseHost.hasSuffix("/") {
+            return baseHost + result
+        }
+        return baseHost + "/" + result
+    }
+
+    // MARK: - 从 HTML 字符串中提取播放 URL（多级回退）
+    private func extractPlayURL(from html: String) -> String? {
+        // 1. player_data / player_url JSON
+        let patterns = [
+            "var\\s+player_data\\s*=\\s*(\\{[^;]+\\})",
+            "var\\s+player_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "player_data\\s*=\\s*(\\{[^;]+\\})",
+            "\"url\"\\s*:\\s*\"([^\"]+)\"",
+            "'url'\\s*:\\s*'([^']+)'"
+        ]
+        for pattern in patterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let captured = groups[1]
+                // 如果是 JSON，尝试解析
+                if captured.hasPrefix("{") {
+                    if let data = captured.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let url = (json["url"] as? String ?? json["video_url"] as? String ?? json["src"] as? String),
+                       !url.isEmpty {
+                        return url
+                    }
+                } else {
+                    return captured
+                }
+            }
+        }
+
+        // 2. 直接 m3u8/mp4 URL
+        let urlPatterns = [
+            "(https?://[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(https?://[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)",
+            "(https?://[^\"'\\s<>]+\\.ts[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)"
+        ]
+        for pattern in urlPatterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                return groups[1]
+            }
+        }
+
+        return nil
+    }
+
+    // 正则辅助
+    private func firstMatch(pattern: String, in text: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else { return nil }
+        var groups: [String] = []
+        for i in 0..<match.numberOfRanges {
+            if let r = Range(match.range(at: i), in: text) {
+                groups.append(String(text[r]))
+            }
+        }
+        return groups
+    }
+
     // MARK: - 解析视频列表
     private func parseVideoList(_ doc: HTMLDocument) -> [FuliVideo] {
         var videos: [FuliVideo] = []
-        // 脚本使用: div.item > a, img.lazyload[data-src], span.duration
-        let items = doc.xpath("//div[contains(@class,'list-videos')]//div[contains(@class,'item')] | //div[@class='item']")
+        // 多种 XPath 回退
+        let xpaths = [
+            "//div[contains(@class,'list-videos')]//div[contains(@class,'item')]",
+            "//div[@class='item']",
+            "//div[contains(@class,'video-item')]",
+            "//div[contains(@class,'thumb')]/..",
+            "//li[contains(@class,'video')]",
+            "//div[contains(@class,'videos')]//a"
+        ]
+        var items: [XMLElement] = []
+        for xp in xpaths {
+            let found = doc.xpath(xp)
+            if !found.isEmpty {
+                items = found
+                break
+            }
+        }
         for item in items {
-            guard let a = item.xpath(".//a").first else { continue }
+            guard let a = item.xpath(".//a").first ?? (item.tagName == "a" ? item : nil) else { continue }
             let href = a["href"] ?? ""
             guard !href.isEmpty else { continue }
 
@@ -154,22 +298,23 @@ class FullHDService: FuliBaseService {
             if name.isEmpty {
                 name = a.text?.trimmingCharacters(in: .whitespaces) ?? ""
             }
+            if name.isEmpty {
+                name = item.xpath(".//img/@alt").first?.text ?? ""
+            }
             guard !name.isEmpty else { continue }
 
             var pic = item.xpath(".//img[contains(@class,'lazyload')]/@data-src").first?.text
                 ?? item.xpath(".//img/@data-src").first?.text
+                ?? item.xpath(".//img/@data-original").first?.text
                 ?? item.xpath(".//img/@src").first?.text ?? ""
-            if !pic.isEmpty && !pic.hasPrefix("http") {
-                if pic.hasPrefix("//") {
-                    pic = "https:" + pic
-                } else {
-                    pic = currentHost + pic
-                }
-            }
+            pic = normalizeURL(pic)
 
             let duration = item.xpath(".//span[@class='duration']").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? item.xpath(".//div[contains(@class,'duration')]").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? item.xpath(".//span[contains(@class,'time')]").first?.text?.trimmingCharacters(in: .whitespaces)
 
-            videos.append(FuliVideo(vodId: href, vodName: name, vodPic: pic, duration: duration))
+            let normalizedHref = normalizeURL(href)
+            videos.append(FuliVideo(vodId: normalizedHref, vodName: name, vodPic: pic, duration: duration))
         }
         return videos
     }

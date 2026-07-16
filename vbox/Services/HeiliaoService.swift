@@ -25,20 +25,23 @@ struct HeiliaoVideo: Identifiable {
 final class HeiliaoService: ObservableObject {
     static let shared = HeiliaoService()
 
-    private let defaultDomain = "https://heiliao.com"
+    private let defaultDomains = ["https://heiliao.com", "https://heiliao.app", "https://51hl.online", "https://hl.dspqyb.com"]
 
     private var activeBaseURL: String {
         let customs = WelfareDomainStore.shared.domains(for: "黑料不打烊")
         if let first = customs.first { return first }
-        return defaultDomain
+        return defaultDomains.first ?? "https://heiliao.com"
     }
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
+        c.httpShouldSetCookies = true
+        c.httpCookieAcceptPolicy = .always
         c.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.7049.96 Safari/537.36",
-            "Referer": "https://heiliao.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         ]
         return URLSession(configuration: c)
     }()
@@ -181,18 +184,21 @@ final class HeiliaoService: ObservableObject {
     func fetchCategories() async -> [HeiliaoCategory] {
         if let cached = cachedCategories { return cached }
 
-        let base = activeBaseURL
-        guard let html = await fetchHTML(base, referer: base + "/") else {
-            return fallbackCategories
+        // 尝试多个默认域名
+        let bases = WelfareDomainStore.shared.domains(for: "黑料不打烊").isEmpty ? defaultDomains : [activeBaseURL]
+        for base in bases {
+            guard let html = await fetchHTML(base, referer: base + "/") else { continue }
+            let parsed = parseCategories(from: html)
+            if !parsed.isEmpty {
+                if WelfareDomainStore.shared.domains(for: "黑料不打烊").isEmpty {
+                    WelfareDomainStore.shared.setDomains([base], for: "黑料不打烊")
+                }
+                cachedCategories = parsed
+                return parsed
+            }
         }
 
-        let parsed = parseCategories(from: html)
-        if parsed.isEmpty {
-            return fallbackCategories
-        }
-
-        cachedCategories = parsed
-        return parsed
+        return fallbackCategories
     }
 
     func resetDomain() {
@@ -423,7 +429,7 @@ final class HeiliaoService: ObservableObject {
             if let urlGroups = firstMatch(pattern: "\"url\"\\s*:\\s*\"([^\"]+)\"", in: raw),
                urlGroups.count >= 2 {
                 let url = urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
-                return normalizeImageURL(url, base: defaultDomain)
+                return normalizeImageURL(url, base: activeBaseURL)
             }
         }
 
@@ -446,7 +452,7 @@ final class HeiliaoService: ObservableObject {
             if let groups = firstMatch(pattern: pat, in: html), groups.count >= 2 {
                 var url = groups[1]
                 if url.hasPrefix("//") { url = "https:\(url)" }
-                else if url.hasPrefix("/") { url = "\(defaultDomain)\(url)" }
+                else if url.hasPrefix("/") { url = "\(activeBaseURL)\(url)" }
                 else if !url.hasPrefix("http") { url = "https://\(url)" }
                 return url
             }

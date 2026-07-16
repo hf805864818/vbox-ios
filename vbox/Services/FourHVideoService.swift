@@ -18,6 +18,37 @@ class FourHVideoService: FuliBaseService {
         )
     }
 
+    // MARK: - 自定义 Session（允许自签名证书）
+
+    private let _sessionDelegate = _FourHSessionDelegate()
+    private lazy var _customSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 20
+        c.httpShouldSetCookies = true
+        c.httpCookieAcceptPolicy = .always
+        c.tlsMinimumSupportedProtocolVersion = .TLSv10
+        c.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        ]
+        return URLSession(configuration: c, delegate: _sessionDelegate, delegateQueue: nil)
+    }()
+
+    var session: URLSession { _customSession }
+
+    override func defaultHeaders(host: String) -> [String: String] {
+        [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Connection": "keep-alive",
+            "Cache-Control": "no-cache",
+            "Origin": host,
+            "Referer": "\(host)/"
+        ]
+    }
+
     // MARK: - 硬编码分类（从脚本提取）
     private let hardcodedCategories: [(String, String)] = [
         ("传媒厂商", "20"), ("麻豆传媒", "21"), ("91制片", "22"),
@@ -131,29 +162,123 @@ class FourHVideoService: FuliBaseService {
     // MARK: - 解析视频列表
     private func parseVideoList(_ doc: HTMLDocument) -> [FuliVideo] {
         var videos: [FuliVideo] = []
-        // 脚本使用: //ul[@class="thumbnail-group clearfix"]/li
-        let items = doc.xpath("//ul[contains(@class,'thumbnail-group')]/li")
-        for li in items {
-            do {
-                guard let name = li.xpath(".//h5/a/text()").first?.text?.trimmingCharacters(in: .whitespaces),
-                      !name.isEmpty else { continue }
+        var seen: Set<String> = []
 
-                var pic = li.xpath(".//img/@data-original").first?.text ?? ""
-                if !pic.isEmpty && !pic.hasPrefix("http") {
-                    pic = currentHost + pic
+        // 多个 XPath 回退选择器
+        let xpathSelectors = [
+            // 原选择器：thumbnail-group
+            "//ul[contains(@class,'thumbnail-group')]/li",
+            // 常见视频列表容器
+            "//div[contains(@class,'video') or contains(@class,'item') or contains(@class,'card') or contains(@class,'module-item')]",
+            // 通用列表项
+            "//ul[contains(@class,'video') or contains(@class,'list') or contains(@class,'items')]/li",
+            // 详情链接
+            "//a[contains(@href,'/detail/') or contains(@href,'/vod/')]",
+        ]
+
+        for xpath in xpathSelectors {
+            let items = doc.xpath(xpath)
+            for item in items {
+                do {
+                    // 提取名称
+                    var name = ""
+                    let nameSelectors = [
+                        ".//h5/a/text()", ".//h4/a/text()", ".//h3/a/text()",
+                        ".//a[contains(@class,'title')]/text()",
+                        ".//*[contains(@class,'title')]/text()",
+                        ".//a/text()",
+                    ]
+                    for sel in nameSelectors {
+                        if let t = item.xpath(sel).first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !t.isEmpty {
+                            name = t
+                            break
+                        }
+                    }
+                    guard !name.isEmpty else { continue }
+
+                    // 提取封面图
+                    var pic = ""
+                    let picSelectors = [
+                        ".//img/@data-original", ".//img/@data-src",
+                        ".//img/@src", ".//@data-original", ".//@data-src",
+                    ]
+                    for sel in picSelectors {
+                        if let p = item.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+                           !p.isEmpty, !p.hasPrefix("data:") {
+                            pic = p
+                            break
+                        }
+                    }
+                    if !pic.isEmpty && !pic.hasPrefix("http") {
+                        if pic.hasPrefix("//") {
+                            pic = "https:" + pic
+                        } else if pic.hasPrefix("/") {
+                            pic = currentHost + pic
+                        } else {
+                            pic = currentHost + "/" + pic
+                        }
+                    }
+
+                    // 提取链接
+                    var href = ""
+                    let hrefSelectors = [
+                        ".//a[@class='thumbnail']/@href",
+                        ".//a[contains(@href,'/detail/')]/@href",
+                        ".//a[contains(@href,'/vod/')]/@href",
+                        ".//a/@href",
+                    ]
+                    for sel in hrefSelectors {
+                        if let h = item.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+                           !h.isEmpty {
+                            href = h
+                            break
+                        }
+                    }
+                    guard !href.isEmpty else { continue }
+
+                    // 从URL中提取ID
+                    let vid = href.split(separator: "/").last?.replacingOccurrences(of: ".html", with: "") ?? href
+
+                    // 去重
+                    if seen.contains(vid) { continue }
+                    seen.insert(vid)
+
+                    // 提取备注/时长
+                    var remark: String? = nil
+                    let remarkSelectors = [
+                        ".//span[@class='title']/text()",
+                        ".//*[contains(@class,'duration')]/text()",
+                        ".//*[contains(@class,'remark')]/text()",
+                        ".//span/text()",
+                    ]
+                    for sel in remarkSelectors {
+                        if let r = item.xpath(sel).first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !r.isEmpty {
+                            remark = r
+                            break
+                        }
+                    }
+
+                    videos.append(FuliVideo(vodId: vid, vodName: name, vodPic: pic, duration: remark))
                 }
-
-                guard let href = li.xpath(".//a[@class='thumbnail']/@href").first?.text,
-                      !href.isEmpty else { continue }
-
-                // 从URL中提取ID
-                let vid = href.split(separator: "/").last?.replacingOccurrences(of: ".html", with: "") ?? href
-
-                let remark = li.xpath(".//span[@class='title']/text()").first?.text?.trimmingCharacters(in: .whitespaces)
-
-                videos.append(FuliVideo(vodId: vid, vodName: name, vodPic: pic, duration: remark))
             }
+            if !videos.isEmpty { break }
         }
         return videos
+    }
+}
+
+// MARK: - URLSession Delegate（允许自签名证书）
+
+class _FourHSessionDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+            if let serverTrust = challenge.protectionSpace.serverTrust {
+                completionHandler(.useCredential, URLCredential(trust: serverTrust))
+                return
+            }
+        }
+        completionHandler(.performDefaultHandling, nil)
     }
 }

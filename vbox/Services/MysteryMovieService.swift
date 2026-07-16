@@ -95,6 +95,27 @@ class MysteryMovieService: ObservableObject {
         return "\(u)@User-Agent=\(headers["User-Agent"] ?? "")@Referer=\(host)/"
     }
 
+    // MARK: - 视频 URL 规范化
+
+    /// 规范化视频播放 URL：确保有正确的 http/https 前缀
+    private func normalizeVideoURL(_ url: String) -> String {
+        var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return "" }
+        if u.hasPrefix("http://") || u.hasPrefix("https://") {
+            return u
+        }
+        if u.hasPrefix("//") {
+            return "https:" + u
+        }
+        if u.hasPrefix("/") {
+            return videoHost + u
+        }
+        if !u.contains("://") {
+            return "https://" + u
+        }
+        return u
+    }
+
     // MARK: - 站点存活探测
 
     func probeHost() async -> String {
@@ -210,6 +231,9 @@ class MysteryMovieService: ObservableObject {
                 // 回退：硬编码 URL 格式（可能已失效）
                 playUrl = "\(videoHost)/\(vid)/hls/index.m3u8"
             }
+            // 规范化 URL
+            playUrl = normalizeVideoURL(playUrl)
+            print("[MysteryMovie] 最终播放URL: \(playUrl)")
 
             return MysteryMovieDetail(playFrom: "神秘线路", playUrl: playUrl,
                                       content: content)

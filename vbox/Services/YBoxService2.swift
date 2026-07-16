@@ -287,10 +287,6 @@ class YBoxService2: ObservableObject {
                          baseURL: "https://4h05.cc", desc: "HTML自适应分类"),
             YBoxPlatform2(name: "FullHD", icon: "display", type: .video,
                          baseURL: "https://fullhd.cc", desc: "HTML高清视频"),
-            YBoxPlatform2(name: "歪比", icon: "cube.fill", type: .video,
-                         baseURL: "https://waibi.com", desc: "HTML影视站"),
-            YBoxPlatform2(name: "小鸭子看看", icon: "bird.fill", type: .video,
-                         baseURL: "https://www.xiaoyazikankan.com", desc: "HTML视频站"),
             YBoxPlatform2(name: "香蕉视频", icon: "play.rectangle.fill", type: .video,
                          baseURL: "https://618013.xyz", desc: "HTML自适应分类"),
         ]

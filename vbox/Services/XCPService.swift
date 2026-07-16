@@ -104,7 +104,10 @@ class XCPService: ObservableObject {
                 guard !vodId.isEmpty else { continue }
 
                 let img = li.xpath(".//img").first
-                let pic = img?["src"] ?? ""
+                var pic = img?["src"] ?? ""
+                if !pic.isEmpty && !pic.hasPrefix("http") {
+                    pic = pic.hasPrefix("//") ? "https:\(pic)" : "\(host)\(pic)"
+                }
 
                 var title: String
                 var remarks: String
@@ -152,9 +155,12 @@ class XCPService: ObservableObject {
             }
 
             // 封面
-            let cover = doc.xpath("//img[@class='appel-img']").first?["src"]
+            var cover = doc.xpath("//img[@class='appel-img']").first?["src"]
                 ?? doc.xpath("//div[@class='detail-poster']//img").first?["src"]
                 ?? ""
+            if !cover.isEmpty && !cover.hasPrefix("http") {
+                cover = cover.hasPrefix("//") ? "https:\(cover)" : "\(host)\(cover)"
+            }
 
             // 播放列表
             var sources: [XCPPlaySource] = []

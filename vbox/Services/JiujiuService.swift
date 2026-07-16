@@ -23,19 +23,21 @@ struct JiujiuVideo: Identifiable {
 final class JiujiuService: ObservableObject {
     static let shared = JiujiuService()
 
-    private let defaultDomain = "https://ww.jiujiu.one"
+    private let defaultDomains = ["https://ww.jiujiu.one", "https://jiujiu.one", "https://www.jiujiu.one"]
 
     private var activeBaseURL: String {
         let customs = WelfareDomainStore.shared.domains(for: "久久網")
         if let first = customs.first { return first }
-        return defaultDomain
+        return defaultDomains.first ?? "https://ww.jiujiu.one"
     }
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
+        c.httpShouldSetCookies = true
+        c.httpCookieAcceptPolicy = .always
         c.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         ]
@@ -105,18 +107,21 @@ final class JiujiuService: ObservableObject {
     func fetchCategories() async -> [JiujiuCategory] {
         if let cached = cachedCategories { return cached }
 
-        let base = activeBaseURL
-        guard let html = await fetchHTML(base, referer: base) else {
-            return fallbackCategories
+        // 尝试多个默认域名
+        let bases = WelfareDomainStore.shared.domains(for: "久久網").isEmpty ? defaultDomains : [activeBaseURL]
+        for base in bases {
+            guard let html = await fetchHTML(base, referer: base) else { continue }
+            let parsed = parseCategories(from: html)
+            if !parsed.isEmpty {
+                if WelfareDomainStore.shared.domains(for: "久久網").isEmpty {
+                    WelfareDomainStore.shared.setDomains([base], for: "久久網")
+                }
+                cachedCategories = parsed
+                return parsed
+            }
         }
 
-        let parsed = parseCategories(from: html)
-        if parsed.isEmpty {
-            return fallbackCategories
-        }
-
-        cachedCategories = parsed
-        return parsed
+        return fallbackCategories
     }
 
     func resetDomain() {

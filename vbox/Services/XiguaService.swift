@@ -200,6 +200,31 @@ class XiguaService: ObservableObject {
         return XiguaPlayerResult(parse: parse, url: url, headers: defaultHeaders)
     }
 
+    // MARK: - URL 规范化 (处理 // 前缀、相对路径等)
+
+    /// 规范化 URL：确保有 http/https 前缀，处理 // 前缀和相对路径
+    private func normalizeURL(_ url: String) -> String {
+        var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !u.isEmpty else { return "" }
+        // 已经是完整 URL
+        if u.hasPrefix("http://") || u.hasPrefix("https://") {
+            return u
+        }
+        // 协议相对 URL (//example.com/xxx)
+        if u.hasPrefix("//") {
+            return "https:" + u
+        }
+        // 相对路径 (/xxx/xxx.jpg)
+        if u.hasPrefix("/") {
+            return currentHost + u
+        }
+        // 其他情况，默认加上 https://
+        if !u.contains("://") {
+            return "https://" + u
+        }
+        return u
+    }
+
     // MARK: - 图片解密 (AES-CBC)
     func decryptImage(_ encryptedData: Data) -> Data? {
         guard encryptedData.count > 0 else { return nil }
@@ -271,7 +296,7 @@ class XiguaService: ObservableObject {
             } else if let metaEl = article.css(".post-meta, .entry-meta, time").first {
                 date = (metaEl.text ?? "").trimmingCharacters(in: .whitespaces)
             } else { date = "" }
-            let picURL = extractBannerImage(article)
+            let picURL = normalizeURL(extractBannerImage(article))
             videos.append(XiguaVideo(vodId: href, vodName: title, vodPic: picURL, vodRemarks: date))
         }
         return videos
@@ -323,8 +348,9 @@ class XiguaService: ObservableObject {
                         name = "\(baseName) \(counter)"; counter += 1
                     }
                     usedNames.insert(name)
-                    print("[Xigua] 解析到视频: \(name) -> \(videoUrl)")
-                    episodes.append(XiguaEpisode(name: name, url: videoUrl))
+                    let normalizedUrl = normalizeURL(videoUrl)
+                    print("[Xigua] 解析到视频: \(name) -> \(normalizedUrl)")
+                    episodes.append(XiguaEpisode(name: name, url: normalizedUrl))
                 }
             } catch { continue }
         }
@@ -339,8 +365,9 @@ class XiguaService: ObservableObject {
                    let video = config["video"] as? [String: Any],
                    let videoUrl = video["url"] as? String,
                    !videoUrl.isEmpty {
-                    episodes.append(XiguaEpisode(name: "视频1", url: videoUrl))
-                    print("[Xigua] 正则提取到视频: \(videoUrl)")
+                    let normalizedUrl = normalizeURL(videoUrl)
+                    episodes.append(XiguaEpisode(name: "视频1", url: normalizedUrl))
+                    print("[Xigua] 正则提取到视频: \(normalizedUrl)")
                 }
             }
         }

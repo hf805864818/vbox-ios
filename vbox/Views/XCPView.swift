@@ -54,12 +54,15 @@ struct XCPCategoryView: View {
     @State private var page = 1
     @State private var pageCount = 1
     @State private var isLoading = false
+    @State private var selectedVideo: VodItem?
 
     var body: some View {
         ZStack {
             List {
                 ForEach(videos) { video in
-                    NavigationLink(destination: XCPDetailView(vodId: video.vodId)) {
+                    Button(action: {
+                        playVideoDirectly(video)
+                    }) {
                         SihuVideoRow(video: SihuVideo(vodId: video.vodId, title: video.title, cover: video.cover, remarks: video.remarks))
                     }
                     .buttonStyle(.plain)
@@ -86,6 +89,33 @@ struct XCPCategoryView: View {
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { if videos.isEmpty { load() } }
+        .fullScreenCover(item: $selectedVideo) { vod in
+            VideoPlayerViewV2(video: vod)
+        }
+    }
+
+    private func playVideoDirectly(_ video: XCPVideo) {
+        isLoading = true
+        Task {
+            let (title, cover, sources) = await svc.fetchDetail(vodId: video.vodId)
+            guard let firstSource = sources.first, let firstEp = firstSource.episodes.first else {
+                await MainActor.run { isLoading = false }
+                return
+            }
+            let url = await svc.fetchPlayURL(playPageURL: firstEp.playURL)
+            await MainActor.run {
+                isLoading = false
+                guard let urlStr = url, !urlStr.isEmpty else { return }
+                selectedVideo = VodItem(
+                    vodId: video.vodId,
+                    vodName: title.isEmpty ? video.title : title,
+                    vodPic: cover.isEmpty ? video.cover : cover,
+                    vodRemarks: "[福利]香肠派对",
+                    vodPlayUrl: urlStr,
+                    customHeaders: ["Referer": svc.currentHost]
+                )
+            }
+        }
     }
 
     private func load() {
@@ -228,8 +258,8 @@ struct XCPDetailView: View {
         .onAppear {
             if playSources.isEmpty { loadDetail() }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+        .fullScreenCover(item: $vodItem) { vod in
+            VideoPlayerViewV2(video: vod)
         }
     }
 
