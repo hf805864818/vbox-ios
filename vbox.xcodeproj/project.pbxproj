@@ -1025,8 +1025,6 @@
 				9C9F2E85386B45EAB0C010B8 /* WaibiService.swift in Sources */,
 				295555039AFA483DAA53B700 /* FullHDService.swift in Sources */,
 				A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */,
-						E230A0342CF94D7AA869ECF4 /* PushPlayStore.swift in Sources */,
-						5BA4A96049804FEF8EBAE5CC /* PushPlayView.swift in Sources */,
 				327EE1F4CD684916B734E66C /* PandaVideoService.swift in Sources */,
 				84CD00DB6B4B418E857E5481 /* FuliPlatformService.swift in Sources */,
 				XIGUA0000000000000000002 /* XiguaService.swift in Sources */,
