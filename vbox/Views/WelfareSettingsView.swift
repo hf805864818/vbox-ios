@@ -1,15 +1,21 @@
 import SwiftUI
 
-// MARK: - 福利平台域名设置页面（多域名管理）
+// MARK: - 福利平台域名设置页面（多域名管理 + 代理设置）
 
 struct WelfareSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = WelfareDomainStore.shared
+    @ObservedObject private var proxyStore = WelfareProxyStore.shared
     @State private var editingPlatform: String? = nil
     @State private var editDomain: String = ""
     @State private var savedToast: String? = nil
     @State private var refreshID = UUID()
     @FocusState private var isFocused: Bool
+
+    // 代理设置相关
+    @State private var proxyInput: String = ""
+    @State private var isProxyExpanded: Bool = false
+    @FocusState private var proxyFocused: Bool
 
     private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
         ("每日大乱斗", "flame.fill", ["https://border.bshzjjgq.cc", "https://blood.bshzjjgq.cc"]),
@@ -33,9 +39,22 @@ struct WelfareSettingsView: View {
         ("香蕉视频", "play.rectangle.fill", ["https://618013.xyz", "https://618012.xyz", "https://618011.xyz"]),
     ]
 
+    // 默认开启代理的平台
+    private let defaultProxyPlatforms: Set<String> = ["4H视频", "今日看料", "麻豆免费"]
+
     var body: some View {
         ZStack {
             List {
+                // 代理设置 Section
+                Section {
+                    proxySection
+                } header: {
+                    Text("代理设置")
+                } footer: {
+                    Text("支持 URL 转发代理格式，如：https://vbox.ltd/?token=199114&url=")
+                        .font(.system(size: 12))
+                }
+
                 Section {
                     Text("添加自定义域名后，系统会按顺序轮询。第一个可用的域名将被使用。左滑可删除已保存的域名。")
                         .font(.system(size: 13))
@@ -50,6 +69,9 @@ struct WelfareSettingsView: View {
             }
             .listStyle(.insetGrouped)
             .id(refreshID)
+            .onAppear {
+                proxyInput = proxyStore.proxyURL
+            }
 
             // 添加域名弹窗
             if let platform = editingPlatform {
@@ -95,7 +117,7 @@ struct WelfareSettingsView: View {
                 .zIndex(10)
             }
         }
-        .navigationTitle("福利平台域名")
+        .navigationTitle("福利平台设置")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -119,7 +141,126 @@ struct WelfareSettingsView: View {
         }
     }
 
-    // MARK: - 平台行
+    // MARK: - 代理设置 Section
+
+    @ViewBuilder
+    private var proxySection: some View {
+        VStack(spacing: 12) {
+            // 代理 URL 输入
+            HStack(spacing: 8) {
+                Image(systemName: "network")
+                    .foregroundColor(.accentColor)
+                    .frame(width: 20)
+                TextField("代理地址，如 https://vbox.ltd/?token=xxx&url=", text: $proxyInput)
+                    .font(.system(size: 14, design: .monospaced))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .focused($proxyFocused)
+                    .submitLabel(.done)
+                    .onSubmit { saveProxy() }
+            }
+
+            // 保存/清除按钮
+            HStack(spacing: 12) {
+                Button(action: { saveProxy() }) {
+                    Text("保存代理")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(proxyInput.isEmpty)
+
+                if !proxyStore.proxyURL.isEmpty {
+                    Button(action: { clearProxy() }) {
+                        Text("清除代理")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // 平台代理开关（折叠）
+            if !proxyStore.proxyURL.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                Button(action: {
+                    withAnimation { isProxyExpanded.toggle() }
+                }) {
+                    HStack {
+                        Image(systemName: isProxyExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Text("平台代理开关")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("\(enabledProxyCount)/\(platforms.count) 已开启")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isProxyExpanded {
+                    VStack(spacing: 0) {
+                        ForEach(platforms, id: \.name) { platform in
+                            proxyPlatformRow(platform)
+                            if platform.name != platforms.last?.name {
+                                Divider()
+                                    .padding(.leading, 32)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var enabledProxyCount: Int {
+        platforms.filter { proxyStore.isProxyEnabled(for: $0.name) }.count
+    }
+
+    // MARK: - 平台代理开关行
+
+    @ViewBuilder
+    private func proxyPlatformRow(_ platform: (name: String, icon: String, defaultHosts: [String])) -> some View {
+        HStack {
+            Image(systemName: platform.icon)
+                .foregroundColor(.accentColor)
+                .frame(width: 20)
+            Text(platform.name)
+                .font(.system(size: 14))
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { proxyStore.isProxyEnabled(for: platform.name) },
+                set: { newValue in
+                    proxyStore.setProxyEnabled(newValue, for: platform.name)
+                    if newValue {
+                        resetService(for: platform.name)
+                    }
+                    refreshID = UUID()
+                }
+            ))
+            .labelsHidden()
+            .tint(.accentColor)
+        }
+        .padding(.vertical, 6)
+        .padding(.leading, 4)
+    }
+
+    // MARK: - 平台行（域名设置）
 
     @ViewBuilder
     private func platformRow(_ platform: (name: String, icon: String, defaultHosts: [String])) -> some View {
@@ -130,6 +271,17 @@ struct WelfareSettingsView: View {
             HStack {
                 Image(systemName: platform.icon).foregroundColor(.accentColor)
                 Text(platform.name).font(.system(size: 15, weight: .medium))
+
+                // 代理状态标识
+                if proxyStore.isProxyEnabled(for: platform.name) {
+                    Image(systemName: "network")
+                        .font(.system(size: 10))
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                        .background(Color.green.opacity(0.15))
+                        .cornerRadius(4)
+                }
+
                 Spacer()
                 Button(action: {
                     editingPlatform = platform.name
@@ -202,6 +354,37 @@ struct WelfareSettingsView: View {
         .padding(.vertical, 4)
     }
 
+    // MARK: - 代理相关方法
+
+    private func saveProxy() {
+        let trimmed = proxyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        proxyStore.setProxyURL(trimmed)
+
+        // 首次设置代理时，为默认平台开启代理
+        if proxyStore.enabledPlatforms.isEmpty {
+            for name in defaultProxyPlatforms {
+                proxyStore.setProxyEnabled(true, for: name)
+                resetService(for: name)
+            }
+        }
+
+        showToast("代理已保存")
+        proxyFocused = false
+        refreshID = UUID()
+    }
+
+    private func clearProxy() {
+        proxyStore.clearProxyURL()
+        proxyInput = ""
+        // 重置所有平台服务
+        for platform in platforms {
+            resetService(for: platform.name)
+        }
+        showToast("代理已清除")
+        refreshID = UUID()
+    }
+
     // MARK: - 辅助方法
 
     private func doAdd() {
@@ -220,7 +403,6 @@ struct WelfareSettingsView: View {
     }
 
     private func resetService(for name: String) {
-        // 添加/删除域名后只需重新探测，不清除域名
         switch name {
         case "每日大乱斗": DailyBattleService.shared.reprobe()
         case "每日大赛": DailyBattleService.contest.reprobe()
@@ -242,7 +424,6 @@ struct WelfareSettingsView: View {
     }
 
     private func clearAndReset(for name: String) {
-        // 全部重置时清除域名并重新探测
         switch name {
         case "每日大乱斗": DailyBattleService.shared.resetDomain()
         case "每日大赛": DailyBattleService.contest.resetDomain()

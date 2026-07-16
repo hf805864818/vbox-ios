@@ -177,7 +177,7 @@ class BananaVideoService: FuliBaseService {
         }
     }
 
-    func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         let url = episode.url
         let parts = url.components(separatedBy: "_")
         let domain = parts.count > 1 ? "https://\(parts[0])" : currentHost
@@ -185,6 +185,7 @@ class BananaVideoService: FuliBaseService {
         // 如果已经是直接的视频URL，直接返回
         if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".ts") {
             let normalized = normalizeURL(url, base: domain)
+            print("[香蕉视频] 直接视频URL: \(normalized.prefix(80))")
             return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: domain), parse: 0)
         }
 
@@ -205,42 +206,80 @@ class BananaVideoService: FuliBaseService {
                 }
             }
 
-            // 多级回退提取播放URL
-            if let playURL = extractPlayURL(from: html, base: pageURL) {
+            // 策略1：调用 extractVideoURL 从 HTML 直接提取
+            if let playURL = extractVideoURL(from: html) {
                 let normalized = normalizeURL(playURL, base: pageURL)
-                print("[香蕉视频] 解析到播放地址: \(normalized.prefix(100))")
+                print("[香蕉视频] 策略1成功 - 从HTML直接提取: \(normalized.prefix(80))")
                 return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
             }
 
-            // 尝试用 Kanna 解析标签
+            // 策略2：通过 XPath 查找 video/source 标签
             let doc = try HTML(html: html, encoding: .utf8)
-            let srcXpaths = [
+            let videoXpaths = [
                 "//video/@src", "//video/source/@src",
-                "//iframe/@src", "//iframe[contains(@id,'player')]/@src",
+                "//video/@data-src", "//video/source/@data-src",
                 "//source/@src"
             ]
-            for xp in srcXpaths {
-                if let src = doc.xpath(xp).first?.text, !src.isEmpty {
+            for xp in videoXpaths {
+                if let src = doc.xpath(xp).first?.text?.trimmingCharacters(in: .whitespaces),
+                   !src.isEmpty, !src.hasPrefix("about:") {
                     let normalized = normalizeURL(src, base: pageURL)
-                    // 如果是 iframe，还需要进一步递归解析
-                    if normalized.contains("iframe") || (!normalized.contains(".m3u8") && !normalized.contains(".mp4")) {
-                        // 尝试访问 iframe 的内容
-                        do {
-                            let iframeHTML = try await fetchHTML(normalized)
-                            if let innerURL = extractPlayURL(from: iframeHTML, base: normalized) {
-                                let finalURL = normalizeURL(innerURL, base: normalized)
-                                return FuliPlayerResult(url: finalURL, headers: defaultHeaders(host: currentHost), parse: 0)
-                            }
-                        } catch {
-                            print("[香蕉视频] iframe 解析失败: \(error)")
-                        }
-                    }
-                    return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: normalized.contains(".m3u8") || normalized.contains(".mp4") ? 0 : 1)
+                    print("[香蕉视频] 策略2成功 - 从video标签解析: \(normalized.prefix(80))")
+                    return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
                 }
             }
 
-            // 最后回退
-            print("[香蕉视频] 未解析到播放地址，回退到Web解析")
+            // 策略3：查找 iframe 并递归解析
+            if let iframeURL = extractIframeURL(from: html) {
+                let iframeFull = normalizeURL(iframeURL, base: pageURL)
+                print("[香蕉视频] 策略3 - 发现iframe: \(iframeFull.prefix(80))")
+                do {
+                    let iframeHTML: String
+                    if iframeFull.hasPrefix(currentHost) {
+                        iframeHTML = try await fetchHTML(iframeFull)
+                    } else if let urlObj = URL(string: iframeFull), let host = urlObj.host {
+                        let path = iframeFull.replacingOccurrences(of: "https://\(host)", with: "")
+                            .replacingOccurrences(of: "http://\(host)", with: "")
+                        iframeHTML = try await fetchHTMLFromHost("https://\(host)", path: path)
+                    } else {
+                        iframeHTML = try await fetchHTML(iframeFull)
+                    }
+
+                    // 先从 iframe HTML 直接提取视频
+                    if let videoURL = extractVideoURL(from: iframeHTML) {
+                        let normalized = normalizeURL(videoURL, base: iframeFull)
+                        print("[香蕉视频] 策略3成功 - 从iframe提取视频: \(normalized.prefix(80))")
+                        return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                    }
+
+                    // iframe 中也可能还有 iframe，再深入一层
+                    if let innerIframeURL = extractIframeURL(from: iframeHTML) {
+                        let innerFull = normalizeURL(innerIframeURL, base: iframeFull)
+                        do {
+                            let innerHTML = try await fetchHTML(innerFull)
+                            if let videoURL = extractVideoURL(from: innerHTML) {
+                                let normalized = normalizeURL(videoURL, base: innerFull)
+                                print("[香蕉视频] 策略3成功 - 从二级iframe解析: \(normalized.prefix(80))")
+                                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                            }
+                        } catch {
+                            print("[香蕉视频] 二级iframe请求失败: \(error)")
+                        }
+                    }
+                } catch {
+                    print("[香蕉视频] iframe请求失败: \(error)")
+                }
+            }
+
+            // 策略4：匹配 DPlayer/ckplayer/jwplayer 等播放器配置
+            if let playerURL = extractPlayerConfigURL(from: html) {
+                let normalized = normalizeURL(playerURL, base: pageURL)
+                print("[香蕉视频] 策略4成功 - 从播放器配置解析: \(normalized.prefix(80))")
+                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+            }
+
+            // 策略5：全部失败回退到 parse: 1
+            print("[香蕉视频] 所有策略失败，回退到WebView解析")
             return FuliPlayerResult(url: pageURL, headers: defaultHeaders(host: currentHost), parse: 1)
         } catch {
             print("[香蕉视频] fetchPlayerURL 失败: \(error)")
@@ -333,7 +372,272 @@ class BananaVideoService: FuliBaseService {
         return groups
     }
 
-    // MARK: - 从 HTML 中提取播放 URL（多级回退）
+    // MARK: - 从 HTML 中提取视频 URL（extractVideoURL，多级策略）
+
+    private func extractVideoURL(from html: String) -> String? {
+        // --- JS变量解析 ---
+        let jsVarPatterns: [(pattern: String, isJSON: Bool)] = [
+            // player_aaaa JSON（苹果CMS常见）
+            (pattern: "var\\s+player_aaaa\\s*=\\s*(\\{[^;]+\\})", isJSON: true),
+            // player_data JSON
+            (pattern: "var\\s+player_data\\s*=\\s*(\\{[^;]+\\})", isJSON: true),
+            (pattern: "player_data\\s*=\\s*(\\{[^;]+\\})", isJSON: true),
+            // mac_player_data
+            (pattern: "var\\s+mac_player_data\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "mac_player_data\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            // player_url 字符串
+            (pattern: "var\\s+player_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "player_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            // video_url 字符串
+            (pattern: "var\\s+video_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "video_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            // vod_url 字符串
+            (pattern: "var\\s+vod_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "vod_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            // play_url 字符串
+            (pattern: "var\\s+play_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "play_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            // m3u8_url 字符串
+            (pattern: "var\\s+m3u8_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+            (pattern: "m3u8_url\\s*=\\s*['\"]([^'\"]+)['\"]", isJSON: false),
+        ]
+
+        for item in jsVarPatterns {
+            if let groups = firstMatch(pattern: item.pattern, in: html), groups.count >= 2 {
+                let captured = groups[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !captured.isEmpty else { continue }
+
+                if item.isJSON && captured.hasPrefix("{") {
+                    // JSON 解析
+                    if let url = extractURLFromJSON(captured) {
+                        return url
+                    }
+                } else {
+                    // 字符串直接返回
+                    if captured.contains(".m3u8") || captured.contains(".mp4") || captured.contains(".ts")
+                        || captured.hasPrefix("http") || captured.hasPrefix("/") {
+                        // 排除明显的非视频URL
+                        if !isLikelyAdOrNonVideo(captured) {
+                            return captured
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- JSON字段匹配 ---
+        let jsonFieldPatterns = [
+            "\"url\"\\s*:\\s*\"([^\"]+\\.(?:m3u8|mp4|ts)[^\"]*)\"",
+            "\"url\"\\s*:\\s*'([^']+\\.(?:m3u8|mp4|ts)[^']*)'",
+            "\"video\"\\s*:\\s*\"([^\"]+\\.(?:m3u8|mp4|ts)[^\"]*)\"",
+            "\"src\"\\s*:\\s*\"([^\"]+\\.(?:m3u8|mp4|ts)[^\"]*)\"",
+            "\"play_url\"\\s*:\\s*\"([^\"]+)\"",
+            "\"video_url\"\\s*:\\s*\"([^\"]+)\"",
+            "\"vod_url\"\\s*:\\s*\"([^\"]+)\"",
+        ]
+
+        for pattern in jsonFieldPatterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let url = groups[1]
+                if !url.isEmpty && !isLikelyAdOrNonVideo(url) {
+                    return url
+                }
+            }
+        }
+
+        // --- 绝对路径视频URL正则匹配（排除非视频）---
+        let absURLPatterns = [
+            "(https?://[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(https?://[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)",
+            "(https?://[^\"'\\s<>]+\\.ts[^\"'\\s<>]*)",
+        ]
+        for pattern in absURLPatterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let url = groups[1]
+                if !isLikelyAdOrNonVideo(url) {
+                    return url
+                }
+            }
+        }
+
+        // --- 相对路径视频URL正则匹配 ---
+        let relURLPatterns = [
+            "(/[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.ts[^\"'\\s<>]*)",
+        ]
+        for pattern in relURLPatterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let url = groups[1]
+                if !isLikelyAdOrNonVideo(url) {
+                    return url
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - 从 JSON 字符串中提取视频 URL
+
+    private func extractURLFromJSON(_ jsonString: String) -> String? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // 尝试多种字段
+        let fieldKeys = ["url", "video_url", "src", "play_url", "video", "vod_url", "m3u8_url"]
+        for key in fieldKeys {
+            if let value = json[key] as? String, !value.isEmpty {
+                if value.contains(".m3u8") || value.contains(".mp4") || value.contains(".ts")
+                    || value.hasPrefix("http") || value.hasPrefix("/") {
+                    return value
+                }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 从HTML提取iframe URL（正则匹配 + Kanna XPath）
+
+    private func extractIframeURL(from html: String) -> String? {
+        // 优先使用 Kanna XPath 解析
+        let doc = try? HTML(html: html, encoding: .utf8)
+        if let d = doc {
+            // 优先匹配播放器相关 iframe
+            let playerIframeSelectors = [
+                "//iframe[@id='player_iframe']/@src",
+                "//iframe[contains(@id,'player')]/@src",
+                "//iframe[contains(@class,'player')]/@src",
+                "//iframe[contains(@name,'play')]/@src",
+                "//iframe[@id='video']/@src",
+                "//div[contains(@id,'play')]//iframe/@src",
+                "//div[contains(@class,'player')]//iframe/@src",
+            ]
+            for sel in playerIframeSelectors {
+                if let src = d.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+                   !src.isEmpty,
+                   !src.hasPrefix("about:"),
+                   !src.hasPrefix("javascript:"),
+                   !isLikelyAdOrNonVideo(src) {
+                    return src
+                }
+            }
+
+            // 通用 iframe 匹配（排除广告和第三方）
+            let allIframes = d.xpath("//iframe/@src")
+            for iframe in allIframes {
+                if let src = iframe.text?.trimmingCharacters(in: .whitespaces),
+                   !src.isEmpty,
+                   !src.hasPrefix("about:"),
+                   !src.hasPrefix("javascript:") {
+                    // 排除广告和第三方 iframe
+                    if !isLikelyAdIframe(src) {
+                        return src
+                    }
+                }
+            }
+        }
+
+        // 备用：正则匹配 iframe src
+        let iframePattern = #"<iframe[^>]+src\s*=\s*["']([^"']+)["']"#
+        if let regex = try? NSRegularExpression(pattern: iframePattern, options: .caseInsensitive) {
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                if let r = Range(match.range(at: 1), in: html) {
+                    let src = String(html[r])
+                    if !src.isEmpty,
+                       !src.hasPrefix("about:"),
+                       !src.hasPrefix("javascript:"),
+                       !isLikelyAdIframe(src) {
+                        return src
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - 从播放器配置中提取URL（DPlayer/ckplayer/jwplayer等）
+
+    private func extractPlayerConfigURL(from html: String) -> String? {
+        let playerPatterns = [
+            // DPlayer
+            "new\\s+DPlayer\\s*\\(\\s*\\{[^}]*url\\s*:\\s*['\"]([^'\"]+)['\"]",
+            // ckplayer
+            "ckplayer\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "CKobject\\.\\w+\\s*\\([^)]+['\"]([^'\"]+\\.(?:m3u8|mp4)[^'\"]*)['\"]",
+            // jwplayer
+            "jwplayer\\s*\\([^)]*\\)\\s*\\.setup\\s*\\(\\s*\\{[^}]*file\\s*:\\s*['\"]([^'\"]+)['\"]",
+            // video.js
+            "videojs\\s*\\([^)]*\\)\\.src\\s*\\(\\s*['\"]([^'\"]+)['\"]",
+            // 通用播放器配置: video: "xxx" 或 file: "xxx"
+            "\"video\"\\s*:\\s*\"([^\"]+\\.(?:m3u8|mp4|ts)[^\"]*)\"",
+            "\"file\"\\s*:\\s*\"([^\"]+\\.(?:m3u8|mp4|ts)[^\"]*)\"",
+            // 苹果CMS/马克思CMS播放器配置
+            "player_config\\s*=\\s*(\\{[^;]+\\})",
+            "MacPlayer\\.Config\\s*=\\s*(\\{[^;]+\\})",
+        ]
+
+        for pattern in playerPatterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let captured = groups[1]
+                if captured.hasPrefix("{") {
+                    // JSON 配置
+                    if let url = extractURLFromJSON(captured) {
+                        return url
+                    }
+                } else {
+                    if !captured.isEmpty && !isLikelyAdOrNonVideo(captured) {
+                        return captured
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - 判断是否为广告或非视频URL
+
+    private func isLikelyAdOrNonVideo(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        let adKeywords = ["ad.", "ads.", "advert", "banner", "popup", "track", "stat", "analytic",
+                          "googleads", "doubleclick", "googletag", "scorecardresearch",
+                          "beacon", "counter", "pixel", "log.", "monitor"]
+        for kw in adKeywords {
+            if lower.contains(kw) {
+                return true
+            }
+        }
+        // 排除常见的非视频文件后缀
+        let nonVideoExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".css", ".js", ".html", ".htm", ".svg", ".ico"]
+        for ext in nonVideoExts {
+            if lower.hasSuffix(ext) || lower.contains(ext + "?") {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - 判断是否为广告iframe
+
+    private func isLikelyAdIframe(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        let adIframeKeywords = ["ad.", "ads.", "advert", "banner", "popup", "googleads",
+                                "doubleclick", "googletag", "scorecardresearch", "beacon",
+                                "facebook.com/plugins", "twitter.com/embed", "youtube.com/embed",
+                                "vimeo.com/video", "player.bilibili.com"]
+        for kw in adIframeKeywords {
+            if lower.contains(kw) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - 从 HTML 中提取播放 URL（旧方法，保留兼容）
     private func extractPlayURL(from html: String, base: String? = nil) -> String? {
         // 1. player_data / player_info JSON
         let jsonPatterns = [

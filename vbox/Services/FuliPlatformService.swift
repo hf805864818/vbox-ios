@@ -39,6 +39,16 @@ extension FuliPlatformService {
         return customs + defaultHosts
     }
 
+    /// 检查当前平台是否启用了代理
+    var isProxyEnabled: Bool {
+        WelfareProxyStore.shared.isProxyEnabled(for: platformName)
+    }
+
+    /// 对 URL 应用代理（如果启用）
+    func applyProxyIfNeeded(_ urlString: String) -> String {
+        WelfareProxyStore.shared.proxiedURL(urlString, for: platformName)
+    }
+
     func defaultHeaders(host: String) -> [String: String] {
         [
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
@@ -72,9 +82,11 @@ extension FuliPlatformService {
 
     @discardableResult
     func probeHost() async -> String {
+        let proxyEnabled = WelfareProxyStore.shared.isProxyEnabled(for: platformName)
         let hosts = allHosts
         for host in hosts {
-            guard let url = URL(string: host) else { continue }
+            let urlString = proxyEnabled ? WelfareProxyStore.shared.buildProxiedURL(host) : host
+            guard let url = URL(string: urlString) else { continue }
             var req = URLRequest(url: url)
             defaultHeaders(host: host).forEach { req.setValue($1, forHTTPHeaderField: $0) }
             do {
@@ -87,10 +99,10 @@ extension FuliPlatformService {
                         obj.isHostReady = true
                     }
                 }
-                print("[\(platformName)] 选用站点: \(host)")
+                print("[\(platformName)] 选用站点: \(host)\(proxyEnabled ? " (代理)" : "")")
                 return host
             } catch {
-                print("[\(platformName)] 探测失败 \(host): \(error.localizedDescription)")
+                print("[\(platformName)] 探测失败 \(host)\(proxyEnabled ? " (代理)" : ""): \(error.localizedDescription)")
                 continue
             }
         }
@@ -107,9 +119,9 @@ extension FuliPlatformService {
     func fetchHTML(_ path: String) async throws -> String {
         let urlStr: String
         if path.hasPrefix("http") {
-            urlStr = path
+            urlStr = applyProxyIfNeeded(path)
         } else {
-            urlStr = currentHost + (path.hasPrefix("/") ? path : "/\(path)")
+            urlStr = applyProxyIfNeeded(currentHost + (path.hasPrefix("/") ? path : "/\(path)"))
         }
         guard let url = URL(string: urlStr) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
@@ -125,7 +137,8 @@ extension FuliPlatformService {
     }
 
     func fetchData(_ urlString: String) async throws -> Data {
-        guard let url = URL(string: urlString) else { throw URLError(.badURL) }
+        let proxiedURL = applyProxyIfNeeded(urlString)
+        guard let url = URL(string: proxiedURL) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         defaultHeaders(host: currentHost).forEach { req.setValue($1, forHTTPHeaderField: $0) }
         let (data, resp) = try await session.data(for: req)
