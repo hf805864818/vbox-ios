@@ -121,6 +121,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     private func loadDetail() {
         isLoading = true; errorMsg = nil; detail = nil
         Task {
+            await svc.ensureHostReady()
             let result = await svc.fetchDetail(vodId: video.vodId)
             await MainActor.run {
                 detail = result; isLoading = false

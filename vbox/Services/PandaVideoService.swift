@@ -2,7 +2,8 @@ import Foundation
 
 // MARK: - 熊猫视频（API 接口类型）
 // 对应脚本：熊猫视频[成人].py
-// 站点：spiderscloudcn2.51111666.com / spiderscloudcn1.51111666.com
+// 站点：spiderscloudcn2.51111666.com
+// 使用 POST 请求，接口: /getDataInit (分类), /forward (视频列表/详情/搜索)
 class PandaVideoService: FuliBaseService {
     static let shared = PandaVideoService()
 
@@ -16,18 +17,17 @@ class PandaVideoService: FuliBaseService {
         )
     }
 
-    // MARK: - 域名/站点配置
-    private var siteInfo: PandaSiteInfo?
-
-    // MARK: - 接口调用
-    private func api(_ path: String, params: [String: String] = [:]) async throws -> Data {
-        var components = URLComponents(string: "\(currentHost)\(path)")!
-        if !params.isEmpty {
-            components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+    // MARK: - POST API 调用
+    private func postAPI(_ path: String, body: [String: Any]) async throws -> Data {
+        guard let url = URL(string: "\(currentHost)\(path)") else {
+            throw URLError(.badURL)
         }
-        guard let url = components.url else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         defaultHeaders(host: currentHost).forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
@@ -35,61 +35,91 @@ class PandaVideoService: FuliBaseService {
         return data
     }
 
-    // MARK: - 加载站点配置
-    private func loadSiteInfo() async -> PandaSiteInfo? {
-        if let info = siteInfo { return info }
-        do {
-            let data = try await api("/api/getDataInit")
-            let decoded = try JSONDecoder().decode(PandaSiteInfo.self, from: data)
-            siteInfo = decoded
-            return decoded
-        } catch {
-            print("[熊猫视频] 加载站点配置失败: \(error)")
-            return nil
-        }
-    }
-
+    // MARK: - 首页分类 + 推荐
     override func fetchHomeContent() async -> FuliHomeResult {
-        guard let info = await loadSiteInfo() else { return .empty }
-
-        // 分类
+        // 1. 获取分类
         var categories: [FuliCategory] = []
-        for cate in info.data.class_list {
-            var subs: [FuliCategory]?
-            if let children = cate.sub_list, !children.isEmpty {
-                subs = children.map { FuliCategory(typeId: "\($0.id)", typeName: $0.name) }
-            }
-            categories.append(FuliCategory(typeId: "\(cate.id)", typeName: cate.name, subCategories: subs))
-        }
-
-        // 首页推荐视频
-        var videos: [FuliVideo] = []
         do {
-            let data = try await api("/api/getVideoList", params: ["size": "24"])
+            let data = try await postAPI("/getDataInit", body: ["name": "John", "age": 31, "city": "New York"])
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let dataObj = json["data"] as? [String: Any],
-               let list = dataObj["list"] as? [[String: Any]] {
+               let menu0ListMap = dataObj["menu0ListMap"] as? [[String: Any]] {
+
+                // 从脚本逻辑：筛选 typeName 为 "传媒"、"视频"、"电影" 的一级分类
+                for item in menu0ListMap {
+                    guard let typeName = item["typeName"] as? String else { continue }
+                    if typeName == "传媒" || typeName == "视频" || typeName == "电影" {
+                        if let menu2List = item["menu2List"] as? [[String: Any]] {
+                            for item1 in menu2List {
+                                if let tid = item1["typeId2"] as? String,
+                                   let tname = item1["typeName2"] as? String {
+                                    categories.append(FuliCategory(typeId: tid, typeName: tname))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[熊猫视频] 获取分类失败: \(error)")
+        }
+
+        // 如果分类为空，使用默认分类
+        if categories.isEmpty {
+            categories = [
+                FuliCategory(typeId: "24", typeName: "精品推荐"),
+                FuliCategory(typeId: "21", typeName: "麻豆传媒"),
+                FuliCategory(typeId: "22", typeName: "91制片"),
+                FuliCategory(typeId: "23", typeName: "蜜桃传媒"),
+                FuliCategory(typeId: "30", typeName: "日本无码"),
+                FuliCategory(typeId: "31", typeName: "日本有码")
+            ]
+        }
+
+        // 2. 获取首页推荐视频
+        var videos: [FuliVideo] = []
+        do {
+            let body: [String: Any] = [
+                "command": "WEB_GET_INFO",
+                "pageNumber": 1,
+                "RecordsPage": 20,
+                "typeId": "24",
+                "typeMid": "1",
+                "languageType": "CN",
+                "content": ""
+            ]
+            let data = try await postAPI("/forward", body: body)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let dataObj = json["data"] as? [String: Any],
+               let list = dataObj["resultList"] as? [[String: Any]] {
                 videos = list.compactMap { parseVideoItem($0) }
             }
         } catch {
             print("[熊猫视频] 首页视频失败: \(error)")
         }
+
         return FuliHomeResult(categories: categories, videos: videos)
     }
 
+    // MARK: - 分类内容
     override func fetchCategoryContent(category: FuliCategory, subCategory: FuliCategory?, page: Int) async -> FuliCategoryResult {
-        let cateId = subCategory?.typeId ?? category.typeId
+        let tid = subCategory?.typeId ?? category.typeId
         do {
-            let data = try await api("/api/getVideoList", params: [
-                "size": "24",
-                "page": "\(page)",
-                "class_id": cateId
-            ])
+            let body: [String: Any] = [
+                "command": "WEB_GET_INFO",
+                "pageNumber": page,
+                "RecordsPage": 20,
+                "typeId": tid,
+                "typeMid": "1",
+                "languageType": "CN",
+                "content": ""
+            ]
+            let data = try await postAPI("/forward", body: body)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let dataObj = json["data"] as? [String: Any],
-               let list = dataObj["list"] as? [[String: Any]] {
+               let list = dataObj["resultList"] as? [[String: Any]] {
                 let videos = list.compactMap { parseVideoItem($0) }
-                return FuliCategoryResult(videos: videos, page: page, hasMore: videos.count >= 24)
+                return FuliCategoryResult(videos: videos, page: page, hasMore: videos.count >= 20)
             }
         } catch {
             print("[熊猫视频] 分类失败: \(error)")
@@ -97,27 +127,47 @@ class PandaVideoService: FuliBaseService {
         return FuliCategoryResult(videos: [], page: page, hasMore: false)
     }
 
+    // MARK: - 详情
     override func fetchDetail(vodId: String) async -> FuliDetail {
+        // vodId 格式: "id#serverId"
+        let parts = vodId.components(separatedBy: "#")
+        let cid = parts.first ?? vodId
+        let svid = parts.count > 1 ? parts[1] : ""
+
         do {
-            let data = try await api("/api/getVideoInfo", params: ["id": vodId])
+            // 先获取站点配置（用于 macVodLinkMap）
+            var linkMap: [String: [String: String]] = [:]
+            do {
+                let initData = try await postAPI("/getDataInit", body: ["name": "John", "age": 31, "city": "New York"])
+                if let json = try? JSONSerialization.jsonObject(with: initData) as? [String: Any],
+                   let dataObj = json["data"] as? [String: Any],
+                   let macMap = dataObj["macVodLinkMap"] as? [String: [String: String]] {
+                    linkMap = macMap
+                }
+            } catch {}
+
+            let body: [String: Any] = [
+                "command": "WEB_GET_INFO_DETAIL",
+                "type_Mid": "1",
+                "id": cid,
+                "languageType": "CN"
+            ]
+            let data = try await postAPI("/forward", body: body)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let dataObj = json["data"] as? [String: Any],
-               let info = dataObj["info"] as? [String: Any] {
-                let name = info["title"] as? String ?? info["name"] as? String ?? ""
-                let pic = info["image"] as? String ?? info["cover"] as? String ?? ""
-                let content = info["description"] as? String ?? info["intro"] as? String
-                let url = info["url"] as? String ?? info["video_url"] as? String ?? ""
-                let episodes: [FuliEpisode]
-                if let urls = info["urls"] as? [[String: String]], !urls.isEmpty {
-                    episodes = urls.enumerated().compactMap { idx, item in
-                        guard let u = item["url"] ?? item["video"], !u.isEmpty else { return nil }
-                        return FuliEpisode(name: item["name"] ?? "集\(idx+1)", url: u)
-                    }
-                } else if !url.isEmpty {
-                    episodes = [FuliEpisode(name: "播放", url: url)]
-                } else {
-                    episodes = []
+               let result = dataObj["result"] as? [String: Any] {
+
+                let name = result["vod_name"] as? String ?? ""
+                let pic = result["vod_pic"] as? String ?? ""
+                let content = result["vod_content"] as? String
+                var videoUrl = result["vod_url"] as? String ?? ""
+
+                // 拼接播放链接
+                if !svid.isEmpty, let linkInfo = linkMap[svid], let link2 = linkInfo["LINK_2"] {
+                    videoUrl = link2 + videoUrl
                 }
+
+                let episodes: [FuliEpisode] = videoUrl.isEmpty ? [] : [FuliEpisode(name: "播放", url: videoUrl)]
                 return FuliDetail(vodId: vodId, vodName: name, vodPic: pic, vodContent: content, playFrom: "熊猫视频", episodes: episodes)
             }
         } catch {
@@ -126,18 +176,25 @@ class PandaVideoService: FuliBaseService {
         return FuliDetail(vodId: vodId, vodName: "", vodPic: "", vodContent: nil, playFrom: "熊猫视频", episodes: [])
     }
 
+    // MARK: - 搜索
     override func fetchSearch(keyword: String, page: Int) async -> FuliSearchResult {
         do {
-            let data = try await api("/api/getSearchVideo", params: [
-                "keyword": keyword,
-                "page": "\(page)",
-                "size": "24"
-            ])
+            let body: [String: Any] = [
+                "command": "WEB_GET_INFO",
+                "pageNumber": page,
+                "RecordsPage": 20,
+                "typeId": "0",
+                "typeMid": "1",
+                "languageType": "CN",
+                "content": keyword,
+                "type": "1"
+            ]
+            let data = try await postAPI("/forward", body: body)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let dataObj = json["data"] as? [String: Any],
-               let list = dataObj["list"] as? [[String: Any]] {
+               let list = dataObj["resultList"] as? [[String: Any]] {
                 let videos = list.compactMap { parseVideoItem($0) }
-                return FuliSearchResult(videos: videos, page: page, hasMore: videos.count >= 24)
+                return FuliSearchResult(videos: videos, page: page, hasMore: videos.count >= 20)
             }
         } catch {
             print("[熊猫视频] 搜索失败: \(error)")
@@ -148,31 +205,20 @@ class PandaVideoService: FuliBaseService {
     // MARK: - 解析视频条目
     private func parseVideoItem(_ item: [String: Any]) -> FuliVideo? {
         guard let id = item["id"] as? Int else { return nil }
-        let name = item["title"] as? String ?? item["name"] as? String ?? ""
+        var name = (item["vod_name"] as? String ?? "")
+            .replacingOccurrences(of: "yy8ycom", with: "")
+        // 清理名称中的冗余部分
+        let pattern = "(.*?)-(.*?)-\\d+\\s+"
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            name = regex.stringByReplacingMatches(in: name, range: NSRange(name.startIndex..., in: name), withTemplate: "")
+        }
         guard !name.isEmpty else { return nil }
-        let pic = item["image"] as? String ?? item["cover"] as? String ?? ""
-        let duration = item["duration"] as? String
-        let score = item["score"] as? String
-        return FuliVideo(vodId: "\(id)", vodName: name, vodPic: pic, duration: duration, score: score)
+
+        let pic = item["vod_pic"] as? String ?? ""
+        let id2 = item["vod_server_id"] as? Int ?? 0
+
+        // vodId 格式: id#serverId
+        let vodId = id2 > 0 ? "\(id)#\(id2)" : "\(id)"
+        return FuliVideo(vodId: vodId, vodName: name, vodPic: pic)
     }
-}
-
-// MARK: - 熊猫视频数据模型
-private struct PandaSiteInfo: Codable {
-    let data: PandaData
-}
-
-private struct PandaData: Codable {
-    let class_list: [PandaCate]
-}
-
-private struct PandaCate: Codable {
-    let id: Int
-    let name: String
-    let sub_list: [PandaSubCate]?
-}
-
-private struct PandaSubCate: Codable {
-    let id: Int
-    let name: String
 }

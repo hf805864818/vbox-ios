@@ -139,6 +139,12 @@ extension FuliPlatformService {
         let direct = episode.url.contains(".m3u8") || episode.url.contains(".mp4") || episode.url.contains(".ts")
         return FuliPlayerResult(url: episode.url, headers: defaultHeaders(host: currentHost), parse: direct ? 0 : 1)
     }
+
+    func ensureHostReady() async {
+        if currentHost.isEmpty || !isHostReady {
+            _ = await probeHost()
+        }
+    }
 }
 
 // MARK: - 基类（用于 @Published 状态管理）
