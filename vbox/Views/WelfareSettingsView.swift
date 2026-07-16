@@ -14,7 +14,7 @@ struct WelfareSettingsView: View {
 
     // 代理设置相关
     @State private var proxyInput: String = ""
-    @State private var isProxyExpanded: Bool = false
+    @State private var isProxyExpanded: Bool = true
     @FocusState private var proxyFocused: Bool
 
     private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
@@ -51,7 +51,7 @@ struct WelfareSettingsView: View {
                 } header: {
                     Text("代理设置")
                 } footer: {
-                    Text("支持 URL 转发代理格式，如：https://vbox.ltd/?token=199114&url=")
+                    Text("支持 URL 转发代理格式，在代理地址末尾拼接原始URL")
                         .font(.system(size: 12))
                 }
 
@@ -151,7 +151,7 @@ struct WelfareSettingsView: View {
                 Image(systemName: "network")
                     .foregroundColor(.accentColor)
                     .frame(width: 20)
-                TextField("代理地址，如 https://vbox.ltd/?token=xxx&url=", text: $proxyInput)
+                TextField("输入代理地址，如 https://your-proxy.com/?url=", text: $proxyInput)
                     .font(.system(size: 14, design: .monospaced))
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
@@ -189,40 +189,46 @@ struct WelfareSettingsView: View {
             }
 
             // 平台代理开关（折叠）
-            if !proxyStore.proxyURL.isEmpty {
-                Divider()
-                    .padding(.vertical, 4)
+            Divider()
+                .padding(.vertical, 4)
 
-                Button(action: {
-                    withAnimation { isProxyExpanded.toggle() }
-                }) {
-                    HStack {
-                        Image(systemName: isProxyExpanded ? "chevron.down" : "chevron.right")
+            Button(action: {
+                withAnimation { isProxyExpanded.toggle() }
+            }) {
+                HStack {
+                    Image(systemName: isProxyExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Text("平台代理开关")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    if proxyStore.proxyURL.isEmpty {
+                        Text("未设置代理")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
-                        Text("平台代理开关")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.primary)
-                        Spacer()
+                    } else {
                         Text("\(enabledProxyCount)/\(platforms.count) 已开启")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
                 }
-                .buttonStyle(.plain)
+            }
+            .buttonStyle(.plain)
 
-                if isProxyExpanded {
-                    VStack(spacing: 0) {
-                        ForEach(platforms, id: \.name) { platform in
-                            proxyPlatformRow(platform)
-                            if platform.name != platforms.last?.name {
-                                Divider()
-                                    .padding(.leading, 32)
-                            }
+            if isProxyExpanded {
+                VStack(spacing: 0) {
+                    ForEach(platforms, id: \.name) { platform in
+                        proxyPlatformRow(platform)
+                        if platform.name != platforms.last?.name {
+                            Divider()
+                                .padding(.leading, 32)
                         }
                     }
-                    .padding(.top, 4)
                 }
+                .padding(.top, 4)
+                .opacity(proxyStore.proxyURL.isEmpty ? 0.5 : 1.0)
+                .disabled(proxyStore.proxyURL.isEmpty)
             }
         }
         .padding(.vertical, 4)
