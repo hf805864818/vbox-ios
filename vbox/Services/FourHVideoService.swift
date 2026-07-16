@@ -3,8 +3,8 @@ import Kanna
 
 // MARK: - 4H 视频（HTML 类）
 // 对应脚本：4H视频[成人].py
-// 站点：www.sihuhu.xyz（四虎视频）
-// 分类为硬编码，URL格式: /vod/type/id/{tid}/page/{pg}.html
+// 站点：4h05.cc / 4h04.cc / 4h03.cc
+// 分类为硬编码，URL格式: /vod/type/id/{tid}/page/{pg}.html 或 /index.php/vod/...
 class FourHVideoService: FuliBaseService {
     static let shared = FourHVideoService()
 
@@ -12,8 +12,9 @@ class FourHVideoService: FuliBaseService {
         super.init(
             platformName: "4H视频",
             defaultHosts: [
-                "https://www.sihuhu.xyz",
-                "https://sihuhu.xyz"
+                "https://4h05.cc",
+                "https://4h04.cc",
+                "https://4h03.cc"
             ]
         )
     }
@@ -92,71 +93,297 @@ class FourHVideoService: FuliBaseService {
 
     override func fetchCategoryContent(category: FuliCategory, subCategory: FuliCategory?, page: Int) async -> FuliCategoryResult {
         let tid = subCategory?.typeId ?? category.typeId
-        // URL格式: /vod/type/id/{tid}/page/{pg}.html
-        let path = page > 1 ? "/vod/type/id/\(tid)/page/\(page).html" : "/vod/type/id/\(tid).html"
-        do {
-            let html = try await fetchHTML(path)
-            let doc = try HTML(html: html, encoding: .utf8)
-            let videos = parseVideoList(doc)
-            return FuliCategoryResult(videos: videos, page: page, hasMore: videos.count >= 20)
-        } catch {
-            print("[4H视频] 分类失败: \(error)")
-            return FuliCategoryResult(videos: [], page: page, hasMore: false)
+        // 支持多种URL格式：/vod/type/id/{tid}/page/{pg}.html 和 /index.php/vod/type/id/{tid}/page/{pg}.html
+        let vodPath = page > 1 ? "/vod/type/id/\(tid)/page/\(page).html" : "/vod/type/id/\(tid).html"
+        let indexPath = page > 1 ? "/index.php/vod/type/id/\(tid)/page/\(page).html" : "/index.php/vod/type/id/\(tid).html"
+        let paths = [vodPath, indexPath]
+
+        for path in paths {
+            do {
+                let html = try await fetchHTML(path)
+                let doc = try HTML(html: html, encoding: .utf8)
+                let videos = parseVideoList(doc)
+                if !videos.isEmpty {
+                    print("[4H视频] 分类解析成功: \(path)")
+                    return FuliCategoryResult(videos: videos, page: page, hasMore: videos.count >= 20)
+                }
+            } catch {
+                print("[4H视频] 分类尝试失败 \(path): \(error)")
+            }
         }
+        print("[4H视频] 分类全部失败")
+        return FuliCategoryResult(videos: [], page: page, hasMore: false)
     }
 
     override func fetchDetail(vodId: String) async -> FuliDetail {
-        // URL格式: /vod/detail/id/{tid}.html
-        let path = "/vod/detail/id/\(vodId).html"
-        do {
-            let html = try await fetchHTML(path)
-            let doc = try HTML(html: html, encoding: .utf8)
+        // 支持多种URL格式：/vod/detail/id/{id}.html 和 /index.php/vod/detail/id/{id}.html
+        let vodPath = "/vod/detail/id/\(vodId).html"
+        let indexPath = "/index.php/vod/detail/id/\(vodId).html"
+        let paths = [vodPath, indexPath]
 
-            let title = doc.xpath("//title").first?.text?
-                .replacingOccurrences(of: " - 四虎视频", with: "")
-                .trimmingCharacters(in: .whitespaces) ?? ""
-            let pic = doc.xpath("//meta[@property='og:image']/@content").first?.text ?? ""
-            let desc = doc.xpath("//meta[@name='description']/@content").first?.text
+        for path in paths {
+            do {
+                let html = try await fetchHTML(path)
+                let doc = try HTML(html: html, encoding: .utf8)
 
-            // 获取播放源和剧集
-            var episodes: [FuliEpisode] = []
-            let playSources = doc.xpath("//div[@class='module-play-list']/div")
-            for (sourceIdx, source) in playSources.enumerated() {
-                let sourceName = source.xpath(".//span/text()").first?.text?.trimmingCharacters(in: .whitespaces) ?? "线路\(sourceIdx+1)"
-                let episodeLinks = source.xpath(".//a")
-                for (epIdx, a) in episodeLinks.enumerated() {
-                    guard let href = a["href"], !href.isEmpty else { continue }
-                    let epName = a.text?.trimmingCharacters(in: .whitespaces) ?? "第\(epIdx+1)集"
-                    let fullUrl = href.hasPrefix("http") ? href : (currentHost + href)
-                    episodes.append(FuliEpisode(name: "\(sourceName)-\(epName)", url: fullUrl))
+                let title = doc.xpath("//title").first?.text?
+                    .replacingOccurrences(of: " - 四虎视频", with: "")
+                    .replacingOccurrences(of: " - 4H视频", with: "")
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                let pic = doc.xpath("//meta[@property='og:image']/@content").first?.text ?? ""
+                let desc = doc.xpath("//meta[@name='description']/@content").first?.text
+
+                // 获取播放源和剧集
+                var episodes: [FuliEpisode] = []
+                let playSources = doc.xpath("//div[@class='module-play-list']/div")
+                for (sourceIdx, source) in playSources.enumerated() {
+                    let sourceName = source.xpath(".//span/text()").first?.text?.trimmingCharacters(in: .whitespaces) ?? "线路\(sourceIdx+1)"
+                    let episodeLinks = source.xpath(".//a")
+                    for (epIdx, a) in episodeLinks.enumerated() {
+                        guard let href = a["href"], !href.isEmpty else { continue }
+                        let epName = a.text?.trimmingCharacters(in: .whitespaces) ?? "第\(epIdx+1)集"
+                        let fullUrl = href.hasPrefix("http") ? href : (currentHost + href)
+                        episodes.append(FuliEpisode(name: "\(sourceName)-\(epName)", url: fullUrl))
+                    }
                 }
-            }
 
-            // 如果没有找到播放源，使用默认方式
-            if episodes.isEmpty {
-                let playPageUrl = "\(currentHost)/vod/play/id/\(vodId)/sid/1/nid/1.html"
-                episodes.append(FuliEpisode(name: "第1集", url: playPageUrl))
-            }
+                // 如果没有找到播放源，使用默认方式
+                if episodes.isEmpty {
+                    let playPageUrl = "\(currentHost)/vod/play/id/\(vodId)/sid/1/nid/1.html"
+                    episodes.append(FuliEpisode(name: "第1集", url: playPageUrl))
+                }
 
-            return FuliDetail(vodId: vodId, vodName: title, vodPic: pic, vodContent: desc, playFrom: "4H视频", episodes: episodes)
-        } catch {
-            print("[4H视频] 详情失败: \(error)")
-            return FuliDetail(vodId: vodId, vodName: "", vodPic: "", vodContent: nil, playFrom: "4H视频", episodes: [])
+                if !episodes.isEmpty {
+                    print("[4H视频] 详情解析成功: \(path)")
+                    return FuliDetail(vodId: vodId, vodName: title, vodPic: pic, vodContent: desc, playFrom: "4H视频", episodes: episodes)
+                }
+            } catch {
+                print("[4H视频] 详情尝试失败 \(path): \(error)")
+            }
         }
+        print("[4H视频] 详情全部失败")
+        return FuliDetail(vodId: vodId, vodName: "", vodPic: "", vodContent: nil, playFrom: "4H视频", episodes: [])
     }
 
     override func fetchSearch(keyword: String, page: Int) async -> FuliSearchResult {
         let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        let path = "/vod/search/page/\(page)/wd/\(encoded).html"
-        do {
-            let html = try await fetchHTML(path)
-            let doc = try HTML(html: html, encoding: .utf8)
-            let videos = parseVideoList(doc)
-            return FuliSearchResult(videos: videos, page: page, hasMore: videos.count >= 20)
-        } catch {
-            print("[4H视频] 搜索失败: \(error)")
-            return FuliSearchResult(videos: [], page: page, hasMore: false)
+        // 支持多种URL格式：/vod/search/page/{pg}/wd/{wd}.html 和 /index.php/vod/search/page/{pg}/wd/{wd}.html
+        let vodPath = "/vod/search/page/\(page)/wd/\(encoded).html"
+        let indexPath = "/index.php/vod/search/page/\(page)/wd/\(encoded).html"
+        let paths = [vodPath, indexPath]
+
+        for path in paths {
+            do {
+                let html = try await fetchHTML(path)
+                let doc = try HTML(html: html, encoding: .utf8)
+                let videos = parseVideoList(doc)
+                if !videos.isEmpty {
+                    print("[4H视频] 搜索解析成功: \(path)")
+                    return FuliSearchResult(videos: videos, page: page, hasMore: videos.count >= 20)
+                }
+            } catch {
+                print("[4H视频] 搜索尝试失败 \(path): \(error)")
+            }
         }
+        print("[4H视频] 搜索全部失败")
+        return FuliSearchResult(videos: [], page: page, hasMore: false)
+    }
+
+    // MARK: - 播放地址解析（重写基类方法）
+
+    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+        let url = episode.url
+
+        // 如果已经是直接的视频URL，直接返回
+        if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".ts") {
+            let normalized = normalizeURL(url)
+            print("[4H视频] 直接视频URL: \(normalized.prefix(80))")
+            return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+        }
+
+        do {
+            // 策略1：访问播放页，从HTML中直接提取视频URL
+            let pageURL = normalizeURL(url)
+            let html = try await fetchHTML(pageURL)
+
+            // 策略1.1：直接从 video/source 标签提取
+            if let videoURL = extractVideoURL(from: html) {
+                let normalized = normalizeURL(videoURL)
+                print("[4H视频] 策略1成功 - 从video标签解析: \(normalized.prefix(80))")
+                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+            }
+
+            // 策略2：从 iframe 中提取播放地址
+            if let iframeURL = extractIframeURL(from: html) {
+                print("[4H视频] 策略2 - 发现iframe: \(iframeURL.prefix(80))")
+                do {
+                    let iframeHTML = try await fetchHTML(iframeURL)
+                    if let videoURL = extractVideoURL(from: iframeHTML) {
+                        let normalized = normalizeURL(videoURL, base: iframeURL)
+                        print("[4H视频] 策略2成功 - 从iframe解析: \(normalized.prefix(80))")
+                        return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                    }
+                    // iframe 中也可能还有 iframe，再深入一层
+                    if let innerIframeURL = extractIframeURL(from: iframeHTML) {
+                        let innerFull = normalizeURL(innerIframeURL, base: iframeURL)
+                        do {
+                            let innerHTML = try await fetchHTML(innerFull)
+                            if let videoURL = extractVideoURL(from: innerHTML) {
+                                let normalized = normalizeURL(videoURL, base: innerFull)
+                                print("[4H视频] 策略2.2成功 - 从二级iframe解析: \(normalized.prefix(80))")
+                                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                            }
+                        } catch {
+                            print("[4H视频] 二级iframe请求失败: \(error)")
+                        }
+                    }
+                } catch {
+                    print("[4H视频] iframe请求失败: \(error)")
+                }
+            }
+
+            // 策略3：从JavaScript中提取播放URL（player_data / player_url等）
+            if let jsURL = extractPlayURLFromJS(from: html) {
+                let normalized = normalizeURL(jsURL)
+                print("[4H视频] 策略3成功 - 从JS解析: \(normalized.prefix(80))")
+                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+            }
+
+            // 策略4：回退到WebView解析
+            print("[4H视频] 所有策略失败，回退到WebView解析")
+            return FuliPlayerResult(url: pageURL, headers: defaultHeaders(host: currentHost), parse: 1)
+
+        } catch {
+            print("[4H视频] fetchPlayerURL 失败: \(error)")
+            return FuliPlayerResult(url: url, headers: defaultHeaders(host: currentHost), parse: 1)
+        }
+    }
+
+    // MARK: - 辅助方法：从HTML提取视频URL
+
+    private func extractVideoURL(from html: String) -> String? {
+        let doc = try? HTML(html: html, encoding: .utf8)
+        guard let d = doc else { return nil }
+
+        // 优先从 video/source 标签提取
+        let videoSelectors = [
+            "//video/source/@src",
+            "//video/@src",
+            "//video/source/@data-src",
+            "//video/@data-src",
+            "//video[contains(@class,'video')]/@src",
+            "//source/@src",
+        ]
+        for sel in videoSelectors {
+            if let src = d.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+               !src.isEmpty, !src.hasPrefix("about:") {
+                return src
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 辅助方法：从HTML提取iframe URL
+
+    private func extractIframeURL(from html: String) -> String? {
+        let doc = try? HTML(html: html, encoding: .utf8)
+        guard let d = doc else { return nil }
+
+        let iframeSelectors = [
+            "//iframe[@id='player_iframe']/@src",
+            "//iframe[contains(@class,'player')]/@src",
+            "//iframe[contains(@id,'play')]/@src",
+            "//iframe/@src",
+            "//embed/@src",
+        ]
+        for sel in iframeSelectors {
+            if let src = d.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+               !src.isEmpty, !src.hasPrefix("about:") {
+                return normalizeURL(src)
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 辅助方法：从JavaScript中提取播放URL
+
+    private func extractPlayURLFromJS(from html: String) -> String? {
+        let patterns = [
+            // player_data JSON
+            "var\\s+player_data\\s*=\\s*(\\{[^;]+\\})",
+            "player_data\\s*=\\s*(\\{[^;]+\\})",
+            // player_url 变量
+            "var\\s+player_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "player_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            // video_url / src 变量
+            "var\\s+video_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "video_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            // JSON 中的 url 字段
+            "\"url\"\\s*:\\s*\"([^\"]+\\.m3u8[^\"]*)\"",
+            "\"url\"\\s*:\\s*\"([^\"]+\\.mp4[^\"]*)\"",
+            "'url'\\s*:\\s*'([^']+\\.m3u8[^']*)'",
+            "'url'\\s*:\\s*'([^']+\\.mp4[^']*)'",
+            // m3u8/mp4 直接URL
+            "(https?://[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(https?://[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)",
+            "(/[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)",
+        ]
+
+        for pattern in patterns {
+            if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
+                let captured = groups[1]
+                // 如果是 JSON，尝试解析
+                if captured.hasPrefix("{") {
+                    if let data = captured.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let url = (json["url"] as? String ?? json["video_url"] as? String ?? json["src"] as? String),
+                       !url.isEmpty {
+                        return url
+                    }
+                } else {
+                    return captured
+                }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 正则辅助
+
+    private func firstMatch(pattern: String, in text: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range) else { return nil }
+        var groups: [String] = []
+        for i in 0..<match.numberOfRanges {
+            if let r = Range(match.range(at: i), in: text) {
+                groups.append(String(text[r]))
+            }
+        }
+        return groups
+    }
+
+    // MARK: - URL 规范化
+
+    private func normalizeURL(_ url: String, base: String? = nil) -> String {
+        var result = url.trimmingCharacters(in: .whitespaces)
+        guard !result.isEmpty else { return "" }
+        if result.hasPrefix("http://") || result.hasPrefix("https://") {
+            return result
+        }
+        if result.hasPrefix("//") {
+            return "https:" + result
+        }
+        let baseHost = base ?? currentHost
+        if result.hasPrefix("/") {
+            return baseHost + result
+        }
+        // 无协议无斜杠开头，当作相对路径
+        if baseHost.hasSuffix("/") {
+            return baseHost + result
+        }
+        return baseHost + "/" + result
     }
 
     // MARK: - 解析视频列表

@@ -23,6 +23,8 @@ struct KanliaoVideo: Identifiable {
 final class KanliaoService: ObservableObject {
     static let shared = KanliaoService()
 
+    private let platformName = "今日看料"
+
     private let candidateDomains = [
         "https://kanliao2.one",
         "https://kanliao7.org",
@@ -33,7 +35,7 @@ final class KanliaoService: ObservableObject {
     private var _activeBaseURL: String?
     private var activeBaseURL: String {
         if let cached = _activeBaseURL { return cached }
-        let customs = WelfareDomainStore.shared.domains(for: "今日看料")
+        let customs = WelfareDomainStore.shared.domains(for: platformName)
         if let first = customs.first { return first }
         return candidateDomains[0]
     }
@@ -99,6 +101,45 @@ final class KanliaoService: ObservableObject {
         }
     }
 
+    // MARK: - HTML 实体解码
+
+    private func decodeHTMLEntities(_ string: String) -> String {
+        var result = string
+        // 常见命名实体
+        let namedEntities: [String: String] = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'",
+            "&apos;": "'", "&nbsp;": " ", "&copy;": "©", "&reg;": "®",
+            "&ldquo;": "\"", "&rdquo;": "\"", "&lsquo;": "'", "&rsquo;": "'",
+            "&mdash;": "—", "&ndash;": "–", "&hellip;": "…",
+        ]
+        for (entity, char) in namedEntities {
+            result = result.replacingOccurrences(of: entity, with: char)
+        }
+        // 数字实体 &#ddd;
+        if let regex = try? NSRegularExpression(pattern: "&#(\\d+);", options: []) {
+            let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
+            for match in matches.reversed() {
+                guard let numRange = Range(match.range(at: 1), in: result),
+                      let fullRange = Range(match.range(at: 0), in: result),
+                      let num = Int(result[numRange]),
+                      let scalar = UnicodeScalar(num) else { continue }
+                result.replaceSubrange(fullRange, with: String(Character(scalar)))
+            }
+        }
+        // 十六进制实体 &#xhhh;
+        if let regex = try? NSRegularExpression(pattern: "&#x([0-9a-fA-F]+);", options: []) {
+            let matches = regex.matches(in: result, options: [], range: NSRange(result.startIndex..., in: result))
+            for match in matches.reversed() {
+                guard let hexRange = Range(match.range(at: 1), in: result),
+                      let fullRange = Range(match.range(at: 0), in: result),
+                      let num = Int(result[hexRange], radix: 16),
+                      let scalar = UnicodeScalar(num) else { continue }
+                result.replaceSubrange(fullRange, with: String(Character(scalar)))
+            }
+        }
+        return result
+    }
+
     // MARK: - 动态域名探测
 
     @discardableResult
@@ -114,7 +155,7 @@ final class KanliaoService: ObservableObject {
                 let html = String(data: data, encoding: .utf8) ?? ""
                 if html.contains("<article") || html.contains("article") {
                     _activeBaseURL = domain
-                    WelfareDomainStore.shared.addDomain(for: "今日看料", domain)
+                    WelfareDomainStore.shared.addDomain(for: platformName, domain)
                     print("[Kanliao] 探测到可用域名: \(domain)")
                     return true
                 }
@@ -140,16 +181,18 @@ final class KanliaoService: ObservableObject {
 
         let parsed = parseCategories(from: html, base: base)
         if parsed.isEmpty {
+            print("[Kanliao] 分类解析失败，使用 fallback 分类")
             return fallbackCategories
         }
 
         cachedCategories = parsed
+        print("[Kanliao] 解析到 \(parsed.count) 个分类")
         return parsed
     }
 
     func resetDomain() {
         cachedCategories = nil
-        WelfareDomainStore.shared.clearDomains(for: "今日看料")
+        WelfareDomainStore.shared.clearDomains(for: platformName)
         _activeBaseURL = nil
     }
 
@@ -185,13 +228,40 @@ final class KanliaoService: ObservableObject {
     func fetchPlayURL(pageUrl: String) async -> String? {
         let base = activeBaseURL
         let url = pageUrl.hasPrefix("http") ? pageUrl : "\(base)\(pageUrl)"
-        guard let html = await fetchHTML(url, referer: base) else { return nil }
-
-        if let playURL = extractPlayURL(from: html) {
-            print("[Kanliao] 播放地址: \(playURL.prefix(100))...")
-            return playURL
+        guard let html = await fetchHTML(url, referer: base) else {
+            print("[Kanliao] fetchPlayURL: 无法获取页面 HTML")
+            return nil
         }
-        return url
+
+        // 第一层：直接从页面提取
+        if let playURL = extractPlayURL(from: html) {
+            print("[Kanliao] 第一层提取到播放地址: \(playURL.prefix(80))...")
+            return normalizePlayURL(playURL, base: base)
+        }
+
+        // 第二层：iframe 递归解析
+        if let iframeURL = extractIframeURL(from: html, base: base) {
+            print("[Kanliao] 发现 iframe，尝试第二层解析: \(iframeURL.prefix(80))...")
+            if let iframeHTML = await fetchHTML(iframeURL, referer: url) {
+                if let playURL = extractPlayURL(from: iframeHTML) {
+                    print("[Kanliao] 第二层(iframe)提取到播放地址: \(playURL.prefix(80))...")
+                    return normalizePlayURL(playURL, base: base)
+                }
+                // 第三层：iframe 内还有 iframe
+                if let iframeURL2 = extractIframeURL(from: iframeHTML, base: iframeURL) {
+                    print("[Kanliao] 发现第二层 iframe，尝试第三层解析")
+                    if let iframeHTML2 = await fetchHTML(iframeURL2, referer: iframeURL) {
+                        if let playURL = extractPlayURL(from: iframeHTML2) {
+                            print("[Kanliao] 第三层提取到播放地址: \(playURL.prefix(80))...")
+                            return normalizePlayURL(playURL, base: base)
+                        }
+                    }
+                }
+            }
+        }
+
+        print("[Kanliao] 未能提取到播放地址")
+        return nil
     }
 
     // MARK: - 搜索
@@ -210,43 +280,92 @@ final class KanliaoService: ObservableObject {
         return parseVideoList(from: html, base: base)
     }
 
-    // MARK: - 网络请求
+    // MARK: - 网络请求（含代理支持）
 
     private func fetchHTML(_ urlString: String, referer: String) async -> String? {
-        guard let url = URL(string: urlString) else { return nil }
+        let proxyEnabled = WelfareProxyStore.shared.isProxyEnabled(for: platformName)
+        let finalURL: String
+        let finalReferer: String
+
+        if proxyEnabled {
+            guard let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+            finalURL = WelfareProxyStore.shared.proxyURL + encoded
+            finalReferer = WelfareProxyStore.shared.proxyURL
+            print("[Kanliao] 使用代理请求: \(urlString.prefix(60))...")
+        } else {
+            finalURL = urlString
+            finalReferer = referer
+        }
+
+        guard let url = URL(string: finalURL) else {
+            print("[Kanliao] fetchHTML: URL 无效 - \(finalURL.prefix(80))")
+            return nil
+        }
         var req = URLRequest(url: url)
-        req.setValue(referer, forHTTPHeaderField: "Referer")
-        req.setValue(referer, forHTTPHeaderField: "Origin")
+        req.setValue(finalReferer, forHTTPHeaderField: "Referer")
+        if proxyEnabled {
+            req.setValue(finalReferer, forHTTPHeaderField: "Origin")
+        } else {
+            req.setValue(referer, forHTTPHeaderField: "Origin")
+        }
         req.timeoutInterval = 20
 
         do {
             let (data, resp) = try await session.data(for: req)
             guard let httpResp = resp as? HTTPURLResponse,
-                  (200...299).contains(httpResp.statusCode) else { return nil }
+                  (200...299).contains(httpResp.statusCode) else {
+                print("[Kanliao] fetchHTTP 状态码异常: \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
+                return nil
+            }
             let raw = String(data: data, encoding: .utf8)
                 ?? String(data: data, encoding: .ascii)
                 ?? String(data: data, encoding: .isoLatin1)
             return raw
         } catch {
-            print("[Kanliao] fetchHTML error: \(error)")
+            print("[Kanliao] fetchHTML error: \(error.localizedDescription)")
             return nil
         }
     }
 
-    // MARK: - HTML 解析：分类（自适应从导航栏）
+    // MARK: - 分类 ID 规范化
+
+    private func normalizeCategoryID(_ href: String) -> String {
+        var cid = href.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 移除域名部分
+        if cid.hasPrefix("http") {
+            if let url = URL(string: cid) {
+                cid = url.path
+            }
+        }
+        // 确保以 / 开头
+        if !cid.hasPrefix("/") {
+            cid = "/" + cid
+        }
+        // 确保以 / 结尾
+        if !cid.hasSuffix("/") {
+            cid = cid + "/"
+        }
+        return cid
+    }
+
+    // MARK: - HTML 解析：分类（双策略：导航栏 + 侧边栏）
 
     private func parseCategories(from html: String, base: String) -> [KanliaoCategory] {
         var categories: [KanliaoCategory] = []
+        var seen: Set<String> = []
 
-        let navSelectors = [
-            "#navbarCollapse .navbar-nav .nav-item .nav-link",
-            ".navbar-nav .nav-item .nav-link",
-            ".menu .menu-item a",
-        ]
+        let skipWords = ["about", "contact", "tags", "tag", "top", "start", "time",
+                         "首页", "home", "search", "搜索", "关于", "联系",
+                         "register", "login", "注册", "登录", "vip", "会员"]
 
+        let knownPaths = ["/category/", "/dy/", "/ks/", "/douyu/", "/hy/", "/hj/",
+                          "/tt/", "/wh/", "/asmr/", "/xb/", "/xsp/", "/rdgz/"]
+
+        // 策略一：导航栏解析
         let navBlockPatterns = [
             "<nav[^>]*class=\"[^\"]*navbar[^\"]*\"[^>]*>(.*?)</nav>",
-            "<ul[^>]*class=\"[^\"]*(?:navbar-nav|nav-menu|menu)[^\"]*\"[^>]*>(.*?)</ul>",
+            "<ul[^>]*class=\"[^\"]*(?:navbar-nav|nav-menu|menu|main-nav|nav-list)[^\"]*\"[^>]*>(.*?)</ul>",
+            "<div[^>]*class=\"[^\"]*(?:header-menu|nav-wrap|top-nav)[^\"]*\"[^>]*>(.*?)</div>",
         ]
 
         var navHTML = ""
@@ -259,25 +378,29 @@ final class KanliaoService: ObservableObject {
         if navHTML.isEmpty { navHTML = html }
 
         let linkPattern = "<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>"
-        let matches = allMatches(pattern: linkPattern, in: navHTML)
-        var seen: Set<String> = []
+        let navMatches = allMatches(pattern: linkPattern, in: navHTML)
 
-        let knownPaths = ["/category/", "/dy/", "/ks/", "/douyu/", "/hy/", "/hj/", "/tt/", "/wh/", "/asmr/", "/xb/", "/xsp/", "/rdgz/"]
-
-        for groups in matches {
+        for groups in navMatches {
             guard groups.count >= 3 else { continue }
-            let href = groups[1]
-            let name = groups[2].trimmingCharacters(in: .whitespaces)
+            let href = groups[1].trimmingCharacters(in: .whitespaces)
+            let name = groups[2].trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if href == "#" || href == "/" || href.hasPrefix("http") { continue }
-            let skipWords = ["about", "contact", "tags", "top", "start", "time"]
-            if skipWords.contains(where: { href.lowercased().contains($0) }) { continue }
-            if name.isEmpty { continue }
+            if href.isEmpty || name.isEmpty { continue }
+            if href == "#" || href == "/" { continue }
+            if name.count < 2 || name.count > 8 { continue }
 
+            // 跳过词过滤
+            let lowerHref = href.lowercased()
+            let lowerName = name.lowercased()
+            if skipWords.contains(where: { lowerHref.contains($0) || lowerName.contains($0) }) { continue }
+
+            // 判断是否为分类链接
             let isCat = knownPaths.contains(where: { href.contains($0) })
+                || href.contains("/category/")
+                || (href.hasPrefix("/") && href.split(separator: "/").count <= 3 && !href.contains("."))
 
             if isCat {
-                let cid = href.hasPrefix("/") ? href : "/\(href)"
+                let cid = normalizeCategoryID(href)
                 if !seen.contains(cid) {
                     seen.insert(cid)
                     categories.append(KanliaoCategory(cid: cid, name: name))
@@ -285,33 +408,125 @@ final class KanliaoService: ObservableObject {
             }
         }
 
+        // 如果导航栏解析结果不足，尝试策略二：侧边栏解析
+        if categories.count < 3 {
+            let sidebarPatterns = [
+                "<div[^>]*class=\"[^\"]*(?:sidebar|side-nav|widget|category-list|cat-list)[^\"]*\"[^>]*>(.*?)</div>",
+                "<aside[^>]*>(.*?)</aside>",
+                "<ul[^>]*class=\"[^\"]*(?:cat|category|sidebar)[^\"]*\"[^>]*>(.*?)</ul>",
+            ]
+
+            for pat in sidebarPatterns {
+                for groups in allMatches(pattern: pat, in: html) {
+                    guard groups.count >= 2 else { continue }
+                    let sidebarHTML = groups[1]
+                    let sidebarMatches = allMatches(pattern: linkPattern, in: sidebarHTML)
+
+                    for sm in sidebarMatches {
+                        guard sm.count >= 3 else { continue }
+                        let href = sm[1].trimmingCharacters(in: .whitespaces)
+                        let name = sm[2].trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        if href.isEmpty || name.isEmpty { continue }
+                        if href == "#" || href == "/" { continue }
+                        if name.count < 2 || name.count > 10 { continue }
+                        if href.hasPrefix("http") && !href.contains(base) { continue }
+
+                        let lowerHref = href.lowercased()
+                        let lowerName = name.lowercased()
+                        if skipWords.contains(where: { lowerHref.contains($0) || lowerName.contains($0) }) { continue }
+
+                        let cid = normalizeCategoryID(href)
+                        if !seen.contains(cid) {
+                            seen.insert(cid)
+                            categories.append(KanliaoCategory(cid: cid, name: name))
+                        }
+                    }
+                }
+                if categories.count >= 5 { break }
+            }
+        }
+
         return categories
     }
 
-    // MARK: - HTML 解析：视频列表
+    // MARK: - HTML 解析：视频列表（多种容器模式）
 
     private func parseVideoList(from html: String, base: String) -> [KanliaoVideo] {
         var videos: [KanliaoVideo] = []
-        let articlePattern = "<article[^>]*>(.*?)</article>"
-        let articleMatches = allMatches(pattern: articlePattern, in: html)
+        var seenIDs: Set<String> = []
 
-        for groups in articleMatches {
-            guard groups.count >= 2 else { continue }
-            let articleHTML = groups[1]
-            if isAdvertisement(articleHTML) { continue }
-            if let vod = parseVideoItem(articleHTML, base: base) {
+        // 多种容器模式
+        let containerPatterns = [
+            // article 标签
+            "<article[^>]*>(.*?)</article>",
+            // 常见列表项 class
+            "<div[^>]*class=\"[^\"]*(?:post-card|video-card|video-item|item-wrap|entry-card|list-item)[^\"]*\"[^>]*>(.*?)(?:</div>\\s*</div>|</div>)",
+            // li 列表项
+            "<li[^>]*class=\"[^\"]*(?:video-item|post-item|list-item|item)[^\"]*\"[^>]*>(.*?)</li>",
+            // figure 包裹
+            "<figure[^>]*>(.*?)</figure>",
+        ]
+
+        for pattern in containerPatterns {
+            let matches = allMatches(pattern: pattern, in: html)
+
+            for groups in matches {
+                guard groups.count >= 2 else { continue }
+                let itemHTML = groups[1]
+
+                // 广告过滤
+                if isAdvertisement(itemHTML) { continue }
+
+                guard let vod = parseVideoItem(itemHTML, base: base) else { continue }
+
+                // 去重
+                if seenIDs.contains(vod.vodId) { continue }
+                seenIDs.insert(vod.vodId)
+
                 videos.append(vod)
             }
+
+            if !videos.isEmpty {
+                print("[Kanliao] 使用容器模式匹配到 \(videos.count) 条视频")
+                break
+            }
+        }
+
+        // 如果上述模式都没匹配到，尝试通用链接+图片模式
+        if videos.isEmpty {
+            print("[Kanliao] 容器模式未匹配到视频，尝试通用模式")
+            let genericPattern = "<a[^>]*href=\"([^\"]+)\"[^>]*>[\\s\\S]*?<img[^>]*>[\\s\\S]*?</a>"
+            let matches = allMatches(pattern: genericPattern, in: html)
+
+            for groups in matches {
+                guard groups.count >= 1 else { continue }
+                let itemHTML = groups[0]
+
+                if isAdvertisement(itemHTML) { continue }
+
+                guard let vod = parseVideoItem(itemHTML, base: base) else { continue }
+                if vod.title.isEmpty || vod.cover.isEmpty { continue }
+
+                if seenIDs.contains(vod.vodId) { continue }
+                seenIDs.insert(vod.vodId)
+
+                videos.append(vod)
+            }
+            print("[Kanliao] 通用模式匹配到 \(videos.count) 条视频")
         }
 
         return videos
     }
 
     private func parseVideoItem(_ item: String, base: String) -> KanliaoVideo? {
+        // 提取链接
         guard let linkGroups = firstMatch(pattern: "<a[^>]*href=\"([^\"]+)\"[^>]*>", in: item),
               linkGroups.count >= 2 else { return nil }
 
         let href = linkGroups[1]
+        guard !href.isEmpty else { return nil }
+
         let vodId: String
         if href.hasPrefix("http") {
             vodId = href
@@ -330,64 +545,161 @@ final class KanliaoService: ObservableObject {
             pageUrl = "\(base)/\(href)"
         }
 
-        let title: String
-        if let h2Groups = firstMatch(pattern: "<h2[^>]*>([^<]+)</h2>", in: item), h2Groups.count >= 2 {
-            title = h2Groups[1].replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
-        } else if let titleGroups = firstMatch(pattern: "(?:post-card-title|entry-title)[^>]*>([^<]+)<", in: item), titleGroups.count >= 2 {
-            title = titleGroups[1].replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
-        } else {
-            return nil
+        // 标题提取（6种模式）
+        var title = ""
+        let titlePatterns = [
+            "<h2[^>]*>(.*?)</h2>",
+            "<h3[^>]*>(.*?)</h3>",
+            "<h4[^>]*>(.*?)</h4>",
+            "(?:post-card-title|entry-title|video-title|item-title)[^>]*>(.*?)<",
+            "title=\"([^\"]+)\"",
+            "alt=\"([^\"]+)\"",
+        ]
+
+        for pat in titlePatterns {
+            if let groups = firstMatch(pattern: pat, in: item), groups.count >= 2 {
+                var t = groups[1]
+                // 移除内嵌标签
+                t = t.replacingOccurrences(of: "<[^>]+>", with: "")
+                t = t.replacingOccurrences(of: "\n", with: " ")
+                t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty && t.count >= 2 {
+                    title = t
+                    break
+                }
+            }
         }
 
+        guard !title.isEmpty else { return nil }
+
+        // 封面图提取
         let cover = extractImage(from: item, base: base)
 
+        // 备注/时间
         var remarks = ""
         if let dateGroups = firstMatch(pattern: "<time[^>]*datetime=\"([^\"]+)\"[^>]*>", in: item), dateGroups.count >= 2 {
             remarks = dateGroups[1]
-        } else if let metaGroups = firstMatch(pattern: "(?:post-meta|entry-meta|post-card-info)[^>]*>([^<]+)<", in: item), metaGroups.count >= 2 {
+        } else if let metaGroups = firstMatch(pattern: "(?:post-meta|entry-meta|post-card-info|video-meta)[^>]*>(.*?)<", in: item), metaGroups.count >= 2 {
             remarks = metaGroups[1].trimmingCharacters(in: .whitespaces)
         }
 
         return KanliaoVideo(vodId: vodId, title: title, cover: cover, pageUrl: pageUrl, remarks: remarks)
     }
 
+    // MARK: - 封面图提取（增强版）
+
     private func extractImage(from html: String, base: String) -> String {
+        // 1. background-image 样式
         if let bgGroups = firstMatch(pattern: "background-image:\\s*url\\([\"']?([^\"')]+)[\"']?\\)", in: html),
            bgGroups.count >= 2 {
-            let url = bgGroups[1]
-            if !url.hasPrefix("data:") {
+            let url = bgGroups[1].trimmingCharacters(in: .whitespaces)
+            if !url.hasPrefix("data:") && !url.isEmpty {
                 return normalizeImageURL(url, base: base)
             }
         }
 
-        if let imgGroups = firstMatch(pattern: "<img[^>]*data-src=\"([^\"]+)\"[^>]*>", in: html),
-           imgGroups.count >= 2 {
-            return normalizeImageURL(imgGroups[1], base: base)
+        // 2. style 属性中的 background-image
+        if let styleGroups = firstMatch(pattern: "style=\"[^\"]*background-image:\\s*url\\([\"']?([^\"')]+)[\"']?\\)", in: html),
+           styleGroups.count >= 2 {
+            let url = styleGroups[1].trimmingCharacters(in: .whitespaces)
+            if !url.hasPrefix("data:") && !url.isEmpty {
+                return normalizeImageURL(url, base: base)
+            }
         }
 
+        // 3. 9种懒加载属性
+        let lazyAttrs = [
+            "data-src", "data-original", "data-lazy-src", "data-lazy",
+            "data-srcset", "data-cover", "data-url", "data-image", "data-thumb"
+        ]
+        for attr in lazyAttrs {
+            if let imgGroups = firstMatch(pattern: "<img[^>]*\(attr)=\"([^\"]+)\"[^>]*>", in: html),
+               imgGroups.count >= 2 {
+                let url = imgGroups[1].trimmingCharacters(in: .whitespaces)
+                if !url.hasPrefix("data:") && !url.isEmpty {
+                    return normalizeImageURL(url, base: base)
+                }
+            }
+        }
+
+        // 4. srcset 属性（取第一张）
+        if let srcsetGroups = firstMatch(pattern: "<img[^>]*srcset=\"([^\"]+)\"[^>]*>", in: html),
+           srcsetGroups.count >= 2 {
+            let srcsetValue = srcsetGroups[1]
+            // srcset 格式: "url1 1x, url2 2x" 或 "url1 320w, url2 640w"
+            if let firstURL = srcsetValue.components(separatedBy: ",").first?
+                .trimmingCharacters(in: .whitespaces)
+                .components(separatedBy: " ")
+                .first?
+                .trimmingCharacters(in: .whitespaces),
+               !firstURL.hasPrefix("data:") && !firstURL.isEmpty {
+                return normalizeImageURL(firstURL, base: base)
+            }
+        }
+
+        // 5. figure > img 结构
+        if let figGroups = firstMatch(pattern: "<figure[^>]*>[\\s\\S]*?<img[^>]*src=\"([^\"]+)\"[^>]*>[\\s\\S]*?</figure>", in: html),
+           figGroups.count >= 2 {
+            let url = figGroups[1].trimmingCharacters(in: .whitespaces)
+            if !url.hasPrefix("data:") && !url.isEmpty {
+                return normalizeImageURL(url, base: base)
+            }
+        }
+
+        // 6. noscript 备用图片
+        if let noscriptGroups = firstMatch(pattern: "<noscript>[\\s\\S]*?<img[^>]*src=\"([^\"]+)\"[^>]*>[\\s\\S]*?</noscript>", in: html),
+           noscriptGroups.count >= 2 {
+            let url = noscriptGroups[1].trimmingCharacters(in: .whitespaces)
+            if !url.hasPrefix("data:") && !url.isEmpty {
+                return normalizeImageURL(url, base: base)
+            }
+        }
+
+        // 7. 普通 img src
         if let imgGroups = firstMatch(pattern: "<img[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
            imgGroups.count >= 2 {
-            return normalizeImageURL(imgGroups[1], base: base)
+            let url = imgGroups[1].trimmingCharacters(in: .whitespaces)
+            if !url.hasPrefix("data:") && !url.isEmpty {
+                return normalizeImageURL(url, base: base)
+            }
         }
 
         return ""
     }
 
     private func normalizeImageURL(_ url: String, base: String) -> String {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "" }
+
+        // 处理 HTML 实体编码
+        trimmed = decodeHTMLEntities(trimmed)
+
+        // 处理转义的斜杠
+        trimmed = trimmed.replacingOccurrences(of: "\\/", with: "/")
+
         if trimmed.hasPrefix("http") { return trimmed }
         if trimmed.hasPrefix("//") { return "https:\(trimmed)" }
-        if trimmed.hasPrefix("/") { return "\(base)\(trimmed)" }
-        return "\(base)/\(trimmed)"
+        if trimmed.hasPrefix("/") {
+            // 确保 base 不以 / 结尾
+            let cleanBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+            return "\(cleanBase)\(trimmed)"
+        }
+        let cleanBase = base.hasSuffix("/") ? base : "\(base)/"
+        return "\(cleanBase)\(trimmed)"
     }
 
-    // MARK: - 广告过滤
+    // MARK: - 广告过滤（增强）
 
     private func isAdvertisement(_ html: String) -> Bool {
-        let adKeywords = ["热搜HOT", "手机链接", "DNS设置", "修改DNS", "WIFI设置"]
+        let adKeywords = [
+            "热搜HOT", "手机链接", "DNS设置", "修改DNS", "WIFI设置",
+            "广告", "推广", "ad-", "ad_", "advertisement", "sponsor",
+            "广告位", "赞助商", "推荐", "点击进入", "立即查看",
+            " telegram", "Telegram", "电报群",
+        ]
+        let lower = html.lowercased()
         for keyword in adKeywords {
-            if html.contains(keyword) { return true }
+            if lower.contains(keyword.lowercased()) { return true }
         }
         return false
     }
@@ -412,87 +724,188 @@ final class KanliaoService: ObservableObject {
             }
         }
 
-        if let maxPage = pageNumbers.max() { return maxPage }
+        if let maxPage = pageNumbers.max(), maxPage > 1 { return maxPage }
         if html.contains("next") || html.contains("下一页") { return 9999 }
         return 1
     }
 
-    // MARK: - 播放地址提取
+    // MARK: - 播放地址提取（增强版：7种策略）
 
     private func extractPlayURL(from html: String) -> String? {
-        // 1. DPlayer data-config
+        // 策略1: DPlayer data-config
         let dplayerPattern = "<div[^>]*class=\"[^\"]*dplayer[^\"]*\"[^>]*data-config=\"([^\"]+)\"[^>]*>"
         if let groups = firstMatch(pattern: dplayerPattern, in: html), groups.count >= 2 {
-            let configStr = groups[1]
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&#34;", with: "\"")
-                .replacingOccurrences(of: "&amp;", with: "&")
-                .replacingOccurrences(of: "&#38;", with: "&")
-                .replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&#60;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-                .replacingOccurrences(of: "&#62;", with: ">")
-            if let urlGroups = firstMatch(pattern: "\"url\"\\s*:\\s*\"([^\"]+)\"", in: configStr),
-               urlGroups.count >= 2 {
-                return urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
+            let configStr = decodeHTMLEntities(groups[1])
+            if let url = extractURLFromJSONContent(configStr) {
+                return url
             }
         }
 
-        // 2. 通用视频配置 JSON（video, playerConfig 等）
-        let configPatterns = [
-            "var\\s+video\\s*=\\s*\\{([^}]+)\\}",
-            "playerConfig\\s*=\\s*\\{([^}]+)\\}",
-            "\"video\"\\s*:\\s*\\{([^}]+)\\}",
+        // 策略2: DPlayer config 属性
+        let dplayerConfigPattern = "<div[^>]*class=\"[^\"]*dplayer[^\"]*\"[^>]*config=\"([^\"]+)\"[^>]*>"
+        if let groups = firstMatch(pattern: dplayerConfigPattern, in: html), groups.count >= 2 {
+            let configStr = decodeHTMLEntities(groups[1])
+            if let url = extractURLFromJSONContent(configStr) {
+                return url
+            }
+        }
+
+        // 策略3: 内嵌 JSON 配置（video, playerConfig, player_data 等）
+        let jsonConfigPatterns = [
+            "var\\s+video\\s*=\\s*(\\{[\\s\\S]*?\\})",
+            "playerConfig\\s*=\\s*(\\{[\\s\\S]*?\\})",
+            "player_data\\s*=\\s*(\\{[\\s\\S]*?\\})",
+            "\"video\"\\s*:\\s*(\\{[\\s\\S]*?\\})",
+            "window\\.playerData\\s*=\\s*(\\{[\\s\\S]*?\\})",
         ]
-        for pat in configPatterns {
+        for pat in jsonConfigPatterns {
             if let groups = firstMatch(pattern: pat, in: html), groups.count >= 2 {
-                if let urlGroups = firstMatch(pattern: "\"url\"\\s*:\\s*\"([^\"]+)\"", in: groups[1]),
-                   urlGroups.count >= 2 {
-                    return urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
-                }
-                if let urlGroups = firstMatch(pattern: "\"src\"\\s*:\\s*\"([^\"]+)\"", in: groups[1]),
-                   urlGroups.count >= 2 {
-                    return urlGroups[1].replacingOccurrences(of: "\\/", with: "/")
+                let jsonStr = groups[1]
+                if let url = extractURLFromJSONContent(jsonStr) {
+                    return url
                 }
             }
         }
 
-        // 3. 直接 m3u8/mp4 URL
-        if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*)", in: html),
-           groups.count >= 2 {
-            return groups[1]
-        }
-        if let groups = firstMatch(pattern: "(https?://[^\"'\\s]+\\.mp4[^\"'\\s]*)", in: html),
-           groups.count >= 2 {
-            return groups[1]
+        // 策略4: 直接 m3u8/mp4 URL
+        if let url = extractVideoURLFromText(html) {
+            return url
         }
 
-        // 4. video 标签
-        if let groups = firstMatch(pattern: "<video[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
-           groups.count >= 2 {
-            return groups[1]
-        }
-        if let groups = firstMatch(pattern: "<video[^>]*data-src=\"([^\"]+)\"[^>]*>", in: html),
-           groups.count >= 2 {
-            return groups[1]
+        // 策略5: video 标签及其属性
+        let videoTagPatterns = [
+            "<video[^>]*src=\"([^\"]+)\"[^>]*>",
+            "<video[^>]*data-src=\"([^\"]+)\"[^>]*>",
+            "<video[^>]*data-original=\"([^\"]+)\"[^>]*>",
+        ]
+        for pat in videoTagPatterns {
+            if let groups = firstMatch(pattern: pat, in: html), groups.count >= 2 {
+                let url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+                if !url.isEmpty {
+                    return decodeHTMLEntities(url)
+                }
+            }
         }
 
-        // 5. source 标签
+        // 策略6: source 标签
         if let groups = firstMatch(pattern: "<source[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
            groups.count >= 2 {
-            return groups[1]
+            let url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+            if !url.isEmpty {
+                return decodeHTMLEntities(url)
+            }
         }
 
-        // 6. iframe 内嵌播放器
-        if let groups = firstMatch(pattern: "<iframe[^>]*src=\"([^\"]+)\"[^>]*>", in: html),
-           groups.count >= 2 {
-            let iframeSrc = groups[1]
-            if iframeSrc.contains("player") || iframeSrc.contains("play") || iframeSrc.contains(".m3u8") || iframeSrc.contains(".mp4") {
-                return iframeSrc.hasPrefix("http") ? iframeSrc : nil
+        // 策略7: 脚本中的视频变量
+        let jsVarPatterns = [
+            "video_url\\s*[=:]\\s*[\"']([^\"']+)[\"']",
+            "videoUrl\\s*[=:]\\s*[\"']([^\"']+)[\"']",
+            "play_url\\s*[=:]\\s*[\"']([^\"']+)[\"']",
+            "m3u8\\s*[=:]\\s*[\"']([^\"']+)[\"']",
+            "mp4\\s*[=:]\\s*[\"']([^\"']+)[\"']",
+            "src\\s*[=:]\\s*[\"']([^\"']+\\.(?:m3u8|mp4)[^\"']*)[\"']",
+        ]
+        for pat in jsVarPatterns {
+            if let groups = firstMatch(pattern: pat, in: html), groups.count >= 2 {
+                let url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+                if !url.isEmpty && (url.contains(".m3u8") || url.contains(".mp4")) {
+                    return decodeHTMLEntities(url)
+                }
             }
         }
 
         return nil
+    }
+
+    // MARK: - 从 JSON 内容中提取视频 URL
+
+    private func extractURLFromJSONContent(_ jsonString: String) -> String? {
+        let decoded = decodeHTMLEntities(jsonString)
+
+        // 常见的视频 URL 键名
+        let urlKeys = ["url", "src", "video_url", "videoUrl", "play_url", "playUrl",
+                       "m3u8_url", "mp4_url", "video", "movie", "source"]
+
+        for key in urlKeys {
+            // 匹配 "key": "value" 格式
+            let pattern = "\"\(key)\"\\s*:\\s*\"([^\"]+)\""
+            if let groups = firstMatch(pattern: pattern, in: decoded), groups.count >= 2 {
+                var url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+                url = url.trimmingCharacters(in: .whitespaces)
+                if !url.isEmpty && (url.contains(".m3u8") || url.contains(".mp4") || url.hasPrefix("http")) {
+                    return url
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - 从文本中提取视频 URL
+
+    private func extractVideoURLFromText(_ text: String) -> String? {
+        // m3u8 链接
+        let m3u8Pattern = "(https?://[^\"'\\s<>]+\\.m3u8[^\"'\\s<>]*)"
+        if let groups = firstMatch(pattern: m3u8Pattern, in: text), groups.count >= 2 {
+            let url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+            return decodeHTMLEntities(url)
+        }
+
+        // mp4 链接
+        let mp4Pattern = "(https?://[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)"
+        if let groups = firstMatch(pattern: mp4Pattern, in: text), groups.count >= 2 {
+            let url = groups[1].replacingOccurrences(of: "\\/", with: "/")
+            return decodeHTMLEntities(url)
+        }
+
+        return nil
+    }
+
+    // MARK: - 提取 iframe URL
+
+    private func extractIframeURL(from html: String, base: String) -> String? {
+        let iframePattern = "<iframe[^>]*src=\"([^\"]+)\"[^>]*>"
+        guard let groups = firstMatch(pattern: iframePattern, in: html),
+              groups.count >= 2 else { return nil }
+
+        var iframeSrc = groups[1].trimmingCharacters(in: .whitespaces)
+        guard !iframeSrc.isEmpty else { return nil }
+
+        // 跳过明显的广告/统计 iframe
+        let skipPatterns = ["google", "facebook", "baidu", "cnzz", "51.la", "tongji",
+                            "ads", "advert", "googletag", "doubleclick"]
+        let lower = iframeSrc.lowercased()
+        for skip in skipPatterns {
+            if lower.contains(skip) { return nil }
+        }
+
+        // 规范化 URL
+        if iframeSrc.hasPrefix("//") {
+            iframeSrc = "https:" + iframeSrc
+        } else if iframeSrc.hasPrefix("/") {
+            iframeSrc = base + iframeSrc
+        } else if !iframeSrc.hasPrefix("http") {
+            iframeSrc = base + "/" + iframeSrc
+        }
+
+        return iframeSrc
+    }
+
+    // MARK: - 播放地址规范化
+
+    private func normalizePlayURL(_ url: String, base: String) -> String {
+        var result = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        result = decodeHTMLEntities(result)
+        result = result.replacingOccurrences(of: "\\/", with: "/")
+
+        if result.hasPrefix("http") { return result }
+        if result.hasPrefix("//") { return "https:\(result)" }
+        if result.hasPrefix("/") {
+            let cleanBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+            return "\(cleanBase)\(result)"
+        }
+        let cleanBase = base.hasSuffix("/") ? base : "\(base)/"
+        return "\(cleanBase)\(result)"
     }
 }
 

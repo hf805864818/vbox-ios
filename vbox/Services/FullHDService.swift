@@ -126,31 +126,82 @@ class FullHDService: FuliBaseService {
         }
     }
 
-    func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+    // MARK: - 播放地址解析（重写基类方法，支持4级解析策略）
+
+    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         let url = episode.url
-        // 如果已经是直接的视频URL，直接返回
+
+        // 策略0：如果已经是直接的视频URL，直接返回
         if url.contains(".m3u8") || url.contains(".mp4") || url.contains(".ts") {
             let normalized = normalizeURL(url)
+            print("[FullHD] 策略0 - 直接视频URL: \(normalized.prefix(80))")
             return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
         }
-        // 否则需要访问页面解析出播放地址
+
         do {
             let pageURL = normalizeURL(url)
             let html = try await fetchHTML(pageURL)
-            if let playURL = extractPlayURL(from: html) {
-                let normalized = normalizeURL(playURL)
-                print("[FullHD] 解析到播放地址: \(normalized.prefix(100))")
+
+            // 策略1：直接从 video/source 标签提取视频URL
+            if let videoURL = extractVideoURL(from: html) {
+                let normalized = normalizeURL(videoURL)
+                print("[FullHD] 策略1成功 - 从video标签解析: \(normalized.prefix(80))")
                 return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
             }
-            // 也尝试用 Kanna 解析
-            let doc = try HTML(html: html, encoding: .utf8)
-            if let src = doc.xpath("//video/source/@src | //video/@src | //iframe/@src").first?.text, !src.isEmpty {
-                let normalized = normalizeURL(src)
+
+            // 策略2：从 iframe 中提取播放地址（支持两级iframe嵌套）
+            if let iframeURL = extractIframeURL(from: html) {
+                print("[FullHD] 策略2 - 发现iframe: \(iframeURL.prefix(80))")
+                // 第一级 iframe
+                do {
+                    let iframeHTML = try await fetchHTML(iframeURL)
+                    if let videoURL = extractVideoURL(from: iframeHTML) {
+                        let normalized = normalizeURL(videoURL, base: iframeURL)
+                        print("[FullHD] 策略2成功 - 从一级iframe解析: \(normalized.prefix(80))")
+                        return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                    }
+                    // 第一级 iframe 中也有 iframe，再深入一层
+                    if let innerIframeURL = extractIframeURL(from: iframeHTML) {
+                        let innerFull = normalizeURL(innerIframeURL, base: iframeURL)
+                        do {
+                            let innerHTML = try await fetchHTML(innerFull)
+                            if let videoURL = extractVideoURL(from: innerHTML) {
+                                let normalized = normalizeURL(videoURL, base: innerFull)
+                                print("[FullHD] 策略2成功 - 从二级iframe解析: \(normalized.prefix(80))")
+                                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                            }
+                            // 二级iframe中也尝试JS提取
+                            if let jsURL = extractPlayURL(from: innerHTML) {
+                                let normalized = normalizeURL(jsURL, base: innerFull)
+                                print("[FullHD] 策略2成功 - 从二级iframe JS解析: \(normalized.prefix(80))")
+                                return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                            }
+                        } catch {
+                            print("[FullHD] 二级iframe请求失败: \(error)")
+                        }
+                    }
+                    // 一级iframe中也尝试JS提取
+                    if let jsURL = extractPlayURL(from: iframeHTML) {
+                        let normalized = normalizeURL(jsURL, base: iframeURL)
+                        print("[FullHD] 策略2成功 - 从一级iframe JS解析: \(normalized.prefix(80))")
+                        return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
+                    }
+                } catch {
+                    print("[FullHD] iframe请求失败: \(error)")
+                }
+            }
+
+            // 策略3：从JavaScript中提取播放URL（player_data / player_url等）
+            if let jsURL = extractPlayURL(from: html) {
+                let normalized = normalizeURL(jsURL)
+                print("[FullHD] 策略3成功 - 从JS解析: \(normalized.prefix(80))")
                 return FuliPlayerResult(url: normalized, headers: defaultHeaders(host: currentHost), parse: 0)
             }
-            // 最后回退：返回页面URL让 WebView 尝试解析
-            print("[FullHD] 未解析到播放地址，回退到Web解析")
+
+            // 策略4：回退到WebView解析
+            print("[FullHD] 所有策略失败，回退到WebView解析")
             return FuliPlayerResult(url: pageURL, headers: defaultHeaders(host: currentHost), parse: 1)
+
         } catch {
             print("[FullHD] fetchPlayerURL 失败: \(error)")
             return FuliPlayerResult(url: url, headers: defaultHeaders(host: currentHost), parse: 1)
@@ -188,6 +239,7 @@ class FullHDService: FuliBaseService {
     }
 
     // MARK: - URL 规范化
+
     private func normalizeURL(_ url: String, base: String? = nil) -> String {
         var result = url.trimmingCharacters(in: .whitespaces)
         guard !result.isEmpty else { return "" }
@@ -208,6 +260,59 @@ class FullHDService: FuliBaseService {
         return baseHost + "/" + result
     }
 
+    // MARK: - 辅助方法：从HTML提取视频URL
+
+    private func extractVideoURL(from html: String) -> String? {
+        let doc = try? HTML(html: html, encoding: .utf8)
+        guard let d = doc else { return nil }
+
+        // 优先从 video/source 标签提取
+        let videoSelectors = [
+            "//video/source/@src",
+            "//video/@src",
+            "//video/source/@data-src",
+            "//video/@data-src",
+            "//video/source/@data-original",
+            "//video/@data-original",
+            "//video[contains(@class,'video')]/@src",
+            "//video[contains(@id,'player')]/@src",
+            "//source/@src",
+            "//source/@data-src",
+        ]
+        for sel in videoSelectors {
+            if let src = d.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+               !src.isEmpty, !src.hasPrefix("about:") {
+                return src
+            }
+        }
+        return nil
+    }
+
+    // MARK: - 辅助方法：从HTML提取iframe URL
+
+    private func extractIframeURL(from html: String) -> String? {
+        let doc = try? HTML(html: html, encoding: .utf8)
+        guard let d = doc else { return nil }
+
+        let iframeSelectors = [
+            "//iframe[@id='player_iframe']/@src",
+            "//iframe[contains(@class,'player')]/@src",
+            "//iframe[contains(@id,'play')]/@src",
+            "//iframe[contains(@id,'video')]/@src",
+            "//div[contains(@class,'player')]//iframe/@src",
+            "//div[contains(@id,'player')]//iframe/@src",
+            "//iframe/@src",
+            "//embed/@src",
+        ]
+        for sel in iframeSelectors {
+            if let src = d.xpath(sel).first?.text?.trimmingCharacters(in: .whitespaces),
+               !src.isEmpty, !src.hasPrefix("about:") {
+                return normalizeURL(src)
+            }
+        }
+        return nil
+    }
+
     // MARK: - 从 HTML 字符串中提取播放 URL（多级回退）
     private func extractPlayURL(from html: String) -> String? {
         // 1. player_data / player_url JSON
@@ -215,8 +320,14 @@ class FullHDService: FuliBaseService {
             "var\\s+player_data\\s*=\\s*(\\{[^;]+\\})",
             "var\\s+player_url\\s*=\\s*['\"]([^'\"]+)['\"]",
             "player_data\\s*=\\s*(\\{[^;]+\\})",
+            "player_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "var\\s+video_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "video_url\\s*=\\s*['\"]([^'\"]+)['\"]",
+            "var\\s+videoSrc\\s*=\\s*['\"]([^'\"]+)['\"]",
             "\"url\"\\s*:\\s*\"([^\"]+)\"",
-            "'url'\\s*:\\s*'([^']+)'"
+            "'url'\\s*:\\s*'([^']+)'",
+            "\"video_url\"\\s*:\\s*\"([^\"]+)\"",
+            "\"src\"\\s*:\\s*\"([^\"]+)\"",
         ]
         for pattern in patterns {
             if let groups = firstMatch(pattern: pattern, in: html), groups.count >= 2 {
@@ -266,27 +377,54 @@ class FullHDService: FuliBaseService {
         return groups
     }
 
-    // MARK: - 解析视频列表
+    // MARK: - 解析视频列表（增强版）
     private func parseVideoList(_ doc: HTMLDocument) -> [FuliVideo] {
         var videos: [FuliVideo] = []
-        // 多种 XPath 回退
-        let xpaths = [
+        var seen: Set<String> = []
+
+        // 多种 XPath 回退选择器（按优先级排序）
+        let xpathSelectors = [
+            // FullHD 标准列表
             "//div[contains(@class,'list-videos')]//div[contains(@class,'item')]",
             "//div[@class='item']",
             "//div[contains(@class,'video-item')]",
+            // 缩略图容器
             "//div[contains(@class,'thumb')]/..",
+            "//div[contains(@class,'thumbnail')]/..",
+            "//div[contains(@class,'video') and contains(@class,'item')]",
+            // 列表项
             "//li[contains(@class,'video')]",
-            "//div[contains(@class,'videos')]//a"
+            "//li[contains(@class,'item')]",
+            // 网格布局
+            "//div[contains(@class,'videos')]//a",
+            "//div[contains(@class,'grid')]//div[contains(@class,'item')]",
+            // 通用回退：所有包含视频链接的元素
+            "//a[contains(@href,'/video') or contains(@href,'/videos') or contains(@href,'/view')]",
         ]
+
         var items: [XMLElement] = []
-        for xp in xpaths {
+        for xp in xpathSelectors {
             let found = doc.xpath(xp)
             let arr = Array(found)
-            if !arr.isEmpty {
+            if arr.count >= 3 { // 至少找到3个才算有效列表
                 items = arr
+                print("[FullHD] 使用XPath: \(xp) 找到 \(arr.count) 项")
                 break
             }
         }
+        // 如果没有找到>=3的，用第一个有结果的
+        if items.isEmpty {
+            for xp in xpathSelectors {
+                let found = doc.xpath(xp)
+                let arr = Array(found)
+                if !arr.isEmpty {
+                    items = arr
+                    print("[FullHD] 使用XPath(回退): \(xp) 找到 \(arr.count) 项")
+                    break
+                }
+            }
+        }
+
         for item in items {
             let aTag: XMLElement?
             if let foundA = item.xpath(".//a").first {
@@ -300,31 +438,103 @@ class FullHDService: FuliBaseService {
             let href = a["href"] ?? ""
             guard !href.isEmpty else { continue }
 
+            // 提取标题（多种方式）
             var name = a["title"] ?? ""
             if name.isEmpty {
                 name = item.xpath(".//a/@title").first?.text ?? ""
             }
             if name.isEmpty {
-                name = a.text?.trimmingCharacters(in: .whitespaces) ?? ""
+                name = item.xpath(".//img/@alt").first?.text ?? ""
             }
             if name.isEmpty {
-                name = item.xpath(".//img/@alt").first?.text ?? ""
+                name = a.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            if name.isEmpty {
+                name = item.xpath(".//*[contains(@class,'title')]/text()").first?.text?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            if name.isEmpty {
+                name = item.xpath(".//h3/text() | .//h4/text() | .//h5/text()").first?.text?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             }
             guard !name.isEmpty else { continue }
 
-            var pic = item.xpath(".//img[contains(@class,'lazyload')]/@data-src").first?.text
-                ?? item.xpath(".//img/@data-src").first?.text
-                ?? item.xpath(".//img/@data-original").first?.text
-                ?? item.xpath(".//img/@src").first?.text ?? ""
+            // 增强封面图提取（支持懒加载、背景图等多种方式）
+            var pic = ""
+            let picSelectors = [
+                // 懒加载属性（最优先）
+                ".//img[contains(@class,'lazyload')]/@data-src",
+                ".//img[contains(@class,'lazy')]/@data-src",
+                ".//img/@data-src",
+                ".//img/@data-original",
+                ".//img/@data-lazy",
+                ".//img/@data-url",
+                // 标准src
+                ".//img/@src",
+                // 背景图方式
+                ".//div[contains(@class,'thumb')]/@style",
+                ".//div[contains(@class,'image')]/@style",
+                ".//div[contains(@class,'img')]/@style",
+                ".//a[contains(@class,'thumb')]/@style",
+                // 兜底：从img标签获取
+                ".//@data-src",
+                ".//@data-original",
+                ".//@src",
+            ]
+            for sel in picSelectors {
+                if let p = item.xpath(sel).first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !p.isEmpty {
+                    // 如果是 style 属性，从中提取 background-image URL
+                    if sel.contains("style") {
+                        if let bgURL = extractBackgroundImageURL(from: p) {
+                            pic = bgURL
+                            break
+                        }
+                    } else if !p.hasPrefix("data:") {
+                        pic = p
+                        break
+                    }
+                }
+            }
             pic = normalizeURL(pic)
 
+            // 提取时长/备注
             let duration = item.xpath(".//span[@class='duration']").first?.text?.trimmingCharacters(in: .whitespaces)
                 ?? item.xpath(".//div[contains(@class,'duration')]").first?.text?.trimmingCharacters(in: .whitespaces)
                 ?? item.xpath(".//span[contains(@class,'time')]").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? item.xpath(".//div[contains(@class,'time')]").first?.text?.trimmingCharacters(in: .whitespaces)
+                ?? item.xpath(".//span[contains(@class,'length')]").first?.text?.trimmingCharacters(in: .whitespaces)
 
             let normalizedHref = normalizeURL(href)
+
+            // 去重（基于URL）
+            if seen.contains(normalizedHref) { continue }
+            seen.insert(normalizedHref)
+
             videos.append(FuliVideo(vodId: normalizedHref, vodName: name, vodPic: pic, duration: duration))
         }
+
+        print("[FullHD] 解析到 \(videos.count) 个视频")
         return videos
+    }
+
+    // MARK: - 从 style 属性中提取背景图URL
+
+    private func extractBackgroundImageURL(from style: String) -> String? {
+        // 匹配 background-image: url('...') 或 background: url('...')
+        let patterns = [
+            "background-image:\\s*url\\(['\"]?([^'\")]+)['\"]?\\)",
+            "background:\\s*url\\(['\"]?([^'\")]+)['\"]?\\)",
+            "url\\(['\"]?([^'\")]+)['\"]?\\)",
+        ]
+        for pattern in patterns {
+            if let groups = firstMatch(pattern: pattern, in: style), groups.count >= 2 {
+                let url = groups[1].trimmingCharacters(in: .whitespaces)
+                if !url.isEmpty, !url.hasPrefix("data:") {
+                    return url
+                }
+            }
+        }
+        return nil
     }
 }
