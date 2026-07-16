@@ -269,7 +269,93 @@ class UpdateManager: ObservableObject {
         return []
     }
 
-    /// 执行实际下载
+    // MARK: - 下载代理（URLSession downloadTask delegate，系统级缓冲下载）
+    private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+        var onProgress: ((Double) -> Void)?
+        var onComplete: ((Result<URL, Error>) -> Void)?
+        var startTime: Date = Date()
+        private var downloadedTempURL: URL?
+        private var lastReportedBytes: Int64 = 0
+        private var lastReportedTime: Date = Date()
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            guard totalBytesExpectedToWrite > 0 else { return }
+            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            onProgress?(progress)
+
+            let now = Date()
+            let elapsed = now.timeIntervalSince(lastReportedTime)
+            if elapsed >= 1.0 {
+                let bytesInInterval = totalBytesWritten - lastReportedBytes
+                let speedKB = Double(bytesInInterval) / elapsed / 1024.0
+                print("[UpdateManager] 下载进度: \(Int(progress * 100))% 速度: \(String(format: "%.0f", speedKB))KB/s")
+                lastReportedBytes = totalBytesWritten
+                lastReportedTime = now
+            }
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+            let tempDir = FileManager.default.temporaryDirectory
+            let copy = tempDir.appendingPathComponent(UUID().uuidString + ".ipa")
+            do {
+                try FileManager.default.copyItem(at: location, to: copy)
+                downloadedTempURL = copy
+            } catch {
+                print("[UpdateManager] 临时文件拷贝失败: \(error.localizedDescription)")
+            }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error = error {
+                onComplete?(.failure(error))
+            } else if let url = downloadedTempURL {
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("[UpdateManager] 下载完成 耗时: \(String(format: "%.1f", elapsed))s")
+                onComplete?(.success(url))
+            } else {
+                onComplete?(.failure(NSError(domain: "UpdateManager", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "未收到下载文件"])))
+            }
+        }
+    }
+
+    /// 使用系统 downloadTask 下载单个文件（系统级缓冲，非逐字节处理）
+    private func downloadFile(from url: URL, to destination: URL) async throws {
+        let delegate = DownloadDelegate()
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        delegate.onProgress = { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 600
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+
+        let task = session.downloadTask(with: request)
+
+        let tempURL: URL = try await withTaskCancellationHandler(
+            operation: {
+                try await withCheckedThrowingContinuation { continuation in
+                    delegate.onComplete = { result in
+                        continuation.resume(with: result)
+                    }
+                    task.resume()
+                }
+            },
+            onCancel: {
+                task.cancel()
+            }
+        )
+
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: tempURL, to: destination)
+    }
+
+    /// 执行实际下载（遍历代理节点 + 直连兜底）
     private func performDownload(from url: URL) async {
         isDownloading = true
         downloadProgress = 0
@@ -292,65 +378,12 @@ class UpdateManager: ObservableObject {
             print("[UpdateManager] 下载尝试 #\(idx+1): \(isProxy ? "代理" : "直连") \(downloadURL.host ?? "")")
 
             do {
-                var request = URLRequest(url: downloadURL)
-                request.timeoutInterval = 600 // 超时10分钟
-                request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-
-                let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      httpResponse.statusCode == 200 else {
-                    print("[UpdateManager] #\(idx+1) 返回非200，尝试下一个")
-                    continue
-                }
-
-                let totalBytes = httpResponse.expectedContentLength
-                var receivedBytes: Int64 = 0
-                var lastReportBytes: Int64 = 0
-                var lastReportTime = Date()
-
-                FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
-                let fileHandle = try FileHandle(forWritingTo: destinationURL)
-
-                let bufferSize = 1024 * 1024 // 1MB
-                var buffer = Data()
-
-                for try await byte in asyncBytes {
-                    buffer.append(byte)
-                    receivedBytes += 1
-
-                    if buffer.count >= bufferSize {
-                        try fileHandle.write(contentsOf: buffer)
-                        buffer.removeAll(keepingCapacity: true)
-
-                        if totalBytes > 0 {
-                            let progress = Double(receivedBytes) / Double(totalBytes)
-                            downloadProgress = min(progress, 0.999)
-                        }
-
-                        let now = Date()
-                        let elapsed = now.timeIntervalSince(lastReportTime)
-                        if elapsed >= 1.0 {
-                            let bytesInInterval = receivedBytes - lastReportBytes
-                            let speedKB = Double(bytesInInterval) / elapsed / 1024.0
-                            print("[UpdateManager] 下载进度: \(Int(downloadProgress*100))% 速度: \(String(format: "%.0f", speedKB))KB/s")
-                            lastReportBytes = receivedBytes
-                            lastReportTime = now
-                        }
-                    }
-                }
-
-                if !buffer.isEmpty {
-                    try fileHandle.write(contentsOf: buffer)
-                }
-                try fileHandle.close()
-
+                try await downloadFile(from: downloadURL, to: destinationURL)
                 downloadProgress = 1.0
                 downloadedIPAPath = destinationURL
                 print("[UpdateManager] IPA 下载完成: \(destinationURL.path)")
                 isDownloading = false
                 return
-
             } catch {
                 if Task.isCancelled { break }
                 print("[UpdateManager] #\(idx+1) 下载失败: \(error.localizedDescription)")
