@@ -176,7 +176,7 @@ class BananaVideoService: FuliBaseService {
         }
     }
 
-    override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
+    func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         let url = episode.url
         let parts = url.components(separatedBy: "_")
         let domain = parts.count > 1 ? "https://\(parts[0])" : currentHost
@@ -406,8 +406,8 @@ class BananaVideoService: FuliBaseService {
         var elements: [XMLElement] = []
         for xp in xpaths {
             let found = doc.xpath(xp)
-            if !found.isEmpty {
-                elements = found
+            if found.first != nil {
+                elements = found.toArray()
                 break
             }
         }
