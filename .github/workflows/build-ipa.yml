@@ -43,28 +43,30 @@ jobs:
 
       - name: 🔧 恢复手动添加的源文件 (PushPlayView/PushPlayStore)
         run: |
-          python3 << 'PYEOF'
-          import uuid
-          def gen():
-              return uuid.uuid4().hex[:24].upper()
-          p = "vbox.xcodeproj/project.pbxproj"
-          with open(p) as f:
-              c = f.read()
-          files = [("PushPlayStore.swift","Services"),("PushPlayView.swift","Views")]
-          anchor = 'A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };'
-          anchor_fr = '1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FourHVideoService.swift; sourceTree = "<group>"; };'
-          anchor_grp = '\t\t\t\t\t\t\t1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */,'
-          anchor_src = '\t\t\t\t\t\tA477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */,'
-          for fn,grp in files:
-              if fn in c: continue
-              bid,fid = gen(),gen()
-              c = c.replace(anchor, anchor+'\n'+f'\t\t\t{bid} /* {fn} in Sources */ = {{isa = PBXBuildFile; fileRef = {fid} /* {fn} */; }};')
-              c = c.replace(anchor_fr, anchor_fr+'\n'+f'\t\t\t{fid} /* {fn} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {fn}; sourceTree = "<group>"; }};')
-              c = c.replace(anchor_grp, anchor_grp+'\n'+f'\t\t\t\t\t\t\t{fid} /* {fn} */,')
-              c = c.replace(anchor_src, anchor_src+'\n'+f'\t\t\t\t\t\t{bid} /* {fn} in Sources */,')
-          with open(p,"w") as f:
-              f.write(c)
-          PYEOF
+          ruby << 'RBEOF'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('vbox.xcodeproj')
+          target = project.targets.find { |t| t.name == 'vbox' }
+          
+          files_to_add = [
+            { path: 'vbox/Services/PushPlayStore.swift', group: 'Services' },
+            { path: 'vbox/Views/PushPlayView.swift', group: 'Views' },
+          ]
+          
+          files_to_add.each do |file_info|
+            path = file_info[:path]
+            filename = File.basename(path)
+            next if target.source_build_phase.files.any? { |f| f.file_ref&.path == filename }
+            
+            group = project.main_group.find_subpath(file_info[:group], true)
+            file_ref = group.new_file(path)
+            target.source_build_phase.add_file_reference(file_ref)
+            puts "Added #{filename} to target"
+          end
+          
+          project.save
+          puts "Done!"
+          RBEOF
 
       - name: 🔢 自动递增版本号
         run: |
