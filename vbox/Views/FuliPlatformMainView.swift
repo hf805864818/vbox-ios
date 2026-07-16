@@ -91,6 +91,7 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
     private func loadHome() {
         isLoading = true; loadError = nil
         Task {
+            await svc.ensureHostReady()
             let result = await svc.fetchHomeContent()
             await MainActor.run {
                 isLoading = false
@@ -193,6 +194,7 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
     private func refresh() {
         currentPage = 1; hasMore = true; isLoading = true; loadError = nil
         Task {
+            await svc.ensureHostReady()
             let result = await svc.fetchCategoryContent(category: category, subCategory: selectedSub, page: 1)
             await MainActor.run {
                 videos = result.videos; isLoading = false
@@ -279,6 +281,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
         guard !keyword.isEmpty else { return }
         currentPage = 1; hasMore = true; isLoading = true; videos = []
         Task {
+            await svc.ensureHostReady()
             let result = await svc.fetchSearch(keyword: keyword, page: 1)
             await MainActor.run {
                 videos = result.videos; isLoading = false; hasMore = result.hasMore
