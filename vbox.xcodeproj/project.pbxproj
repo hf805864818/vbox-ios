@@ -180,9 +180,11 @@
 		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
 		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
 		A12035 /* SecureCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12035 /* SecureCredentialStore.swift */; };
+		A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */; };
 		AAAA000000000000000000001 /* HeiliaoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBB000000000000000000001 /* HeiliaoService.swift */; };
 		AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70363C93B7E4A60A895A08B /* MadouFreeService.swift */; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -209,6 +211,7 @@
 		D62C0C19FBCAF3C9F113C5F1 /* Libuavs3d.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D76C250B58207918B87B9816 /* nettle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */; };
+		D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */; };
 		D9DC71EEE315652DBB10FBC0 /* AliyunMediaDownloader.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E0A23E9AE3C34739820CF102 /* DailyBattleMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */; };
 		E2602DA583CAAC485337A5A4 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 118639D4704EF09B475A80B0 /* CoreMedia.framework */; };
@@ -233,9 +236,6 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
-		A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */; };
-		D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */; };
-		A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -346,6 +346,7 @@
 		A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuavs3d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuavs3d.xcframework; sourceTree = SOURCE_ROOT; };
 		A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = alivcffmpeg.framework; path = vbox/Libraries/alivcffmpeg.framework; sourceTree = SOURCE_ROOT; };
 		AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+		AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDisplayItem.swift; sourceTree = "<group>"; };
 		AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareDomainStore.swift; sourceTree = "<group>"; };
 		B0F74E8951368DECD8322237 /* Libbluray.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libbluray.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libbluray.xcframework; sourceTree = SOURCE_ROOT; };
 		B10001 /* VBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VBoxApp.swift; sourceTree = "<group>"; };
@@ -459,6 +460,7 @@
 		C9E623AC03FF5B83F03C95FD /* gmp.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gmp.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gmp.xcframework; sourceTree = SOURCE_ROOT; };
 		CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareProxyStore.swift; sourceTree = "<group>"; };
 		CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleMainView.swift; sourceTree = "<group>"; };
+		CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
 		CFF33E1BB4E9046F17208D3E /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
 		D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfreetype.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfreetype.xcframework; sourceTree = SOURCE_ROOT; };
 		D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieService.swift; sourceTree = "<group>"; };
@@ -472,6 +474,7 @@
 		E4B44716C2FC412BACA38D26 /* WaibiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaibiService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
 		E70363C93B7E4A60A895A08B /* MadouFreeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeService.swift; sourceTree = "<group>"; };
+		F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDiscoveryView.swift; sourceTree = "<group>"; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
 		F6789ABCDEF0123456789012 /* KanliaoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoService.swift; sourceTree = "<group>"; };
 		F73C15E736105CF390FD2313 /* MDTVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVViews.swift; sourceTree = "<group>"; };
@@ -481,9 +484,6 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
-		AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDisplayItem.swift; sourceTree = "<group>"; };
-		F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDiscoveryView.swift; sourceTree = "<group>"; };
-		CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -654,7 +654,7 @@
 				XIGUA1000000000000000001 /* XiguaModels.swift */,
 				B11001 /* DBModels.swift */,
 				B12032 /* SangeModels.swift */,
-							AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */,
+				AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -769,7 +769,7 @@
 				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
-							F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
+				F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
 				CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */,
 			);
 			path = Views;
@@ -1054,10 +1054,10 @@
 				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
 				04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */,
 				04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */,
-							A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */,
+				A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */,
 				D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */,
 				A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */,
-);
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
