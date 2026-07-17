@@ -281,7 +281,8 @@ struct HomeView: View {
     }
 
     private var doubanHomeContent: some View {
-        ScrollView(showsIndicators: false) {
+        ZStack {
+            ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
                 if isLoading {
                     VStack(spacing: 20) {
@@ -358,15 +359,75 @@ struct HomeView: View {
             WatchHistoryView()
                 .environmentObject(settings)
         }
-        .sheet(isPresented: $showSourcePicker) {
-            SourcePickerSheet(
-                selectedSource: $selectedSource,
-                sources: allSources,
-                onSelect: { source in
-                    selectedSource = source
+
+            // 首页小竖长条选源浮层
+            if showSourcePicker {
+                homeSourceDropdownOverlay
+            }
+        } // ZStack
+    }
+
+    // MARK: - 首页小竖长条选源浮层
+
+    private var homeSourceDropdownOverlay: some View {
+        Color.black.opacity(0.3)
+            .ignoresSafeArea()
+            .onTapGesture { showSourcePicker = false }
+            .overlay(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    ForEach(Array(allSources.enumerated()), id: \.element.id) { idx, item in
+                        Button(action: {
+                            selectedSource = item
+                            showSourcePicker = false
+                        }) {
+                            HStack(spacing: 8) {
+                                if item.id == selectedSource?.id {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(Color(hex: "E11B48"))
+                                        .frame(width: 16)
+                                } else {
+                                    Color.clear.frame(width: 16, height: 12)
+                                }
+                                Text(item.name)
+                                    .font(.system(size: 14, weight: item.id == selectedSource?.id ? .semibold : .regular))
+                                    .foregroundColor(item.id == selectedSource?.id ? Color(hex: "E11B48") : .primary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(item.category.displayName)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(homeCategoryColor(item))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(Capsule().fill(homeCategoryColor(item).opacity(0.12)))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if idx < allSources.count - 1 {
+                            Divider().padding(.leading, 38)
+                        }
+                    }
                 }
-            )
-            .environmentObject(settings)
+                .frame(width: UIScreen.main.bounds.width * 0.25)
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.42)
+                .background(Color(uiColor: .systemBackground))
+                .cornerRadius(12)
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                .padding(.top, 52)
+                .padding(.trailing, 12)
+            }
+    }
+
+    private func homeCategoryColor(_ item: SourceDisplayItem) -> Color {
+        switch item.category {
+        case .cloudCMS, .cloudSPA: return Color(hex: "007AFF")
+        case .cloudForum: return Color(hex: "FF9500")
+        case .api: return Color(hex: "34C759")
+        case .jsSpider: return Color(hex: "AF52DE")
+        case .zhanyuan: return Color(hex: "FF3B30")
         }
     }
 
