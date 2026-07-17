@@ -577,7 +577,7 @@ struct HomeSearchBar: View {
                 showSourcePicker = true
             } label: {
                 Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 18))
+                    .font(.system(size: 14))
                     .foregroundColor(selectedSourceName != nil ? Color(hex: "34C759") : .primary)
             }
             .buttonStyle(.plain)
@@ -609,7 +609,7 @@ struct HomeSearchBar: View {
                 showRanking = true
             } label: {
                 Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 14))
                     .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
@@ -619,7 +619,7 @@ struct HomeSearchBar: View {
                 showHistory = true
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 18))
+                    .font(.system(size: 14))
                     .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
