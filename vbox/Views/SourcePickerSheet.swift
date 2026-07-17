@@ -18,7 +18,7 @@ struct SourcePickerSheet: View {
 
     private var groupedSources: [(String, [SourceDisplayItem])] {
         let groups = Dictionary(grouping: filteredSources) { $0.category.displayName }
-        let order = ["网盘", "论坛", "API", "JS", "站源"]
+        let order = ["网盘", "API", "站源", "JS", "论坛"]
         return order.compactMap { key in
             if let items = groups[key], !items.isEmpty {
                 return (key, items)
