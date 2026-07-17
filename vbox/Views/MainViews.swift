@@ -253,9 +253,7 @@ struct HomeView: View {
                     SourceDiscoveryView(
                         source: source,
                         onSwitchSource: { showSourcePicker = true },
-                        onDismiss: { selectedSource = nil },
-                        selectedSource: $selectedSource,
-                        allSources: allSources
+                        onDismiss: { selectedSource = nil }
                     )
                     .environmentObject(settings)
                 }
@@ -263,17 +261,17 @@ struct HomeView: View {
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
-                    .sheet(isPresented: $showSourcePicker) {
-                        SourcePickerSheet(
-                            selectedSource: $selectedSource,
-                            sources: allSources,
-                            onSelect: { source in
-                                selectedSource = source
-                            }
-                        )
-                        .environmentObject(settings)
-                    }
             }
+        }
+        .sheet(isPresented: $showSourcePicker) {
+            SourcePickerSheet(
+                selectedSource: $selectedSource,
+                sources: allSources,
+                onSelect: { source in
+                    selectedSource = source
+                }
+            )
+            .environmentObject(settings)
         }
         .onAppear {
             if allSources.isEmpty {
