@@ -8,6 +8,8 @@ struct SourceDiscoveryView: View {
     let source: SourceDisplayItem
     let onSwitchSource: () -> Void
     let onDismiss: () -> Void
+    @Binding var selectedSource: SourceDisplayItem?
+    let allSources: [SourceDisplayItem]
 
     @State private var homeData: SourceHomeData?
     @State private var isLoading = true
@@ -15,6 +17,7 @@ struct SourceDiscoveryView: View {
     @State private var selectedCategoryId: String?
     @State private var categoryVideos: [VodItem] = []
     @State private var isLoadingCategory = false
+    @State private var showSourcePicker = false
 
     // 自适应筛选状态
     @State private var filterOptions = SpiderManager.AdaptiveFilterOptions()
@@ -111,6 +114,16 @@ struct SourceDiscoveryView: View {
         }
         .background(skinBackground)
         .navigationBarHidden(true)
+        .sheet(isPresented: $showSourcePicker) {
+            SourcePickerSheet(
+                selectedSource: $selectedSource,
+                sources: allSources,
+                onSelect: { source in
+                    selectedSource = source
+                }
+            )
+            .environmentObject(settings)
+        }
         .onAppear {
             if homeData == nil { Task { await loadData() } }
         }
@@ -129,7 +142,7 @@ struct SourceDiscoveryView: View {
             }
             .buttonStyle(.plain)
 
-            Button(action: onSwitchSource) {
+            Button(action: { showSourcePicker = true }) {
                 HStack(spacing: 6) {
                     Text(source.name)
                         .font(.system(size: 17, weight: .semibold))
