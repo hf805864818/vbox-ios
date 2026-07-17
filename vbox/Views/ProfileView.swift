@@ -270,6 +270,7 @@ struct ProfileView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 80)
                 }
+                .buttonStyle(.plain)
 
                 // 下载管理
                 featureButton(icon: "arrow.down.circle.fill", title: "下载管理") {
