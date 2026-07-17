@@ -3179,7 +3179,8 @@ globalThis.__JS_SPIDER__ = _spider;
 
             guard let httpResp = response as? HTTPURLResponse,
                   (200...299).contains(httpResp.statusCode) else {
-                print("[SpiderManager] HTML降级[\(source.name)] HTTP \(httpResp?.statusCode ?? 0)")
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("[SpiderManager] HTML降级[\(source.name)] HTTP \(code)")
                 return nil
             }
 
