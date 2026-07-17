@@ -572,6 +572,17 @@ struct HomeSearchBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // 多源选择按钮（移到最前面）
+            Button {
+                showSourcePicker = true
+            } label: {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 18))
+                    .foregroundColor(selectedSourceName != nil ? Color(hex: "34C759") : .primary)
+            }
+            .buttonStyle(.plain)
+
+            // 搜索栏
             Button {
                 showSearch = true
             } label: {
@@ -593,46 +604,23 @@ struct HomeSearchBar: View {
             }
             .buttonStyle(.plain)
 
-            // 多源选择按钮
-            Button {
-                showSourcePicker = true
-            } label: {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(selectedSourceName != nil ? Color(hex: "34C759") : Color(hex: "E11D48"))
-                    )
-            }
-            .buttonStyle(.plain)
-
+            // 排行榜
             Button {
                 showRanking = true
             } label: {
                 Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(hex: "E11D48"))
-                    )
+                    .font(.system(size: 18))
+                    .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
 
+            // 历史记录
             Button {
                 showHistory = true
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(hex: "E11D48"))
-                    )
+                    .font(.system(size: 18))
+                    .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
         }
