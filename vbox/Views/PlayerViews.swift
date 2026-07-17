@@ -102,15 +102,14 @@ struct VideoDetailView: View {
     }
 
     private var episodes: [(name: String, url: String)] {
-        // 网盘模式：显示选中网盘类型的链接
         if isCloudVideo, let selectedDrive = selectedCloudDrive {
-            return panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
+            let links = panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
+            return episodesReversed ? Array(links.reversed()) : links
         }
-        // 普通模式：显示当前播放源的集数
         guard !allSources.isEmpty else { return [] }
         let idx = min(selectedSourceIndex, allSources.count - 1)
         let eps = allSources[idx].episodes
-        return episodesReversed ? eps.reversed() : eps
+        return episodesReversed ? Array(eps.reversed()) : eps
     }
 
     // MARK: - 初始化播放源（只执行一次，避免闪跳）
@@ -760,7 +759,7 @@ struct VideoDetailView: View {
                 }
             }
 
-            if allSources.count > 1 {
+            if !isCloudVideo && allSources.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(allSources.enumerated()), id: \.offset) { idx, source in
@@ -787,7 +786,7 @@ struct VideoDetailView: View {
                         columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
                         spacing: 8
                     ) {
-                        ForEach(Array(episodes), id: \.url) { episode in
+                        ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
                             Button(action: { handleEpisodeSelect(episode) }) {
                                 Text(episode.name)
                                     .font(.system(size: 13, weight: .medium))
