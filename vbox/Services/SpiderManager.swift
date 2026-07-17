@@ -3160,7 +3160,13 @@ globalThis.__JS_SPIDER__ = _spider;
                 siteBase = nil
             }
         case .api:
-            siteBase = source.api
+            // api 字段通常是 https://xxx.com/api.php/provide/vod，首页需要从域名提取
+            if let api = source.api, let url = URL(string: api), let host = url.host {
+                let scheme = url.scheme ?? "https"
+                siteBase = "\(scheme)://\(host)"
+            } else {
+                siteBase = source.api
+            }
         case .zhanyuan:
             siteBase = source.searchUrl
         default:
@@ -3272,11 +3278,14 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
 
                 let detailURL = siteBase + detailPath
+                let (vodYear, vodArea) = extractYearAndAreaNearLink(html: html, matchRange: match.range)
                 let item = VodItem(
                     vodId: detailURL,
                     vodName: title,
                     vodPic: fullPic,
-                    vodRemarks: "☁️" + sourceName
+                    vodRemarks: "☁️" + sourceName,
+                    vodYear: vodYear,
+                    vodArea: vodArea
                 )
                 videos.append(item)
             }
@@ -3298,12 +3307,15 @@ globalThis.__JS_SPIDER__ = _spider;
                     guard seenIDs.insert(vodId).inserted else { continue }
                     let title = extractTitleNearLink(html: html, matchRange: match.range)
                     let detailURL = siteBase + detailPath
+                    let (vodYear, vodArea) = extractYearAndAreaNearLink(html: html, matchRange: match.range)
 
                     let item = VodItem(
                         vodId: detailURL,
                         vodName: title,
                         vodPic: "",
-                        vodRemarks: "☁️" + sourceName
+                        vodRemarks: "☁️" + sourceName,
+                        vodYear: vodYear,
+                        vodArea: vodArea
                     )
                     videos.append(item)
                 }
@@ -3369,6 +3381,52 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         return "未知标题"
+    }
+
+    /// 从 HTML 中链接匹配位置附近提取年份和地区
+    /// 例如从 "2024 / 大陆 / 动作" 或 "2024-大陆" 中提取
+    private func extractYearAndAreaNearLink(html: String, matchRange: NSRange) -> (year: String?, area: String?) {
+        let searchStart = max(0, matchRange.location - 300)
+        let searchEnd = min(html.count, matchRange.location + matchRange.length + 300)
+        guard let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
+              let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) else { return (nil, nil) }
+        let ctx = String(html[sIdx..<eIdx])
+
+        var year: String?
+        var area: String?
+
+        // 匹配 "年份 / 地区 / 类型" 或 "年份-地区" 格式
+        let infoPatterns = [
+            #"(\d{4})\s*/\s*([^<>\s/]{2,8})\s*/"#,   // "2024 / 大陆 /"
+            #"(\d{4})\s*-\s*([^<>\s/-]{2,8})"#,        // "2024-大陆"
+        ]
+        for pattern in infoPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+               let yrRange = Range(match.range(at: 1), in: ctx),
+               let arRange = Range(match.range(at: 2), in: ctx) {
+                year = String(ctx[yrRange])
+                let rawArea = String(ctx[arRange]).trimmingCharacters(in: .whitespaces)
+                // 过滤掉明显是类型的词（如"动作"、"喜剧"等）
+                let typeWords = ["动作", "喜剧", "爱情", "科幻", "恐怖", "悬疑", "剧情", "动画", "奇幻", "冒险", "战争", "犯罪", "纪录", "古装", "历史", "武侠", "家庭", "伦理", "军事", "谍战", "穿越", "青春", "偶像", "惊悚", "同性", "灾难", "音乐", "歌舞", "传记", "运动", "短片", "微电影", "福利", "伦理片"]
+                if !typeWords.contains(rawArea) && rawArea.count <= 8 {
+                    area = rawArea
+                }
+                break
+            }
+        }
+
+        // 只匹配年份（如果没有匹配到完整格式）
+        if year == nil {
+            let yearOnlyPattern = #"\b(20\d{2})\b"#
+            if let regex = try? NSRegularExpression(pattern: yearOnlyPattern, options: []),
+               let match = regex.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+               let yrRange = Range(match.range(at: 1), in: ctx) {
+                year = String(ctx[yrRange])
+            }
+        }
+
+        return (year, area)
     }
 
     /// JS 蜘蛛的 home
