@@ -260,7 +260,7 @@ private struct SourceCategoryChip: View {
     let name: String
     let isSelected: Bool
 
-    var body: View {
+    var body: some View {
         Text(name)
             .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
             .foregroundColor(isSelected ? .white : .primary)
@@ -271,6 +271,8 @@ private struct SourceCategoryChip: View {
                     .fill(isSelected ? Color(hex: "E11B48") : Color(uiColor: .systemGray6))
             )
     }
+}
+
 // MARK: - 视频卡片
 
 private struct SourceVideoCard: View {
