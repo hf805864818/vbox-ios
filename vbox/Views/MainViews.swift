@@ -253,21 +253,13 @@ struct HomeView: View {
                     SourceDiscoveryView(
                         source: source,
                         onSwitchSource: { showSourcePicker = true },
-                        onDismiss: { selectedSource = nil }
+                        onDismiss: { selectedSource = nil },
+                        selectedSource: $selectedSource,
+                        allSources: allSources
                     )
                     .environmentObject(settings)
                 }
                 .navigationViewStyle(.stack)
-                .sheet(isPresented: $showSourcePicker) {
-                    SourcePickerSheet(
-                        selectedSource: $selectedSource,
-                        sources: allSources,
-                        onSelect: { source in
-                            selectedSource = source
-                        }
-                    )
-                    .environmentObject(settings)
-                }
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
