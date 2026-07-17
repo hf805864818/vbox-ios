@@ -257,9 +257,18 @@ struct ProfileView: View {
             }
 
             HStack(spacing: 12) {
-                // 分享免广告
-                featureButton(icon: "square.and.arrow.up", title: "分享免广告") {
-                    print("[ProfileView] 分享免广告功能暂未开放")
+                // 分享vbox
+                ShareLink(item: URL(string: "https://github.com/hf805864818/vbox-ios/releases/latest/download/vbox.ipa")!) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 24))
+                            .foregroundColor(accentColor)
+                        Text("分享vbox")
+                            .font(.system(size: 12))
+                            .foregroundColor(textColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 80)
                 }
 
                 // 下载管理
