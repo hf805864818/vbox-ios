@@ -224,7 +224,7 @@ struct SourceDiscoveryView: View {
                     }
                 }
             }
-            .frame(width: screenWidth * 0.25)
+            .frame(width: screenWidth * 0.35)
             .frame(maxHeight: screenHeight * 0.42)
             .background(dropdownBackground)
             .cornerRadius(12)
