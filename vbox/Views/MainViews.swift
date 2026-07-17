@@ -397,44 +397,62 @@ struct HomeView: View {
                     Divider()
                         .background(homeDropdownDividerColor)
 
-                    // 源列表
+                    // 源列表（按分类分组）
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(allSources.enumerated()), id: \.element.id) { idx, item in
-                                Button(action: {
-                                    selectedSource = item
-                                    showSourcePicker = false
-                                }) {
-                                    HStack(spacing: 8) {
-                                        if item.id == selectedSource?.id {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundColor(Color(hex: "E11B48"))
-                                                .frame(width: 16)
-                                        } else {
-                                            Color.clear.frame(width: 16, height: 12)
-                                        }
-                                        Text(item.name)
-                                            .font(.system(size: 14, weight: item.id == selectedSource?.id ? .semibold : .regular))
-                                            .foregroundColor(item.id == selectedSource?.id ? Color(hex: "E11B48") : homeDropdownTextColor)
-                                            .lineLimit(1)
-                                        Spacer(minLength: 4)
-                                        Text(item.category.displayName)
-                                            .font(.system(size: 9, weight: .medium))
-                                            .foregroundColor(homeCategoryColor(item))
-                                            .padding(.horizontal, 5)
-                                            .padding(.vertical, 1.5)
-                                            .background(Capsule().fill(homeCategoryColor(item).opacity(0.12)))
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .contentShape(Rectangle())
+                            ForEach(homeGroupedSources, id: \.key) { group in
+                                // 分组标题
+                                HStack(spacing: 4) {
+                                    Text(group.key)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(homeDropdownTextColor.opacity(0.7))
+                                    Text("·")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(homeDropdownTextColor.opacity(0.4))
+                                    Text("\(group.items.count)")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color(hex: "E11B48"))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1.5)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color(hex: "E11B48").opacity(0.15))
+                                        )
+                                    Spacer()
                                 }
-                                .buttonStyle(.plain)
-                                if idx < allSources.count - 1 {
-                                    Divider()
-                                        .padding(.leading, 38)
-                                        .background(homeDropdownDividerColor)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(homeDropdownSectionHeaderBg)
+
+                                ForEach(Array(group.items.enumerated()), id: \.element.id) { idx, item in
+                                    Button(action: {
+                                        selectedSource = item
+                                        showSourcePicker = false
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            if item.id == selectedSource?.id {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundColor(Color(hex: "E11B48"))
+                                                    .frame(width: 16)
+                                            } else {
+                                                Color.clear.frame(width: 16, height: 12)
+                                            }
+                                            Text(item.name)
+                                                .font(.system(size: 14, weight: item.id == selectedSource?.id ? .semibold : .regular))
+                                                .foregroundColor(item.id == selectedSource?.id ? Color(hex: "E11B48") : homeDropdownTextColor)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    if idx < group.items.count - 1 {
+                                        Divider()
+                                            .padding(.leading, 38)
+                                            .background(homeDropdownDividerColor)
+                                    }
                                 }
                             }
                         }
@@ -463,22 +481,32 @@ struct HomeView: View {
         }
     }
 
+    private var homeDropdownSectionHeaderBg: some View {
+        if settings.usesVisualSkin {
+            return AnyView(Color(hex: "1a1a2e").opacity(0.6))
+        } else {
+            return AnyView(Color(uiColor: .systemGroupedBackground))
+        }
+    }
+
+    /// 按分类分组，固定顺序：网盘 → 论坛 → API → JS → 站源
+    private var homeGroupedSources: [(key: String, items: [SourceDisplayItem])] {
+        let grouped = Dictionary(grouping: allSources) { $0.category.displayName }
+        let order = ["网盘", "论坛", "API", "JS", "站源"]
+        return order.compactMap { key in
+            if let items = grouped[key], !items.isEmpty {
+                return (key, items)
+            }
+            return nil
+        }
+    }
+
     private var homeDropdownTextColor: Color {
         settings.usesVisualSkin ? .white : .primary
     }
 
     private var homeDropdownDividerColor: Color {
         settings.usesVisualSkin ? Color.white.opacity(0.1) : Color.gray.opacity(0.15)
-    }
-
-    private func homeCategoryColor(_ item: SourceDisplayItem) -> Color {
-        switch item.category {
-        case .cloudCMS, .cloudSPA: return Color(hex: "007AFF")
-        case .cloudForum: return Color(hex: "FF9500")
-        case .api: return Color(hex: "34C759")
-        case .jsSpider: return Color(hex: "AF52DE")
-        case .zhanyuan: return Color(hex: "FF3B30")
-        }
     }
 
     @MainActor
