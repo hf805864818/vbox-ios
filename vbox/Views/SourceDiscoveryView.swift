@@ -121,14 +121,14 @@ struct SourceDiscoveryView: View {
                 if homeData == nil { Task { await loadData() } }
             }
 
-            // 竖长条选源浮层
+            // 左上角小竖长条选源浮层
             if showSourceDropdown {
                 sourceDropdownOverlay
             }
         }
     }
 
-    // MARK: - 竖长条选源浮层
+    // MARK: - 左上角小竖长条选源浮层
 
     private var sourceDropdownOverlay: some View {
         ZStack {
@@ -136,87 +136,68 @@ struct SourceDiscoveryView: View {
             Color.black.opacity(0.3)
                 .ignoresSafeArea()
                 .onTapGesture { showSourceDropdown = false }
-
-            // 竖长条列表
-            VStack(spacing: 0) {
-                Spacer()
-                VStack(spacing: 0) {
-                    // 标题栏
-                    HStack {
-                        Text("切换源")
-                            .font(.system(size: 16, weight: .semibold))
-                        Spacer()
-                        Button(action: { showSourceDropdown = false }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 22))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-
-                    Divider()
-
-                    // 源列表
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(allSources) { item in
-                                Button(action: {
-                                    selectedSource = item
-                                    showSourceDropdown = false
-                                }) {
-                                    HStack(spacing: 10) {
-                                        // 选中标记
-                                        if item.id == source.id {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 14, weight: .bold))
-                                                .foregroundColor(Color(hex: "E11B48"))
-                                        } else {
-                                            Color.clear
-                                                .frame(width: 20, height: 20)
-                                        }
-
-                                        Text(item.name)
-                                            .font(.system(size: 15, weight: item.id == source.id ? .semibold : .regular))
-                                            .foregroundColor(item.id == source.id ? Color(hex: "E11B48") : .primary)
-                                            .lineLimit(1)
-
-                                        Spacer()
-
-                                        // 类型标签
-                                        Text(item.category.displayName)
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(categoryBadgeColor)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(
-                                                Capsule()
-                                                    .fill(categoryBadgeColor.opacity(0.12))
-                                            )
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-
-                                if item.id != allSources.last?.id {
-                                    Divider()
-                                        .padding(.leading, 46)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
-                }
-                .background(Color(uiColor: .systemBackground))
-                .cornerRadius(16, corners: [.topLeft, .topRight])
-                .shadow(radius: 10)
-            }
         }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .animation(.easeInOut(duration: 0.25), value: showSourceDropdown)
+        .overlay(alignment: .topLeading) {
+            // 小竖长条列表，对齐左上角
+            VStack(spacing: 0) {
+                ForEach(Array(allSources.enumerated()), id: \.element.id) { idx, item in
+                    Button(action: {
+                        selectedSource = item
+                        showSourceDropdown = false
+                    }) {
+                        HStack(spacing: 8) {
+                            // 选中标记
+                            if item.id == source.id {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(Color(hex: "E11B48"))
+                                    .frame(width: 16)
+                            } else {
+                                Color.clear.frame(width: 16, height: 12)
+                            }
+
+                            Text(item.name)
+                                .font(.system(size: 14, weight: item.id == source.id ? .semibold : .regular))
+                                .foregroundColor(item.id == source.id ? Color(hex: "E11B48") : .primary)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 4)
+
+                            Text(item.category.displayName)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(categoryBadgeColor)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(
+                                    Capsule()
+                                        .fill(categoryBadgeColor.opacity(0.12))
+                                )
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if idx < allSources.count - 1 {
+                        Divider()
+                            .padding(.leading, 38)
+                    }
+                }
+            }
+            .frame(width: screenWidth * 0.52, maxHeight: screenHeight * 0.42)
+            .background(Color(uiColor: .systemBackground))
+            .cornerRadius(12)
+            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .padding(.top, 52)
+            .padding(.leading, 12)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
+        .animation(.easeInOut(duration: 0.18), value: showSourceDropdown)
     }
+
+    private var screenWidth: CGFloat { UIScreen.main.bounds.width }
+    private var screenHeight: CGFloat { UIScreen.main.bounds.height }
 
     // MARK: - 顶部栏
 
