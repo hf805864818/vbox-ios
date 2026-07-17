@@ -2,7 +2,7 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
-// MARK: - 视频详情视图 (新版：底栏 + 演职人员 + 修复闪跳)
+// MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
     let searchKeyword: String?
@@ -23,6 +23,10 @@ struct VideoDetailView: View {
     // 网盘
     @State private var panLinks: [(url: String, name: String)] = []
     @State private var isLoadingPan = false
+    @State private var selectedCloudDrive: String? = nil  // 选中的网盘类型
+
+    // 剧集排序
+    @State private var episodesReversed = false
 
     // 详情数据（加载完成后不再变化，避免闪跳）
     @State private var detailVideo: VodItem?
@@ -76,10 +80,37 @@ struct VideoDetailView: View {
         )
     }
 
+    // 网盘链接按类型分组
+    private var cloudDriveGroups: [(drive: String, links: [(url: String, name: String)])] {
+        var groups: [String: [(url: String, name: String)]] = [:]
+        for link in panLinks {
+            let drive = driveNameFromLink(link.name)
+            groups[drive, default: []].append(link)
+        }
+        return groups.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    }
+
+    private func driveNameFromLink(_ name: String) -> String {
+        if name.contains("115") { return "115网盘" }
+        if name.contains("阿里") { return "阿里云盘" }
+        if name.contains("夸克") { return "夸克网盘" }
+        if name.contains("百度") { return "百度网盘" }
+        if name.contains("UC") { return "UC网盘" }
+        if name.contains("天翼") { return "天翼云盘" }
+        if name.contains("123") { return "123云盘" }
+        return "其他网盘"
+    }
+
     private var episodes: [(name: String, url: String)] {
+        // 网盘模式：显示选中网盘类型的链接
+        if isCloudVideo, let selectedDrive = selectedCloudDrive {
+            return panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
+        }
+        // 普通模式：显示当前播放源的集数
         guard !allSources.isEmpty else { return [] }
         let idx = min(selectedSourceIndex, allSources.count - 1)
-        return allSources[idx].episodes
+        let eps = allSources[idx].episodes
+        return episodesReversed ? eps.reversed() : eps
     }
 
     // MARK: - 初始化播放源（只执行一次，避免闪跳）
@@ -398,13 +429,9 @@ struct VideoDetailView: View {
             }
             .ignoresSafeArea()
 
-            // 内容层 + 底栏：只在安全区内
+            // 内容层：只在安全区内
             GeometryReader { safeGeometry in
-                ZStack(alignment: .bottom) {
-                    contentLayer(geometry: safeGeometry)
-                    bottomBarLayer
-                    downloadTipLayer
-                }
+                contentLayer(geometry: safeGeometry)
             }
         }
         // 播放器
@@ -526,7 +553,7 @@ struct VideoDetailView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
-                .padding(.bottom, 120)
+                .padding(.bottom, 60)
             }
         }
     }
@@ -643,41 +670,84 @@ struct VideoDetailView: View {
                     } else if panLinks.isEmpty {
                         Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.gray)
                     } else {
-                        Text("网盘资源 (\(panLinks.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
+                        Text("网盘源 (\(cloudDriveGroups.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
                     }
                     Spacer()
                 }
-                if !isLoadingPan, !panLinks.isEmpty {
-                    ForEach(Array(panLinks.enumerated()), id: \.offset) { _, link in
-                        Button(action: { playPanLink(link) }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "link.circle.fill").font(.system(size: 16)).foregroundColor(driveColor(link.name))
-                                Text(link.name).font(.system(size: 13)).foregroundColor(.white)
-                                Spacer()
-                                Text("点击播放").font(.system(size: 11)).foregroundColor(Color(hex: "E11D48"))
+                if !isLoadingPan, !cloudDriveGroups.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(cloudDriveGroups, id: \.drive) { group in
+                                Button(action: {
+                                    if selectedCloudDrive == group.drive {
+                                        selectedCloudDrive = nil
+                                    } else {
+                                        selectedCloudDrive = group.drive
+                                    }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: driveIcon(group.drive))
+                                            .font(.system(size: 13))
+                                        Text(group.drive)
+                                            .font(.system(size: 13, weight: .medium))
+                                        Text("\(group.links.count)")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.6))
+                                    }
+                                    .foregroundColor(selectedCloudDrive == group.drive ? .white : .white.opacity(0.8))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(selectedCloudDrive == group.drive ? Color(hex: "E11D48") : Color.white.opacity(0.12))
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
-                            .padding(10)
-                            .background(Color.white.opacity(0.1))
-                            .cornerRadius(8)
-                        }.buttonStyle(PlainButtonStyle())
+                        }
                     }
                 }
             }.padding(.vertical, 8)
         }
     }
 
-    // MARK: - 多线路切换 + 剧集网格
+    private func driveIcon(_ drive: String) -> String {
+        if drive.contains("115") { return "link.icloud" }
+        if drive.contains("阿里") { return "icloud" }
+        if drive.contains("夸克") { return "link.circle" }
+        if drive.contains("百度") { return "link" }
+        return "link.circle.fill"
+    }
+
+    // MARK: - 剧集列表（独立滚动 + 排序）
     private var episodeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("剧集列表")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
+                if isCloudVideo, let drive = selectedCloudDrive {
+                    Text("\(drive) 资源")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                } else {
+                    Text("剧集列表")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                }
                 Spacer()
+
+                // 排序按钮（纯图标无背景）
+                if !episodes.isEmpty {
+                    Button(action: { episodesReversed.toggle() }) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 14))
+                            .foregroundColor(episodesReversed ? Color(hex: "E11D48") : .white.opacity(0.7))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
                 if isLoadingDetail {
                     ProgressView().scaleEffect(0.8)
                 } else {
-                    Text(episodes.isEmpty ? "暂无真实剧集" : "共 \(episodes.count) 集")
+                    Text(episodes.isEmpty ? "暂无集数" : "共 \(episodes.count) 集")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.6))
                 }
@@ -703,8 +773,32 @@ struct VideoDetailView: View {
                 }
             }
 
-            EpisodeGridView(episodes: episodes) { episode in
-                handleEpisodeSelect(episode)
+            // 独立滚动区域：剧集网格
+            if !episodes.isEmpty {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
+                        spacing: 8
+                    ) {
+                        ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
+                            Button(action: { handleEpisodeSelect(episode) }) {
+                                Text(episode.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(minWidth: 48)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.white.opacity(0.12))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 300)
             }
         }.padding(.top, 8)
     }
