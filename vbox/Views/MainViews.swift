@@ -1508,7 +1508,12 @@ struct SearchResultsView: View {
             if dict[source] == nil { dict[source] = [] }
             dict[source]?.append(video)
         }
-        return dict.map { (source: $0.key, videos: $0.value) }.sorted { $0.videos.count > $1.videos.count }
+        return dict.map { (source: $0.key, videos: $0.value) }.sorted {
+            let aCloud = $0.source.hasPrefix("☁️")
+            let bCloud = $1.source.hasPrefix("☁️")
+            if aCloud != bCloud { return aCloud }
+            return $0.videos.count > $1.videos.count
+        }
     }
 
     private var sources: [String] { grouped.map { $0.source } }

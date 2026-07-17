@@ -368,34 +368,36 @@ class DoubanService: ObservableObject {
                     let result = await fetchCreditsById(id)
                     return (result.actors, result.directors, result.writers, id)
                 }
-                
+
                 // 尝试解析标准搜索格式
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    // 尝试 items 字段
+                    // 新格式：subjects 是字典 {items: [{target: {id: ...}, target_id: ...}]}
+                    if let subjects = json["subjects"] as? [String: Any],
+                       let items = subjects["items"] as? [[String: Any]],
+                       let first = items.first,
+                       let target = first["target"] as? [String: Any],
+                       let targetId = target["id"] as? String ?? first["target_id"] as? String {
+                        print("[DoubanService] 找到作品ID (subjects.items.target): \(targetId)")
+                        let result = await fetchCreditsById(targetId)
+                        return (result.actors, result.directors, result.writers, targetId)
+                    }
+
+                    // 旧格式：subjects 是数组 [{id: ...}]
+                    if let subjects = json["subjects"] as? [[String: Any]],
+                       let first = subjects.first,
+                       let id = first["id"] as? String {
+                        print("[DoubanService] 找到作品ID (subjects[]): \(id)")
+                        let result = await fetchCreditsById(id)
+                        return (result.actors, result.directors, result.writers, id)
+                    }
+
+                    // 顶层 items 数组
                     if let items = json["items"] as? [[String: Any]],
                        let first = items.first,
                        let targetId = first["id"] as? String ?? first["target_id"] as? String {
                         print("[DoubanService] 找到作品ID (items): \(targetId)")
                         let result = await fetchCreditsById(targetId)
                         return (result.actors, result.directors, result.writers, targetId)
-                    }
-                    
-                    // 尝试 subjects 字段
-                    if let subjects = json["subjects"] as? [[String: Any]],
-                       let first = subjects.first,
-                       let id = first["id"] as? String {
-                        print("[DoubanService] 找到作品ID (subjects): \(id)")
-                        let result = await fetchCreditsById(id)
-                        return (result.actors, result.directors, result.writers, id)
-                    }
-                    
-                    // 尝试 data 字段
-                    if let dataArr = json["data"] as? [[String: Any]],
-                       let first = dataArr.first,
-                       let id = first["id"] as? String {
-                        print("[DoubanService] 找到作品ID (data): \(id)")
-                        let result = await fetchCreditsById(id)
-                        return (result.actors, result.directors, result.writers, id)
                     }
                 }
             } catch {
@@ -876,22 +878,27 @@ extension DoubanService {
                 return id
             }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // 新格式：subjects 是字典 {items: [{target: {id: ...}}]}
+                if let subjects = json["subjects"] as? [String: Any],
+                   let items = subjects["items"] as? [[String: Any]],
+                   let first = items.first,
+                   let target = first["target"] as? [String: Any],
+                   let id = target["id"] as? String ?? first["target_id"] as? String {
+                    print("[DoubanService] fetchSubjectIdByName 找到ID (subjects.items.target): \(id)")
+                    return id
+                }
+                // 旧格式：subjects 是数组
+                if let subjects = json["subjects"] as? [[String: Any]],
+                   let first = subjects.first,
+                   let id = first["id"] as? String {
+                    print("[DoubanService] fetchSubjectIdByName 找到ID (subjects[]): \(id)")
+                    return id
+                }
+                // 顶层 items
                 if let items = json["items"] as? [[String: Any]],
                    let first = items.first,
                    let id = first["id"] as? String ?? first["target_id"] as? String {
                     print("[DoubanService] fetchSubjectIdByName 找到ID (items): \(id)")
-                    return id
-                }
-                if let subjects = json["subjects"] as? [[String: Any]],
-                   let first = subjects.first,
-                   let id = first["id"] as? String {
-                    print("[DoubanService] fetchSubjectIdByName 找到ID (subjects): \(id)")
-                    return id
-                }
-                if let dataArr = json["data"] as? [[String: Any]],
-                   let first = dataArr.first,
-                   let id = first["id"] as? String {
-                    print("[DoubanService] fetchSubjectIdByName 找到ID (data): \(id)")
                     return id
                 }
             }
