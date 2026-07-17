@@ -1106,7 +1106,8 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         for site in apiSites {
             guard let api = site.api else { continue }
-            let urlStr = api.hasSuffix("/") ? "\(api)at/json?ac=list&t=\(categoryTypeId)&pg=\(page)" : "\(api)/at/json?ac=list&t=\(categoryTypeId)&pg=\(page)"
+            let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
+            let urlStr = "\(baseAPI)?ac=list&t=\(categoryTypeId)&pg=\(page)"
             guard let url = URL(string: urlStr) else { continue }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
@@ -1134,7 +1135,40 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 原生分类请求失败[\(site.name)]: \(error)")
             }
         }
-        
+
+        // 3. 网盘 CMS 源分类内容（此前缺失导致网盘源分类无数据）
+        let cloudSites = loadCloudSitesFromJSONConfig()
+        for site in cloudSites where site.type == .cms {
+            let api = "\(site.detailBase)/api.php/provide/vod"
+            let urlStr = "\(api)?ac=list&t=\(categoryTypeId)&pg=\(page)"
+            guard let url = URL(string: urlStr) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let list = json["list"] as? [[String: Any]] {
+                    let items = list.compactMap { dict -> VodItem? in
+                        guard let vodName = dict["vod_name"] as? String ?? dict["name"] as? String else { return nil }
+                        let vodId = dict["vod_id"] as? String ?? dict["id"] as? String ?? UUID().uuidString
+                        return VodItem(
+                            vodId: vodId,
+                            vodName: vodName,
+                            vodPic: dict["vod_pic"] as? String ?? dict["pic"] as? String ?? "",
+                            vodRemarks: dict["vod_remarks"] as? String ?? dict["remarks"] as? String ?? site.name,
+                            vodYear: dict["vod_year"] as? String ?? dict["year"] as? String,
+                            vodArea: dict["vod_area"] as? String,
+                            vodDirector: dict["vod_director"] as? String,
+                            vodActor: dict["vod_actor"] as? String,
+                            vodContent: dict["vod_content"] as? String
+                        )
+                    }
+                    results.append(contentsOf: items)
+                    print("[SpiderManager] 网盘CMS分类[\(site.name)]: \(items.count)条")
+                }
+            } catch {
+                print("[SpiderManager] 网盘CMS分类请求失败[\(site.name)]: \(error)")
+            }
+        }
+
         return results
     }
 
