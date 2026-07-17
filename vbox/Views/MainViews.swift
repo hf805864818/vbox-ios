@@ -258,6 +258,7 @@ struct HomeView: View {
                     .environmentObject(settings)
                 }
                 .navigationViewStyle(.stack)
+                .id(selectedSource?.id)
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
