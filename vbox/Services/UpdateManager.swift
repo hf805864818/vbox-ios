@@ -189,28 +189,69 @@ class UpdateManager: ObservableObject {
         return urls
     }
 
-    // MARK: - 下载代理（URLSession downloadTask delegate，系统级缓冲下载）
+    // MARK: - 下载代理（URLSession downloadTask delegate，系统级缓冲下载 + 速度检测 + 续传）
+
     private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         var onProgress: ((Double) -> Void)?
         var onComplete: ((Result<URL, Error>) -> Void)?
         var startTime: Date = Date()
         private var downloadedTempURL: URL?
-        private var lastReportedBytes: Int64 = 0
-        private var lastReportedTime: Date = Date()
+
+        // 续传支持
+        var resumeOffset: Int64 = 0        // 已下载的字节数（断点续传用）
+        var totalFileSize: Int64 = 0       // 完整文件大小
+
+        // 速度检测
+        private var lastBytes: Int64 = 0
+        private var lastCheckTime: Date = Date()
+        private var slowStartTime: Date?
+        private let minSpeed: Double = 5120        // 5 KB/s
+        private let slowTolerance: TimeInterval = 8 // 持续慢速8秒则放弃
 
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-            guard totalBytesExpectedToWrite > 0 else { return }
-            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            let now = Date()
+
+            // 解析完整文件大小（续传时从 Content-Range 头获取）
+            if totalFileSize == 0, let httpResp = downloadTask.response as? HTTPURLResponse {
+                if httpResp.statusCode == 206,
+                   let cr = (httpResp.allHeaderFields["Content-Range"] as? String) ?? (httpResp.allHeaderFields["content-range"] as? String),
+                   let totalStr = cr.components(separatedBy: "/").last?.trimmingCharacters(in: .whitespaces),
+                   let total = Int64(totalStr) {
+                    totalFileSize = total
+                } else if totalBytesExpectedToWrite > 0 {
+                    totalFileSize = totalBytesExpectedToWrite
+                }
+            }
+
+            let overallBytes = resumeOffset + totalBytesWritten
+            let overallTotal = totalFileSize > 0 ? totalFileSize : (resumeOffset + totalBytesExpectedToWrite)
+            let progress = overallTotal > 0 ? Double(overallBytes) / Double(overallTotal) : 0
             onProgress?(progress)
 
-            let now = Date()
-            let elapsed = now.timeIntervalSince(lastReportedTime)
+            // 速度检测（每秒检查一次）
+            let elapsed = now.timeIntervalSince(lastCheckTime)
             if elapsed >= 1.0 {
-                let bytesInInterval = totalBytesWritten - lastReportedBytes
-                let speedKB = Double(bytesInInterval) / elapsed / 1024.0
+                let bytesInInterval = overallBytes - lastBytes
+                let speed = Double(bytesInInterval) / elapsed
+                lastBytes = overallBytes
+                lastCheckTime = now
+
+                let speedKB = speed / 1024
                 print("[UpdateManager] 下载进度: \(Int(progress * 100))% 速度: \(String(format: "%.0f", speedKB))KB/s")
-                lastReportedBytes = totalBytesWritten
-                lastReportedTime = now
+
+                if speed < minSpeed && overallBytes > 0 {
+                    if slowStartTime == nil {
+                        slowStartTime = now
+                    } else if now.timeIntervalSince(slowStartTime!) >= slowTolerance {
+                        print("[UpdateManager] 速度过慢(\(String(format: "%.0f", speedKB))KB/s)持续\(Int(slowTolerance))秒，切换源")
+                        session.invalidateAndCancel()
+                        onComplete?(.failure(NSError(domain: "UpdateManager", code: -2,
+                            userInfo: [NSLocalizedDescriptionKey: "下载速度过慢，切换源"])))
+                        return
+                    }
+                } else {
+                    slowStartTime = nil
+                }
             }
         }
 
@@ -239,10 +280,20 @@ class UpdateManager: ObservableObject {
         }
     }
 
-    /// 使用系统 downloadTask 下载单个文件（系统级缓冲，非逐字节处理）
-    private func downloadFile(from url: URL, to destination: URL) async throws {
+    /// 下载单个文件，支持断点续传
+    /// - Parameters:
+    ///   - url: 下载地址
+    ///   - destination: 目标文件路径
+    ///   - resumeOffset: 已下载字节数（0 = 全新下载）
+    /// - Returns: 本次下载新增的字节数
+    private func downloadFile(from url: URL, to destination: URL, resumeOffset: Int64) async throws -> Int64 {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30      // 连接超时 30s
+        config.timeoutIntervalForResource = 120    // 单次下载最多 2 分钟
+
         let delegate = DownloadDelegate()
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        delegate.resumeOffset = resumeOffset
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
         delegate.onProgress = { [weak self] progress in
@@ -252,8 +303,12 @@ class UpdateManager: ObservableObject {
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 600
+        request.timeoutInterval = 30
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        if resumeOffset > 0 {
+            request.setValue("bytes=\(resumeOffset)-", forHTTPHeaderField: "Range")
+            print("[UpdateManager] 断点续传: 从 \(resumeOffset) 字节开始 (已下载 \(String(format: "%.1f", Double(resumeOffset)/1048576))MB)")
+        }
 
         let task = session.downloadTask(with: request)
 
@@ -271,11 +326,26 @@ class UpdateManager: ObservableObject {
             }
         )
 
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: tempURL, to: destination)
+        let newData = try Data(contentsOf: tempURL)
+        let newBytes = Int64(newData.count)
+
+        if resumeOffset > 0 {
+            // 续传模式：追加到已有文件末尾
+            let fileHandle = try FileHandle(forWritingTo: destination)
+            defer { try? fileHandle.close() }
+            try fileHandle.seekToEnd()
+            try fileHandle.write(contentsOf: newData)
+            print("[UpdateManager] 续传完成: +\(String(format: "%.1f", Double(newBytes)/1048576))MB")
+        } else {
+            // 全新下载：直接写入
+            try? FileManager.default.removeItem(at: destination)
+            try newData.write(to: destination)
+        }
+
+        return newBytes
     }
 
-    /// 执行实际下载（主代理 → 备用代理 → 直连兜底）
+    /// 执行实际下载（主代理 → 备用代理 → 直连兜底，断点续传）
     private func performDownload(from url: URL) async {
         isDownloading = true
         downloadProgress = 0
@@ -285,11 +355,10 @@ class UpdateManager: ObservableObject {
         let tempDir = FileManager.default.temporaryDirectory
         let destinationURL = tempDir.appendingPathComponent("vbox_update.ipa")
 
-        // 删除旧文件
-        try? FileManager.default.removeItem(at: destinationURL)
-
         let downloadURLs = buildDownloadURLs(githubURL: url.absoluteString)
         print("[UpdateManager] 下载地址: \(downloadURLs.count) 个 (主代理 → 备用代理 → 直连兜底)")
+
+        var totalDownloaded: Int64 = 0
 
         for (idx, downloadURL) in downloadURLs.enumerated() {
             if Task.isCancelled { break }
@@ -299,22 +368,33 @@ class UpdateManager: ObservableObject {
             case 1: label = "备用代理(gh-proxy)"
             default: label = "直连"
             }
-            print("[UpdateManager] 下载尝试 #\(idx+1): \(label) \(downloadURL.host ?? "")")
+
+            // 如果要续传，先检查已有文件大小
+            let resumeOffset: Int64 = totalDownloaded > 0 ? totalDownloaded : 0
+            let resumeLabel = resumeOffset > 0 ? " [续传: \(String(format: "%.1f", Double(resumeOffset)/1048576))MB]" : ""
+            print("[UpdateManager] 下载尝试 #\(idx+1): \(label) \(downloadURL.host ?? "")\(resumeLabel)")
 
             do {
-                try await downloadFile(from: downloadURL, to: destinationURL)
+                let newBytes = try await downloadFile(from: downloadURL, to: destinationURL, resumeOffset: resumeOffset)
+                totalDownloaded += newBytes
                 downloadProgress = 1.0
                 downloadedIPAPath = destinationURL
-                print("[UpdateManager] IPA 下载完成: \(destinationURL.path)")
+                print("[UpdateManager] IPA 下载完成: \(destinationURL.path) 总大小: \(String(format: "%.1f", Double(totalDownloaded)/1048576))MB")
                 isDownloading = false
                 return
             } catch {
                 if Task.isCancelled { break }
-                print("[UpdateManager] #\(idx+1) 下载失败: \(error.localizedDescription)")
-                try? FileManager.default.removeItem(at: destinationURL)
+                // 保存已下载的字节数用于续传
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: destinationURL.path),
+                   let size = attrs[.size] as? Int64, size > 0 {
+                    totalDownloaded = size
+                }
+                print("[UpdateManager] #\(idx+1) 下载失败: \(error.localizedDescription)，已下载: \(String(format: "%.1f", Double(totalDownloaded)/1048576))MB")
             }
         }
 
+        // 全部失败，清理不完整文件
+        try? FileManager.default.removeItem(at: destinationURL)
         downloadError = "所有下载源均失败，请检查网络"
         isDownloading = false
     }
