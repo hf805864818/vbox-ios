@@ -65,9 +65,8 @@ class ShortDramaService: ObservableObject {
             guard !seen.contains(site.api) else { continue }
             seen.insert(site.api)
             
-            let listUrl = site.api.hasSuffix("/")
-                ? "\(site.api)at/json?ac=list&pg=1"
-                : "\(site.api)/at/json?ac=list&pg=1"
+            let baseAPI = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
+            let listUrl = "\(baseAPI)?ac=list&pg=1"
             
             guard let url = URL(string: listUrl) else { continue }
             
@@ -179,9 +178,8 @@ class ShortDramaService: ObservableObject {
                     let batch = Array(vodIds[batchStart..<min(batchStart + batchSize, vodIds.count)])
                     let ids = batch.joined(separator: ",")
                     
-                    let detailUrlStr = source.api.hasSuffix("/")
-                        ? "\(source.api)at/json?ac=detail&ids=\(ids)"
-                        : "\(source.api)/at/json?ac=detail&ids=\(ids)"
+                    let baseAPI = source.api.hasSuffix("/") ? String(source.api.dropLast()) : source.api
+                    let detailUrlStr = "\(baseAPI)?ac=detail&ids=\(ids)"
                     
                     guard let url = URL(string: detailUrlStr) else { continue }
                     
@@ -231,9 +229,8 @@ class ShortDramaService: ObservableObject {
 
     private func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
         let api = source.api
-        let listUrl = api.hasSuffix("/")
-            ? "\(api)at/json?ac=list&t=\(source.categoryId)&pg=\(page)"
-            : "\(api)/at/json?ac=list&t=\(source.categoryId)&pg=\(page)"
+        let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
+        let listUrl = "\(baseAPI)?ac=list&t=\(source.categoryId)&pg=\(page)"
         
         guard let url = URL(string: listUrl) else { return [] }
         
@@ -280,9 +277,8 @@ class ShortDramaService: ObservableObject {
         
         for source in targets {
             let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-            let searchUrlStr = source.api.hasSuffix("/")
-                ? "\(source.api)at/json?ac=search&wd=\(encoded)"
-                : "\(source.api)/at/json?ac=search&wd=\(encoded)"
+            let baseAPI = source.api.hasSuffix("/") ? String(source.api.dropLast()) : source.api
+            let searchUrlStr = "\(baseAPI)?ac=videolist&wd=\(encoded)"
             
             guard let url = URL(string: searchUrlStr) else { continue }
             
@@ -317,9 +313,8 @@ class ShortDramaService: ObservableObject {
     // MARK: - 获取短剧详情（播放地址）
     
     func fetchDetail(vodId: String, api: String) async -> VodItem? {
-        let detailUrlStr = api.hasSuffix("/")
-            ? "\(api)at/json?ac=detail&ids=\(vodId)"
-            : "\(api)/at/json?ac=detail&ids=\(vodId)"
+        let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
+        let detailUrlStr = "\(baseAPI)?ac=detail&ids=\(vodId)"
         
         guard let url = URL(string: detailUrlStr) else { return nil }
         
