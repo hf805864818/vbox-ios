@@ -16,6 +16,13 @@ struct SourceDiscoveryView: View {
     @State private var categoryVideos: [VodItem] = []
     @State private var isLoadingCategory = false
 
+    // 自适应筛选状态
+    @State private var filterOptions = SpiderManager.AdaptiveFilterOptions()
+    @State private var selectedClass = "全部"
+    @State private var selectedArea = "全部"
+    @State private var selectedYear = "全部"
+    @State private var selectedSort = "全部"
+
     private var displayCategories: [VodCategory] {
         homeData?.categories ?? []
     }
@@ -25,6 +32,11 @@ struct SourceDiscoveryView: View {
             return categoryVideos
         }
         return homeData?.recommended ?? []
+    }
+
+    /// 是否显示筛选栏（只有选中具体分类且有筛选维度时才显示）
+    private var shouldShowFilterBar: Bool {
+        selectedCategoryId != nil && !filterOptions.isEmpty
     }
 
     var body: some View {
@@ -63,6 +75,12 @@ struct SourceDiscoveryView: View {
                         // 分类标签（左右滑动）
                         if !displayCategories.isEmpty {
                             categoryScrollBar
+                        }
+
+                        // 自适应筛选栏（仅选中分类后显示，且有筛选维度才显示）
+                        if shouldShowFilterBar {
+                            adaptiveFilterBar
+                                .padding(.bottom, 8)
                         }
 
                         // 内容网格
@@ -149,12 +167,13 @@ struct SourceDiscoveryView: View {
                 HStack(spacing: 8) {
                     // 推荐（默认）
                     SourceCategoryChip(
-                    name: "推荐",
-                    isSelected: selectedCategoryId == nil
-                )
+                        name: "推荐",
+                        isSelected: selectedCategoryId == nil
+                    )
                     .onTapGesture {
                         selectedCategoryId = nil
                         categoryVideos = []
+                        resetFilters()
                     }
 
                     ForEach(displayCategories) { cat in
@@ -164,6 +183,7 @@ struct SourceDiscoveryView: View {
                         )
                         .onTapGesture {
                             if selectedCategoryId != cat.typeId {
+                                resetFilters()
                                 selectedCategoryId = cat.typeId
                                 Task { await loadCategoryContent(cat) }
                             }
@@ -177,6 +197,121 @@ struct SourceDiscoveryView: View {
             Divider()
                 .padding(.horizontal, 16)
         }
+    }
+
+    // MARK: - 自适应筛选栏
+
+    private var adaptiveFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // 类型
+                if !filterOptions.class.isEmpty {
+                    AdaptiveFilterChip(
+                        title: "类型",
+                        value: selectedClass,
+                        hasSelection: selectedClass != "全部"
+                    ) {
+                        presentFilterPicker(
+                            title: "选择类型",
+                            options: filterOptions.class,
+                            selection: $selectedClass
+                        )
+                    }
+                }
+
+                // 地区
+                if !filterOptions.area.isEmpty {
+                    AdaptiveFilterChip(
+                        title: "地区",
+                        value: selectedArea,
+                        hasSelection: selectedArea != "全部"
+                    ) {
+                        presentFilterPicker(
+                            title: "选择地区",
+                            options: filterOptions.area,
+                            selection: $selectedArea
+                        )
+                    }
+                }
+
+                // 年份
+                if !filterOptions.year.isEmpty {
+                    AdaptiveFilterChip(
+                        title: "年份",
+                        value: selectedYear,
+                        hasSelection: selectedYear != "全部"
+                    ) {
+                        presentFilterPicker(
+                            title: "选择年份",
+                            options: filterOptions.year,
+                            selection: $selectedYear
+                        )
+                    }
+                }
+
+                // 排序（始终显示）
+                AdaptiveFilterChip(
+                    title: "排序",
+                    value: sortDisplayValue(selectedSort),
+                    hasSelection: selectedSort != "全部"
+                ) {
+                    presentFilterPicker(
+                        title: "排序方式",
+                        options: filterOptions.sort,
+                        selection: $selectedSort
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// 排序值的显示名称映射
+    private func sortDisplayValue(_ value: String) -> String {
+        switch value {
+        case "全部": return "默认"
+        case "hits": return "热播"
+        case "addtime": return "最新"
+        case "score": return "高分"
+        case "rand": return "随机"
+        default: return value
+        }
+    }
+
+    /// 重置所有筛选条件
+    private func resetFilters() {
+        selectedClass = "全部"
+        selectedArea = "全部"
+        selectedYear = "全部"
+        selectedSort = "全部"
+        filterOptions = SpiderManager.AdaptiveFilterOptions()
+    }
+
+    /// 弹出筛选选择器
+    private func presentFilterPicker(title: String, options: [String], selection: Binding<String>) {
+        let vc = UIApplication.shared.windows.first?.rootViewController
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
+
+        for opt in options {
+            let displayTitle = (title == "排序方式") ? sortDisplayValue(opt) : opt
+            let action = UIAlertAction(title: displayTitle, style: .default) { _ in
+                if selection.wrappedValue != opt {
+                    selection.wrappedValue = opt
+                    // 触发重新加载
+                    if let catId = selectedCategoryId {
+                        Task { await reloadCategoryWithFilters(categoryId: catId) }
+                    }
+                }
+            }
+            if selection.wrappedValue == opt {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        vc?.present(alert, animated: true)
     }
 
     // MARK: - 视频网格
@@ -193,10 +328,10 @@ struct SourceDiscoveryView: View {
             ForEach(displayVideos) { video in
                 NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
                     SourceVideoCard(
-                    video: video,
-                    referer: source.referer,
-                    settings: settings
-                )
+                        video: video,
+                        referer: source.referer,
+                        settings: settings
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -246,8 +381,30 @@ struct SourceDiscoveryView: View {
 
     private func loadCategoryContent(_ cat: VodCategory) async {
         isLoadingCategory = true
-        let items = await SpiderManager.shared.fetchCategoryContent(
-            categoryTypeId: cat.typeId, page: 1
+        let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
+            source: source,
+            categoryTypeId: cat.typeId,
+            page: 1
+        )
+        categoryVideos = items
+        // 从数据中自适应提取筛选选项
+        filterOptions = SpiderManager.extractAdaptiveFilters(from: items)
+        isLoadingCategory = false
+    }
+
+    private func reloadCategoryWithFilters(categoryId: String) async {
+        isLoadingCategory = true
+        var params = SpiderManager.CategoryFilterParams()
+        params.class = selectedClass == "全部" ? nil : selectedClass
+        params.area = selectedArea == "全部" ? nil : selectedArea
+        params.year = selectedYear == "全部" ? nil : selectedYear
+        params.sort = selectedSort == "全部" ? nil : selectedSort
+
+        let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
+            source: source,
+            categoryTypeId: categoryId,
+            page: 1,
+            filters: params
         )
         categoryVideos = items
         isLoadingCategory = false
@@ -270,6 +427,43 @@ private struct SourceCategoryChip: View {
                 Capsule()
                     .fill(isSelected ? Color(hex: "E11B48") : Color(uiColor: .systemGray6))
             )
+    }
+}
+
+// MARK: - 自适应筛选胶囊按钮
+
+private struct AdaptiveFilterChip: View {
+    let title: String
+    let value: String
+    let hasSelection: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(hasSelection ? Color(hex: "E11B48") : .primary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(hasSelection ? Color(hex: "E11B48").opacity(0.1) : Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(hasSelection ? Color(hex: "E11B48").opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
