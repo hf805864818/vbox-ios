@@ -2796,7 +2796,7 @@ globalThis.__JS_SPIDER__ = _spider;
             case .forum: cat = .cloudForum
             case .spa: cat = .cloudSPA
             }
-            let api = site.type == .cms ? "\(site.searchurl.prefix(while: { $0 != "/" }))/api.php/provide/vod" : nil
+            let api = site.type == .cms ? "\(site.detailBase)/api.php/provide/vod" : nil
             items.append(SourceDisplayItem(
                 id: "cloud_\(site.name)",
                 name: site.name,
@@ -2901,7 +2901,8 @@ globalThis.__JS_SPIDER__ = _spider;
             baseURL = api
         }
 
-        let urlStr = "\(baseURL)?ac=home"
+        // AppleCMS 标准采集接口使用 ac=list（比 ac=home 更通用）
+        let urlStr = "\(baseURL)?ac=list"
         guard let url = URL(string: urlStr) else { return nil }
 
         do {
@@ -2914,8 +2915,22 @@ globalThis.__JS_SPIDER__ = _spider;
                   (200...299).contains(httpResp.statusCode) else { return nil }
 
             let raw = try JSONDecoder().decode(SourceHomeRaw.self, from: data)
-            let categories = raw.class ?? []
-            let list = raw.list ?? []
+            var categories = raw.class ?? []
+            var list = raw.list ?? []
+
+            // 若 ac=list 返回的分类列表为空，尝试兜底获取第一页内容
+            if categories.isEmpty && list.isEmpty {
+                let fallbackURLStr = "\(baseURL)?ac=list&pg=1"
+                if let fallbackURL = URL(string: fallbackURLStr) {
+                    var fallbackReq = URLRequest(url: fallbackURL)
+                    fallbackReq.timeoutInterval = 10
+                    fallbackReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (fallbackData, _) = try await URLSession.shared.data(for: fallbackReq)
+                    let fallbackRaw = try JSONDecoder().decode(SourceHomeRaw.self, from: fallbackData)
+                    categories = fallbackRaw.class ?? []
+                    list = fallbackRaw.list ?? []
+                }
+            }
 
             guard !list.isEmpty else { return nil }
 
