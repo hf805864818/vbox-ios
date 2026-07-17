@@ -185,7 +185,8 @@ struct SourceDiscoveryView: View {
                     }
                 }
             }
-            .frame(width: screenWidth * 0.52, maxHeight: screenHeight * 0.42)
+            .frame(width: screenWidth * 0.25)
+            .frame(maxHeight: screenHeight * 0.42)
             .background(Color(uiColor: .systemBackground))
             .cornerRadius(12)
             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
