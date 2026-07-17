@@ -1075,11 +1075,26 @@ globalThis.__JS_SPIDER__ = _spider;
         return allResults.isEmpty ? nativeResults : allResults
     }
 
+    /// 分类筛选参数（全部可选，nil 表示不筛选）
+    struct CategoryFilterParams {
+        var `class`: String?   // 类型/题材，如 "动作" "喜剧"
+        var area: String?      // 地区，如 "大陆" "美国"
+        var year: String?      // 年份，如 "2024"
+        var sort: String?      // 排序，如 "hits" "addtime" "score"
+    }
+
     /// 通过订阅源获取分类内容（调用 TVBox 标准的 ac=list 接口）
-    func fetchCategoryContent(categoryTypeId: String, page: Int = 1) async -> [VodItem] {
+    /// - Parameters:
+    ///   - categoryTypeId: 分类 ID
+    ///   - page: 页码
+    ///   - filters: 多维筛选参数（类型/地区/年份/排序），全部为 nil 时等价于原方法
+    func fetchCategoryContent(categoryTypeId: String, page: Int = 1, filters: CategoryFilterParams? = nil) async -> [VodItem] {
         // 先尝试 QuickJS 引擎的 categoryContent
         var results: [VodItem] = []
-        
+
+        // 构造筛选查询串
+        let filterQuery = Self.buildFilterQuery(filters)
+
         // 1. 尝试 JS 引擎
         for (key, engine) in engines {
             do {
@@ -1107,7 +1122,7 @@ globalThis.__JS_SPIDER__ = _spider;
         for site in apiSites {
             guard let api = site.api else { continue }
             let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
-            let urlStr = "\(baseAPI)?ac=list&t=\(categoryTypeId)&pg=\(page)"
+            let urlStr = "\(baseAPI)?ac=list&t=\(categoryTypeId)&pg=\(page)\(filterQuery)"
             guard let url = URL(string: urlStr) else { continue }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
@@ -1140,7 +1155,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let cloudSites = loadCloudSitesFromJSONConfig()
         for site in cloudSites where site.type == .cms {
             let api = "\(site.detailBase)/api.php/provide/vod"
-            let urlStr = "\(api)?ac=list&t=\(categoryTypeId)&pg=\(page)"
+            let urlStr = "\(api)?ac=list&t=\(categoryTypeId)&pg=\(page)\(filterQuery)"
             guard let url = URL(string: urlStr) else { continue }
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
@@ -1170,6 +1185,136 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         return results
+    }
+
+    // MARK: - 筛选参数工具
+
+    /// 将筛选参数转换为 URL 查询串（已含 & 前缀，空时返回 ""）
+    private static func buildFilterQuery(_ filters: CategoryFilterParams?) -> String {
+        guard let filters = filters else { return "" }
+        var parts: [String] = []
+        if let cls = filters.class, !cls.isEmpty, cls != "全部" {
+            if let encoded = cls.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                parts.append("class=\(encoded)")
+            }
+        }
+        if let area = filters.area, !area.isEmpty, area != "全部" {
+            if let encoded = area.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                parts.append("area=\(encoded)")
+            }
+        }
+        if let year = filters.year, !year.isEmpty, year != "全部" {
+            if let encoded = year.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                parts.append("year=\(encoded)")
+            }
+        }
+        if let sort = filters.sort, !sort.isEmpty, sort != "全部" {
+            parts.append("sort=\(sort)")
+        }
+        return parts.isEmpty ? "" : "&" + parts.joined(separator: "&")
+    }
+
+    /// 自适应筛选维度
+    struct AdaptiveFilterOptions {
+        var `class`: [String] = []   // 类型/题材选项
+        var area: [String] = []      // 地区选项
+        var year: [String] = []      // 年份选项
+        var sort: [String] = ["全部", "hits", "addtime", "score", "rand"] // 排序选项（固定）
+
+        /// 是否有任何可用筛选维度
+        var isEmpty: Bool {
+            `class`.isEmpty && area.isEmpty && year.isEmpty
+        }
+    }
+
+    /// 从一组 VodItem 中自适应提取可用的筛选选项（类型/地区/年份）
+    /// - Parameter items: 视频列表
+    /// - Returns: 去重并排序后的各维度选项（"全部"在首位）
+    static func extractAdaptiveFilters(from items: [VodItem]) -> AdaptiveFilterOptions {
+        var classSet = Set<String>()
+        var areaSet = Set<String>()
+        var yearSet = Set<String>()
+
+        for item in items {
+            // 地区
+            if let area = item.vodArea, !area.isEmpty {
+                // 多个地区用 / 或 , 分隔时拆分
+                let parts = area.components(separatedBy: CharacterSet(charactersIn: "/,，、"))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                parts.forEach { areaSet.insert($0) }
+            }
+            // 年份
+            if let year = item.vodYear, !year.isEmpty {
+                // 提取纯年份数字
+                let digits = year.filter { $0.isNumber }
+                if digits.count >= 4 {
+                    let start = digits.startIndex
+                    let end = digits.index(start, offsetBy: 4)
+                    yearSet.insert(String(digits[start..<end]))
+                }
+            }
+        }
+
+        // 排序：年份降序，地区升序，类型升序
+        let sortedYears = Array(yearSet).sorted(by: >)
+        let sortedAreas = Array(areaSet).sorted()
+        let sortedClasses = Array(classSet).sorted()
+
+        // 都加上 "全部" 前缀
+        var opts = AdaptiveFilterOptions()
+        if !sortedClasses.isEmpty { opts.class = ["全部"] + sortedClasses }
+        if !sortedAreas.isEmpty { opts.area = ["全部"] + sortedAreas }
+        if !sortedYears.isEmpty { opts.year = ["全部"] + sortedYears }
+
+        return opts
+    }
+
+    /// 获取单个源的分类 + 筛选内容（用于 SourceDiscoveryView 的单源发现页）
+    /// - Parameters:
+    ///   - source: 源配置
+    ///   - categoryTypeId: 分类 ID
+    ///   - page: 页码
+    ///   - filters: 筛选参数
+    /// - Returns: 视频列表（仅该源的数据）
+    func fetchSingleSourceCategoryContent(source: SourceDisplayItem, categoryTypeId: String, page: Int = 1, filters: CategoryFilterParams? = nil) async -> [VodItem] {
+        let filterQuery = Self.buildFilterQuery(filters)
+
+        switch source.category {
+        case .api, .cloudCMS, .zhanyuan:
+            guard let api = source.api else { return [] }
+            let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
+            let urlStr = "\(baseAPI)?ac=list&t=\(categoryTypeId)&pg=\(page)\(filterQuery)"
+            guard let url = URL(string: urlStr) else { return [] }
+            do {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 10
+                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                let (data, response) = try await URLSession.shared.data(for: req)
+
+                guard let httpResp = response as? HTTPURLResponse,
+                      (200...299).contains(httpResp.statusCode) else { return [] }
+
+                let raw = try JSONDecoder().decode(CategoryContentResult.self, from: data)
+                return raw.list ?? []
+            } catch {
+                print("[SpiderManager] singleSourceCategory[\(source.name)] 失败: \(error.localizedDescription)")
+                return []
+            }
+
+        case .jsSpider:
+            guard let key = source.engineKey, let engine = engines[key] else { return [] }
+            do {
+                let result = try engine.callCategoryContent(tid: categoryTypeId, pg: page, extend: "{}")
+                return result.list ?? []
+            } catch {
+                print("[SpiderManager] jsSpiderCategory[\(source.name)] 失败: \(error)")
+                return []
+            }
+
+        case .cloudForum, .cloudSPA:
+            return []
+        }
     }
 
     /// 流式搜索 — 每个站点搜完立刻回调，不等全部完成
