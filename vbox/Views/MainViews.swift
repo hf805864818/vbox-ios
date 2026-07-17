@@ -405,10 +405,8 @@ struct HomeView: View {
                                 HStack(spacing: 4) {
                                     Text(group.key)
                                         .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(homeDropdownTextColor.opacity(0.7))
-                                    Text("·")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(homeDropdownTextColor.opacity(0.4))
+                                        .foregroundColor(homeDropdownTextColor)
+                                    Spacer()
                                     Text("\(group.items.count)")
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundColor(Color(hex: "E11B48"))
@@ -418,7 +416,6 @@ struct HomeView: View {
                                             Capsule()
                                                 .fill(Color(hex: "E11B48").opacity(0.15))
                                         )
-                                    Spacer()
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)

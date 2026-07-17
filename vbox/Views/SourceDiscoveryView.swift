@@ -170,10 +170,8 @@ struct SourceDiscoveryView: View {
                             HStack(spacing: 4) {
                                 Text(group.key)
                                     .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(dropdownTextColor.opacity(0.7))
-                                Text("·")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(dropdownTextColor.opacity(0.4))
+                                    .foregroundColor(dropdownTextColor)
+                                Spacer()
                                 Text("\(group.items.count)")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(Color(hex: "E11B48"))
@@ -183,7 +181,6 @@ struct SourceDiscoveryView: View {
                                         Capsule()
                                             .fill(Color(hex: "E11B48").opacity(0.15))
                                     )
-                                Spacer()
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
