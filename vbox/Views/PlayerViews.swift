@@ -232,7 +232,14 @@ struct VideoDetailView: View {
         isLoadingPan = true
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
-                await MainActor.run { panLinks = result.links; isLoadingPan = false }
+                await MainActor.run {
+                    panLinks = result.links
+                    isLoadingPan = false
+                    // 默认选中第一个网盘类型
+                    if selectedCloudDrive == nil, let firstDrive = cloudDriveGroups.first?.drive {
+                        selectedCloudDrive = firstDrive
+                    }
+                }
             } else {
                 await MainActor.run { isLoadingPan = false }
             }
@@ -780,7 +787,7 @@ struct VideoDetailView: View {
                         columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
                         spacing: 8
                     ) {
-                        ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
+                        ForEach(Array(episodes), id: \.url) { episode in
                             Button(action: { handleEpisodeSelect(episode) }) {
                                 Text(episode.name)
                                     .font(.system(size: 13, weight: .medium))
