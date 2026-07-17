@@ -6,7 +6,7 @@ struct SourceDiscoveryView: View {
     @EnvironmentObject private var settings: AppSettings
 
     let source: SourceDisplayItem
-    let onSwitchSource: () -> Void
+    @Binding var selectedSource: SourceDisplayItem?
     let onDismiss: () -> Void
 
     @State private var homeData: SourceHomeData?
@@ -15,6 +15,8 @@ struct SourceDiscoveryView: View {
     @State private var selectedCategoryId: String?
     @State private var categoryVideos: [VodItem] = []
     @State private var isLoadingCategory = false
+    @State private var showSourceDropdown = false
+    @State private var allSources: [SourceDisplayItem] = []
 
     // 自适应筛选状态
     @State private var filterOptions = SpiderManager.AdaptiveFilterOptions()
@@ -40,80 +42,180 @@ struct SourceDiscoveryView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 顶部栏
-            topBar
+        ZStack {
+            VStack(spacing: 0) {
+                // 顶部栏
+                topBar
 
-            if isLoading {
-                Spacer()
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Text("正在加载 \(source.name)...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            } else if let error = loadError {
-                Spacer()
-                VStack(spacing: 16) {
-                    Image(systemName: "wifi.slash")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text(error)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                    Button("重试") {
-                        Task { await loadData() }
+                if isLoading {
+                    Spacer()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("正在加载 \(source.name)...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                }
-                Spacer()
-            } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // 分类标签（左右滑动）
-                        if !displayCategories.isEmpty {
-                            categoryScrollBar
+                    Spacer()
+                } else if let error = loadError {
+                    Spacer()
+                    VStack(spacing: 16) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text(error)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Button("重试") {
+                            Task { await loadData() }
                         }
-
-                        // 自适应筛选栏（仅选中分类后显示，且有筛选维度才显示）
-                        if shouldShowFilterBar {
-                            adaptiveFilterBar
-                                .padding(.bottom, 8)
-                        }
-
-                        // 内容网格
-                        if displayVideos.isEmpty {
-                            VStack(spacing: 12) {
-                                Image(systemName: "tray")
-                                    .font(.system(size: 36))
-                                    .foregroundColor(.secondary)
-                                Text("暂无推荐内容")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.secondary)
-                                Text("可前往搜索获取更多资源")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.top, 80)
-                        } else {
-                            if isLoadingCategory {
-                                ProgressView()
-                                    .padding(.vertical, 40)
-                            }
-                            videoGrid
-                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .padding(.bottom, 100)
+                    Spacer()
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            // 分类标签（左右滑动）
+                            if !displayCategories.isEmpty {
+                                categoryScrollBar
+                            }
+
+                            // 自适应筛选栏
+                            if shouldShowFilterBar {
+                                adaptiveFilterBar
+                                    .padding(.bottom, 8)
+                            }
+
+                            // 内容网格
+                            if displayVideos.isEmpty {
+                                VStack(spacing: 12) {
+                                    Image(systemName: "tray")
+                                        .font(.system(size: 36))
+                                        .foregroundColor(.secondary)
+                                    Text("暂无推荐内容")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.secondary)
+                                    Text("可前往搜索获取更多资源")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.top, 80)
+                            } else {
+                                if isLoadingCategory {
+                                    ProgressView()
+                                        .padding(.vertical, 40)
+                                }
+                                videoGrid
+                            }
+                        }
+                        .padding(.bottom, 100)
+                    }
                 }
             }
+            .background(skinBackground)
+            .navigationBarHidden(true)
+            .onAppear {
+                if allSources.isEmpty {
+                    allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
+                }
+                if homeData == nil { Task { await loadData() } }
+            }
+
+            // 竖长条选源浮层
+            if showSourceDropdown {
+                sourceDropdownOverlay
+            }
         }
-        .background(skinBackground)
-        .navigationBarHidden(true)
-        .onAppear {
-            if homeData == nil { Task { await loadData() } }
+    }
+
+    // MARK: - 竖长条选源浮层
+
+    private var sourceDropdownOverlay: some View {
+        ZStack {
+            // 半透明背景，点击关闭
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .onTapGesture { showSourceDropdown = false }
+
+            // 竖长条列表
+            VStack(spacing: 0) {
+                Spacer()
+                VStack(spacing: 0) {
+                    // 标题栏
+                    HStack {
+                        Text("切换源")
+                            .font(.system(size: 16, weight: .semibold))
+                        Spacer()
+                        Button(action: { showSourceDropdown = false }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+
+                    Divider()
+
+                    // 源列表
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(allSources) { item in
+                                Button(action: {
+                                    selectedSource = item
+                                    showSourceDropdown = false
+                                }) {
+                                    HStack(spacing: 10) {
+                                        // 选中标记
+                                        if item.id == source.id {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 14, weight: .bold))
+                                                .foregroundColor(Color(hex: "E11B48"))
+                                        } else {
+                                            Color.clear
+                                                .frame(width: 20, height: 20)
+                                        }
+
+                                        Text(item.name)
+                                            .font(.system(size: 15, weight: item.id == source.id ? .semibold : .regular))
+                                            .foregroundColor(item.id == source.id ? Color(hex: "E11B48") : .primary)
+                                            .lineLimit(1)
+
+                                        Spacer()
+
+                                        // 类型标签
+                                        Text(item.category.displayName)
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundColor(categoryBadgeColor)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                Capsule()
+                                                    .fill(categoryBadgeColor.opacity(0.12))
+                                            )
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if item.id != allSources.last?.id {
+                                    Divider()
+                                        .padding(.leading, 46)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
+                }
+                .background(Color(uiColor: .systemBackground))
+                .cornerRadius(16, corners: [.topLeft, .topRight])
+                .shadow(radius: 10)
+            }
         }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.easeInOut(duration: 0.25), value: showSourceDropdown)
     }
 
     // MARK: - 顶部栏
@@ -129,7 +231,7 @@ struct SourceDiscoveryView: View {
             }
             .buttonStyle(.plain)
 
-            Button(action: onSwitchSource) {
+            Button(action: { showSourceDropdown = true }) {
                 HStack(spacing: 6) {
                     Text(source.name)
                         .font(.system(size: 17, weight: .semibold))
@@ -476,11 +578,15 @@ private struct SourceVideoCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 封面图
+            // 封面图 — 固定 2:3 比例，图片填充裁剪
             ZStack(alignment: .bottomTrailing) {
-                PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
-                    .aspectRatio(2/3, contentMode: .fill)
-                    .frame(maxWidth: .infinity)
+                Rectangle()
+                    .fill(Color(uiColor: .systemGray6))
+                    .aspectRatio(2/3, contentMode: .fit)
+                    .overlay(
+                        PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
+                            .aspectRatio(2/3, contentMode: .fill)
+                    )
                     .clipped()
                     .cornerRadius(8)
 
@@ -496,6 +602,7 @@ private struct SourceVideoCard: View {
                         .padding(4)
                 }
             }
+            .aspectRatio(2/3, contentMode: .fit)
 
             // 标题
             Text(video.vodName)
