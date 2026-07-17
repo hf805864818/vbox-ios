@@ -3067,9 +3067,13 @@ globalThis.__JS_SPIDER__ = _spider;
         }
     }
 
-    /// API 源 / CMS 网盘 / 站源的 ac=home
+    /// API 源 / CMS 网盘 / 站源的首页数据
+    /// 优先尝试 JSON API（ac=list），失败后降级到 HTML 首页解析
     private func fetchAPIHomeData(source: SourceDisplayItem) async -> SourceHomeData? {
-        guard let api = source.api else { return nil }
+        guard let api = source.api else {
+            // api 为 nil 时直接尝试 HTML 降级
+            return await fetchHTMLHomeFallback(source: source)
+        }
 
         let baseURL: String
         if let qIndex = api.firstIndex(of: "?") {
@@ -3082,7 +3086,9 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // AppleCMS 标准采集接口使用 ac=list（比 ac=home 更通用）
         let urlStr = "\(baseURL)?ac=list"
-        guard let url = URL(string: urlStr) else { return nil }
+        guard let url = URL(string: urlStr) else {
+            return await fetchHTMLHomeFallback(source: source)
+        }
 
         do {
             var req = URLRequest(url: url)
@@ -3091,7 +3097,10 @@ globalThis.__JS_SPIDER__ = _spider;
             let (data, response) = try await URLSession.shared.data(for: req)
 
             guard let httpResp = response as? HTTPURLResponse,
-                  (200...299).contains(httpResp.statusCode) else { return nil }
+                  (200...299).contains(httpResp.statusCode) else {
+                // API HTTP 错误 → 降级到 HTML
+                return await fetchHTMLHomeFallback(source: source)
+            }
 
             let raw = try JSONDecoder().decode(SourceHomeRaw.self, from: data)
             var categories = raw.class ?? []
@@ -3111,18 +3120,254 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
 
-            guard !list.isEmpty else { return nil }
+            if !list.isEmpty {
+                return SourceHomeData(
+                    sourceName: source.name,
+                    categories: categories,
+                    recommended: list,
+                    sourceType: source.category
+                )
+            }
 
+            // JSON API 返回空数据 → 降级到 HTML
+            return await fetchHTMLHomeFallback(source: source)
+
+        } catch {
+            print("[SpiderManager] fetchAPIHomeData[\(source.name)] JSON API 失败: \(error.localizedDescription)，降级到 HTML")
+            return await fetchHTMLHomeFallback(source: source)
+        }
+    }
+
+    /// HTML 首页降级方案：抓取站点首页 HTML，解析视频条目
+    /// 用于 JSON API 不可用的纯前端 CMS 站点
+    private func fetchHTMLHomeFallback(source: SourceDisplayItem) async -> SourceHomeData? {
+        // 从 source 中推导站点首页 URL
+        let siteBase: String?
+        switch source.category {
+        case .cloudCMS:
+            // cloudCMS 的 api 是 {detailBase}/api.php/provide/vod，首页是 {detailBase}
+            if let api = source.api {
+                // 去掉 /api.php/provide/vod 后缀
+                let apiStr = api.hasSuffix("/") ? String(api.dropLast()) : api
+                if let range = apiStr.range(of: "/api.php/provide/vod", options: .backwards) {
+                    siteBase = String(apiStr[..<range.lowerBound])
+                } else if let range = apiStr.range(of: "/index.php", options: .backwards) {
+                    siteBase = String(apiStr[..<range.lowerBound])
+                } else {
+                    siteBase = apiStr
+                }
+            } else {
+                siteBase = nil
+            }
+        case .api:
+            siteBase = source.api
+        case .zhanyuan:
+            siteBase = source.searchUrl
+        default:
+            siteBase = nil
+        }
+
+        guard let base = siteBase else { return nil }
+        let homeURLStr = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: homeURLStr) else { return nil }
+
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            guard let httpResp = response as? HTTPURLResponse,
+                  (200...299).contains(httpResp.statusCode) else {
+                print("[SpiderManager] HTML降级[\(source.name)] HTTP \(httpResp?.statusCode ?? 0)")
+                return nil
+            }
+
+            guard let html = String(data: data, encoding: .utf8), !html.isEmpty else { return nil }
+
+            // 从 HTML 首页提取视频条目和分类
+            let (videos, cats) = extractHTMLHomePage(from: html, siteBase: homeURLStr, sourceName: source.name)
+            guard !videos.isEmpty else { return nil }
+
+            print("[SpiderManager] HTML降级[\(source.name)] 成功: \(videos.count)条视频, \(cats.count)个分类")
             return SourceHomeData(
                 sourceName: source.name,
-                categories: categories,
-                recommended: list,
+                categories: cats,
+                recommended: videos,
                 sourceType: source.category
             )
         } catch {
-            print("[SpiderManager] fetchHomeData[\(source.name)] 失败: \(error.localizedDescription)")
+            print("[SpiderManager] HTML降级[\(source.name)] 失败: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 从 CMS 站点首页 HTML 中提取视频列表和分类导航
+    private func extractHTMLHomePage(from html: String, siteBase: String, sourceName: String) -> (videos: [VodItem], categories: [VodCategory]) {
+        var videos: [VodItem] = []
+        var categories: [VodCategory] = []
+        var seenIDs = Set<String>()
+
+        // 1. 提取分类导航：匹配 <a href="/index.php/vod/type/id/1.html">电影</a> 或类似链接
+        let catPatterns = [
+            #"href="(/index\.php/vod/type/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            #"href="(/vodtype/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            #"href="(/type/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            #"href="(/index\.php/vod/show/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+        ]
+        for pattern in catPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                guard match.numberOfRanges >= 4 else { continue }
+                guard let idRange = Range(match.range(at: 2), in: html),
+                      let nameRange = Range(match.range(at: 3), in: html) else { continue }
+                let typeId = String(html[idRange])
+                let typeName = String(html[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                // 过滤导航项
+                guard !typeName.isEmpty, typeName.count < 10,
+                      !typeName.contains("首页"), !typeName.contains("地图"),
+                      !typeName.contains("APP"), !typeName.contains("留言") else { continue }
+                let cat = VodCategory(typeId: typeId, typeName: typeName)
+                if !categories.contains(where: { $0.typeId == typeId }) {
+                    categories.append(cat)
+                }
+            }
+            if !categories.isEmpty { break }
+        }
+
+        // 2. 提取视频条目：匹配详情链接 + 图片 + 标题
+        let videoPatterns = [
+            // 标准模板：封面图 + 标题 + 链接
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*data-original="([^"]*)"[^>]*>.*?</a>"#,
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*data-src="([^"]*)"[^>]*>.*?</a>"#,
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*>.*?</a>"#,
+        ]
+
+        for pattern in videoPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
+            let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+            for match in matches {
+                guard match.numberOfRanges >= 4 else { continue }
+                guard let hrefRange = Range(match.range(at: 1), in: html),
+                      let idRange = Range(match.range(at: 2), in: html),
+                      let picRange = Range(match.range(at: 3), in: html) else { continue }
+                let detailPath = String(html[hrefRange])
+                let vodId = String(html[idRange])
+                let pic = String(html[picRange])
+
+                guard seenIDs.insert(vodId).inserted else { continue }
+
+                // 从链接附近的 HTML 中提取标题
+                let title = extractTitleNearLink(html: html, matchRange: match.range)
+
+                let fullPic: String
+                if pic.hasPrefix("http") {
+                    fullPic = pic
+                } else if pic.hasPrefix("//") {
+                    fullPic = "https:" + pic
+                } else {
+                    fullPic = siteBase + (pic.hasPrefix("/") ? "" : "/") + pic
+                }
+
+                let detailURL = siteBase + detailPath
+                let item = VodItem(
+                    vodId: detailURL,
+                    vodName: title,
+                    vodPic: fullPic,
+                    vodRemarks: "☁️" + sourceName
+                )
+                videos.append(item)
+            }
+            if !videos.isEmpty { break }
+        }
+
+        // 3. 如果上面没匹配到（某些模板结构不同），用更宽松的匹配
+        if videos.isEmpty {
+            let loosePattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*""#
+            if let regex = try? NSRegularExpression(pattern: loosePattern, options: []) {
+                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+                for match in matches {
+                    guard match.numberOfRanges >= 3 else { continue }
+                    guard let hrefRange = Range(match.range(at: 1), in: html),
+                          let idRange = Range(match.range(at: 2), in: html) else { continue }
+                    let detailPath = String(html[hrefRange])
+                    let vodId = String(html[idRange])
+
+                    guard seenIDs.insert(vodId).inserted else { continue }
+                    let title = extractTitleNearLink(html: html, matchRange: match.range)
+                    let detailURL = siteBase + detailPath
+
+                    let item = VodItem(
+                        vodId: detailURL,
+                        vodName: title,
+                        vodPic: "",
+                        vodRemarks: "☁️" + sourceName
+                    )
+                    videos.append(item)
+                }
+            }
+        }
+
+        return (videos, categories)
+    }
+
+    /// 从 HTML 中链接匹配位置附近提取标题文本
+    private func extractTitleNearLink(html: String, matchRange: NSRange) -> String {
+        // 策略 1：链接的 title 属性
+        let aTagPattern = #"<a[^>]*title="([^"]{2,80})""#
+        let searchStart = max(0, matchRange.location - 500)
+        let searchEnd = min(html.count, matchRange.location + matchRange.length + 500)
+        guard let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
+              let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) else { return "" }
+        let ctx = String(html[sIdx..<eIdx])
+
+        if let ar = try? NSRegularExpression(pattern: aTagPattern, options: [.caseInsensitive]),
+           let am = ar.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+           let aRange = Range(am.range(at: 1), in: ctx) {
+            let t = String(ctx[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.count > 2 { return t }
+        }
+
+        // 策略 2：附近的 <img> alt 属性
+        let altPatterns = [
+            #"<img[^>]+alt="([^"]{2,80})""#,
+            #"<h[2-4][^>]*>([^<]{2,80})</h[2-4]>"#,
+            #"<span[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</span>"#,
+            #"<div[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</div>"#,
+            #"<p[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</p>"#,
+        ]
+        for ap in altPatterns {
+            if let ar = try? NSRegularExpression(pattern: ap, options: [.caseInsensitive]),
+               let am = ar.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
+               let arr = Range(am.range(at: 1), in: ctx) {
+                let t = String(ctx[arr]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if t.count > 2 && !t.contains("更新到") && !t.contains("更新至") { return t }
+            }
+        }
+
+        // 策略 3：链接标签 innerHTML
+        let innerPattern = #"<a[^>]*href="[^"]*"([^>]*)>([^<]{2,80})</a>"#
+        if let ir = try? NSRegularExpression(pattern: innerPattern, options: [.dotMatchesLineSeparators]) {
+            // 在 match 位置附近的更精确范围
+            let tightStart = max(0, matchRange.location)
+            let tightEnd = min(html.count, matchRange.location + matchRange.length + 300)
+            if let tsIdx = html.index(html.startIndex, offsetBy: tightStart, limitedBy: html.endIndex),
+               let teIdx = html.index(html.startIndex, offsetBy: tightEnd, limitedBy: html.endIndex) {
+                let tight = String(html[tsIdx..<teIdx])
+                if let tm = ir.firstMatch(in: tight, range: NSRange(tight.startIndex..., in: tight)),
+                   let tmRange = Range(tm.range(at: 2), in: tight) {
+                    var t = String(tight[tmRange]).replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if t.count < 4 || t.contains("更新到") || t.contains("更新至") {
+                        t = ""
+                    }
+                    if t.count > 2 { return t }
+                }
+            }
+        }
+
+        return "未知标题"
     }
 
     /// JS 蜘蛛的 home
