@@ -252,7 +252,7 @@ struct HomeView: View {
                 NavigationView {
                     SourceDiscoveryView(
                         source: source,
-                        onSwitchSource: { showSourcePicker = true },
+                        selectedSource: $selectedSource,
                         onDismiss: { selectedSource = nil }
                     )
                     .environmentObject(settings)
@@ -263,16 +263,6 @@ struct HomeView: View {
                 // 豆瓣首页模式
                 doubanHomeContent
             }
-        }
-        .sheet(isPresented: $showSourcePicker) {
-            SourcePickerSheet(
-                selectedSource: $selectedSource,
-                sources: allSources,
-                onSelect: { source in
-                    selectedSource = source
-                }
-            )
-            .environmentObject(settings)
         }
         .onAppear {
             if allSources.isEmpty {
@@ -367,6 +357,16 @@ struct HomeView: View {
         .sheet(isPresented: $showHistory) {
             WatchHistoryView()
                 .environmentObject(settings)
+        }
+        .sheet(isPresented: $showSourcePicker) {
+            SourcePickerSheet(
+                selectedSource: $selectedSource,
+                sources: allSources,
+                onSelect: { source in
+                    selectedSource = source
+                }
+            )
+            .environmentObject(settings)
         }
     }
 
