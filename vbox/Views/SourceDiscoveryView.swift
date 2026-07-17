@@ -34,9 +34,9 @@ struct SourceDiscoveryView: View {
         return homeData?.recommended ?? []
     }
 
-    /// 是否显示筛选栏（只有选中具体分类且有筛选维度时才显示）
+    /// 是否显示筛选栏（选中具体分类即显示，排序选项始终可用）
     private var shouldShowFilterBar: Bool {
-        selectedCategoryId != nil && !filterOptions.isEmpty
+        selectedCategoryId != nil
     }
 
     var body: some View {

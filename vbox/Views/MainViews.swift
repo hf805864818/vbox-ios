@@ -258,20 +258,30 @@ struct HomeView: View {
                     .environmentObject(settings)
                 }
                 .navigationViewStyle(.stack)
+                .sheet(isPresented: $showSourcePicker) {
+                    SourcePickerSheet(
+                        selectedSource: $selectedSource,
+                        sources: allSources,
+                        onSelect: { source in
+                            selectedSource = source
+                        }
+                    )
+                    .environmentObject(settings)
+                }
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
+                    .sheet(isPresented: $showSourcePicker) {
+                        SourcePickerSheet(
+                            selectedSource: $selectedSource,
+                            sources: allSources,
+                            onSelect: { source in
+                                selectedSource = source
+                            }
+                        )
+                        .environmentObject(settings)
+                    }
             }
-        }
-        .sheet(isPresented: $showSourcePicker) {
-            SourcePickerSheet(
-                selectedSource: $selectedSource,
-                sources: allSources,
-                onSelect: { source in
-                    selectedSource = source
-                }
-            )
-            .environmentObject(settings)
         }
         .onAppear {
             if allSources.isEmpty {
