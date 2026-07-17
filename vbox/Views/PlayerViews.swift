@@ -667,7 +667,7 @@ struct VideoDetailView: View {
     // MARK: - 网盘资源
     @ViewBuilder
     private var panSection: some View {
-        if isCloudVideo {
+        if isCloudVideo && (!panLinks.isEmpty || isLoadingPan) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
