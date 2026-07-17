@@ -127,12 +127,11 @@ struct VideoDetailView: View {
             let detail = await SpiderManager.shared.getDetail(ids: video.vodId, name: video.vodName)
             await MainActor.run {
                 hasLoadedDetail = true
-                // 只在初始video没有playUrl时才用detail补充，避免覆盖已有数据
-                if video.vodPlayUrl?.isEmpty != false,
-                   let detail, detail.vodPlayUrl?.isEmpty == false {
-                    let sources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
-                    if !sources.isEmpty {
-                        allSources = sources
+                // 详情API通常返回更完整的playUrl，优先使用
+                if let detail, detail.vodPlayUrl?.isEmpty == false {
+                    let newSources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                    if !newSources.isEmpty {
+                        allSources = newSources
                         selectedSourceIndex = 0
                     }
                 }
