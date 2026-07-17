@@ -3084,8 +3084,8 @@ globalThis.__JS_SPIDER__ = _spider;
             baseURL = api
         }
 
-        // AppleCMS 标准采集接口使用 ac=list（比 ac=home 更通用）
-        let urlStr = "\(baseURL)?ac=list"
+        // AppleCMS 标准采集接口 ac=home 返回 class+list 分类和推荐数据
+        let urlStr = "\(baseURL)?ac=home"
         guard let url = URL(string: urlStr) else {
             return await fetchHTMLHomeFallback(source: source)
         }
@@ -3215,12 +3215,30 @@ globalThis.__JS_SPIDER__ = _spider;
         var categories: [VodCategory] = []
         var seenIDs = Set<String>()
 
-        // 1. 提取分类导航：匹配 <a href="/index.php/vod/type/id/1.html">电影</a> 或类似链接
+        // 1. 提取分类导航：匹配各种 CMS 模板的分类链接
         let catPatterns = [
+            // AppleCMS 标准：/index.php/vod/type/id/1.html
             #"href="(/index\.php/vod/type/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // AppleCMS 变体：/vodtype/1.html
             #"href="(/vodtype/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 通用模板：/type/1.html
             #"href="(/type/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // AppleCMS 变体：/index.php/vod/show/id/1.html
             #"href="(/index\.php/vod/show/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：?m=vod-type-id-1.html
+            #"href="(\?m=vod-type-id-(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/list/1.html
+            #"href="(/list/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/category/1.html
+            #"href="(/category/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/vod/type/1.html
+            #"href="(/vod/type/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/vodshow/1.html
+            #"href="(/vodshow/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/vodshow/1/ 结尾斜杠格式
+            #"href="(/vodshow/(\d+)/?)"[^>]*>([^<]+)</a>"#,
+            // 非 AppleCMS：/vod/type/id/1 无 .html 后缀
+            #"href="(/vod/type/id/(\d+))"[^>]*>([^<]+)</a>"#,
         ]
         for pattern in catPatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }

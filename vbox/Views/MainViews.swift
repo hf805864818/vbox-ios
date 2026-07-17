@@ -373,7 +373,7 @@ struct HomeView: View {
         Color.black.opacity(0.3)
             .ignoresSafeArea()
             .onTapGesture { showSourcePicker = false }
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // 标题栏
                     HStack(spacing: 4) {
@@ -461,7 +461,7 @@ struct HomeView: View {
                 .cornerRadius(12)
                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                 .padding(.top, 52)
-                .padding(.trailing, 12)
+                .padding(.leading, 12)
             }
     }
 
@@ -574,7 +574,7 @@ struct HomeSearchBar: View {
                 showSourcePicker = true
             } label: {
                 Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 14))
+                    .font(.system(size: 18))
                     .foregroundColor(selectedSourceName != nil ? Color(hex: "34C759") : .primary)
             }
             .buttonStyle(.plain)
@@ -606,7 +606,7 @@ struct HomeSearchBar: View {
                 showRanking = true
             } label: {
                 Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: 18))
                     .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
@@ -616,7 +616,7 @@ struct HomeSearchBar: View {
                 showHistory = true
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 14))
+                    .font(.system(size: 18))
                     .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
