@@ -26,7 +26,11 @@ struct SourceDiscoveryView: View {
     @State private var selectedSort = "全部"
 
     private var displayCategories: [VodCategory] {
-        homeData?.categories ?? []
+        guard let data = homeData else { return [] }
+        if data.categories.isEmpty, !data.recommended.isEmpty {
+            return [VodCategory(typeId: "__all__", typeName: "全部")]
+        }
+        return data.categories
     }
 
     private var displayVideos: [VodItem] {
@@ -38,7 +42,7 @@ struct SourceDiscoveryView: View {
 
     /// 是否显示筛选栏（选中具体分类即显示，排序选项始终可用）
     private var shouldShowFilterBar: Bool {
-        selectedCategoryId != nil
+        selectedCategoryId != nil && selectedCategoryId != "__all__"
     }
 
     var body: some View {
@@ -346,7 +350,11 @@ struct SourceDiscoveryView: View {
                             if selectedCategoryId != cat.typeId {
                                 resetFilters()
                                 selectedCategoryId = cat.typeId
-                                Task { await loadCategoryContent(cat) }
+                                if cat.typeId == "__all__" {
+                                    categoryVideos = []
+                                } else {
+                                    Task { await loadCategoryContent(cat) }
+                                }
                             }
                         }
                     }
