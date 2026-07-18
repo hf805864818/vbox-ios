@@ -6,6 +6,7 @@ private struct CloudPanLink: Identifiable, Hashable {
     let id: String
     let url: String
     let name: String
+    let driveName: String
 }
 
 // MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
@@ -90,7 +91,7 @@ struct VideoDetailView: View {
     private var cloudDriveGroups: [(drive: String, links: [CloudPanLink])] {
         var groups: [String: [CloudPanLink]] = [:]
         for link in panLinks {
-            let drive = driveNameFromLink(link.name)
+            let drive = link.driveName
             groups[drive, default: []].append(link)
         }
         return groups.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
@@ -110,7 +111,7 @@ struct VideoDetailView: View {
     private func computeEpisodes() -> [(name: String, url: String)] {
         if isCloudVideo {
             if let selectedDrive = selectedCloudDrive {
-                let links = panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
+                let links = panLinks.filter { $0.driveName == selectedDrive }
                 let orderedLinks = episodesReversed ? links.reversed().map { $0 } : links
                 return orderedLinks.map { (name: $0.name, url: $0.url) }
             }
@@ -243,10 +244,9 @@ struct VideoDetailView: View {
         isLoadingPan = true
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
+                let expandedLinks = await expandCloudPanLinks(result.links)
                 await MainActor.run {
-                    panLinks = result.links.enumerated().map { index, link in
-                        CloudPanLink(id: "\(index)|\(link.name)|\(link.url)", url: link.url, name: link.name)
-                    }
+                    panLinks = expandedLinks
                     isLoadingPan = false
                     // 默认选中第一个网盘类型
                     if selectedCloudDrive == nil, let firstDrive = cloudDriveGroups.first?.drive {
@@ -257,6 +257,91 @@ struct VideoDetailView: View {
                 await MainActor.run { isLoadingPan = false }
             }
         }
+    }
+
+    private func makeCloudPanLink(url: String, name: String, driveName: String, index: Int) -> CloudPanLink {
+        CloudPanLink(id: "\(driveName)|\(index)|\(name)|\(url)", url: url, name: name, driveName: driveName)
+    }
+
+    private func expandCloudPanLinks(_ links: [(url: String, name: String)]) async -> [CloudPanLink] {
+        var expanded: [CloudPanLink] = []
+        for (index, link) in links.enumerated() {
+            let driveName = driveNameFromLink(link.name)
+            let fallback = makeCloudPanLink(url: link.url, name: link.name, driveName: driveName, index: index)
+            guard let driveType = CloudDriveManager.detectDrive(from: link.url) else {
+                expanded.append(fallback)
+                continue
+            }
+
+            switch driveType {
+            case .quark:
+                guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
+                    expanded.append(fallback)
+                    continue
+                }
+                do {
+                    let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: link.url, cookie: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fid]),
+                            name: file.fileName,
+                            driveName: driveName,
+                            index: fileIndex
+                        )
+                    }
+                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                } catch {
+                    expanded.append(fallback)
+                }
+            case .baidu:
+                guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
+                    expanded.append(fallback)
+                    continue
+                }
+                do {
+                    let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: link.url, bduss: pair.web.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fsid": file.fsId]),
+                            name: file.name,
+                            driveName: driveName,
+                            index: fileIndex
+                        )
+                    }
+                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                } catch {
+                    expanded.append(fallback)
+                }
+            case .uc:
+                guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
+                    expanded.append(fallback)
+                    continue
+                }
+                do {
+                    let files = try await CloudDriveManager.shared.ucGetFileList(shareURL: link.url, cookie: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fid, "vbox_token": file.shareFidToken]),
+                            name: file.fileName,
+                            driveName: driveName,
+                            index: fileIndex
+                        )
+                    }
+                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                } catch {
+                    expanded.append(fallback)
+                }
+            default:
+                expanded.append(fallback)
+            }
+        }
+        return expanded
+    }
+
+    private func appendVboxFragment(to url: String, params: [String: String]) -> String {
+        let payload = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .joined(separator: "&")
+        return url.contains("#") ? "\(url)&\(payload)" : "\(url)#\(payload)"
     }
 
     private func playPanLink(_ link: CloudPanLink) {
@@ -273,10 +358,9 @@ struct VideoDetailView: View {
                 isLoadingPan = true
                 Task {
                     if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
+                        let expandedLinks = await expandCloudPanLinks(result.links)
                         await MainActor.run {
-                            panLinks = result.links.enumerated().map { index, link in
-                                CloudPanLink(id: "\(index)|\(link.name)|\(link.url)", url: link.url, name: link.name)
-                            }
+                            panLinks = expandedLinks
                             isLoadingPan = false
                             if let first = panLinks.first { playPanLink(first) }
                         }
@@ -785,7 +869,7 @@ struct VideoDetailView: View {
     }
 
     private func cloudEpisodeTitle(for link: CloudPanLink, index: Int) -> String {
-        let drive = driveNameFromLink(link.name)
+        let drive = link.driveName
         let cleanedName = link.name
             .replacingOccurrences(of: drive, with: "")
             .replacingOccurrences(of: "网盘", with: "")
