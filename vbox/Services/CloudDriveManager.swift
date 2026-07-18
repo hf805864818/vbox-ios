@@ -1702,7 +1702,11 @@ class CloudDriveManager: ObservableObject {
         let sourceFile: QuarkShareFile
         if let preferredFid, !preferredFid.isEmpty {
             let files = try await quarkGetFileList(shareURL: shareURL, cookie: authCookie)
-            sourceFile = files.first(where: { $0.fid == preferredFid }) ?? (try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie))
+            if let preferredFile = files.first(where: { $0.fid == preferredFid }) {
+                sourceFile = preferredFile
+            } else {
+                sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
+            }
         } else {
             sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
         }
