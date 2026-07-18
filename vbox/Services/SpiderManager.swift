@@ -447,6 +447,17 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 无订阅源，已清空数据库站源残留")
                 return
             }
+            // 合并内置兜底API站点
+            let existingKeys = Set(allSites.map { $0.key })
+            let fallbackConfigs = Self.builtinFallbackSites.compactMap { site -> SiteConfig? in
+                let key = "builtin_" + site.name
+                guard !existingKeys.contains(key) else { return nil }
+                return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
+            }
+            if !fallbackConfigs.isEmpty {
+                self.allSites.append(contentsOf: fallbackConfigs)
+                print("[SpiderManager] 合并内置兜底站点: \(fallbackConfigs.count) 个，总计: \(allSites.count)")
+            }
             // 加载引擎
             await loadBuiltinEngineIfNeeded()
             let totalSites = allSites.count
@@ -467,6 +478,19 @@ globalThis.__JS_SPIDER__ = _spider;
                 loadedSiteCount = allSites.count
                 print("[SpiderManager] 从 ibox_sources.json 合并了 \(newSites.count) 个站点，总计: \(loadedSiteCount)")
             }
+        }
+
+        // 合并内置兜底API站点（去重）
+        let existingKeysForFallback = Set(allSites.map { $0.key })
+        let fallbackConfigs = Self.builtinFallbackSites.compactMap { site -> SiteConfig? in
+            let key = "builtin_" + site.name
+            guard !existingKeysForFallback.contains(key) else { return nil }
+            return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
+        }
+        if !fallbackConfigs.isEmpty {
+            self.allSites.append(contentsOf: fallbackConfigs)
+            loadedSiteCount = allSites.count
+            print("[SpiderManager] 合并内置兜底站点: \(fallbackConfigs.count) 个，总计: \(loadedSiteCount)")
         }
 
         // 0. 先确保内置蜘蛛加载

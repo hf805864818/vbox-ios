@@ -34,7 +34,7 @@ struct VideoDetailView: View {
     @State private var hasLoadedDetail = false
 
     // 播放源（使用 @State 缓存，避免计算属性频繁变化）
-    @State private var allSources: [(name: String, episodes: [(name: String, url: String)])] = []
+    @State private var allSources: [(name: String, items: [(name: String, url: String)])] = []
     @State private var selectedSourceIndex = 0
 
     // 演职人员
@@ -108,7 +108,7 @@ struct VideoDetailView: View {
         }
         guard !allSources.isEmpty else { return [] }
         let idx = min(selectedSourceIndex, allSources.count - 1)
-        let eps = allSources[idx].episodes
+        let eps = allSources[idx].items
         return episodesReversed ? Array(eps.reversed()) : eps
     }
 
@@ -359,7 +359,7 @@ struct VideoDetailView: View {
     }
 
     // MARK: - 解析播放源
-    private func parseAllSources(from raw: String?, playFrom: String?) -> [(name: String, episodes: [(name: String, url: String)])] {
+    private func parseAllSources(from raw: String?, playFrom: String?) -> [(name: String, items: [(name: String, url: String)])] {
         guard let raw, !raw.isEmpty else { return [] }
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -367,25 +367,25 @@ struct VideoDetailView: View {
             guard let data = trimmed.data(using: .utf8),
                   let links = try? JSONSerialization.jsonObject(with: data) as? [[String: String]],
                   !links.isEmpty else { return [] }
-            var episodes: [(name: String, url: String)] = []
+            var epsList: [(name: String, url: String)] = []
             for (idx, link) in links.enumerated() {
                 guard let url = link["url"], !url.isEmpty else { continue }
                 let name = link["name"] ?? "网盘资源\(idx + 1)"
-                episodes.append((name: name, url: url))
+                epsList.append((name: name, url: url))
             }
-            guard !episodes.isEmpty else { return [] }
-            return [("网盘资源", episodes)]
+            guard !epsList.isEmpty else { return [] }
+            return [("网盘资源", epsList)]
         }
 
         let urlGroups = raw.components(separatedBy: "$$$")
         let nameGroups = playFrom?.components(separatedBy: "$$$") ?? []
 
-        var sources: [(name: String, episodes: [(name: String, url: String)])] = []
+        var sources: [(name: String, items: [(name: String, url: String)])] = []
         for (idx, group) in urlGroups.enumerated() {
             let eps = parseGroupEpisodes(group)
             guard !eps.isEmpty else { continue }
             let sourceName = (idx < nameGroups.count && !nameGroups[idx].isEmpty) ? nameGroups[idx] : "线路\(idx + 1)"
-            sources.append((name: sourceName, episodes: eps))
+            sources.append((name: sourceName, items: eps))
         }
         sources.sort { a, b in
             let aIsM3u8 = a.name.lowercased().contains("m3u8")
@@ -970,7 +970,7 @@ struct BottomBarButton: View {
 
 // MARK: - 选集弹窗
 struct EpisodeSheetView: View {
-    let sources: [(name: String, episodes: [(name: String, url: String)])]
+    let sources: [(name: String, items: [(name: String, url: String)])]
     @Binding var selectedSourceIndex: Int
     let onSelect: ((name: String, url: String)) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -1004,7 +1004,7 @@ struct EpisodeSheetView: View {
 
                 // 集数列表
                 ScrollView {
-                    let currentEpisodes = selectedSourceIndex < sources.count ? sources[selectedSourceIndex].episodes : []
+                    let currentEpisodes = selectedSourceIndex < sources.count ? sources[selectedSourceIndex].items : []
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                         ForEach(Array(currentEpisodes.enumerated()), id: \.offset) { _, episode in
                             Button(action: { onSelect(episode) }) {
