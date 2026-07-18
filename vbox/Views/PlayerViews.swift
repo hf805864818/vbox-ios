@@ -731,27 +731,34 @@ struct VideoDetailView: View {
 
                     let currentLinks = cloudDriveGroups.first(where: { $0.drive == selectedCloudDrive })?.links ?? cloudDriveGroups.first?.links ?? []
                     if !currentLinks.isEmpty {
+                        let orderedLinks = episodesReversed ? currentLinks.reversed().map { $0 } : currentLinks
                         HStack {
-                            Text(selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? "网盘资源")
+                            Text("\(selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? "网盘资源") 剧集列表")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.white)
                             Spacer()
-                            Text("共 \(currentLinks.count) 个")
+                            Button(action: { episodesReversed.toggle() }) {
+                                Image(systemName: "arrow.up.arrow.down")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(episodesReversed ? Color(hex: "E11D48") : .white.opacity(0.7))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            Text("共 \(currentLinks.count) 集")
                                 .font(.system(size: 12))
                                 .foregroundColor(.white.opacity(0.6))
                         }
 
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 86), spacing: 8)],
+                            columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
                             spacing: 8
                         ) {
-                            ForEach(currentLinks) { link in
+                            ForEach(Array(orderedLinks.enumerated()), id: \.element.id) { idx, link in
                                 Button(action: { playPanLink(link) }) {
-                                    Text(link.name)
+                                    Text(cloudEpisodeTitle(for: link, index: idx))
                                         .font(.system(size: 13, weight: .medium))
                                         .foregroundColor(.white)
                                         .lineLimit(1)
-                                        .frame(minWidth: 72)
+                                        .frame(minWidth: 48)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
                                         .background(
@@ -775,6 +782,17 @@ struct VideoDetailView: View {
         if drive.contains("夸克") { return "link.circle" }
         if drive.contains("百度") { return "link" }
         return "link.circle.fill"
+    }
+
+    private func cloudEpisodeTitle(for link: CloudPanLink, index: Int) -> String {
+        let drive = driveNameFromLink(link.name)
+        let cleanedName = link.name
+            .replacingOccurrences(of: drive, with: "")
+            .replacingOccurrences(of: "网盘", with: "")
+            .replacingOccurrences(of: "云盘", with: "")
+            .replacingOccurrences(of: "·", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleanedName.isEmpty ? "第\(index + 1)集" : cleanedName
     }
 
     // MARK: - 剧集列表（独立滚动 + 排序）
