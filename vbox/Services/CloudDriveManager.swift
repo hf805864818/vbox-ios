@@ -1682,7 +1682,7 @@ class CloudDriveManager: ObservableObject {
 
     // MARK: - 夸克网盘
 
-    func resolveQuarkPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+    func resolveQuarkPlayURL(shareURL: String, cookie: String, preferredFid: String? = nil) async throws -> PlayResult {
         self.log("[Quark] 开始解析: \(shareURL)")
         let (pwdId, passcode) = quarkExtractShareInfo(shareURL: shareURL)
         self.log("[Quark] pwdId=\(pwdId), passcode=\(passcode.isEmpty ? "无" : "已传递")")
@@ -1699,7 +1699,13 @@ class CloudDriveManager: ObservableObject {
         let shareToken = try await quarkGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
         self.log("[Quark] stoken=\(shareToken.isEmpty ? "空" : "已获取")")
 
-        let sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
+        let sourceFile: QuarkShareFile
+        if let preferredFid, !preferredFid.isEmpty {
+            let files = try await quarkGetFileList(shareURL: shareURL, cookie: authCookie)
+            sourceFile = files.first(where: { $0.fid == preferredFid }) ?? (try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie))
+        } else {
+            sourceFile = try await quarkFirstPlayableFile(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie)
+        }
         let fileExt = (sourceFile.fileName as NSString).pathExtension.lowercased()
         self.log("[Quark] 选中资源：\(sourceFile.fileName), fid=\(sourceFile.fid), 扩展名=\(fileExt)")
 
@@ -1865,11 +1871,11 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 对齐 iBox parseFile(retry:) 机制：最多重试3次，指数退避（1s/2s/4s）
-    private func resolveQuarkPlayURLWithRetry(shareURL: String, cookie: String, maxRetries: Int = 3) async throws -> PlayResult {
+    private func resolveQuarkPlayURLWithRetry(shareURL: String, cookie: String, maxRetries: Int = 3, preferredFid: String? = nil) async throws -> PlayResult {
         var lastError: Error?
         for attempt in 0..<maxRetries {
             do {
-                let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie)
+                let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie, preferredFid: preferredFid)
                 if attempt > 0 {
                     self.log("[Quark] 🔄 重试第\(attempt)次成功")
                 }
@@ -7207,12 +7213,39 @@ class CloudDriveManager: ObservableObject {
 
     // MARK: - 统一解析入口
 
+    private func splitVboxFragment(from url: String) -> (baseURL: String, params: [String: String]) {
+        let parts = url.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return (url, [:]) }
+        let fragment = String(parts[1])
+        var params: [String: String] = [:]
+        var passthrough: [String] = []
+        for item in fragment.split(separator: "&") {
+            let pair = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else {
+                passthrough.append(String(item))
+                continue
+            }
+            let key = String(pair[0])
+            let value = String(pair[1]).removingPercentEncoding ?? String(pair[1])
+            if key.hasPrefix("vbox_") {
+                params[key] = value
+            } else {
+                passthrough.append(String(item))
+            }
+        }
+        let base = passthrough.isEmpty ? String(parts[0]) : "\(parts[0])#\(passthrough.joined(separator: "&"))"
+        return (base, params)
+    }
+
     func resolvePlayURL(from shareURL: String) async throws -> PlayResult {
         let cleanURL = shareURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\u{200B}", with: "")
             .replacingOccurrences(of: "\u{FEFF}", with: "")
-        self.log("[CloudDrive] resolvePlayURL 输入: \(cleanURL.prefix(80))")
-        guard let driveType = Self.detectDrive(from: cleanURL) else {
+        let split = splitVboxFragment(from: cleanURL)
+        let baseURL = split.baseURL
+        let vboxParams = split.params
+        self.log("[CloudDrive] resolvePlayURL 输入: \(baseURL.prefix(80))")
+        guard let driveType = Self.detectDrive(from: baseURL) else {
             self.log("[CloudDrive] ❌ detectDrive 返回 nil")
             throw DriveError.invalidShareURL
         }
@@ -7226,8 +7259,16 @@ class CloudDriveManager: ObservableObject {
         var lastError: Error?
         if driveType == .baidu, let pair = baiduTokenPair() {
             self.log("[CloudDrive] 🔄 尝试百度网盘 WebToken: \(pair.web.name)，PCSToken: \(pair.pcs?.name ?? "未配置")")
+            if let fsId = vboxParams["vbox_fsid"], !fsId.isEmpty {
+                return try await resolveBaiduPlayURL(
+                    shareURL: baseURL,
+                    bduss: pair.web.value,
+                    fsId: fsId,
+                    pcsCookie: pair.pcs?.value ?? ""
+                )
+            }
             return try await resolveBaiduPlayURL(
-                shareURL: shareURL,
+                shareURL: baseURL,
                 bduss: pair.web.value,
                 pcsCookie: pair.pcs?.value ?? ""
             )
@@ -7240,21 +7281,29 @@ class CloudDriveManager: ObservableObject {
                 let result: PlayResult
                 switch driveType {
                 case .ali:
-                    result = try await resolveAliPlayURL(shareURL: shareURL, refreshToken: token.value)
+                    result = try await resolveAliPlayURL(shareURL: baseURL, refreshToken: token.value)
                 case .quark:
-                    result = try await resolveQuarkPlayURLWithRetry(shareURL: shareURL, cookie: token.value)
+                    result = try await resolveQuarkPlayURLWithRetry(shareURL: baseURL, cookie: token.value, preferredFid: vboxParams["vbox_fid"])
                 case .baidu:
-                    result = try await resolveBaiduPlayURL(shareURL: shareURL, bduss: token.value)
+                    if let fsId = vboxParams["vbox_fsid"], !fsId.isEmpty {
+                        result = try await resolveBaiduPlayURL(shareURL: baseURL, bduss: token.value, fsId: fsId)
+                    } else {
+                        result = try await resolveBaiduPlayURL(shareURL: baseURL, bduss: token.value)
+                    }
                 case .one15:
-                    result = try await resolve115PlayURL(shareURL: shareURL, cid: token.value)
+                    result = try await resolve115PlayURL(shareURL: baseURL, cid: token.value)
                 case .uc:
-                    result = try await resolveUCPlayURL(shareURL: shareURL, cookie: token.value)
+                    if let fid = vboxParams["vbox_fid"], let shareToken = vboxParams["vbox_token"], !fid.isEmpty {
+                        result = try await resolveUCPlayURLForFile(shareURL: baseURL, cookie: token.value, fileFid: fid, shareFidToken: shareToken)
+                    } else {
+                        result = try await resolveUCPlayURL(shareURL: baseURL, cookie: token.value)
+                    }
                 case .pan123:
-                    result = try await resolve123PanPlayURL(shareURL: shareURL, token: token.value)
+                    result = try await resolve123PanPlayURL(shareURL: baseURL, token: token.value)
                 case .pan139:
-                    result = try await resolve139PanPlayURL(shareURL: shareURL, cookie: token.value)
+                    result = try await resolve139PanPlayURL(shareURL: baseURL, cookie: token.value)
                 case .pan189:
-                    result = try await resolve189PanPlayURL(shareURL: shareURL, cookie: token.value)
+                    result = try await resolve189PanPlayURL(shareURL: baseURL, cookie: token.value)
                 }
                 self.log("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result
