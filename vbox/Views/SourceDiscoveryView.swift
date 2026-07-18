@@ -494,7 +494,7 @@ struct SourceDiscoveryView: View {
             ],
             spacing: 16
         ) {
-            ForEach(displayVideos) { video in
+            ForEach(Array(displayVideos.enumerated()), id: \.element.discoveryStableId) { _, video in
                 NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
                     SourceVideoCard(
                         video: video,
@@ -652,6 +652,7 @@ private struct SourceVideoCard: View {
                     .aspectRatio(2/3, contentMode: .fit)
                     .overlay(
                         PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
+                            .id("\(video.vodPic)|\(referer ?? "")")
                             .aspectRatio(2/3, contentMode: .fill)
                     )
                     .clipped()
@@ -686,5 +687,11 @@ private struct SourceVideoCard: View {
                     .lineLimit(1)
             }
         }
+    }
+}
+
+private extension VodItem {
+    var discoveryStableId: String {
+        "\(vodId)|\(vodName)|\(vodPic)"
     }
 }

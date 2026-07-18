@@ -222,7 +222,7 @@ class PlatformImageLoader {
 
         guard let url = URL(string: cleanURL) else { return nil }
 
-        let cacheKey = "\(cleanURL)#\(mode)"
+        let cacheKey = PlatformImageLoader.makeCacheKey(urlString, mode: mode)
         if let cached = PlatformImageCache.shared.get(cacheKey) {
             return cached
         }

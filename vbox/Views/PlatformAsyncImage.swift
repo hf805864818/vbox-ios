@@ -64,17 +64,19 @@ struct PlatformAsyncImage: View {
 
     private func loadImage() {
         guard !urlString.isEmpty, image == nil else { return }
+        let requestURL = urlString
 
         // 先检查缓存
-        let cacheKey = PlatformImageLoader.makeCacheKey(urlString, mode: mode)
+        let cacheKey = PlatformImageLoader.makeCacheKey(requestURL, mode: mode)
         if let cached = PlatformImageCache.shared.get(cacheKey) {
             image = cached
             return
         }
 
         Task {
-            let loaded = await PlatformImageLoader.shared.loadImage(urlString: urlString, mode: mode)
+            let loaded = await PlatformImageLoader.shared.loadImage(urlString: requestURL, mode: mode)
             await MainActor.run {
+                guard requestURL == urlString else { return }
                 if let loaded = loaded {
                     image = loaded
                 } else {
@@ -119,7 +121,11 @@ extension PlatformAsyncImage {
 
 extension PlatformImageLoader {
     static func makeCacheKey(_ urlString: String, mode: PlatformImageMode) -> String {
-        let (cleanURL, _) = PlatformImageLoader.parseHeaderSuffix(urlString)
-        return "\(cleanURL)#\(mode)"
+        let (cleanURL, headers) = PlatformImageLoader.parseHeaderSuffix(urlString)
+        let headerKey = headers
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+        return "\(cleanURL)#\(mode)#\(headerKey)"
     }
 }
