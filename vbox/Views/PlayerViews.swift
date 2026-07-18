@@ -832,27 +832,31 @@ struct VideoDetailView: View {
                                 .foregroundColor(.white.opacity(0.6))
                         }
 
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
-                            spacing: 8
-                        ) {
-                            ForEach(Array(orderedLinks.enumerated()), id: \.element.id) { idx, link in
-                                Button(action: { playPanLink(link) }) {
-                                    Text(cloudEpisodeTitle(for: link, index: idx))
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .lineLimit(1)
-                                        .frame(minWidth: 48)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(Color.white.opacity(0.12))
-                                        )
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
+                                spacing: 8
+                            ) {
+                                ForEach(Array(orderedLinks.enumerated()), id: \.element.id) { idx, link in
+                                    Button(action: { playPanLink(link) }) {
+                                        Text(cloudEpisodeTitle(for: link, index: idx))
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+                                            .frame(minWidth: 48)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(Color.white.opacity(0.12))
+                                            )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
                                 }
-                                .buttonStyle(PlainButtonStyle())
                             }
+                            .padding(.vertical, 4)
                         }
+                        .frame(maxHeight: 300)
                         .padding(.top, 4)
                     }
                 }
