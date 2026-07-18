@@ -3092,10 +3092,9 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// API 源 / CMS 网盘 / 站源的首页数据
-    /// 优先尝试 JSON API（ac=list），失败后降级到 HTML 首页解析
+    /// 优先尝试 ac=home（分类+推荐），失败后降级到 ac=list（列表），最后 HTML 兜底
     private func fetchAPIHomeData(source: SourceDisplayItem) async -> SourceHomeData? {
         guard let api = source.api else {
-            // api 为 nil 时直接尝试 HTML 降级
             return await fetchHTMLHomeFallback(source: source)
         }
 
@@ -3108,12 +3107,27 @@ globalThis.__JS_SPIDER__ = _spider;
             baseURL = api
         }
 
-        // AppleCMS 标准采集接口 ac=home 返回 class+list 分类和推荐数据
-        let urlStr = "\(baseURL)?ac=home"
-        guard let url = URL(string: urlStr) else {
-            return await fetchHTMLHomeFallback(source: source)
+        // 尝试 ac=home（返回 class + list 分类和推荐）
+        if let result = await tryFetchJSON(from: "\(baseURL)?ac=home") {
+            if !result.list.isEmpty {
+                return SourceHomeData(sourceName: source.name, categories: result.categories, recommended: result.list, sourceType: source.category)
+            }
         }
 
+        // ac=home 失败或返回空，降级到 ac=list（返回第一页列表，无分类）
+        if let result = await tryFetchJSON(from: "\(baseURL)?ac=list&pg=1") {
+            if !result.list.isEmpty {
+                return SourceHomeData(sourceName: source.name, categories: result.categories, recommended: result.list, sourceType: source.category)
+            }
+        }
+
+        // JSON API 全部失败 → HTML 降级
+        return await fetchHTMLHomeFallback(source: source)
+    }
+
+    /// 尝试从 JSON API 获取数据，返回 (categories, list)
+    private func tryFetchJSON(from urlStr: String) async -> (categories: [VodCategory], list: [VodItem])? {
+        guard let url = URL(string: urlStr) else { return nil }
         do {
             var req = URLRequest(url: url)
             req.timeoutInterval = 10
@@ -3121,44 +3135,12 @@ globalThis.__JS_SPIDER__ = _spider;
             let (data, response) = try await URLSession.shared.data(for: req)
 
             guard let httpResp = response as? HTTPURLResponse,
-                  (200...299).contains(httpResp.statusCode) else {
-                // API HTTP 错误 → 降级到 HTML
-                return await fetchHTMLHomeFallback(source: source)
-            }
+                  (200...299).contains(httpResp.statusCode) else { return nil }
 
             let raw = try JSONDecoder().decode(SourceHomeRaw.self, from: data)
-            var categories = raw.class ?? []
-            var list = raw.list ?? []
-
-            // 若 ac=list 返回的分类列表为空，尝试兜底获取第一页内容
-            if categories.isEmpty && list.isEmpty {
-                let fallbackURLStr = "\(baseURL)?ac=list&pg=1"
-                if let fallbackURL = URL(string: fallbackURLStr) {
-                    var fallbackReq = URLRequest(url: fallbackURL)
-                    fallbackReq.timeoutInterval = 10
-                    fallbackReq.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-                    let (fallbackData, _) = try await URLSession.shared.data(for: fallbackReq)
-                    let fallbackRaw = try JSONDecoder().decode(SourceHomeRaw.self, from: fallbackData)
-                    categories = fallbackRaw.class ?? []
-                    list = fallbackRaw.list ?? []
-                }
-            }
-
-            if !list.isEmpty {
-                return SourceHomeData(
-                    sourceName: source.name,
-                    categories: categories,
-                    recommended: list,
-                    sourceType: source.category
-                )
-            }
-
-            // JSON API 返回空数据 → 降级到 HTML
-            return await fetchHTMLHomeFallback(source: source)
-
+            return (categories: raw.class ?? [], list: raw.list ?? [])
         } catch {
-            print("[SpiderManager] fetchAPIHomeData[\(source.name)] JSON API 失败: \(error.localizedDescription)，降级到 HTML")
-            return await fetchHTMLHomeFallback(source: source)
+            return nil
         }
     }
 
