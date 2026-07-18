@@ -2015,7 +2015,43 @@ class PlayerState: ObservableObject {
         }
     }
     
+    private func splitVboxFragment(from url: String) -> (baseURL: String, params: [String: String]) {
+        let parts = url.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return (url, [:]) }
+        let fragment = String(parts[1])
+        var params: [String: String] = [:]
+        var passthrough: [String] = []
+        for item in fragment.split(separator: "&") {
+            let pair = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else {
+                passthrough.append(String(item))
+                continue
+            }
+            let key = String(pair[0])
+            let value = String(pair[1]).removingPercentEncoding ?? String(pair[1])
+            if key.hasPrefix("vbox_") {
+                params[key] = value
+            } else {
+                passthrough.append(String(item))
+            }
+        }
+        let base = passthrough.isEmpty ? String(parts[0]) : "\(parts[0])#\(passthrough.joined(separator: "&"))"
+        return (base, params)
+    }
+
+    private func appendVboxFragment(to url: String, params: [String: String]) -> String {
+        let payload = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .joined(separator: "&")
+        return url.contains("#") ? "\(url)&\(payload)" : "\(url)#\(payload)"
+    }
+
     private func handleDriveUrl(_ urlString: String, driveType: CloudDriveManager.DriveType) async {
+        let split = splitVboxFragment(from: urlString)
+        let cleanShareURL = split.baseURL
+        let vboxParams = split.params
+        if !vboxParams.isEmpty {
+            log("[PlayerV2] 检测到详情页指定网盘文件参数，已分离干净分享链接")
+        }
         let tokens = CloudDriveManager.shared.tokens(for: driveType)
         guard !tokens.isEmpty else {
             await MainActor.run {
@@ -2040,11 +2076,11 @@ class PlayerState: ObservableObject {
             }
             log("[Baidu] ①请求分享页... WebToken=\(pair.web.name), PCSToken=\(pair.pcs?.name ?? "未配置")")
             do {
-                let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: urlString, bduss: pair.web.value)
+                let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: cleanShareURL, bduss: pair.web.value)
                 log("[Baidu] ✅ 成功，共\(files.count)个文件: \(files.map { $0.name }.joined(separator: ", "))")
                 await MainActor.run {
                     baiduFileList = files
-                    baiduShareURL = urlString
+                    baiduShareURL = cleanShareURL
                     baiduBduss = pair.web.value
                     baiduPcsCookie = pair.pcs?.value ?? ""
                     // 填充通用集数列表
@@ -2052,7 +2088,7 @@ class PlayerState: ObservableObject {
                         EpisodeItem(id: idx, name: f.name, url: "", sourceType: .baidu, baiduFileIndex: idx)
                     }
                 }
-                guard let firstFile = files.first else {
+                guard !files.isEmpty else {
                     await MainActor.run {
                         loadError = "百度文件列表为空"
                         isLoading = false
@@ -2060,13 +2096,17 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                let reason = files.count == 1 ? "自动播放单文件" : "自动播放"
+                let selectedIndex = vboxParams["vbox_fsid"].flatMap { fsId in
+                    files.firstIndex(where: { $0.fsId == fsId })
+                } ?? 0
+                let targetFile = files[selectedIndex]
+                let reason = vboxParams["vbox_fsid"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
                 await startBaiduPlayback(
-                    shareURL: urlString,
+                    shareURL: cleanShareURL,
                     bduss: pair.web.value,
                     pcsCookie: pair.pcs?.value ?? "",
-                    file: firstFile,
-                    index: 0,
+                    file: targetFile,
+                    index: selectedIndex,
                     reason: reason
                 )
                 return
@@ -2099,34 +2139,38 @@ class PlayerState: ObservableObject {
             }
             log("[Quark] ①获取完整文件列表...")
             do {
-                let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: urlString, cookie: token.value)
+                let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: cleanShareURL, cookie: token.value)
                 log("[Quark] ✅ 成功，共\(files.count)个可播放文件")
-                
-                // 将文件列表转为JSON存入vodPlayUrl，让详情页能解析为剧集
-                let linksJSON: [[String: String]] = files.map { ["url": "quark://\(urlString)/\( $0.fid)", "name": $0.fileName] }
-                let linkData = try JSONSerialization.data(withJSONObject: linksJSON)
-                let linkString = String(data: linkData, encoding: .utf8) ?? "[]"
-                
+
+                let selectedIndex = vboxParams["vbox_fid"].flatMap { fid in
+                    files.firstIndex(where: { $0.fid == fid })
+                } ?? 0
                 await MainActor.run {
                     quarkFileList = files
-                    quarkShareURL = urlString
+                    quarkShareURL = cleanShareURL
                     quarkCookie = token.value
+                    currentEpisodeIndex = selectedIndex
                     // 填充通用集数列表
                     episodeItems = files.enumerated().map { idx, f in
-                        EpisodeItem(id: idx, name: f.fileName, url: "\(urlString)/\(f.fid)", sourceType: .quark, quarkFileIndex: idx)
+                        EpisodeItem(id: idx, name: f.fileName, url: "\(cleanShareURL)/\(f.fid)", sourceType: .quark, quarkFileIndex: idx)
                     }
                 }
                 
-                // 播放第一个文件
-                guard let firstFile = files.first else {
+                guard !files.isEmpty else {
                     await MainActor.run {
                         loadError = "夸克文件列表为空"
                         isLoading = false
                     }
                     return
                 }
-                
-                let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+
+                let resolveURL: String
+                if selectedIndex < files.count {
+                    resolveURL = appendVboxFragment(to: cleanShareURL, params: ["vbox_fid": files[selectedIndex].fid])
+                } else {
+                    resolveURL = cleanShareURL
+                }
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: resolveURL)
                 await playResolvedDriveVideo(result)
                 return
             } catch {
@@ -2153,14 +2197,30 @@ class PlayerState: ObservableObject {
             }
             log("[UC] ①获取完整文件列表...")
             do {
-                let files = try await CloudDriveManager.shared.ucGetFileList(shareURL: urlString, cookie: token.value)
+                let files = try await CloudDriveManager.shared.ucGetFileList(shareURL: cleanShareURL, cookie: token.value)
                 log("[UC] ✅ 成功，共\(files.count)个可播放文件")
-                
+
+                let selectedIndex = vboxParams["vbox_fid"].flatMap { fid in
+                    files.firstIndex(where: { $0.fid == fid })
+                } ?? 0
                 await MainActor.run {
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
-                        EpisodeItem(id: idx, name: f.fileName, url: urlString,
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .drive, ucFileFid: f.fid, ucShareFidToken: f.shareFidToken)
                     }
+                }
+
+                if vboxParams["vbox_fid"] != nil, selectedIndex < files.count {
+                    let targetFile = files[selectedIndex]
+                    let result = try await CloudDriveManager.shared.resolveUCPlayURLForFile(
+                        shareURL: cleanShareURL,
+                        cookie: token.value,
+                        fileFid: targetFile.fid,
+                        shareFidToken: targetFile.shareFidToken
+                    )
+                    await playResolvedDriveVideo(result)
+                    return
                 }
             } catch {
                 log("[UC] ⚠️ 获取文件列表失败，降级到单文件: \(error.localizedDescription)")
