@@ -10,6 +10,12 @@ private struct CloudPanLink: Identifiable, Hashable {
     let driveName: String
 }
 
+private struct DetailEpisodePopupItem: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let fullTitle: String
+}
+
 // MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
@@ -67,6 +73,7 @@ struct VideoDetailView: View {
 
     // 底栏选集弹窗
     @State private var showEpisodeSheet = false
+    @State private var showExpandedEpisodePopup = false
 
     // 收藏
     @State private var isFavorite = false
@@ -123,6 +130,54 @@ struct VideoDetailView: View {
             return index
         }
         return cloudDriveSortManager.orderIndex(forDriveName: group.key)
+    }
+
+    private var currentCloudDriveGroup: (drive: String, links: [CloudPanLink])? {
+        cloudDriveGroups.first(where: { $0.drive == selectedCloudDrive }) ?? cloudDriveGroups.first
+    }
+
+    private var currentCloudEpisodeLinks: [CloudPanLink] {
+        guard let links = currentCloudDriveGroup?.links else { return [] }
+        return episodesReversed ? Array(links.reversed()) : links
+    }
+
+    private var expandedEpisodeTitle: String {
+        if isCloudVideo {
+            return "\(currentCloudDriveGroup?.drive ?? "网盘资源") 剧集列表"
+        }
+        if !allSources.isEmpty {
+            let idx = selectedSourceIndex < allSources.count ? selectedSourceIndex : 0
+            if idx < allSources.count {
+                return "\(allSources[idx].name) 剧集列表"
+            }
+        }
+        return "剧集列表"
+    }
+
+    private var expandedEpisodeItems: [DetailEpisodePopupItem] {
+        if isCloudVideo {
+            return currentCloudEpisodeLinks.enumerated().map { idx, link in
+                let title = cloudEpisodeTitle(for: link, index: idx)
+                return DetailEpisodePopupItem(id: link.id, title: title, fullTitle: link.name)
+            }
+        }
+        return computeEpisodes().enumerated().map { idx, episode in
+            DetailEpisodePopupItem(id: "\(idx)|\(episode.name)|\(episode.url)", title: episode.name, fullTitle: episode.name)
+        }
+    }
+
+    private func handleExpandedEpisodeSelect(index: Int) {
+        if isCloudVideo {
+            let links = currentCloudEpisodeLinks
+            guard index < links.count else { return }
+            showExpandedEpisodePopup = false
+            playPanLink(links[index])
+        } else {
+            let eps = computeEpisodes()
+            guard index < eps.count else { return }
+            showExpandedEpisodePopup = false
+            handleEpisodeSelect(eps[index])
+        }
     }
 
     private func computeEpisodes() -> [(name: String, url: String)] {
@@ -562,6 +617,22 @@ struct VideoDetailView: View {
             GeometryReader { safeGeometry in
                 contentLayer(geometry: safeGeometry)
             }
+
+            if showExpandedEpisodePopup {
+                EpisodeExpandPopup(
+                    title: expandedEpisodeTitle,
+                    items: expandedEpisodeItems,
+                    isReversed: $episodesReversed,
+                    onSelect: { index in
+                        handleExpandedEpisodeSelect(index: index)
+                    },
+                    onClose: {
+                        showExpandedEpisodePopup = false
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(20)
+            }
         }
         // 播放器
         .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
@@ -855,6 +926,14 @@ struct VideoDetailView: View {
                             Text("共 \(currentLinks.count) 集")
                                 .font(.system(size: 12))
                                 .foregroundColor(.white.opacity(0.6))
+                            Button(action: {
+                                showExpandedEpisodePopup = true
+                            }) {
+                                Image(systemName: "square.grid.2x2")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
 
                         ScrollView(.vertical, showsIndicators: false) {
@@ -940,6 +1019,16 @@ struct VideoDetailView: View {
                     Text(eps.isEmpty ? "暂无集数" : "共 \(eps.count) 集")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.6))
+                    if !eps.isEmpty {
+                        Button(action: {
+                            showExpandedEpisodePopup = true
+                        }) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
                 }
             }
 
@@ -1089,6 +1178,96 @@ struct HeroTitleView: View {
             .font(.custom("Ma Shan Zheng", size: 48))
             .foregroundColor(.white)
             .shadow(color: .black.opacity(0.6), radius: 8, x: 0, y: 2)
+    }
+}
+
+// MARK: - 剧集展开弹窗
+private struct EpisodeExpandPopup: View {
+    let title: String
+    let items: [DetailEpisodePopupItem]
+    @Binding var isReversed: Bool
+    let onSelect: (Int) -> Void
+    let onClose: () -> Void
+
+    private var useTwoColumns: Bool {
+        guard !items.isEmpty else { return false }
+        let longCount = items.filter { $0.title.count > 8 || $0.fullTitle.count > 12 }.count
+        return Double(longCount) / Double(items.count) > 0.3
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: useTwoColumns ? 2 : 4)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.38)
+                    .ignoresSafeArea()
+                    .onTapGesture { onClose() }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(title)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                            Text("共 \(items.count) 集")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button(action: { isReversed.toggle() }) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 14))
+                                .foregroundColor(isReversed ? Color(hex: "E11D48") : .secondary)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVGrid(columns: columns, spacing: 8) {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                Button(action: { onSelect(index) }) {
+                                    Text(item.title)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(useTwoColumns ? 2 : 1)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(minHeight: useTwoColumns ? 46 : 36)
+                                        .padding(.horizontal, 8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color(uiColor: .secondarySystemBackground))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(16)
+                .frame(width: min(geometry.size.width - 32, 380))
+                .frame(height: min(max(geometry.size.height * 0.58, 360), geometry.size.height * 0.72))
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color(uiColor: .systemBackground))
+                        .shadow(color: .black.opacity(0.22), radius: 20, x: 0, y: 10)
+                )
+            }
+        }
     }
 }
 
