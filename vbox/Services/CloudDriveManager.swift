@@ -1701,7 +1701,8 @@ class CloudDriveManager: ObservableObject {
 
         let sourceFile: QuarkShareFile
         if let preferredFid, !preferredFid.isEmpty {
-            let files = try await quarkGetFileList(shareURL: shareURL, cookie: authCookie)
+            var files: [QuarkShareFile] = []
+            try await quarkCollectAllPlayableFiles(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: authCookie, result: &files)
             if let preferredFile = files.first(where: { $0.fid == preferredFid }) {
                 sourceFile = preferredFile
             } else {
@@ -6471,8 +6472,11 @@ class CloudDriveManager: ObservableObject {
         authCookie = folder.cookie
         let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
-        // 构建指定文件的 UCShareFile
-        let sourceFile = UCShareFile(fid: fileFid, fileName: "", shareFidToken: shareFidToken, pdirFid: "0", isDir: false)
+        var files: [UCShareFile] = []
+        try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie, result: &files)
+        guard let sourceFile = files.first(where: { $0.fid == fileFid }) else {
+            throw DriveError.noPlayURL("UC 未找到指定文件，无法转存")
+        }
 
         // 转存到 vbox
         let fileIds = try await ucSaveShare(pwdId: pwdId, stoken: stoken, file: sourceFile, folderId: folder.folderId, cookie: authCookie)

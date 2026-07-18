@@ -3416,7 +3416,8 @@ class PlayerState: ObservableObject {
         log("[Quark] 切集播放: \(file.fileName)")
         await MainActor.run { isLoading = true }
         do {
-            let result = try await CloudDriveManager.shared.resolvePlayURL(from: "\(shareURL)/\(file.fid)")
+            let targetURL = appendVboxFragment(to: shareURL, params: ["vbox_fid": file.fid])
+            let result = try await CloudDriveManager.shared.resolvePlayURL(from: targetURL)
             await MainActor.run {
                 currentEpisodeIndex = episode.id
             }
