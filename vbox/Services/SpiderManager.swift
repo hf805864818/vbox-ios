@@ -3110,14 +3110,14 @@ globalThis.__JS_SPIDER__ = _spider;
         // 尝试 ac=home（返回 class + list 分类和推荐）
         if let result = await tryFetchJSON(from: "\(baseURL)?ac=home") {
             if !result.list.isEmpty {
-                return SourceHomeData(sourceName: source.name, categories: result.categories, recommended: result.list, sourceType: source.category)
+                return SourceHomeData(sourceName: source.name, categories: normalizeCategories(result.categories, list: result.list), recommended: result.list, sourceType: source.category)
             }
         }
 
         // ac=home 失败或返回空，降级到 ac=list（返回第一页列表，无分类）
         if let result = await tryFetchJSON(from: "\(baseURL)?ac=list&pg=1") {
             if !result.list.isEmpty {
-                return SourceHomeData(sourceName: source.name, categories: result.categories, recommended: result.list, sourceType: source.category)
+                return SourceHomeData(sourceName: source.name, categories: normalizeCategories(result.categories, list: result.list), recommended: result.list, sourceType: source.category)
             }
         }
 
@@ -3142,6 +3142,13 @@ globalThis.__JS_SPIDER__ = _spider;
         } catch {
             return nil
         }
+    }
+
+    private func normalizeCategories(_ categories: [VodCategory], list: [VodItem]) -> [VodCategory] {
+        if categories.isEmpty, !list.isEmpty {
+            return [VodCategory(typeId: "__all__", typeName: "全部")]
+        }
+        return categories
     }
 
     /// HTML 首页降级方案：抓取站点首页 HTML，解析视频条目

@@ -2,6 +2,12 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
+private struct CloudPanLink: Identifiable, Hashable {
+    let id: String
+    let url: String
+    let name: String
+}
+
 // MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
@@ -21,7 +27,7 @@ struct VideoDetailView: View {
     @State private var selectedEpisodeVideo: VodItem?
 
     // 网盘
-    @State private var panLinks: [(url: String, name: String)] = []
+    @State private var panLinks: [CloudPanLink] = []
     @State private var isLoadingPan = false
     @State private var selectedCloudDrive: String? = nil  // 选中的网盘类型
 
@@ -81,8 +87,8 @@ struct VideoDetailView: View {
     }
 
     // 网盘链接按类型分组
-    private var cloudDriveGroups: [(drive: String, links: [(url: String, name: String)])] {
-        var groups: [String: [(url: String, name: String)]] = [:]
+    private var cloudDriveGroups: [(drive: String, links: [CloudPanLink])] {
+        var groups: [String: [CloudPanLink]] = [:]
         for link in panLinks {
             let drive = driveNameFromLink(link.name)
             groups[drive, default: []].append(link)
@@ -105,10 +111,12 @@ struct VideoDetailView: View {
         if isCloudVideo {
             if let selectedDrive = selectedCloudDrive {
                 let links = panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
-                return episodesReversed ? Array(links.reversed()) : links
+                let orderedLinks = episodesReversed ? links.reversed().map { $0 } : links
+                return orderedLinks.map { (name: $0.name, url: $0.url) }
             }
             // 网盘模式下未选中任何网盘，显示全部网盘链接
-            return episodesReversed ? Array(panLinks.reversed()) : panLinks
+            let orderedLinks = episodesReversed ? panLinks.reversed().map { $0 } : panLinks
+            return orderedLinks.map { (name: $0.name, url: $0.url) }
         }
         guard !allSources.isEmpty else { return [] }
         let idx = selectedSourceIndex < allSources.count ? selectedSourceIndex : 0
@@ -236,7 +244,9 @@ struct VideoDetailView: View {
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
                 await MainActor.run {
-                    panLinks = result.links
+                    panLinks = result.links.enumerated().map { index, link in
+                        CloudPanLink(id: "\(index)|\(link.name)|\(link.url)", url: link.url, name: link.name)
+                    }
                     isLoadingPan = false
                     // 默认选中第一个网盘类型
                     if selectedCloudDrive == nil, let firstDrive = cloudDriveGroups.first?.drive {
@@ -249,7 +259,7 @@ struct VideoDetailView: View {
         }
     }
 
-    private func playPanLink(_ link: (url: String, name: String)) {
+    private func playPanLink(_ link: CloudPanLink) {
         selectedPanVideo = VodItem(vodId: link.url, vodName: "\(video.vodName) - \(link.name)",
                                     vodPic: video.vodPic, vodRemarks: "☁️网盘", vodPlayUrl: link.url)
     }
@@ -264,7 +274,10 @@ struct VideoDetailView: View {
                 Task {
                     if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
                         await MainActor.run {
-                            panLinks = result.links; isLoadingPan = false
+                            panLinks = result.links.enumerated().map { index, link in
+                                CloudPanLink(id: "\(index)|\(link.name)|\(link.url)", url: link.url, name: link.name)
+                            }
+                            isLoadingPan = false
                             if let first = panLinks.first { playPanLink(first) }
                         }
                     } else { await MainActor.run { isLoadingPan = false } }
@@ -560,7 +573,9 @@ struct VideoDetailView: View {
                     castSection
                     synopsisSection
                     panSection
-                    episodeSection
+                    if !isCloudVideo {
+                        episodeSection
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
@@ -690,11 +705,7 @@ struct VideoDetailView: View {
                         HStack(spacing: 8) {
                             ForEach(cloudDriveGroups, id: \.drive) { group in
                                 Button(action: {
-                                    if selectedCloudDrive == group.drive {
-                                        selectedCloudDrive = nil
-                                    } else {
-                                        selectedCloudDrive = group.drive
-                                    }
+                                    selectedCloudDrive = group.drive
                                 }) {
                                     HStack(spacing: 6) {
                                         Image(systemName: driveIcon(group.drive))
@@ -716,6 +727,42 @@ struct VideoDetailView: View {
                                 .buttonStyle(PlainButtonStyle())
                             }
                         }
+                    }
+
+                    let currentLinks = cloudDriveGroups.first(where: { $0.drive == selectedCloudDrive })?.links ?? cloudDriveGroups.first?.links ?? []
+                    if !currentLinks.isEmpty {
+                        HStack {
+                            Text(selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? "网盘资源")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("共 \(currentLinks.count) 个")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 86), spacing: 8)],
+                            spacing: 8
+                        ) {
+                            ForEach(currentLinks) { link in
+                                Button(action: { playPanLink(link) }) {
+                                    Text(link.name)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .frame(minWidth: 72)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.white.opacity(0.12))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                 }
             }.padding(.vertical, 8)
