@@ -494,7 +494,8 @@ struct SourceDiscoveryView: View {
             ],
             spacing: 16
         ) {
-            ForEach(Array(displayVideos.enumerated()), id: \.element.discoveryStableId) { _, video in
+            ForEach(displayVideos.indices, id: \.self) { index in
+                let video = displayVideos[index]
                 NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
                     SourceVideoCard(
                         video: video,
@@ -502,6 +503,7 @@ struct SourceDiscoveryView: View {
                         settings: settings
                     )
                 }
+                .id("\(index)|\(video.discoveryStableId)")
                 .buttonStyle(.plain)
             }
         }
@@ -647,16 +649,21 @@ private struct SourceVideoCard: View {
         VStack(alignment: .leading, spacing: 6) {
             // 封面图 — 固定 2:3 比例，图片填充裁剪
             ZStack(alignment: .bottomTrailing) {
-                Rectangle()
-                    .fill(Color(uiColor: .systemGray6))
-                    .aspectRatio(2/3, contentMode: .fit)
-                    .overlay(
+                GeometryReader { proxy in
+                    Rectangle()
+                        .fill(Color(uiColor: .systemGray6))
+                        .overlay(
                         PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
                             .id("\(video.vodPic)|\(referer ?? "")")
                             .aspectRatio(2/3, contentMode: .fill)
-                    )
-                    .clipped()
-                    .cornerRadius(8)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
+                        )
+                        .clipped()
+                }
+                .aspectRatio(2/3, contentMode: .fit)
+                .clipped()
+                .cornerRadius(8)
 
                 // 备注标签
                 if let remarks = video.vodRemarks, !remarks.isEmpty {
@@ -692,6 +699,6 @@ private struct SourceVideoCard: View {
 
 private extension VodItem {
     var discoveryStableId: String {
-        "\(vodId)|\(vodName)|\(vodPic)"
+        "\(vodId)|\(vodName)|\(vodPic)|\(vodRemarks ?? "")"
     }
 }
