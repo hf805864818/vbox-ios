@@ -16,6 +16,13 @@ private struct DetailEpisodePopupItem: Identifiable, Hashable {
     let fullTitle: String
 }
 
+private enum DriveExpandState {
+    case loading
+    case loaded([CloudPanLink])
+    case failed(String)
+    case empty
+}
+
 // MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
 struct VideoDetailView: View {
     let video: VodItem
@@ -36,9 +43,10 @@ struct VideoDetailView: View {
     @State private var selectedEpisodeVideo: VodItem?
 
     // 网盘
-    @State private var panLinks: [CloudPanLink] = []
     @State private var isLoadingPan = false
     @State private var selectedCloudDrive: String? = nil  // 选中的网盘类型
+    @State private var driveExpandStates: [String: DriveExpandState] = [:]  // 每个网盘的展开状态
+    @State private var rawCloudLinks: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)] = []  // 排序后的原始链接
 
     // 剧集排序
     @State private var episodesReversed = false
@@ -96,21 +104,30 @@ struct VideoDetailView: View {
         )
     }
 
-    // 网盘链接按类型分组
+    // 网盘链接按类型分组（基于展开状态）
     private var cloudDriveGroups: [(drive: String, links: [CloudPanLink])] {
-        var groups: [String: [CloudPanLink]] = [:]
-        for link in panLinks {
-            let drive = link.driveName
-            groups[drive, default: []].append(link)
-        }
-        return groups.sorted { lhs, rhs in
-            let leftIndex = cloudDriveSortIndex(for: lhs)
-            let rightIndex = cloudDriveSortIndex(for: rhs)
-            if leftIndex != rightIndex {
-                return leftIndex < rightIndex
+        // rawCloudLinks 已按排序顺序存储，提取去重的网盘名即可
+        var seen = Set<String>()
+        var orderedDrives: [String] = []
+        for link in rawCloudLinks {
+            if !seen.contains(link.driveName) {
+                seen.insert(link.driveName)
+                orderedDrives.append(link.driveName)
             }
-            return lhs.key < rhs.key
-        }.map { ($0.key, $0.value) }
+        }
+        return orderedDrives.map { driveName in
+            if case .loaded(let expanded) = driveExpandStates[driveName] {
+                return (driveName, expanded)
+            }
+            // loading/failed/empty/nil 时用原始链接占位（UI层会根据 driveExpandStates 显示对应状态）
+            let fallback = rawCloudLinks
+                .filter { $0.driveName == driveName }
+                .enumerated()
+                .map { idx, link in
+                    makeCloudPanLink(url: link.url, name: link.name, driveType: link.driveType, driveName: link.driveName, index: idx)
+                }
+            return (driveName, fallback)
+        }
     }
 
     private func driveNameFromLink(_ name: String) -> String {
@@ -156,7 +173,15 @@ struct VideoDetailView: View {
 
     private var expandedEpisodeItems: [DetailEpisodePopupItem] {
         if isCloudVideo {
-            return currentCloudEpisodeLinks.enumerated().map { idx, link in
+            let driveName = selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? ""
+            let links: [CloudPanLink]
+            if case .loaded(let loaded) = driveExpandStates[driveName] {
+                links = loaded
+            } else {
+                links = currentCloudDriveGroup?.links ?? []
+            }
+            let displayLinks = episodesReversed ? links.reversed().map { $0 } : links
+            return displayLinks.enumerated().map { idx, link in
                 let title = cloudEpisodeTitle(for: link, index: idx)
                 return DetailEpisodePopupItem(id: link.id, title: title, fullTitle: link.name)
             }
@@ -168,7 +193,13 @@ struct VideoDetailView: View {
 
     private func handleExpandedEpisodeSelect(index: Int) {
         if isCloudVideo {
-            let links = currentCloudEpisodeLinks
+            let driveName = selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? ""
+            let links: [CloudPanLink]
+            if case .loaded(let loaded) = driveExpandStates[driveName] {
+                links = episodesReversed ? loaded.reversed().map { $0 } : loaded
+            } else {
+                links = currentCloudEpisodeLinks
+            }
             guard index < links.count else { return }
             showExpandedEpisodePopup = false
             playPanLink(links[index])
@@ -182,13 +213,14 @@ struct VideoDetailView: View {
 
     private func computeEpisodes() -> [(name: String, url: String)] {
         if isCloudVideo {
-            if let selectedDrive = selectedCloudDrive {
-                let links = panLinks.filter { $0.driveName == selectedDrive }
+            if let selectedDrive = selectedCloudDrive,
+               case .loaded(let links) = driveExpandStates[selectedDrive] {
                 let orderedLinks = episodesReversed ? links.reversed().map { $0 } : links
                 return orderedLinks.map { (name: $0.name, url: $0.url) }
             }
-            // 网盘模式下未选中任何网盘，显示全部网盘链接
-            let orderedLinks = episodesReversed ? panLinks.reversed().map { $0 } : panLinks
+            // 降级：用当前组的 links
+            let links = currentCloudDriveGroup?.links ?? []
+            let orderedLinks = episodesReversed ? links.reversed().map { $0 } : links
             return orderedLinks.map { (name: $0.name, url: $0.url) }
         }
         guard !allSources.isEmpty else { return [] }
@@ -312,46 +344,109 @@ struct VideoDetailView: View {
 
     // MARK: - 网盘
     private func loadPanLinks() {
-        guard panLinks.isEmpty, !isLoadingPan else { return }
+        guard rawCloudLinks.isEmpty, !isLoadingPan else { return }
         isLoadingPan = true
         Task {
             if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
-                let expandedLinks = await expandCloudPanLinks(result.links)
+                // 1. 预处理：识别每个链接的网盘类型，按排序优先级排列
+                let parsed = result.links.enumerated().map { index, link in
+                    let dt = CloudDriveManager.detectDrive(from: link.url)
+                    let name = dt?.displayName ?? driveNameFromLink(link.name)
+                    return (url: link.url, name: link.name, driveType: dt, driveName: name)
+                }
+                // 按排序顺序排列 rawCloudLinks
+                let sorted = sortRawCloudLinks(parsed)
+                
                 await MainActor.run {
-                    panLinks = expandedLinks
-                    isLoadingPan = false
-                    // 默认选中第一个网盘类型
-                    if selectedCloudDrive == nil, let firstDrive = cloudDriveGroups.first?.drive {
-                        selectedCloudDrive = firstDrive
+                    rawCloudLinks = sorted
+                    // 设置所有网盘为 loading 状态
+                    var seen = Set<String>()
+                    for link in sorted {
+                        if !seen.contains(link.driveName) {
+                            seen.insert(link.driveName)
+                            driveExpandStates[link.driveName] = .loading
+                        }
                     }
+                }
+
+                // 2. 按网盘分组，保持排序顺序
+                let grouped = groupRawLinks(sorted)
+                
+                // 3. 第一个网盘同步等待
+                if let first = grouped.first {
+                    let expanded = await expandSingleDrive(driveName: first.drive, links: first.links)
+                    await MainActor.run {
+                        driveExpandStates[first.drive] = expanded
+                        isLoadingPan = false
+                        if selectedCloudDrive == nil {
+                            selectedCloudDrive = first.drive
+                        }
+                    }
+                    
+                    // 4. 后续网盘依次后台预加载
+                    for group in grouped.dropFirst() {
+                        let expanded = await expandSingleDrive(driveName: group.drive, links: group.links)
+                        await MainActor.run {
+                            driveExpandStates[group.drive] = expanded
+                        }
+                    }
+                } else {
+                    await MainActor.run { isLoadingPan = false }
                 }
             } else {
                 await MainActor.run { isLoadingPan = false }
             }
         }
     }
-
-    private func makeCloudPanLink(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String, index: Int) -> CloudPanLink {
-        CloudPanLink(id: "\(driveName)|\(index)|\(name)|\(url)", url: url, name: name, driveType: driveType, driveName: driveName)
+    
+    /// 按排序优先级对原始链接排序
+    private func sortRawCloudLinks(_ links: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)]) -> [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)] {
+        return links.sorted { lhs, rhs in
+            let leftIndex = sortIndex(forDriveType: lhs.driveType, driveName: lhs.driveName)
+            let rightIndex = sortIndex(forDriveType: rhs.driveType, driveName: rhs.driveName)
+            if leftIndex != rightIndex { return leftIndex < rightIndex }
+            return lhs.driveName < rhs.driveName
+        }
     }
-
-    private func expandCloudPanLinks(_ links: [(url: String, name: String)]) async -> [CloudPanLink] {
-        var expanded: [CloudPanLink] = []
-        for (index, link) in links.enumerated() {
-            let detectedDriveType = CloudDriveManager.detectDrive(from: link.url)
-            let driveName = detectedDriveType?.displayName ?? driveNameFromLink(link.name)
-            let fallback = makeCloudPanLink(url: link.url, name: link.name, driveType: detectedDriveType, driveName: driveName, index: index)
-            guard let driveType = detectedDriveType else {
-                expanded.append(fallback)
-                continue
+    
+    /// 获取网盘排序索引
+    private func sortIndex(forDriveType dt: CloudDriveManager.DriveType?, driveName: String) -> Int {
+        if let dt, let idx = cloudDriveSortManager.displayOrder.firstIndex(of: dt) {
+            return idx
+        }
+        return cloudDriveSortManager.orderIndex(forDriveName: driveName)
+    }
+    
+    /// 将原始链接按网盘名分组，保持排序顺序
+    private func groupRawLinks(_ links: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)]) -> [(drive: String, links: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)])] {
+        var seen = Set<String>()
+        var groups: [(drive: String, links: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)])] = []
+        for link in links {
+            if !seen.contains(link.driveName) {
+                seen.insert(link.driveName)
+                groups.append((drive: link.driveName, links: []))
             }
-
-            switch driveType {
-            case .quark:
-                guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
-                    expanded.append(fallback)
-                    continue
-                }
+            groups[groups.count - 1].links.append(link)
+        }
+        return groups
+    }
+    
+    /// 展开单个网盘的文件列表
+    private func expandSingleDrive(driveName: String, links: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)]) async -> DriveExpandState {
+        guard let driveType = links.first?.driveType else {
+            let fallback = links.enumerated().map { idx, link in
+                makeCloudPanLink(url: link.url, name: link.name, driveType: link.driveType, driveName: link.driveName, index: idx)
+            }
+            return .loaded(fallback)
+        }
+        
+        switch driveType {
+        case .quark:
+            guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
+                return .failed("未配置夸克网盘账号")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
                 do {
                     let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: link.url, cookie: token.value)
                     let items = files.enumerated().map { fileIndex, file in
@@ -360,18 +455,24 @@ struct VideoDetailView: View {
                             name: file.fileName,
                             driveType: driveType,
                             driveName: driveName,
-                            index: fileIndex
+                            index: allExpanded.count + fileIndex
                         )
                     }
-                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                    allExpanded.append(contentsOf: items)
                 } catch {
-                    expanded.append(fallback)
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("夸克网盘资源加载失败")
+                    }
                 }
-            case .baidu:
-                guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
-                    expanded.append(fallback)
-                    continue
-                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+            
+        case .baidu:
+            guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
+                return .failed("未配置百度网盘账号")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
                 do {
                     let files = try await CloudDriveManager.shared.baiduGetFileList(shareURL: link.url, bduss: pair.web.value)
                     let items = files.enumerated().map { fileIndex, file in
@@ -380,18 +481,24 @@ struct VideoDetailView: View {
                             name: file.name,
                             driveType: driveType,
                             driveName: driveName,
-                            index: fileIndex
+                            index: allExpanded.count + fileIndex
                         )
                     }
-                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                    allExpanded.append(contentsOf: items)
                 } catch {
-                    expanded.append(fallback)
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("百度网盘资源加载失败")
+                    }
                 }
-            case .uc:
-                guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
-                    expanded.append(fallback)
-                    continue
-                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+            
+        case .uc:
+            guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
+                return .failed("未配置UC网盘账号")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
                 do {
                     let files = try await CloudDriveManager.shared.ucGetFileList(shareURL: link.url, cookie: token.value)
                     let items = files.enumerated().map { fileIndex, file in
@@ -400,18 +507,28 @@ struct VideoDetailView: View {
                             name: file.fileName,
                             driveType: driveType,
                             driveName: driveName,
-                            index: fileIndex
+                            index: allExpanded.count + fileIndex
                         )
                     }
-                    expanded.append(contentsOf: items.isEmpty ? [fallback] : items)
+                    allExpanded.append(contentsOf: items)
                 } catch {
-                    expanded.append(fallback)
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("UC网盘资源加载失败")
+                    }
                 }
-            default:
-                expanded.append(fallback)
             }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+            
+        default:
+            let fallback = links.enumerated().map { idx, link in
+                makeCloudPanLink(url: link.url, name: link.name, driveType: link.driveType, driveName: link.driveName, index: idx)
+            }
+            return .loaded(fallback)
         }
-        return expanded
+    }
+
+    private func makeCloudPanLink(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String, index: Int) -> CloudPanLink {
+        CloudPanLink(id: "\(driveName)|\(index)|\(name)|\(url)", url: url, name: name, driveType: driveType, driveName: driveName)
     }
 
     private func appendVboxFragment(to url: String, params: [String: String]) -> String {
@@ -428,20 +545,14 @@ struct VideoDetailView: View {
     // MARK: - 播放
     private func handlePlay() {
         if isCloudVideo {
-            if !panLinks.isEmpty {
-                playPanLink(panLinks[0])
-            } else if !isLoadingPan {
-                isLoadingPan = true
-                Task {
-                    if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
-                        let expandedLinks = await expandCloudPanLinks(result.links)
-                        await MainActor.run {
-                            panLinks = expandedLinks
-                            isLoadingPan = false
-                            if let first = panLinks.first { playPanLink(first) }
-                        }
-                    } else { await MainActor.run { isLoadingPan = false } }
-                }
+            // 尝试用已展开的第一个网盘的第一集播放
+            if let firstDrive = cloudDriveGroups.first,
+               case .loaded(let links) = driveExpandStates[firstDrive.drive],
+               let firstLink = links.first {
+                playPanLink(firstLink)
+            } else if !isLoadingPan && rawCloudLinks.isEmpty {
+                // 没有数据也没在加载，重新触发加载
+                loadPanLinks()
             }
         } else { showPlayer = true }
     }
@@ -663,7 +774,11 @@ struct VideoDetailView: View {
             checkFavorite()
         }
         .onReceive(cloudDriveSortManager.$order) { _ in
-            guard isCloudVideo, !cloudDriveGroups.isEmpty else { return }
+            guard isCloudVideo, !rawCloudLinks.isEmpty else { return }
+            // 重新排序 rawCloudLinks
+            let sorted = sortRawCloudLinks(rawCloudLinks)
+            rawCloudLinks = sorted
+            // 保留已展开的数据，只是重新排列
             selectedCloudDrive = cloudDriveGroups.first?.drive
         }
         .edgeSwipeBack { dismiss() }
@@ -866,24 +981,31 @@ struct VideoDetailView: View {
     // MARK: - 网盘资源
     @ViewBuilder
     private var panSection: some View {
-        if isCloudVideo && (!panLinks.isEmpty || isLoadingPan) {
+        if isCloudVideo && (!rawCloudLinks.isEmpty || isLoadingPan) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Image(systemName: "cloud.fill").font(.system(size: 14)).foregroundColor(.blue)
-                    if isLoadingPan {
+                    if isLoadingPan && rawCloudLinks.isEmpty {
                         Text("正在加载网盘资源...").font(.system(size: 14)).foregroundColor(.gray)
                         Spacer(); ProgressView().scaleEffect(0.8)
-                    } else if panLinks.isEmpty {
+                    } else if rawCloudLinks.isEmpty {
                         Text("未找到网盘链接").font(.system(size: 14)).foregroundColor(.gray)
                     } else {
                         Text("网盘源 (\(cloudDriveGroups.count) 个)").font(.system(size: 14, weight: .semibold)).foregroundColor(.blue)
                     }
                     Spacer()
                 }
-                if !isLoadingPan, !cloudDriveGroups.isEmpty {
+                if !rawCloudLinks.isEmpty, !cloudDriveGroups.isEmpty {
+                    // 网盘 tab 栏
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(cloudDriveGroups, id: \.drive) { group in
+                                let state = driveExpandStates[group.drive]
+                                let countText: String = {
+                                    if case .loaded(let links) = state { return "\(links.count)" }
+                                    if case .loading = state { return "..." }
+                                    return "-"
+                                }()
                                 Button(action: {
                                     selectedCloudDrive = group.drive
                                 }) {
@@ -892,7 +1014,7 @@ struct VideoDetailView: View {
                                             .font(.system(size: 13))
                                         Text(group.drive)
                                             .font(.system(size: 13, weight: .medium))
-                                        Text("\(group.links.count)")
+                                        Text(countText)
                                             .font(.system(size: 11))
                                             .foregroundColor(.white.opacity(0.6))
                                     }
@@ -909,62 +1031,113 @@ struct VideoDetailView: View {
                         }
                     }
 
-                    let currentLinks = cloudDriveGroups.first(where: { $0.drive == selectedCloudDrive })?.links ?? cloudDriveGroups.first?.links ?? []
-                    if !currentLinks.isEmpty {
-                        let orderedLinks = episodesReversed ? currentLinks.reversed().map { $0 } : currentLinks
-                        HStack {
-                            Text("\(selectedCloudDrive ?? cloudDriveGroups.first?.drive ?? "网盘资源") 剧集列表")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                            Spacer()
-                            Button(action: { episodesReversed.toggle() }) {
-                                Image(systemName: "arrow.up.arrow.down")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(episodesReversed ? Color(hex: "E11D48") : .white.opacity(0.7))
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            Text("共 \(currentLinks.count) 集")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.6))
-                            Button(action: {
-                                showExpandedEpisodePopup = true
-                            }) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.white.opacity(0.7))
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-
-                        ScrollView(.vertical, showsIndicators: false) {
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
-                                spacing: 8
-                            ) {
-                                ForEach(Array(orderedLinks.enumerated()), id: \.element.id) { idx, link in
-                                    Button(action: { playPanLink(link) }) {
-                                        Text(cloudEpisodeTitle(for: link, index: idx))
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundColor(.white)
-                                            .lineLimit(1)
-                                            .frame(minWidth: 48)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .fill(Color.white.opacity(0.12))
-                                            )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .frame(maxHeight: 300)
-                        .padding(.top, 4)
+                    // 当前选中网盘的剧集列表
+                    if let selectedDrive = selectedCloudDrive,
+                       cloudDriveGroups.contains(where: { $0.drive == selectedDrive }) {
+                        driveEpisodeSection(for: selectedDrive)
+                    } else if let firstDrive = cloudDriveGroups.first?.drive {
+                        driveEpisodeSection(for: firstDrive)
                     }
                 }
             }.padding(.vertical, 8)
+        }
+    }
+    
+    /// 单个网盘的剧集列表区域（支持 loading/loaded/failed/empty 状态）
+    @ViewBuilder
+    private func driveEpisodeSection(for driveName: String) -> some View {
+        let state = driveExpandStates[driveName]
+        
+        switch state {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().scaleEffect(0.7)
+                Text("正在加载 \(driveName) 剧集列表...")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .padding(.vertical, 16)
+            
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 13))
+                    .foregroundColor(.orange)
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(2)
+            }
+            .padding(.vertical, 12)
+            
+        case .empty:
+            HStack(spacing: 8) {
+                Image(systemName: "tray")
+                    .font(.system(size: 13))
+                    .foregroundColor(.gray)
+                Text("\(driveName) 暂无视频文件")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+            .padding(.vertical, 12)
+            
+        case .loaded(let links):
+            if !links.isEmpty {
+                let orderedLinks = episodesReversed ? links.reversed().map { $0 } : links
+                HStack {
+                    Text("\(driveName) 剧集列表")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Button(action: { episodesReversed.toggle() }) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 14))
+                            .foregroundColor(episodesReversed ? Color(hex: "E11D48") : .white.opacity(0.7))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Text("共 \(links.count) 集")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                    Button(action: {
+                        showExpandedEpisodePopup = true
+                    }) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
+                        spacing: 8
+                    ) {
+                        ForEach(Array(orderedLinks.enumerated()), id: \.element.id) { idx, link in
+                            Button(action: { playPanLink(link) }) {
+                                Text(cloudEpisodeTitle(for: link, index: idx))
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .frame(minWidth: 48)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.white.opacity(0.12))
+                                    )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 300)
+                .padding(.top, 4)
+            }
+            
+        case nil:
+            EmptyView()
         }
     }
 
