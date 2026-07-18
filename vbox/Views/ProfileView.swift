@@ -22,6 +22,7 @@ struct ProfileView: View {
     @State private var welfarePasswordInput: String = ""
     @State private var welfarePasswordError: Bool = false
     @State private var showPushPlay: Bool = false
+    @State private var showCloudDriveSort: Bool = false
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -102,6 +103,14 @@ struct ProfileView: View {
             .buttonStyle(.plain)
             .padding(.trailing, 16)
             .padding(.top, 8)
+
+            if showCloudDriveSort {
+                CloudDriveSortPopup {
+                    showCloudDriveSort = false
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(10)
+            }
         }
         .sheet(isPresented: $showSettingsSheet) {
             NavigationView {
@@ -277,10 +286,12 @@ struct ProfileView: View {
                     showDownloads = true
                 }
 
-                // 占位
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 80)
+                // 网盘排序
+                featureButton(icon: "arrow.up.arrow.down", title: "网盘排序") {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        showCloudDriveSort = true
+                    }
+                }
             }
         }
     }

@@ -6,6 +6,7 @@ private struct CloudPanLink: Identifiable, Hashable {
     let id: String
     let url: String
     let name: String
+    let driveType: CloudDriveManager.DriveType?
     let driveName: String
 }
 
@@ -21,6 +22,7 @@ struct VideoDetailView: View {
 
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var cloudDriveSortManager = CloudDriveSortManager.shared
 
     // 播放器
     @State private var showPlayer = false
@@ -94,7 +96,14 @@ struct VideoDetailView: View {
             let drive = link.driveName
             groups[drive, default: []].append(link)
         }
-        return groups.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        return groups.sorted { lhs, rhs in
+            let leftIndex = cloudDriveSortIndex(for: lhs)
+            let rightIndex = cloudDriveSortIndex(for: rhs)
+            if leftIndex != rightIndex {
+                return leftIndex < rightIndex
+            }
+            return lhs.key < rhs.key
+        }.map { ($0.key, $0.value) }
     }
 
     private func driveNameFromLink(_ name: String) -> String {
@@ -106,6 +115,14 @@ struct VideoDetailView: View {
         if name.contains("天翼") { return "天翼云盘" }
         if name.contains("123") { return "123云盘" }
         return "其他网盘"
+    }
+
+    private func cloudDriveSortIndex(for group: (key: String, value: [CloudPanLink])) -> Int {
+        if let type = group.value.first?.driveType,
+           let index = cloudDriveSortManager.displayOrder.firstIndex(of: type) {
+            return index
+        }
+        return cloudDriveSortManager.orderIndex(forDriveName: group.key)
     }
 
     private func computeEpisodes() -> [(name: String, url: String)] {
@@ -259,16 +276,17 @@ struct VideoDetailView: View {
         }
     }
 
-    private func makeCloudPanLink(url: String, name: String, driveName: String, index: Int) -> CloudPanLink {
-        CloudPanLink(id: "\(driveName)|\(index)|\(name)|\(url)", url: url, name: name, driveName: driveName)
+    private func makeCloudPanLink(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String, index: Int) -> CloudPanLink {
+        CloudPanLink(id: "\(driveName)|\(index)|\(name)|\(url)", url: url, name: name, driveType: driveType, driveName: driveName)
     }
 
     private func expandCloudPanLinks(_ links: [(url: String, name: String)]) async -> [CloudPanLink] {
         var expanded: [CloudPanLink] = []
         for (index, link) in links.enumerated() {
-            let driveName = driveNameFromLink(link.name)
-            let fallback = makeCloudPanLink(url: link.url, name: link.name, driveName: driveName, index: index)
-            guard let driveType = CloudDriveManager.detectDrive(from: link.url) else {
+            let detectedDriveType = CloudDriveManager.detectDrive(from: link.url)
+            let driveName = detectedDriveType?.displayName ?? driveNameFromLink(link.name)
+            let fallback = makeCloudPanLink(url: link.url, name: link.name, driveType: detectedDriveType, driveName: driveName, index: index)
+            guard let driveType = detectedDriveType else {
                 expanded.append(fallback)
                 continue
             }
@@ -285,6 +303,7 @@ struct VideoDetailView: View {
                         makeCloudPanLink(
                             url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fid]),
                             name: file.fileName,
+                            driveType: driveType,
                             driveName: driveName,
                             index: fileIndex
                         )
@@ -304,6 +323,7 @@ struct VideoDetailView: View {
                         makeCloudPanLink(
                             url: appendVboxFragment(to: link.url, params: ["vbox_fsid": file.fsId]),
                             name: file.name,
+                            driveType: driveType,
                             driveName: driveName,
                             index: fileIndex
                         )
@@ -323,6 +343,7 @@ struct VideoDetailView: View {
                         makeCloudPanLink(
                             url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fid, "vbox_token": file.shareFidToken]),
                             name: file.fileName,
+                            driveType: driveType,
                             driveName: driveName,
                             index: fileIndex
                         )
@@ -569,6 +590,10 @@ struct VideoDetailView: View {
                 loadDoubanData()
             }
             checkFavorite()
+        }
+        .onReceive(cloudDriveSortManager.$order) { _ in
+            guard isCloudVideo, !cloudDriveGroups.isEmpty else { return }
+            selectedCloudDrive = cloudDriveGroups.first?.drive
         }
         .edgeSwipeBack { dismiss() }
     }
