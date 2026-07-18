@@ -101,13 +101,18 @@ struct VideoDetailView: View {
         return "其他网盘"
     }
 
-    private var episodes: [(name: String, url: String)] {
-        if isCloudVideo, let selectedDrive = selectedCloudDrive {
-            let links = panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
-            return episodesReversed ? Array(links.reversed()) : links
+    private func computeEpisodes() -> [(name: String, url: String)] {
+        if isCloudVideo {
+            if let selectedDrive = selectedCloudDrive {
+                let links = panLinks.filter { driveNameFromLink($0.name) == selectedDrive }
+                return episodesReversed ? Array(links.reversed()) : links
+            }
+            // 网盘模式下未选中任何网盘，显示全部网盘链接
+            return episodesReversed ? Array(panLinks.reversed()) : panLinks
         }
         guard !allSources.isEmpty else { return [] }
-        let idx = min(selectedSourceIndex, allSources.count - 1)
+        let idx = selectedSourceIndex < allSources.count ? selectedSourceIndex : 0
+        guard idx < allSources.count else { return [] }
         let eps = allSources[idx].items
         return episodesReversed ? Array(eps.reversed()) : eps
     }
@@ -318,12 +323,13 @@ struct VideoDetailView: View {
 
     // MARK: - 下载
     private func handleDownload() {
-        guard !episodes.isEmpty else {
+        let eps = computeEpisodes()
+        guard !eps.isEmpty else {
             showDownloadTip = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
             return
         }
-        let episode = episodes[0]
+        let episode = eps[0]
         let sourceName = allSources.first?.name ?? ""
         let record = DownloadRecord(
             name: "\(displayVideo.vodName) \(episode.name)",
@@ -726,7 +732,8 @@ struct VideoDetailView: View {
 
     // MARK: - 剧集列表（独立滚动 + 排序）
     private var episodeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let eps = computeEpisodes()
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 if isCloudVideo, let drive = selectedCloudDrive {
                     Text("\(drive) 资源")
@@ -740,7 +747,7 @@ struct VideoDetailView: View {
                 Spacer()
 
                 // 排序按钮（纯图标无背景）
-                if !episodes.isEmpty {
+                if !eps.isEmpty {
                     Button(action: { episodesReversed.toggle() }) {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 14))
@@ -752,7 +759,7 @@ struct VideoDetailView: View {
                 if isLoadingDetail {
                     ProgressView().scaleEffect(0.8)
                 } else {
-                    Text(episodes.isEmpty ? "暂无集数" : "共 \(episodes.count) 集")
+                    Text(eps.isEmpty ? "暂无集数" : "共 \(eps.count) 集")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.6))
                 }
@@ -779,13 +786,13 @@ struct VideoDetailView: View {
             }
 
             // 独立滚动区域：剧集网格
-            if !episodes.isEmpty {
+            if !eps.isEmpty {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 56), spacing: 8)],
                         spacing: 8
                     ) {
-                        ForEach(Array(episodes.enumerated()), id: \.offset) { idx, episode in
+                        ForEach(Array(eps.enumerated()), id: \.offset) { idx, episode in
                             Button(action: { handleEpisodeSelect(episode) }) {
                                 Text(episode.name)
                                     .font(.system(size: 13, weight: .medium))
@@ -861,7 +868,7 @@ struct VideoDetailView: View {
         if showDownloadTip {
             VStack {
                 Spacer()
-                Text(episodes.isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
+                Text(computeEpisodes().isEmpty ? "暂无播放源，无法下载" : "已添加到下载列表")
                     .font(.system(size: 14))
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
