@@ -67,7 +67,7 @@ class CloudDriveManager: ObservableObject {
             case .uc: return "Cookie"
             case .pan123: return "Cookie / Token"
             case .pan139: return "Cookie / Session"
-            case .pan189: return "Cookie / 用户名密码"
+            case .pan189: return "Cookie / 扫码登录"
             }
         }
     }
