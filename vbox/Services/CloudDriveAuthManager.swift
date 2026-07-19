@@ -231,7 +231,7 @@ final class CloudDriveAuthManager: ObservableObject {
             lastCheckedAt: Date(),
             state: .valid,
             statusMessage: "阿里云盘 OpenList 扫码登录成功",
-            extra: nil
+            extra: [:]
         )
         saveCredential(credential)
     }
@@ -258,7 +258,7 @@ final class CloudDriveAuthManager: ObservableObject {
             lastCheckedAt: Date(),
             state: .valid,
             statusMessage: "阿里云盘 OpenList 扫码登录成功",
-            extra: nil
+            extra: [:]
         )
         saveCredential(credential)
     }
