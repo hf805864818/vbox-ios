@@ -327,39 +327,18 @@ final class CloudDriveAuthManager: ObservableObject {
     private static let pan189UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     func pan189CreateQrToken() async throws -> Pan189QrLoginToken {
-        // 使用独立 ephemeral session，先访问主页预热 Cookie 再获取二维码
-        let pan189Session: URLSession = {
-            let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 30
-            config.httpShouldSetCookies = true
-            return URLSession(configuration: config)
-        }()
+        // 使用独立干净 session，避免全局 session 残留 Cookie/头干扰
+        let pan189Session = URLSession(configuration: {
+            let c = URLSessionConfiguration.ephemeral
+            c.timeoutIntervalForRequest = 15
+            return c
+        }())
 
-        // 第0步：预热主页，获取必要 Cookie（如 COOKIE_WARNING 确认）
-        let warmupURL = URL(string: "https://cloud.189.cn/")!
-        var warmupReq = URLRequest(url: warmupURL)
-        warmupReq.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
-        warmupReq.httpMethod = "GET"
-        let (_, warmupResp) = try await pan189Session.data(for: warmupReq)
-        let warmupStatus = (warmupResp as? HTTPURLResponse)?.statusCode ?? 0
-        let warmupCookies = pan189Session.configuration.httpCookieStorage?.cookies(for: warmupURL) ?? []
-        print("[VBox Pan189 Warmup] HTTP \(warmupStatus) cookies: \(warmupCookies.map { $0.name })")
-
-        // 第1步：获取二维码信息
         let url = URL(string: "https://cloud.189.cn/api/portal/getQRCodeInfo.action")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://cloud.189.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("https://cloud.189.cn", forHTTPHeaderField: "Origin")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
-
-        // 携带预热 Cookie
-        if !warmupCookies.isEmpty {
-            let cookieStr = warmupCookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
-            request.setValue(cookieStr, forHTTPHeaderField: "Cookie")
-        }
 
         let (data, response) = try await pan189Session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -1455,8 +1434,48 @@ final class CloudDriveAuthManager: ObservableObject {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                // 页面加载后自动尝试切换到扫码登录标签
+                await switchToQRCodeTab()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 startPolling()
+            }
+        }
+
+        private func switchToQRCodeTab() async {
+            let js = #"""
+            (function() {
+                var elems = document.querySelectorAll('div, span, button, a, li, p, label, input[type="button"], input[type="submit"], .tab-item, .login-tab, [class*="tab"], [class*="Tab"], [class*="login"], [class*="Login"]');
+                for (var i = 0; i < elems.length; i++) {
+                    var el = elems[i];
+                    var txt = (el.textContent || '').trim();
+                    var cls = ((el.className||'') + ' ' + (el.id||'') + ' ' + (el.getAttribute('data-type')||'')).toLowerCase();
+                    if ((txt.indexOf('扫码') !== -1 || txt.indexOf('二维码') !== -1 ||
+                         txt.indexOf('QR') !== -1 || txt.indexOf('qr') !== -1) &&
+                        el.offsetWidth > 0 && el.offsetHeight > 0) {
+                        el.click();
+                        return 'clicked:' + txt.substring(0, 10);
+                    }
+                    if ((cls.indexOf('qr') !== -1 || cls.indexOf('scan') !== -1 ||
+                         cls.indexOf('扫码') !== -1 || cls.indexOf('qrcode') !== -1) &&
+                        el.offsetWidth > 0 && el.offsetHeight > 0) {
+                        el.click();
+                        return 'clicked_by_class';
+                    }
+                }
+                return 'notfound';
+            })()
+            """#
+            do {
+                let result = try await webView.evaluateJavaScript(js)
+                if let r = result as? String, r.hasPrefix("clicked") {
+                    statusText = "已切换到扫码登录，请使用天翼云盘 APP 扫描二维码"
+                } else {
+                    statusText = "请在页面中点击扫码登录，使用天翼云盘 APP 扫描"
+                }
+                print("[Pan189] switchToQRCodeTab result: \(result ?? "nil")")
+            } catch {
+                statusText = "请使用天翼云盘 APP 扫码登录"
+                print("[Pan189] switchToQRCodeTab error: \(error)")
             }
         }
 
