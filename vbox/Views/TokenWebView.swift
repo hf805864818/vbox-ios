@@ -54,9 +54,8 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .baidu:
             return URL(string: "https://pan.baidu.com/")!
         case .ali:
-            // 阿里云盘：优先使用原生 Passport 扫码，此 WebView 作为兜底。
-            // 使用 AList 官方工具页，用户扫码后页面会展示 refresh_token，也可使用 alist.nn.ci 的 OAuth 回调。
-            return URL(string: "https://alist.nn.ci/tool/aliyundrive/request")!
+            // 阿里云盘：使用 OpenList 授权页面，用户扫码后页面会展示 refresh_token
+            return URL(string: "https://api.oplist.org/?driver=alicloud&driver_txt=alicloud_qr&server_use=true&server_set=true")!
         case .quark:
             return URL(string: "https://pan.quark.cn/")!
         case .uc:
@@ -268,12 +267,12 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         }
 
         /// 阿里云盘专用：从页面 DOM 提取 refresh_token
-        /// alist 页面会在 input/textarea 或页面文本中展示 refresh_token
+        /// OpenList 页面会在 input/textarea 或页面文本中展示 refresh_token
         private func extractAliToken(from webView: WKWebView, cookieString: String) {
             // 多种 JS 提取方式，按优先级尝试
             let scripts = [
-                // 1. 读取 input/textarea 中的值（alist 页面的 token 显示在输入框）
-                "document.querySelector('input[type=text], textarea')?.value",
+                // 1. 读取 input/textarea 中的值（OpenList 页面的 token 显示在输入框）
+                "Array.from(document.querySelectorAll('input, textarea, [data-token], [data-refresh-token]')).map(e => e.value || e.textContent || e.getAttribute('data-token') || e.getAttribute('data-refresh-token')).find(v => v && v.trim().length > 50)",
                 // 2. 读取所有 input 元素找 token
                 "Array.from(document.querySelectorAll('input, textarea')).map(e => e.value).find(v => v && v.length > 20)",
                 // 3. 读取页面显式文本
@@ -297,7 +296,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             }
             tryNextScript(0)
 
-            // Cookie 兜底：alist 登录后可能有 refresh_token 相关 cookie
+            // Cookie 兜底：OpenList 登录后可能有 refresh_token 相关 cookie
             // 但仅当 cookie 中明确包含 refresh_token 时才用
             if cookieString.lowercased().contains("refresh_token") {
                 let patterns = [
@@ -326,7 +325,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             let patterns = [
                 // 标准格式: refresh_token: xxx 或 refresh_token：xxx
                 "refresh_token[:：]\\s*([a-zA-Z0-9_-]{20,})",
-                // 纯 token 格式（alist 页面可能直接显示 token 值）
+                // 纯 token 格式（OpenList 页面可能直接显示 token 值）
                 "([a-zA-Z0-9_-]{32,})",
             ]
             for pattern in patterns {

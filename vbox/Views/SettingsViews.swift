@@ -3350,6 +3350,13 @@ struct Pan115WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+struct AliOpenListWebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct UCWebView: UIViewRepresentable {
     let webView: WKWebView
 
@@ -3371,13 +3378,11 @@ struct NativeCloudQRLoginView: View {
     @State private var ucToken: CloudDriveAuthManager.UCQrLoginToken? = nil
     @State private var baiduToken: CloudDriveAuthManager.BaiduQrLoginToken? = nil
     @State private var baiduBDUSSURL: String? = nil
-    @State private var aliToken: CloudDriveAuthManager.AliPassportQrToken? = nil
-    @State private var aliOAuthToken: CloudDriveAuthManager.AliOAuthQrToken? = nil
-    @State private var useOAuthQR = false
     @StateObject private var pan139Helper = CloudDriveAuthManager.Pan139QrLoginHelper()
     @StateObject private var pan189Helper = CloudDriveAuthManager.Pan189LoginHelper()
     @StateObject private var pan123Helper = CloudDriveAuthManager.Pan123LoginHelper()
     @StateObject private var pan115Helper = CloudDriveAuthManager.Pan115LoginHelper()
+    @StateObject private var aliOpenListHelper = CloudDriveAuthManager.AliOpenListQrLoginHelper()
 
     var body: some View {
         NavigationView {
@@ -3404,18 +3409,6 @@ struct NativeCloudQRLoginView: View {
                             .cornerRadius(12)
                     }
                     .disabled(isGenerating)
-
-                    if driveType == .ali {
-                        Button(action: {
-                            useOAuthQR.toggle()
-                            Task { await startLoginFlow() }
-                        }) {
-                            Text(useOAuthQR ? "切换为 Passport 扫码（老方案）" : "切换为 OAuth 扫码（新方案/兜底）")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color(hex: "E11D48"))
-                        }
-                        .disabled(isGenerating || isPolling)
-                    }
                 }
                 .padding(16)
             }
@@ -3434,6 +3427,9 @@ struct NativeCloudQRLoginView: View {
                 }
                 if driveType == .one15 {
                     pan115Helper.cleanup()
+                }
+                if driveType == .ali {
+                    aliOpenListHelper.cleanup()
                 }
             }
             .toolbar {
@@ -3464,6 +3460,11 @@ struct NativeCloudQRLoginView: View {
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if driveType == .one15 {
                 Pan115WebView(webView: pan115Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .ali {
+                AliOpenListWebView(webView: aliOpenListHelper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3534,8 +3535,7 @@ struct NativeCloudQRLoginView: View {
         case .baidu:
             return "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。"
         case .ali:
-            let mode = useOAuthQR ? "OAuth" : "Passport"
-            return "当前使用 \(mode) 扫码：请使用阿里云盘 App 扫码并确认。OAuth 方案更稳定，Passport 方案与历史版本兼容。"
+            return "通过 OpenList 发起阿里云盘 OAuth 授权，请使用阿里云盘 App 扫码并确认。授权成功后自动获取 refresh_token。"
         case .pan139:
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
@@ -3618,25 +3618,13 @@ struct NativeCloudQRLoginView: View {
                 detailText = ""
                 await pollPan115()
             case .ali:
-                if useOAuthQR {
-                    let token = try await CloudDriveAuthManager.shared.aliOAuthCreateQrToken()
-                    aliOAuthToken = token
-                    qrImage = makeQRCode(from: token.qrData)
-                    statusText = "等待阿里云盘 OAuth 扫码确认"
-                    detailText = "请使用阿里云盘 App 扫描 OAuth 二维码。"
-                    isGenerating = false
-                    isPolling = true
-                    await pollAliOAuth(token)
-                } else {
-                    let token = try await CloudDriveAuthManager.shared.aliPassportCreateQrToken()
-                    aliToken = token
-                    qrImage = makeQRCode(from: token.codeContent)
-                    statusText = "等待阿里云盘 Passport 扫码确认"
-                    detailText = "每 2 秒轮询一次扫码状态。"
-                    isGenerating = false
-                    isPolling = true
-                    await pollAli(token)
-                }
+                aliOpenListHelper.cleanup()
+                aliOpenListHelper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = aliOpenListHelper.statusText
+                detailText = ""
+                await pollAliOpenList()
             default:
                 throw AuthError.remoteError("暂不支持 \(driveType.displayName) 原生扫码")
             }
@@ -3785,123 +3773,27 @@ struct NativeCloudQRLoginView: View {
     }
 
     @MainActor
-    private func pollAli(_ token: CloudDriveAuthManager.AliPassportQrToken) async {
-        var networkRetryCount = 0
-        let maxPollCount = 90 // 3分钟（每2秒一次）
-        while isPolling && pollCount < maxPollCount {
+    private func pollAliOpenList() async {
+        while isPolling && pollCount < 180 {
             pollCount += 1
-            do {
-                let result = try await CloudDriveAuthManager.shared.aliPassportPollQrStatus(token: token)
-                networkRetryCount = 0 // 成功时重置重试计数
-                switch result {
-                case .pending:
-                    statusText = "等待阿里云盘扫码"
-                    detailText = "请使用阿里云盘 App 扫描二维码（剩余 \(maxPollCount - pollCount) 次轮询）。"
-                case .scanned:
-                    statusText = "已扫码，等待确认"
-                    detailText = "请在手机端点击确认登录。"
-                case .success(let refreshToken, let userInfo):
-                    statusText = "已确认，正在保存账号"
-                    CloudDriveAuthManager.shared.aliPassportSaveCredential(refreshToken: refreshToken, userInfo: userInfo)
-                    isPolling = false
-                    statusText = "阿里云盘扫码登录成功"
-                    detailText = "refresh_token 已保存到授权中心。"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
-                    return
-                case .expired:
-                    isPolling = false
-                    statusText = "二维码已过期，请重新生成"
-                    detailText = "阿里云盘二维码通常有效期为 3 分钟。如频繁过期，请尝试网页登录兜底。"
-                    return
-                case .canceled:
-                    isPolling = false
-                    statusText = "用户取消授权"
-                    detailText = "请重新生成二维码或使用网页登录兜底。"
-                    return
-                case .failed(let message):
-                    // 某些失败状态可能只是临时网络问题，尝试重试
-                    if networkRetryCount < 3 && (message.contains("轮询返回格式异常") || message.contains("未知状态")) {
-                        networkRetryCount += 1
-                        statusText = "轮询异常，重试中 (\(networkRetryCount)/3)"
-                        detailText = message
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        continue
-                    }
-                    isPolling = false
-                    statusText = "轮询失败"
-                    detailText = message
-                    return
-                }
-            } catch {
-                // 网络断开时重试，最多3次
-                networkRetryCount += 1
-                if networkRetryCount <= 3 {
-                    statusText = "网络连接已中断"
-                    detailText = "正在重试... (\(networkRetryCount)/3)"
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    continue
-                }
+            if aliOpenListHelper.isLoggedIn {
                 isPolling = false
-                statusText = "轮询异常"
-                errorText = error.localizedDescription
+                statusText = "阿里云盘扫码登录成功"
+                detailText = "refresh_token 已保存到授权中心。"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
                 return
+            }
+            if !aliOpenListHelper.errorText.isEmpty {
+                statusText = aliOpenListHelper.statusText
+                detailText = aliOpenListHelper.errorText
+            } else {
+                statusText = aliOpenListHelper.statusText
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        // 超时
-        if pollCount >= maxPollCount {
-            isPolling = false
-            statusText = "登录超时"
-            detailText = "二维码已超过 3 分钟有效期。请重新生成，或尝试网页登录兜底入口。"
-        }
-    }
-
-    @MainActor
-    private func pollAliOAuth(_ token: CloudDriveAuthManager.AliOAuthQrToken) async {
-        let maxPollCount = 90
-        while isPolling && pollCount < maxPollCount {
-            pollCount += 1
-            do {
-                let result = try await CloudDriveAuthManager.shared.aliOAuthPollQrStatus(token: token)
-                switch result {
-                case .pending:
-                    statusText = "等待阿里云盘 OAuth 扫码"
-                    detailText = "请使用阿里云盘 App 扫描二维码（剩余 \(maxPollCount - pollCount) 次轮询）。"
-                case .scanned:
-                    statusText = "已扫码，等待确认"
-                    detailText = "请在手机端点击确认登录。"
-                case .success(let authCode):
-                    statusText = "已确认，正在换取 Token"
-                    try await CloudDriveAuthManager.shared.aliOAuthSaveCredential(authCode: authCode)
-                    isPolling = false
-                    statusText = "阿里云盘 OAuth 扫码登录成功"
-                    detailText = "refresh_token 已保存到授权中心。"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
-                    return
-                case .expired:
-                    isPolling = false
-                    statusText = "二维码已过期/已取消"
-                    detailText = "请重新生成二维码。"
-                    return
-                case .failed(let message):
-                    isPolling = false
-                    statusText = "OAuth 轮询失败"
-                    detailText = message
-                    return
-                }
-            } catch {
-                isPolling = false
-                statusText = "OAuth 轮询异常"
-                errorText = error.localizedDescription
-                return
-            }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-        }
-        if pollCount >= maxPollCount {
-            isPolling = false
-            statusText = "登录超时"
-            detailText = "二维码已超过 3 分钟有效期。"
-        }
+        isPolling = false
+        statusText = "登录超时"
+        detailText = "请重新尝试。"
     }
 
     @MainActor

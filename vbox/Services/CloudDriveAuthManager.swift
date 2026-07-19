@@ -79,28 +79,12 @@ final class CloudDriveAuthManager: ObservableObject {
     private let baiduVerifyCooldownKey = "baidu_verify_cooldowns_v1"
     private let session: URLSession
     private let ucSession: URLSession
-    private let aliOAuthClientId = "25dzX3vbRqA4f1D1ma2M"
-    private let aliOAuthRedirectURI = "https://alist.nn.ci/tool/aliyundrive/callback"
 
-    // MARK: - 阿里云盘配置（便于远程/热更新与切换 QR 源）
-    private struct AliPassportConfig {
-        static let baseURL = "https://passport.alipan.com/newlogin/qrcode"
-        static let appName = "aliyun_drive"
-        static let fromSite = "52"
-        static let appEntrance = "web"
-        static let isMobile = "false"
-        static let lang = "zh_CN"
-        static let bxVersion = "2.2.5"
-        static let origin = "https://www.alipan.com"
-        static let referer = "https://www.alipan.com/"
-    }
-
-    private struct AliOAuthConfig {
-        static let qrcodeURL = "https://openapi.alipan.com/oauth/authorize/qrcode"
-        static let statusURLPrefix = "https://openapi.alipan.com/oauth/qrcode"
-        static let scopes = ["user:base", "file:all:read"]
-        static let width = 500
-        static let height = 500
+    // MARK: - OpenList 阿里云盘配置
+    private struct OpenListAliConfig {
+        static let requestURL = "https://api.oplist.org/alicloud/requests"
+        static let callbackURL = "https://api.oplist.org/alicloud/callback"
+        static let renewURL = "https://api.oplist.org/alicloud/renewapi"
     }
 
     private init() {
@@ -114,417 +98,214 @@ final class CloudDriveAuthManager: ObservableObject {
         syncLegacyTokensIfNeeded()
     }
 
-    // MARK: - 阿里 OAuth
+    // MARK: - 阿里云盘（OpenList 方案）
 
-    func exchangeAliOAuthCode(_ code: String) async throws {
-        var request = URLRequest(url: URL(string: "https://openapi.alipan.com/oauth/access_token")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
-            "client_id": aliOAuthClientId,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": aliOAuthRedirectURI
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AuthError.invalidResponse("阿里 OAuth 返回无法解析")
-        }
-        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
-            throw AuthError.remoteError(json["message"] as? String ?? code)
-        }
-
-        let refreshToken = json["refresh_token"] as? String
-        let accessToken = json["access_token"] as? String
-        let expiresIn = (json["expires_in"] as? Double) ?? Double(json["expires_in"] as? Int ?? 0)
-        let driveId = json["default_drive_id"] as? String
-            ?? json["drive_id"] as? String
-            ?? json["resource_drive_id"] as? String
-        let userName = json["user_name"] as? String
-            ?? json["nick_name"] as? String
-            ?? json["name"] as? String
-
-        guard let refreshToken, !refreshToken.isEmpty else {
-            throw AuthError.remoteError("阿里 OAuth 未返回 refresh_token")
-        }
-
-        let credential = CloudDriveCredential(
-            driveType: CloudDriveManager.DriveType.ali.rawValue,
-            authType: .oauth,
-            accessToken: accessToken,
-            refreshToken: refreshToken,
-            cookie: nil,
-            driveId: driveId,
-            userId: json["user_id"] as? String,
-            userName: userName,
-            avatar: json["avatar"] as? String,
-            expiresAt: expiresIn > 0 ? Date(timeIntervalSinceNow: expiresIn) : nil,
-            updatedAt: Date(),
-            lastCheckedAt: Date(),
-            state: .valid,
-            statusMessage: "阿里 OAuth 授权成功",
-            extra: json.compactMapValues { value in
-                if let text = value as? String { return text }
-                if let number = value as? NSNumber { return number.stringValue }
-                return nil
-            }
-        )
-        saveCredential(credential)
-    }
-
-    func refreshAliAccessTokenIfNeeded() async throws -> CloudDriveCredential {
-        guard var credential = credential(for: .ali),
-              let refreshToken = credential.refreshToken,
-              !refreshToken.isEmpty else {
-            throw AuthError.notAuthorized("阿里云盘未授权")
-        }
-        if let expiresAt = credential.expiresAt,
-           expiresAt.timeIntervalSinceNow > 5 * 60,
-           credential.accessToken?.isEmpty == false {
-            return credential
-        }
-
-        var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/account/token")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": aliOAuthClientId
-        ])
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AuthError.invalidResponse("阿里刷新 token 返回无法解析")
-        }
-        if let code = json["code"] as? String, code != "0" && code != "OK" && code != "ok" {
-            print("[Ali Token] refresh 返回错误: code=\(code), message=\(json["message"] as? String ?? "nil"), 完整: \(json)")
-            markInvalid(.ali, reason: json["message"] as? String ?? code)
-            throw AuthError.remoteError(json["message"] as? String ?? code)
-        }
-        print("[Ali Token] refresh 成功, expired_in=\(json["expires_in"] ?? "nil")")
-        credential.accessToken = json["access_token"] as? String ?? credential.accessToken
-        credential.refreshToken = json["refresh_token"] as? String ?? credential.refreshToken
-        credential.driveId = json["default_drive_id"] as? String ?? json["drive_id"] as? String ?? credential.driveId
-        let expiresIn = (json["expires_in"] as? Double) ?? Double(json["expires_in"] as? Int ?? 0)
-        if expiresIn > 0 { credential.expiresAt = Date(timeIntervalSinceNow: expiresIn) }
-        credential.state = .valid
-        credential.statusMessage = "阿里 token 已刷新"
-        credential.lastCheckedAt = Date()
-        credential.updatedAt = Date()
-        saveCredential(credential)
-        return credential
-    }
-
-    // MARK: - 阿里 Passport 原生扫码
-
-    struct AliPassportQrToken {
-        let t: String
-        let ck: String
-        let codeContent: String
-    }
-
-    enum AliPassportQrPollResult {
-        case pending
-        case scanned
-        case success(refreshToken: String, userInfo: [String: Any])
-        case expired
-        case canceled
-        case failed(message: String)
-    }
-
-    func aliPassportCreateQrToken() async throws -> AliPassportQrToken {
-        // 使用 AliPassportConfig 中的常量，便于统一升级与远程配置
-        var components = URLComponents(string: AliPassportConfig.baseURL + "/generate.do")!
+    /// 通过 OpenList APIPages 发起阿里云盘扫码授权
+    /// 调用 api.oplist.org/alicloud/requests 获取 OAuth 授权 URL
+    func aliOpenListCreateQr() async throws -> URL {
+        var components = URLComponents(string: OpenListAliConfig.requestURL)!
         components.queryItems = [
-            URLQueryItem(name: "appName", value: AliPassportConfig.appName),
-            URLQueryItem(name: "fromSite", value: AliPassportConfig.fromSite),
-            URLQueryItem(name: "appEntrance", value: AliPassportConfig.appEntrance),
-            URLQueryItem(name: "isMobile", value: AliPassportConfig.isMobile),
-            URLQueryItem(name: "lang", value: AliPassportConfig.lang),
-            URLQueryItem(name: "returnUrl", value: ""),
-            URLQueryItem(name: "bizParams", value: ""),
-            URLQueryItem(name: "_bx-v", value: AliPassportConfig.bxVersion)
+            URLQueryItem(name: "driver", value: "alicloud"),
+            URLQueryItem(name: "driver_txt", value: "alicloud_qr"),
+            URLQueryItem(name: "server_use", value: "true"),
+            URLQueryItem(name: "server_set", value: "true")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue(AliPassportConfig.origin, forHTTPHeaderField: "Origin")
-        request.setValue(AliPassportConfig.referer, forHTTPHeaderField: "Referer")
-        request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await session.data(for: request)
-        let httpStatusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        print("[Ali Passport] QR generate HTTP \(httpStatusCode)")
-        
-        let json = try parseJSON(data)
-        print("[Ali Passport] QR generate response keys: \(json.keys)")
-        guard let content = json["content"] as? [String: Any],
-              let dataObj = content["data"] as? [String: Any],
-              let tValue = dataObj["t"],
-              let ck = dataObj["ck"] as? String,
-              let codeContent = dataObj["codeContent"] as? String else {
-            // 尝试检查是否有错误信息
-            if let msg = json["message"] as? String {
-                throw AuthError.invalidResponse("阿里 Passport: \(msg)")
-            }
-            throw AuthError.invalidResponse("阿里 Passport 未返回二维码参数")
-        }
-        // t 可能是 Int 或 String，统一转为 String
-        let t: String
-        if let tInt = tValue as? Int {
-            t = String(tInt)
-        } else if let tStr = tValue as? String {
-            t = tStr
-        } else {
-            throw AuthError.invalidResponse("阿里 Passport t 字段类型异常")
-        }
-        print("[Ali Passport] QR token created, t=\(t.prefix(10))..., codeContent length=\(codeContent.count)")
-        return AliPassportQrToken(t: t, ck: ck, codeContent: codeContent)
-    }
-
-    func aliPassportPollQrStatus(token: AliPassportQrToken) async throws -> AliPassportQrPollResult {
-        var components = URLComponents(string: AliPassportConfig.baseURL + "/query.do")!
-        components.queryItems = [
-            URLQueryItem(name: "appName", value: AliPassportConfig.appName),
-            URLQueryItem(name: "fromSite", value: AliPassportConfig.fromSite),
-            URLQueryItem(name: "appEntrance", value: AliPassportConfig.appEntrance),
-            URLQueryItem(name: "isMobile", value: AliPassportConfig.isMobile),
-            URLQueryItem(name: "lang", value: AliPassportConfig.lang),
-            URLQueryItem(name: "t", value: token.t),
-            URLQueryItem(name: "ck", value: token.ck)
-        ]
-        var request = URLRequest(url: components.url!)
-        request.setValue(AliPassportConfig.origin, forHTTPHeaderField: "Origin")
-        request.setValue(AliPassportConfig.referer, forHTTPHeaderField: "Referer")
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if httpStatus != 200 {
-            print("[Ali Passport] poll HTTP status: \(httpStatus)")
+        print("[Ali OpenList] create QR HTTP \(httpStatus)")
+
+        // 返回可能是重定向（302）到阿里 OAuth 页面，或者 JSON
+        if let httpResponse = response as? HTTPURLResponse,
+           let location = httpResponse.value(forHTTPHeaderField: "Location"),
+           let url = URL(string: location) {
+            print("[Ali OpenList] got redirect to: \(location.prefix(100))")
+            return url
         }
-        
-        let json = try parseJSON(data)
-        guard let content = json["content"] as? [String: Any],
-              let dataObj = content["data"] as? [String: Any] else {
-            print("[Ali Passport] poll unexpected response: \(json.keys)")
-            return .failed(message: "阿里 Passport 轮询返回格式异常")
+
+        // 如果不是重定向，尝试解析 JSON 获取授权 URL
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let authURL = json["url"] as? String ?? json["authorize_url"] as? String,
+              let url = URL(string: authURL) else {
+            // 尝试直接把返回的 data 当作 URL
+            if let text = String(data: data, encoding: .utf8),
+               text.hasPrefix("http"),
+               let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return url
+            }
+            throw AuthError.invalidResponse("阿里云盘 OpenList 获取授权链接失败 (HTTP \(httpStatus))")
         }
-        let status = dataObj["qrCodeStatus"] as? String ?? ""
-        let rawStatus = status.uppercased()
-        print("[Ali Passport] poll status: \(rawStatus), poll attempt")
-        
-        switch rawStatus {
-        case "NEW":
-            return .pending
-        case "SCANED", "SCANNED":
-            return .scanned
-        case "CONFIRMED":
-            guard let bizExt = dataObj["bizExt"] as? String else {
-                print("[Ali Passport] CONFIRMED 但未返回 bizExt，dataObj keys: \(dataObj.keys)")
-                return .failed(message: "扫码确认成功但未返回 bizExt")
-            }
-            print("[Ali Passport] bizExt raw (first 100): \(String(bizExt.prefix(100)))")
-            let normalized = bizExt
-                .replacingOccurrences(of: "-", with: "+")
-                .replacingOccurrences(of: "_", with: "/")
-                .replacingOccurrences(of: "\n", with: "")
-                .replacingOccurrences(of: " ", with: "")
-            var bizData: Data?
-            if let data = Data(base64Encoded: normalized) {
-                bizData = data
-            } else if let data = Data(base64Encoded: normalized + "=") {
-                bizData = data
-            } else if let data = Data(base64Encoded: normalized + "==") {
-                bizData = data
-            } else {
-                // 尝试 URL-safe base64 完整填充
-                let padded = normalized
-                    .replacingOccurrences(of: "-", with: "+")
-                    .replacingOccurrences(of: "_", with: "/")
-                let remainder = padded.count % 4
-                let fullPadded = remainder > 0 ? padded + String(repeating: "=", count: 4 - remainder) : padded
-                bizData = Data(base64Encoded: fullPadded)
-            }
-            guard let finalData = bizData else {
-                print("[Ali Passport] bizExt base64 解码失败，normalized: \(String(normalized.prefix(100)))")
-                return .failed(message: "扫码确认成功但 bizExt 解码失败")
-            }
-            print("[Ali Passport] bizExt decoded: \(String(data: finalData, encoding: .utf8) ?? "non-utf8")")
-            guard let bizJson = try? JSONSerialization.jsonObject(with: finalData) as? [String: Any] else {
-                print("[Ali Passport] bizExt JSON 解析失败")
-                return .failed(message: "扫码确认成功但 bizExt JSON 解析失败")
-            }
-            print("[Ali Passport] bizJson keys: \(bizJson.keys)")
-            let pdsResult = bizJson["pds_login_result"] as? [String: Any]
-            let refreshToken = pdsResult?["refreshToken"] as? String
-            if let token = refreshToken, !token.isEmpty {
-                return .success(refreshToken: token, userInfo: pdsResult ?? [:])
-            }
-            if let topLevelToken = bizJson["refresh_token"] as? String, !topLevelToken.isEmpty {
-                return .success(refreshToken: topLevelToken, userInfo: bizJson)
-            }
-            print("[Ali Passport] bizExt 中未找到 refreshToken，完整 JSON: \(bizJson)")
-            return .failed(message: "扫码确认成功但 bizExt 解析失败")
-        case "EXPIRED":
-            print("[Ali Passport] QR code expired, t=\(token.t.prefix(10))...")
-            return .expired
-        case "CANCELED", "CANCELLED":
-            return .canceled
-        default:
-            print("[Ali Passport] unknown status: \(rawStatus)")
-            return .failed(message: "未知状态: \(status)")
-        }
+        return url
     }
 
-    func aliPassportSaveCredential(refreshToken: String, userInfo: [String: Any]) {
-        let accessToken = userInfo["token"] as? String
-            ?? userInfo["accessToken"] as? String
-            ?? userInfo["access_token"] as? String
-        let expiresIn = (userInfo["expiresIn"] as? Double) ?? Double(userInfo["expiresIn"] as? Int ?? 0)
-        let driveId = userInfo["default_drive_id"] as? String
-            ?? userInfo["drive_id"] as? String
-            ?? userInfo["resource_drive_id"] as? String
-        let resourceDriveId = userInfo["resource_drive_id"] as? String
-        let userName = userInfo["nickName"] as? String
-            ?? userInfo["userName"] as? String
-            ?? userInfo["name"] as? String
+    /// 通过 OpenList 回调接口处理授权码，换取 token
+    func aliOpenListExchangeToken(authCode: String) async throws {
+        var components = URLComponents(string: OpenListAliConfig.callbackURL)!
+        components.queryItems = [
+            URLQueryItem(name: "driver", value: "alicloud"),
+            URLQueryItem(name: "code", value: authCode),
+            URLQueryItem(name: "server_use", value: "true"),
+            URLQueryItem(name: "grant_type", value: "authorization_code")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
-        var extra: [String: String] = [:]
-        if let resourceDriveId = resourceDriveId { extra["resource_drive_id"] = resourceDriveId }
-        if let avatar = userInfo["avatar"] as? String { extra["avatar"] = avatar }
-        if let userId = userInfo["userId"] as? String { extra["user_id"] = userId }
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
 
+        // 回调可能返回 302 重定向，URL 中包含 base64 编码的 token JSON
+        if let httpResponse = response as? HTTPURLResponse,
+           let location = httpResponse.value(forHTTPHeaderField: "Location"),
+           let url = URL(string: location),
+           let fragment = url.fragment {
+            // 尝试从 URL fragment 解析 token
+            let params = fragment.split(separator: "&").reduce(into: [String: String]()) { result, pair in
+                let parts = pair.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 {
+                    result[String(parts[0])] = String(parts[1])
+                }
+            }
+            if let refreshToken = params["refresh_token"] ?? params["refreshToken"], !refreshToken.isEmpty {
+                print("[Ali OpenList] got token from redirect fragment")
+                saveAliCredential(refreshToken: refreshToken, accessToken: params["access_token"] ?? params["accessToken"])
+                return
+            }
+            // 尝试 base64 解码
+            if let decoded = Data(base64Encoded: fragment),
+               let json = try? JSONSerialization.jsonObject(with: decoded) as? [String: Any] {
+                if let refreshToken = json["refresh_token"] as? String ?? json["refreshToken"] as? String, !refreshToken.isEmpty {
+                    print("[Ali OpenList] got token from base64 fragment")
+                    saveAliCredential(refreshToken: refreshToken, accessToken: json["access_token"] as? String ?? json["accessToken"] as? String)
+                    return
+                }
+            }
+        }
+
+        // 尝试解析 JSON 响应体
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let refreshToken = json["refresh_token"] as? String ?? json["refreshToken"] as? String, !refreshToken.isEmpty {
+                print("[Ali OpenList] got token from JSON body")
+                saveAliCredential(refreshToken: refreshToken, accessToken: json["access_token"] as? String ?? json["accessToken"] as? String)
+                return
+            }
+            if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
+                throw AuthError.remoteError(json["message"] as? String ?? "阿里云盘授权失败: \(code)")
+            }
+        }
+
+        // 最后尝试检查 location query 参数
+        if let httpResponse = response as? HTTPURLResponse,
+           let location = httpResponse.value(forHTTPHeaderField: "Location"),
+           let urlComponents = URLComponents(string: location),
+           let queryItems = urlComponents.queryItems {
+            let params = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item -> (String, String)? in
+                guard let value = item.value else { return nil }
+                return (item.name, value)
+            })
+            if let refreshToken = params["refresh_token"] ?? params["refreshToken"], !refreshToken.isEmpty {
+                print("[Ali OpenList] got token from redirect query")
+                saveAliCredential(refreshToken: refreshToken, accessToken: params["access_token"] ?? params["accessToken"])
+                return
+            }
+        }
+
+        throw AuthError.invalidResponse("阿里云盘 OpenList 换取 token 失败 (HTTP \(httpStatus))")
+    }
+
+    /// 保存阿里云盘凭证
+    private func saveAliCredential(refreshToken: String, accessToken: String?) {
         let credential = CloudDriveCredential(
             driveType: CloudDriveManager.DriveType.ali.rawValue,
             authType: .qr,
             accessToken: accessToken,
             refreshToken: refreshToken,
             cookie: nil,
-            driveId: driveId,
-            userId: userInfo["userId"] as? String,
-            userName: userName,
-            avatar: userInfo["avatar"] as? String,
-            expiresAt: expiresIn > 0 ? Date(timeIntervalSinceNow: expiresIn) : nil,
+            driveId: nil,
+            userId: nil,
+            userName: "阿里云盘用户",
+            avatar: nil,
+            expiresAt: nil,
             updatedAt: Date(),
             lastCheckedAt: Date(),
             state: .valid,
-            statusMessage: "阿里 Passport 扫码登录成功",
-            extra: extra
+            statusMessage: "阿里云盘 OpenList 扫码登录成功",
+            extra: nil
         )
         saveCredential(credential)
-
-        // 创建设备 session，避免后续 API 403
-        Task {
-            do {
-                try await aliCreateSession(accessToken: accessToken)
-            } catch {
-                print("[Ali] create_session 失败（非阻断）: \(error)")
-            }
-        }
     }
 
-    private func aliCreateSession(accessToken: String?) async throws {
-        guard let accessToken = accessToken, !accessToken.isEmpty else { return }
-        var request = URLRequest(url: URL(string: "https://api.alipan.com/users/v1/users/device/create_session")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let body: [String: Any] = [
-            "device_name": "VBox",
-            "model_name": "iOS",
-            "pub_key": ""
+    /// 保存阿里云盘凭证（去重）
+    func saveAliCredentialIfNew(refreshToken: String, accessToken: String?) {
+        // Check if we already have this token
+        if let existing = credential(for: .ali),
+           existing.refreshToken == refreshToken {
+            return
+        }
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.ali.rawValue,
+            authType: .qr,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            cookie: nil,
+            driveId: nil,
+            userId: nil,
+            userName: "阿里云盘用户",
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: Date(),
+            state: .valid,
+            statusMessage: "阿里云盘 OpenList 扫码登录成功",
+            extra: nil
+        )
+        saveCredential(credential)
+    }
+
+    /// 通过 OpenList 刷新阿里云盘 token
+    func refreshAliAccessTokenIfNeeded() async throws -> CloudDriveCredential {
+        guard var credential = credential(for: .ali),
+              let refreshToken = credential.refreshToken,
+              !refreshToken.isEmpty else {
+            throw AuthError.notAuthorized("阿里云盘未授权")
+        }
+
+        // 使用 OpenList 的在线刷新接口
+        var components = URLComponents(string: OpenListAliConfig.renewURL)!
+        components.queryItems = [
+            URLQueryItem(name: "driver_txt", value: "alicloud_qr"),
+            URLQueryItem(name: "refresh_ui", value: refreshToken),
+            URLQueryItem(name: "server_use", value: "true")
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw AuthError.remoteError("create_session HTTP 失败")
-        }
-    }
-
-    // MARK: - 阿里 OAuth QR（Passport QR 的兜底/替代方案）
-
-    struct AliOAuthQrToken {
-        let sid: String
-        let qrData: String
-    }
-
-    enum AliOAuthQrPollResult {
-        case pending
-        case scanned
-        case success(authCode: String)
-        case expired
-        case failed(message: String)
-    }
-
-    func aliOAuthCreateQrToken() async throws -> AliOAuthQrToken {
-        var request = URLRequest(url: URL(string: AliOAuthConfig.qrcodeURL)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
-        let body: [String: Any] = [
-            "client_id": aliOAuthClientId,
-            "client_secret": "",
-            "scopes": AliOAuthConfig.scopes,
-            "width": AliOAuthConfig.width,
-            "height": AliOAuthConfig.height
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AuthError.invalidResponse("阿里 OAuth QR 生成返回无法解析")
-        }
-        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
-            throw AuthError.remoteError(json["message"] as? String ?? code)
-        }
-        if let code = json["code"] as? Int, code != 0 && code != 200 {
-            throw AuthError.remoteError(json["message"] as? String ?? "code=\(code)")
-        }
-        let dataObj = json["data"] as? [String: Any] ?? json
-        guard let sid = dataObj["sid"] as? String,
-              let qrData = dataObj["qrCodeUrl"] as? String ?? dataObj["qr_data"] as? String,
-              !sid.isEmpty, !qrData.isEmpty else {
-            throw AuthError.invalidResponse("阿里 OAuth QR 生成未返回 sid/qrData")
-        }
-        return AliOAuthQrToken(sid: sid, qrData: qrData)
-    }
-
-    func aliOAuthPollQrStatus(token: AliOAuthQrToken) async throws -> AliOAuthQrPollResult {
-        let url = URL(string: "\(AliOAuthConfig.statusURLPrefix)/\(token.sid)/status")!
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: components.url!)
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return .failed(message: "阿里 OAuth QR 轮询返回格式异常")
-        }
-        if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
-            return .failed(message: json["message"] as? String ?? code)
-        }
-        let dataObj = json["data"] as? [String: Any] ?? json
-        let rawStatus = (dataObj["status"] as? String ?? "").lowercased()
-        switch rawStatus {
-        case "waitlogin", "new", "waiting", "":
-            return .pending
-        case "scansuccess", "scaned", "scanned", "scan_success":
-            return .scanned
-        case "loginfailed", "canceled", "cancelled", "cancel", "expired":
-            return .expired
-        case "loginsuccess", "confirmed", "login_success", "success":
-            guard let authCode = dataObj["authCode"] as? String
-                    ?? dataObj["auth_code"] as? String
-                    ?? dataObj["code"] as? String, !authCode.isEmpty else {
-                return .failed(message: "登录成功但未返回 authCode")
-            }
-            return .success(authCode: authCode)
-        default:
-            return .failed(message: "未知状态 \(rawStatus)")
-        }
-    }
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
 
-    func aliOAuthSaveCredential(authCode: String) async throws {
-        try await exchangeAliOAuthCode(authCode)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AuthError.invalidResponse("阿里云盘刷新 token 返回无法解析")
+        }
+
+        let newRefreshToken = json["refresh_token"] as? String ?? json["refreshToken"] as? String ?? refreshToken
+        let newAccessToken = json["access_token"] as? String ?? json["accessToken"] as? String
+
+        if newRefreshToken.isEmpty && newAccessToken == nil {
+            print("[Ali OpenList] refresh 返回无有效 token, HTTP \(httpStatus), response: \(json)")
+            markInvalid(.ali, reason: "token 刷新失败")
+            throw AuthError.remoteError("阿里云盘 token 刷新失败")
+        }
+
+        print("[Ali OpenList] refresh 成功")
+        credential.accessToken = newAccessToken
+        credential.refreshToken = newRefreshToken
+        credential.state = .valid
+        credential.statusMessage = "阿里 token 已刷新"
+        credential.lastCheckedAt = Date()
+        credential.updatedAt = Date()
+        saveCredential(credential)
+        return credential
     }
 
     // MARK: - UC 原生扫码
@@ -1972,6 +1753,151 @@ final class CloudDriveAuthManager: ObservableObject {
             statusText = "正在加载..."
             isLoggedIn = false
             errorText = ""
+        }
+    }
+
+    // MARK: - 阿里云盘 OpenList WebView 扫码登录
+
+    @MainActor
+    final class AliOpenListQrLoginHelper: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
+        @Published var statusText = "正在加载 OpenList 授权页面..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+
+            // Register JS message handler for token extraction
+            config.userContentController.add(self, name: "aliTokenHandler")
+        }
+
+        func startLogin() {
+            statusText = "正在加载 OpenList 授权页面..."
+            guard let url = URL(string: "https://api.oplist.org/?driver=alicloud&driver_txt=alicloud_qr&server_use=true&server_set=true") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载 OpenList 授权页面..."
+            isLoggedIn = false
+            errorText = ""
+        }
+
+        // WKNavigationDelegate
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                statusText = "页面已加载，请使用阿里云盘 App 扫码"
+                // Inject JS to monitor for token display
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                injectTokenMonitor()
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            Task { @MainActor in
+                statusText = "页面加载失败"
+                errorText = error.localizedDescription
+            }
+        }
+
+        // WKScriptMessageHandler - receives token from JS
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "aliTokenHandler",
+               let body = message.body as? [String: Any],
+               let refreshToken = body["refresh_token"] as? String ?? body["refreshToken"] as? String,
+               !refreshToken.isEmpty {
+                Task { @MainActor in
+                    CloudDriveAuthManager.shared.saveAliCredentialIfNew(
+                        refreshToken: refreshToken,
+                        accessToken: body["access_token"] as? String ?? body["accessToken"] as? String
+                    )
+                    isLoggedIn = true
+                    statusText = "阿里云盘登录成功"
+                }
+            }
+        }
+
+        private func injectTokenMonitor() {
+            // JS that monitors the page for token display and sends it to native
+            let js = """
+            (function() {
+                function checkToken() {
+                    // Look for refresh_token in input/textarea elements (common pattern in token tool pages)
+                    var inputs = document.querySelectorAll('input, textarea, [data-token], [data-refresh-token]');
+                    for (var i = 0; i < inputs.length; i++) {
+                        var val = (inputs[i].value || inputs[i].textContent || inputs[i].getAttribute('data-token') || inputs[i].getAttribute('data-refresh-token') || '').trim();
+                        if (val.length > 50 && val.indexOf('.') !== -1) {
+                            window.webkit.messageHandlers.aliTokenHandler.postMessage({
+                                refresh_token: val,
+                                source: 'input_' + i
+                            });
+                            return true;
+                        }
+                    }
+                    // Also check for visible text that looks like a token
+                    var allText = document.body.innerText || '';
+                    // Look for patterns like "refresh_token: xxx" or display text
+                    var patterns = ['refresh_token', 'refreshToken', 'Refresh Token', 'refresh token'];
+                    for (var p = 0; p < patterns.length; p++) {
+                        var idx = allText.indexOf(patterns[p]);
+                        if (idx !== -1) {
+                            // Extract the token value after the label
+                            var after = allText.substring(idx + patterns[p].length).replace(/[:\\s：]+/g, '').trim();
+                            // Take first long string as token
+                            var match = after.match(/^[A-Za-z0-9_\\-\\.]{50,}/);
+                            if (match) {
+                                window.webkit.messageHandlers.aliTokenHandler.postMessage({
+                                    refresh_token: match[0],
+                                    source: 'text_' + patterns[p]
+                                });
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+
+                // Check immediately
+                if (checkToken()) return;
+
+                // Also check on DOM changes
+                var observer = new MutationObserver(function() {
+                    if (checkToken()) observer.disconnect();
+                });
+                observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+                // Periodic check every 3 seconds
+                window.__aliTokenInterval = setInterval(function() {
+                    if (checkToken()) {
+                        clearInterval(window.__aliTokenInterval);
+                        observer.disconnect();
+                    }
+                }, 3000);
+            })();
+            """
+            webView.evaluateJavaScript(js)
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { @MainActor in
+                while !Task.isCancelled && !isLoggedIn {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
         }
     }
 
