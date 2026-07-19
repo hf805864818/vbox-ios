@@ -327,19 +327,50 @@ final class CloudDriveAuthManager: ObservableObject {
     private static let pan189UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     func pan189CreateQrToken() async throws -> Pan189QrLoginToken {
+        // 使用独立 ephemeral session，先访问主页预热 Cookie 再获取二维码
+        let pan189Session: URLSession = {
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 30
+            config.httpShouldSetCookies = true
+            return URLSession(configuration: config)
+        }()
+
+        // 第0步：预热主页，获取必要 Cookie（如 COOKIE_WARNING 确认）
+        let warmupURL = URL(string: "https://cloud.189.cn/")!
+        var warmupReq = URLRequest(url: warmupURL)
+        warmupReq.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
+        warmupReq.httpMethod = "GET"
+        let (_, warmupResp) = try await pan189Session.data(for: warmupReq)
+        let warmupStatus = (warmupResp as? HTTPURLResponse)?.statusCode ?? 0
+        let warmupCookies = pan189Session.configuration.httpCookieStorage?.cookies(for: warmupURL) ?? []
+        print("[VBox Pan189 Warmup] HTTP \(warmupStatus) cookies: \(warmupCookies.map { $0.name })")
+
+        // 第1步：获取二维码信息
         let url = URL(string: "https://cloud.189.cn/api/portal/getQRCodeInfo.action")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://cloud.189.cn/", forHTTPHeaderField: "Referer")
+        request.setValue("https://cloud.189.cn", forHTTPHeaderField: "Origin")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw AuthError.remoteError("天翼云盘获取二维码 HTTP 失败")
+        // 携带预热 Cookie
+        if !warmupCookies.isEmpty {
+            let cookieStr = warmupCookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+            request.setValue(cookieStr, forHTTPHeaderField: "Cookie")
         }
-        let json = try parseJSON(data)
+
+        let (data, response) = try await pan189Session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
         let rawBody = String(data: data, encoding: .utf8) ?? "nil"
-        print("[VBox Pan189 CreateToken] raw: \(rawBody)")
+        print("[VBox Pan189 CreateToken] HTTP \(httpStatus) raw: \(rawBody)")
+
+        guard httpStatus == 200 else {
+            throw AuthError.remoteError("天翼云盘获取二维码 HTTP 失败 (\(httpStatus))")
+        }
+
+        let json = try parseJSON(data)
 
         let resCode = json["resCode"] as? Int ?? -1
         guard resCode == 0 else {
