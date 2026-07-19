@@ -46,6 +46,7 @@ enum AppSkinMode: String, CaseIterable, Identifiable {
 }
 
 /// 全局应用设置
+@MainActor
 class AppSettings: ObservableObject {
     private static let skinModeKey = "app_skin_mode"
     private static let skinFollowsSystemKey = "app_skin_follows_system"
@@ -56,6 +57,9 @@ class AppSettings: ObservableObject {
     private static let welfareUnlockedKey = "app_welfare_unlocked"
     private static let welfarePasswordKey = "app_welfare_password"
     private static let welfareEnabledKey = "app_welfare_enabled"
+    private static let remoteDefaultSourceEnabledKey = RemoteSourceConfigKeys.remoteDefaultSourceEnabled
+    private static let bundleSourcesEnabledKey = RemoteSourceConfigKeys.bundleSourcesEnabled
+    private static let defaultManifestURLKey = RemoteSourceConfigKeys.defaultManifestURL
 
     @Published var isSpiderReady = false
     @Published var subscribedSites: [SiteConfig] = []
@@ -108,6 +112,25 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(welfareEnabled, forKey: Self.welfareEnabledKey)
         }
     }
+    @Published var remoteDefaultSourceEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(remoteDefaultSourceEnabled, forKey: Self.remoteDefaultSourceEnabledKey)
+            RemoteSourceConfigManager.shared.remoteDefaultSourceEnabled = remoteDefaultSourceEnabled
+        }
+    }
+    @Published var bundleSourcesEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(bundleSourcesEnabled, forKey: Self.bundleSourcesEnabledKey)
+            RemoteSourceConfigManager.shared.bundleSourcesEnabled = bundleSourcesEnabled
+            NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
+        }
+    }
+    @Published var defaultManifestURL: String {
+        didSet {
+            UserDefaults.standard.set(defaultManifestURL, forKey: Self.defaultManifestURLKey)
+            RemoteSourceConfigManager.shared.defaultManifestURL = defaultManifestURL
+        }
+    }
 
     init() {
         let rawSkin = UserDefaults.standard.string(forKey: Self.skinModeKey)
@@ -120,6 +143,9 @@ class AppSettings: ObservableObject {
         welfareUnlocked = UserDefaults.standard.object(forKey: Self.welfareUnlockedKey) as? Bool ?? false
         welfarePassword = UserDefaults.standard.string(forKey: Self.welfarePasswordKey) ?? "888888"
         welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
+        remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: Self.remoteDefaultSourceEnabledKey) as? Bool ?? true
+        bundleSourcesEnabled = UserDefaults.standard.object(forKey: Self.bundleSourcesEnabledKey) as? Bool ?? false
+        defaultManifestURL = UserDefaults.standard.string(forKey: Self.defaultManifestURLKey) ?? RemoteSourceConfigManager.defaultManifestURL
     }
 
     var preferredColorScheme: ColorScheme? {

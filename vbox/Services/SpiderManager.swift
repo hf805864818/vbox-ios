@@ -169,7 +169,7 @@ class SpiderManager: ObservableObject {
 
     /// 所有兜底源 = 内置 + 自定义
     var allFallbackSites: [(name: String, api: String)] {
-        var sites = Self.builtinFallbackSites
+        var sites = RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []
         for cs in customFallbackSites {
             if !sites.contains(where: { $0.api == cs.api }) {
                 sites.append(cs)
@@ -215,6 +215,8 @@ class SpiderManager: ObservableObject {
     func initialize() async {
         guard !isInitialized else { return }
         isInitialized = true
+
+        await RemoteSourceConfigManager.shared.syncIfNeeded()
 
         // 尝试加载 QuickJS 内置蜘蛛
         await loadBuiltinEngineIfNeeded()
@@ -345,6 +347,23 @@ globalThis.__JS_SPIDER__ = _spider;
         NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
+    /// 重新合并远程默认源、当前订阅源、用户自定义源和可选 Bundle 内置源。
+    /// 用于远程默认源刷新、Bundle 内置源开关切换、清除远程缓存之后重建源列表。
+    func reloadAllSources() async {
+        isLoading = true
+        errorMessage = nil
+        if let activeURL = subManager.activeURL {
+            await subManager.loadConfig(from: activeURL)
+            if let error = subManager.errorMessage {
+                print("[SpiderManager] 订阅源刷新失败，继续尝试默认源: \(error)")
+            }
+        }
+        await loadSitesFromSubscription()
+        savedURLs = subManager.configURLs
+        isLoading = false
+        NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
+    }
+
     /// 切换激活的订阅源
     func switchToSubscription(at index: Int) {
         subManager.switchToSubscription(at: index)
@@ -356,77 +375,86 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     private func loadSitesFromSubscription() async {
-        // 先加载内置 ibox_sources.json（无论用户是否添加了订阅源）
-        // 多路径查找策略，确保文件被正确找到
-        var iboxSites: [SiteConfig] = []
-        var iboxLoaded = false
+        let remoteSourceManager = RemoteSourceConfigManager.shared
 
-        // 方式1: 标准 path（带 inDirectory）
-        if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
-           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
-            do {
-                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
-                iboxSites = iboxConfig.sites
-                iboxLoaded = true
-                print("[SpiderManager] 从 ibox_sources.json(js/) 读取了 \(iboxSites.count) 个站点")
-            } catch {
-                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
-            }
+        // 优先加载远程默认 API 源缓存。远程默认源只替代系统默认源，不覆盖用户订阅和用户自定义源。
+        var iboxSites: [SiteConfig] = remoteSourceManager.remoteDefaultSourceEnabled ? remoteSourceManager.cachedAPISites() : []
+        var iboxLoaded = !iboxSites.isEmpty
+        if iboxLoaded {
+            print("[SpiderManager] 从远程默认源缓存读取 API 源: \(iboxSites.count) 个站点")
         }
-        // 方式2: 不带 inDirectory（文件夹引用可能扁平化）
-        if !iboxLoaded, let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json"),
-           let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
-            do {
-                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
-                iboxSites = iboxConfig.sites
-                iboxLoaded = true
-                print("[SpiderManager] 从 Bundle 根目录读取 ibox_sources.json: \(iboxSites.count) 个站点")
-            } catch {
-                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
-            }
-        }
-        // 方式3: url(forResource:withExtension:subdirectory:)
-        if !iboxLoaded, let iboxURL = Bundle.main.url(forResource: "ibox_sources", withExtension: "json", subdirectory: "js"),
-           let iboxData = try? Data(contentsOf: iboxURL) {
-            do {
-                let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
-                iboxSites = iboxConfig.sites
-                iboxLoaded = true
-                print("[SpiderManager] 从 url(subdirectory:js) 读取 ibox_sources.json: \(iboxSites.count) 个站点")
-            } catch {
-                print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
-            }
-        }
-        // 方式4: 枚举 Bundle.resources 查找
-        if !iboxLoaded {
-            if let jsURLs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "js"),
-               let iboxFile = jsURLs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
-               let iboxData = try? Data(contentsOf: iboxFile) {
+
+        if !iboxLoaded && remoteSourceManager.bundleSourcesEnabled {
+            // 加载 Bundle 内置 ibox_sources.json。测试远程源时关闭 bundleSourcesEnabled 后会跳过这里。
+            // 多路径查找策略，确保文件被正确找到。
+            if let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json", inDirectory: "js"),
+               let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
                 do {
                     let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
                     iboxSites = iboxConfig.sites
                     iboxLoaded = true
-                    print("[SpiderManager] 从 urls(js/) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
+                    print("[SpiderManager] 从 ibox_sources.json(js/) 读取了 \(iboxSites.count) 个站点")
                 } catch {
                     print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
                 }
             }
-            // 也检查 Bundle 根目录的 json 文件
-            if !iboxLoaded, let allJSONs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil),
-               let iboxFile = allJSONs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
-               let iboxData = try? Data(contentsOf: iboxFile) {
+            // 方式2: 不带 inDirectory（文件夹引用可能扁平化）
+            if !iboxLoaded, let iboxPath = Bundle.main.path(forResource: "ibox_sources", ofType: "json"),
+               let iboxData = try? Data(contentsOf: URL(fileURLWithPath: iboxPath)) {
                 do {
                     let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
                     iboxSites = iboxConfig.sites
                     iboxLoaded = true
-                    print("[SpiderManager] 从 urls(根目录) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
+                    print("[SpiderManager] 从 Bundle 根目录读取 ibox_sources.json: \(iboxSites.count) 个站点")
                 } catch {
                     print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
                 }
             }
+            // 方式3: url(forResource:withExtension:subdirectory:)
+            if !iboxLoaded, let iboxURL = Bundle.main.url(forResource: "ibox_sources", withExtension: "json", subdirectory: "js"),
+               let iboxData = try? Data(contentsOf: iboxURL) {
+                do {
+                    let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                    iboxSites = iboxConfig.sites
+                    iboxLoaded = true
+                    print("[SpiderManager] 从 url(subdirectory:js) 读取 ibox_sources.json: \(iboxSites.count) 个站点")
+                } catch {
+                    print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+                }
+            }
+            // 方式4: 枚举 Bundle.resources 查找
+            if !iboxLoaded {
+                if let jsURLs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "js"),
+                   let iboxFile = jsURLs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
+                   let iboxData = try? Data(contentsOf: iboxFile) {
+                    do {
+                        let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                        iboxSites = iboxConfig.sites
+                        iboxLoaded = true
+                        print("[SpiderManager] 从 urls(js/) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
+                    } catch {
+                        print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+                    }
+                }
+                // 也检查 Bundle 根目录的 json 文件
+                if !iboxLoaded, let allJSONs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil),
+                   let iboxFile = allJSONs.first(where: { $0.lastPathComponent == "ibox_sources.json" }),
+                   let iboxData = try? Data(contentsOf: iboxFile) {
+                    do {
+                        let iboxConfig = try JSONDecoder().decode(SubscribeConfig.self, from: iboxData)
+                        iboxSites = iboxConfig.sites
+                        iboxLoaded = true
+                        print("[SpiderManager] 从 urls(根目录) 枚举找到 ibox_sources.json: \(iboxSites.count) 个站点")
+                    } catch {
+                        print("[SpiderManager] ibox_sources.json 解析失败: \(error.localizedDescription)")
+                    }
+                }
+            }
+        } else if !iboxLoaded {
+            print("[SpiderManager] Bundle 内置源已关闭，跳过 ibox_sources.json")
         }
         if !iboxLoaded {
-            print("[SpiderManager] ⚠️ 未找到 ibox_sources.json（已尝试4种查找方式）")
+            print("[SpiderManager] ⚠️ 未找到可用 API 默认源")
         }
 
         // 如果 subManager.config 为空但之前通过 apiyuan 转换过站点，
@@ -447,9 +475,9 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] 无订阅源，已清空数据库站源残留")
                 return
             }
-            // 合并内置兜底API站点
+            // 合并 Bundle 内置兜底 API 站点。Bundle 内置源关闭时不合并，用户自定义兜底源不受影响。
             let existingKeys = Set(allSites.map { $0.key })
-            let fallbackConfigs = Self.builtinFallbackSites.compactMap { site -> SiteConfig? in
+            let fallbackConfigs = (RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []).compactMap { site -> SiteConfig? in
                 let key = "builtin_" + site.name
                 guard !existingKeys.contains(key) else { return nil }
                 return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
@@ -480,9 +508,9 @@ globalThis.__JS_SPIDER__ = _spider;
             }
         }
 
-        // 合并内置兜底API站点（去重）
+        // 合并 Bundle 内置兜底 API 站点（去重）。测试远程源时关闭 Bundle 内置源后会跳过。
         let existingKeysForFallback = Set(allSites.map { $0.key })
-        let fallbackConfigs = Self.builtinFallbackSites.compactMap { site -> SiteConfig? in
+        let fallbackConfigs = (RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []).compactMap { site -> SiteConfig? in
             let key = "builtin_" + site.name
             guard !existingKeysForFallback.contains(key) else { return nil }
             return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
@@ -1753,9 +1781,9 @@ globalThis.__JS_SPIDER__ = _spider;
         log("====== cloudSearch: \(keyword) ======")
 
         let sites = loadCloudSitesFromJSONConfig()
-        log("☁️ 从 video_sources.json 加载 \(sites.count) 个网盘站")
+        log("☁️ 加载 \(sites.count) 个网盘站")
         guard !sites.isEmpty else {
-            log("⚠️ video_sources.json 中无可用网盘站")
+            log("⚠️ 当前无可用网盘站")
             return []
         }
 
@@ -1793,7 +1821,19 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 从 JSON 加载云盘站点配置
     private func loadCloudSitesFromJSONConfig() -> [CloudSiteConfig] {
         let fileManager = FileManager.default
-        // 优先加载 Documents 目录下的外部 JSON
+
+        // 优先加载远程默认源缓存 cloud_sources.json
+        if let data = RemoteSourceConfigManager.shared.cachedCloudSitesData() {
+            do {
+                let wrapper = try JSONDecoder().decode(CloudSitesWrapper.self, from: data)
+                print("[SpiderManager] ✅ 从远程默认源缓存加载网盘源，共 \(wrapper.cloudSites.count) 个站点")
+                return wrapper.cloudSites
+            } catch {
+                print("[SpiderManager] ⚠️ 远程网盘源缓存解析失败: \(error.localizedDescription)")
+            }
+        }
+
+        // 兼容旧逻辑：继续支持用户手动放到 Documents 目录下的 video_sources.json
         if let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
             let externalPath = documentsPath.appendingPathComponent("video_sources.json")
             if fileManager.fileExists(atPath: externalPath.path) {
@@ -1807,6 +1847,12 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
+
+        guard RemoteSourceConfigManager.shared.bundleSourcesEnabled else {
+            print("[SpiderManager] Bundle 内置源已关闭，跳过 video_sources.json")
+            return []
+        }
+
         // 回退到 Bundle 资源
         guard let bundlePath = Bundle.main.path(forResource: "video_sources", ofType: "json") else {
             print("[SpiderManager] ❌ 找不到默认 video_sources.json 文件")
