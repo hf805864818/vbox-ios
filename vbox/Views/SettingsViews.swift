@@ -10,6 +10,7 @@ extension CloudDriveManager.DriveType: Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var spiderManager = SpiderManager.shared
+    @StateObject private var remoteSourceManager = RemoteSourceConfigManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @State private var autoPlayNext = true
     @State private var playInBackground = true
@@ -57,6 +58,7 @@ struct SettingsView: View {
     @State private var mpvLifecycleProbeSummary = "未运行MPV生命周期压力测试"
     @State private var isRunningMPVAllDiagnostics = false
     @State private var mpvAllDiagnosticsSummary = "未运行一键全部MPV诊断"
+    @State private var isSyncingRemoteSource = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -366,6 +368,91 @@ struct SettingsView: View {
                 }
                 .background(Color.gray.opacity(0.04))
 
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "cloud.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "3B82F6"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("启用远程默认源")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+                            Text(remoteSourceManager.loadState.displayText)
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.remoteDefaultSourceEnabled)
+                            .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("默认源地址")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                        TextField("manifest.json 地址", text: $settings.defaultManifestURL)
+                            .font(.system(size: 12))
+                            .textInputAutocapitalization(.never)
+                            .disableAutocorrection(true)
+                            .keyboardType(.URL)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                            )
+                    }
+
+                    HStack {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "F59E0B"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("启用 Bundle 内置源")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+                            Text("关闭后跳过 ibox/video 内置 JSON 和硬编码兜底源")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.bundleSourcesEnabled)
+                            .labelsHidden()
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            isSyncingRemoteSource = true
+                            Task {
+                                await remoteSourceManager.syncNow()
+                                await spiderManager.reloadAllSources()
+                                await MainActor.run {
+                                    isSyncingRemoteSource = false
+                                }
+                            }
+                        } label: {
+                            Label(isSyncingRemoteSource ? "同步中" : "刷新远程源", systemImage: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .disabled(isSyncingRemoteSource || !settings.remoteDefaultSourceEnabled)
+
+                        Button(role: .destructive) {
+                            remoteSourceManager.clearCache()
+                            Task { await spiderManager.reloadAllSources() }
+                        } label: {
+                            Label("清缓存", systemImage: "trash")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                    }
+
+                    Text("配置版本：\(remoteSourceManager.lastConfigVersion.isEmpty ? "无" : remoteSourceManager.lastConfigVersion) · 同步时间：\(remoteSyncTimeText)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(Color.gray.opacity(0.04))
+
                 // 【新增】双模式功能开关
                 HStack {
                     Image(systemName: "arrow.triangle.2.circlepath")
@@ -393,6 +480,13 @@ struct SettingsView: View {
         .sheet(isPresented: $showSubscribeSheet) {
             SubscribeConfigView()
         }
+    }
+
+    private var remoteSyncTimeText: String {
+        guard let date = remoteSourceManager.lastSyncTime else { return "无" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     private var cloudDriveSection: some View {
