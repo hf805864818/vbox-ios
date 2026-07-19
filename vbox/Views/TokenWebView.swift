@@ -384,7 +384,9 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             case .pan139:
                 return lower.contains("ssotoken") || lower.contains("sso_token") || lower.contains("mcloud") || lower.contains("sessionid")
             case .pan189:
-                return lower.contains("ssotoken") || lower.contains("session") || lower.contains("cookie")
+                return lower.contains("ssotoken=") || lower.contains("sso_token=") ||
+                       lower.contains("usersession=") || lower.contains("ec_session=") ||
+                       lower.contains("CASTGC=") || lower.contains("islogin=")
             }
         }
     }

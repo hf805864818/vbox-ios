@@ -308,6 +308,164 @@ final class CloudDriveAuthManager: ObservableObject {
         return credential
     }
 
+    // MARK: - 天翼云盘 原生扫码
+
+    struct Pan189QrLoginToken {
+        let uuid: String
+        let ticket: String
+        let qrPayload: String
+    }
+
+    enum Pan189QrPollResult {
+        case pending
+        case scanned
+        case success(loginUrl: String)
+        case expired
+        case failed(message: String)
+    }
+
+    private static let pan189UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    func pan189CreateQrToken() async throws -> Pan189QrLoginToken {
+        let url = URL(string: "https://cloud.189.cn/api/portal/getQRCodeInfo.action")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://cloud.189.cn/", forHTTPHeaderField: "Referer")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AuthError.remoteError("天翼云盘获取二维码 HTTP 失败")
+        }
+        let json = try parseJSON(data)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        print("[VBox Pan189 CreateToken] raw: \(rawBody)")
+
+        let resCode = json["resCode"] as? Int ?? -1
+        guard resCode == 0 else {
+            let msg = json["resMessage"] as? String ?? json["msg"] as? String ?? "未知错误"
+            print("[VBox Pan189 CreateToken] resCode=\(resCode) msg=\(msg)")
+            throw AuthError.remoteError("获取二维码失败: \(msg)")
+        }
+
+        guard let dataDict = json["data"] as? [String: Any],
+              let uuid = dataDict["uuid"] as? String,
+              let ticket = dataDict["ticket"] as? String else {
+            throw AuthError.invalidResponse("天翼云盘未返回二维码 uuid/ticket")
+        }
+
+        let qrPayload = "https://cloud.189.cn/qrlogin?uuid=\(uuid)"
+        print("[VBox Pan189 CreateToken] uuid=\(uuid) ticket=\(ticket)")
+        return Pan189QrLoginToken(uuid: uuid, ticket: ticket, qrPayload: qrPayload)
+    }
+
+    func pan189PollQrStatus(token: Pan189QrLoginToken) async throws -> Pan189QrPollResult {
+        var components = URLComponents(string: "https://cloud.189.cn/api/portal/queryQRCodeStatus.action")!
+        components.queryItems = [
+            URLQueryItem(name: "ticket", value: token.ticket),
+            URLQueryItem(name: "uuid", value: token.uuid)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://cloud.189.cn/", forHTTPHeaderField: "Referer")
+        request.timeoutInterval = 10
+
+        let (data, response) = try await session.data(for: request)
+        let json = try parseJSON(data)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox Pan189 Poll] HTTP \(httpStatus) raw: \(rawBody.prefix(300))")
+
+        let resCode = json["resCode"] as? Int ?? -1
+        guard resCode == 0 else {
+            let msg = json["resMessage"] as? String ?? json["msg"] as? String ?? "查询异常"
+            print("[VBox Pan189 Poll] resCode=\(resCode) msg=\(msg)")
+            return .failed(message: msg)
+        }
+
+        guard let dataDict = json["data"] as? [String: Any],
+              let status = dataDict["status"] as? Int else {
+            return .pending
+        }
+
+        print("[VBox Pan189 Poll] status=\(status)")
+
+        switch status {
+        case 0:
+            return .pending
+        case 1:
+            return .scanned
+        case 2:
+            guard let loginUrl = dataDict["loginUrl"] as? String else {
+                return .failed(message: "登录成功但未返回 loginUrl")
+            }
+            return .success(loginUrl: loginUrl)
+        case -1:
+            return .expired
+        default:
+            return .pending
+        }
+    }
+
+    func pan189ExchangeCookie(_ loginUrl: String) async throws {
+        // 使用独立干净的 URLSession 来完成登录跳转，收集 Cookie
+        let exchangeSession: URLSession = {
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 30
+            config.httpShouldSetCookies = true
+            return URLSession(configuration: config)
+        }()
+
+        guard let url = URL(string: loginUrl) else {
+            throw AuthError.invalidResponse("loginUrl 无效")
+        }
+        var request = URLRequest(url: url)
+        request.setValue(Self.pan189UserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://cloud.189.cn/", forHTTPHeaderField: "Referer")
+
+        let (data, response) = try await exchangeSession.data(for: request)
+        let rawBody = String(data: data, encoding: .utf8) ?? "nil"
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[VBox Pan189 Exchange] HTTP \(httpStatus): \(rawBody.prefix(200))")
+
+        // 收集所有跳转过程中设置的 Cookie
+        let allCookie = collectAllCookiesFromSession(exchangeSession, for: URL(string: "https://cloud.189.cn")!)
+
+        let cookieLower = allCookie.lowercased()
+        let hasLoginCookie = cookieLower.contains("ssotoken=") || cookieLower.contains("sso_token=") ||
+                             cookieLower.contains("usersession=") || cookieLower.contains("ec_session=") ||
+                             cookieLower.contains("CASTGC=") || cookieLower.contains("islogin=")
+
+        print("[VBox Pan189 Exchange] cookie length: \(allCookie.count)")
+        print("[VBox Pan189 Exchange] has login cookie: \(hasLoginCookie)")
+
+        guard hasLoginCookie else {
+            throw AuthError.invalidResponse("天翼云盘 Cookie 缺少登录态字段，登录可能无效")
+        }
+
+        // 保存凭证
+        let credential = CloudDriveCredential(
+            driveType: CloudDriveManager.DriveType.pan189.rawValue,
+            authType: .qr,
+            accessToken: nil,
+            refreshToken: nil,
+            cookie: allCookie,
+            driveId: nil,
+            userId: nil,
+            userName: nil,
+            avatar: nil,
+            expiresAt: nil,
+            updatedAt: Date(),
+            lastCheckedAt: nil,
+            state: .unknown,
+            statusMessage: "扫码授权成功",
+            extra: [:]
+        )
+        saveCredential(credential)
+        print("[VBox Pan189 Exchange] ✅ 天翼云盘扫码登录成功，Cookie 已保存")
+    }
+
     // MARK: - UC 原生扫码
 
     struct UCQrLoginToken {
