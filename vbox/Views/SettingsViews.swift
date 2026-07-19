@@ -3420,6 +3420,9 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .pan139 {
                     pan139Helper.cleanup()
                 }
+                if driveType == .pan189 {
+                    pan189Helper.cleanup()
+                }
                 if driveType == .pan123 {
                     pan123Helper.cleanup()
                 }
@@ -3443,6 +3446,11 @@ struct NativeCloudQRLoginView: View {
         VStack(spacing: 12) {
             if driveType == .pan139 {
                 Pan139WebView(webView: pan139Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .pan189 {
+                Pan189WebView(webView: pan189Helper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3532,7 +3540,7 @@ struct NativeCloudQRLoginView: View {
         case .pan139:
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
-            return "请使用天翼云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
+            return "页面会自动切换到扫码登录。请使用天翼云盘 APP 扫描二维码并确认，登录成功后自动获取 Cookie。"
         case .pan123:
             return "请在页面中登录123云盘（手机号/微信扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .one15:
@@ -3587,14 +3595,13 @@ struct NativeCloudQRLoginView: View {
                 detailText = ""
                 await pollPan139()
             case .pan189:
-                let token = try await CloudDriveAuthManager.shared.pan189CreateQrToken()
-                pan189Token = token
-                qrImage = makeQRCode(from: token.qrPayload)
-                statusText = "等待天翼云盘扫码确认"
-                detailText = "每 2 秒轮询一次扫码状态。"
+                pan189Helper.cleanup()
+                pan189Helper.startLogin()
                 isGenerating = false
                 isPolling = true
-                await pollPan189(token)
+                statusText = pan189Helper.statusText
+                detailText = ""
+                await pollPan189()
             case .pan123:
                 pan123Helper.cleanup()
                 pan123Helper.startLogin()
@@ -3818,97 +3825,29 @@ struct NativeCloudQRLoginView: View {
     }
 
     @MainActor
-    private func pollPan189(_ token: CloudDriveAuthManager.Pan189QrLoginToken) async {
-        var consecutiveErrors = 0
-        var loginUrl: String?
-        while isPolling && pollCount < 90 && loginUrl == nil {
+    private func pollPan189() async {
+        while isPolling && pollCount < 180 {
             pollCount += 1
-            do {
-                let result = try await CloudDriveAuthManager.shared.pan189PollQrStatus(token: token)
-                consecutiveErrors = 0
-                switch result {
-                case .pending:
-                    statusText = "等待天翼云盘扫码确认"
-                    detailText = "请使用天翼云盘 App 扫码。"
-                case .scanned:
-                    statusText = "已扫码，等待确认"
-                    detailText = "请在手机端点击确认登录。"
-                case .success(let url):
-                    loginUrl = url
-                case .expired:
-                    isPolling = false
-                    statusText = "二维码已过期"
-                    detailText = "请重新生成二维码。"
-                    return
-                case .failed(let message):
-                    isPolling = false
-                    statusText = "轮询失败"
-                    detailText = message
-                    return
-                }
-            } catch {
-                consecutiveErrors += 1
-                let nsError = error as NSError
-                let isNetworkError = nsError.domain == NSURLErrorDomain &&
-                    (nsError.code == NSURLErrorNetworkConnectionLost ||
-                     nsError.code == NSURLErrorNotConnectedToInternet ||
-                     nsError.code == NSURLErrorTimedOut ||
-                     nsError.code == NSURLErrorCannotConnectToHost ||
-                     nsError.code == NSURLErrorCannotFindHost ||
-                     nsError.code == NSURLErrorDNSLookupFailed ||
-                     nsError.code == NSURLErrorSecureConnectionFailed)
-                if isNetworkError && consecutiveErrors < 5 {
-                    detailText = "网络波动，正在重试…（\(consecutiveErrors)/5）"
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    continue
-                }
+            if pan189Helper.isLoggedIn {
                 isPolling = false
-                statusText = "轮询异常"
-                errorText = consecutiveErrors >= 5 ? "网络连接异常，已重试\(consecutiveErrors)次" : error.localizedDescription
-                return
-            }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-        }
-        // 超时（3分钟）或中途被取消
-        if pollCount >= 90 && loginUrl == nil {
-            isPolling = false
-            statusText = "登录超时"
-            detailText = "二维码已超过 3 分钟有效期，请重新生成。"
-            return
-        }
-
-        // 轮询成功拿到 loginUrl，做 exchange 换取 Cookie
-        guard let url = loginUrl else { return }
-        statusText = "已确认，正在换取 Cookie"
-        detailText = ""
-        for exchangeAttempt in 1...5 {
-            do {
-                try await CloudDriveAuthManager.shared.pan189ExchangeCookie(url)
-                isPolling = false
-                statusText = "天翼云盘扫码登录成功"
+                statusText = "天翼云盘登录成功"
                 detailText = "Cookie 已保存到授权中心。"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { dismiss() }
                 return
-            } catch {
-                let nsError = error as NSError
-                let isNetworkError = nsError.domain == NSURLErrorDomain &&
-                    (nsError.code == NSURLErrorNetworkConnectionLost ||
-                     nsError.code == NSURLErrorNotConnectedToInternet ||
-                     nsError.code == NSURLErrorTimedOut ||
-                     nsError.code == NSURLErrorCannotConnectToHost ||
-                     nsError.code == NSURLErrorCannotFindHost ||
-                     nsError.code == NSURLErrorDNSLookupFailed ||
-                     nsError.code == NSURLErrorSecureConnectionFailed)
-                if isNetworkError && exchangeAttempt < 5 {
-                    detailText = "网络波动，正在重试换取 Cookie…（\(exchangeAttempt)/5）"
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    continue
-                }
+            }
+            if !pan189Helper.errorText.isEmpty {
                 isPolling = false
-                statusText = "换取 Cookie 失败"
-                errorText = error.localizedDescription
+                statusText = "登录失败"
+                detailText = pan189Helper.errorText
                 return
             }
+            statusText = pan189Helper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "请在6分钟内完成登录，或重新打开页面。"
         }
     }
 
