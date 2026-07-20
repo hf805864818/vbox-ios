@@ -2293,7 +2293,10 @@ struct FallbackConfigView: View {
     
     /// 远程 API 源列表（从缓存读取）
     private var remoteAPISites: [(name: String, api: String)] {
-        remoteSourceManager.cachedAPISites().map { ($0.name, $0.api) }
+        remoteSourceManager.cachedAPISites().compactMap { site in
+            guard let api = site.api else { return nil }
+            return (name: site.name, api: api)
+        }
     }
     
     var body: some View {
