@@ -11,7 +11,7 @@ struct RemoteSourceStatusBar: View {
         case .idle:
             return ("antenna.radiowaves.left.and.right", "远程源待同步", .gray.opacity(0.8), Color.gray.opacity(0.12), Color.gray.opacity(0.2))
         case .loading:
-            return ("arrow.triangle.2.circlepath", "远程源同步中...", .blue.opacity(0.9), Color.blue.opacity(0.12), Color.blue.opacity(0.25))
+            return ("arrow.triangle.2.circlepath", "远程源同步中...", .white, Color.blue.opacity(0.75), Color.blue.opacity(0.85))
         case .loadedRemote(let version):
             return ("checkmark.icloud.fill", "远程源已更新 v\(version)", .green.opacity(0.9), Color.green.opacity(0.12), Color.green.opacity(0.25))
         case .loadedCache(let version):
@@ -68,8 +68,11 @@ struct RemoteSourceStatusBar: View {
         autoDismissTask?.cancel()
 
         switch state {
-        case .idle, .loading:
+        case .idle:
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = false }
+        case .loading:
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = true }
+            scheduleAutoDismiss(after: 15.0)
         case .loadedRemote, .loadedCache:
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = true }
             scheduleAutoDismiss(after: 4.0)
