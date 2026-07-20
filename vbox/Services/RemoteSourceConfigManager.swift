@@ -197,7 +197,14 @@ final class RemoteSourceConfigManager: ObservableObject {
     /// 检查某个 host 是否在禁用列表中
     func isHostDisabled(_ host: String) -> Bool {
         let hosts = cachedDisabledHosts()
-        return hosts.contains(host) || hosts.contains { host.hasSuffix($0.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")) }
+        if hosts.contains(host) { return true }
+        // 忽略 scheme 差异做 host 匹配（http vs https）
+        guard let hostURL = URL(string: host),
+              let hostName = hostURL.host else { return false }
+        return hosts.contains { disabled in
+            guard let disabledURL = URL(string: disabled) else { return false }
+            return disabledURL.host == hostName && (disabledURL.port ?? (disabledURL.scheme == "https" ? 443 : 80)) == (hostURL.port ?? (hostURL.scheme == "https" ? 443 : 80))
+        }
     }
 
     /// 对 URL 字符串应用域名覆盖
