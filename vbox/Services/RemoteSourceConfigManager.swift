@@ -10,15 +10,14 @@ enum RemoteSourceConfigKeys {
     static let lastConfigVersion = "remote_default_last_config_version"
     static let lastSyncTime = "remote_default_last_sync_time"
     static let lastSyncError = "remote_default_last_sync_error"
+    static let lastSyncAppVersion = "remote_default_last_sync_app_version"
 }
 
 /// 远程默认源管理器
 ///
-/// 负责从公开仓库读取 manifest.json，并把 API 源、网盘源、JS/站源、解析器等远程配置缓存到 Documents。
-/// 说明：
-/// - 远程默认源只管理 App 官方默认源，不覆盖用户添加的订阅源、自定义源、自定义解析器和网盘授权。
-/// - Bundle 内置源总开关只控制 ibox_sources.json、video_sources.json、default_subscribe.json、builtinFallbackSites。
-/// - 福利平台入口不做远程源控制；福利平台域名可后续通过 domain_overrides.json 覆盖。
+/// 负责从公开仓库读取 manifest.json 和 all_sources.json（CI 自动合并 6 个源文件），缓存到 Documents。
+/// 启动时通过 manifest.version（约 30 字节）探测版本变化，有更新则自动拉取最新配置。
+/// GitHub 域名自动走代理加速（ghfast.top → gh-proxy.com → 直连）。
 @MainActor
 final class RemoteSourceConfigManager: ObservableObject {
     static let shared = RemoteSourceConfigManager()
@@ -70,6 +69,12 @@ final class RemoteSourceConfigManager: ObservableObject {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+    /// 代理列表：复用 UpdateManager 的 GitHub 加速代理（主代理 → 备用代理 → 直连）
+    private static let proxyHosts: [(name: String, host: String)] = [
+        ("ghfast",    "https://ghfast.top"),
+        ("gh-proxy",  "https://gh-proxy.com"),
+    ]
+
     private init() {
         remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: RemoteSourceConfigKeys.remoteDefaultSourceEnabled) as? Bool ?? true
         bundleSourcesEnabled = UserDefaults.standard.object(forKey: RemoteSourceConfigKeys.bundleSourcesEnabled) as? Bool ?? false
@@ -89,12 +94,42 @@ final class RemoteSourceConfigManager: ObservableObject {
             return
         }
 
-        if !force, !shouldRefresh() {
+        // 方案四：App 升级后强制刷新
+        if appVersionChanged() {
+            print("[RemoteSource] App 版本变化，强制刷新")
+            await syncNow()
+            return
+        }
+
+        if force {
+            await syncNow()
+            return
+        }
+
+        // 从未同步过 → 必须刷新
+        guard let _ = lastSyncTime else {
+            await syncNow()
+            return
+        }
+
+        // 方案一：轻量版本号探测（约 30 字节）
+        if let newVersion = await checkManifestVersion() {
+            if newVersion != lastConfigVersion {
+                print("[RemoteSource] manifest.version 变化: \(lastConfigVersion) → \(newVersion)，触发同步")
+                await syncNow()
+                return
+            }
+            // 版本一致，跳过同步
             loadCachedManifestState()
             return
         }
 
-        await syncNow()
+        // manifest.version 请求失败 → 降级到旧 TTL 判断
+        if shouldRefresh() {
+            await syncNow()
+        } else {
+            loadCachedManifestState()
+        }
     }
 
     func syncNow() async {
@@ -105,41 +140,61 @@ final class RemoteSourceConfigManager: ObservableObject {
 
         loadState = .loading
 
-        let stagingDir = cacheDirectory.appendingPathComponent(".staging", isDirectory: true)
-        // 清理上次可能残留的 staging 目录
-        try? fileManager.removeItem(at: stagingDir)
-
         do {
-            try fileManager.createDirectory(at: stagingDir, withIntermediateDirectories: true)
-
+            // 1. 拉取 manifest
             let manifestData = try await fetchManifestData()
             let manifest = try decoder.decode(RemoteSourceManifest.self, from: manifestData)
             try validate(manifest: manifest)
 
-            let urls = manifest.files
-            try await downloadToStaging(urls.apiSources, to: .apiSources, stagingDir: stagingDir)
-            try await downloadToStaging(urls.cloudSources, to: .cloudSources, stagingDir: stagingDir)
-            try await downloadToStaging(urls.spiderSources, to: .spiderSources, stagingDir: stagingDir)
-            try await downloadToStaging(urls.domainOverrides, to: .domainOverrides, stagingDir: stagingDir)
-            try await downloadToStaging(urls.parsers, to: .parsers, stagingDir: stagingDir)
-            try await downloadToStaging(urls.disabledSources, to: .disabledSources, stagingDir: stagingDir)
+            // 2. 下载 all_sources.json（CI 自动合并的 6 合 1 文件）
+            guard let allSourcesURL = URL(string: manifest.files.allSources) else {
+                throw RemoteSourceError.invalidURL(manifest.files.allSources)
+            }
+            let allSourcesData = try await fetchData(from: allSourcesURL)
+            // 校验 allSources 结构
+            _ = try decoder.decode(AllSourcesContainer.self, from: allSourcesData)
 
-            // manifest 写入 staging
-            try manifestData.write(to: stagingDir.appendingPathComponent(CacheFile.manifest.rawValue), options: .atomic)
-
-            // 原子替换：删除旧缓存目录，移动 staging 到正式位置
-            try? fileManager.removeItem(at: cacheDirectory)
-            try fileManager.moveItem(at: stagingDir, to: cacheDirectory)
+            // 3. 写入缓存
+            try ensureCacheDirectory()
+            try manifestData.write(to: url(for: .manifest), options: .atomic)
+            try allSourcesData.write(to: url(for: .allSources), options: .atomic)
 
             updateSuccess(version: manifest.configVersion)
             print("[RemoteSource] 同步完成 version=\(manifest.configVersion)")
         } catch {
-            // 清理 staging 目录，旧缓存完好无损
-            try? fileManager.removeItem(at: stagingDir)
             updateFailure(error.localizedDescription)
             loadCachedManifestState()
             print("[RemoteSource] 同步失败: \(error.localizedDescription)")
         }
+    }
+
+    /// 请求 manifest.version（约 30 字节）探测是否有新版本
+    private func checkManifestVersion() async -> String? {
+        // 从 manifest URL 推导 version 文件 URL
+        let versionURL: String
+        if defaultManifestURL.hasSuffix("/manifest.json") {
+            versionURL = defaultManifestURL.replacingOccurrences(of: "/manifest.json", with: "/manifest.version")
+        } else {
+            versionURL = defaultManifestURL + ".version"
+        }
+
+        guard let url = URL(string: versionURL) else { return nil }
+
+        do {
+            let data = try await fetchData(from: url)
+            let versionInfo = try decoder.decode(ManifestVersionInfo.self, from: data)
+            print("[RemoteSource] manifest.version 探测成功: \(versionInfo.configVersion)")
+            return versionInfo.configVersion
+        } catch {
+            print("[RemoteSource] manifest.version 请求失败: \(error.localizedDescription)，降级到 TTL 判断")
+            return nil
+        }
+    }
+
+    private func appVersionChanged() -> Bool {
+        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let lastAppVersion = UserDefaults.standard.string(forKey: RemoteSourceConfigKeys.lastSyncAppVersion) ?? ""
+        return currentAppVersion != lastAppVersion
     }
 
     private func fetchManifestData() async throws -> Data {
@@ -170,6 +225,7 @@ final class RemoteSourceConfigManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: RemoteSourceConfigKeys.lastConfigVersion)
             UserDefaults.standard.removeObject(forKey: RemoteSourceConfigKeys.lastSyncTime)
             UserDefaults.standard.removeObject(forKey: RemoteSourceConfigKeys.lastSyncError)
+            UserDefaults.standard.removeObject(forKey: RemoteSourceConfigKeys.lastSyncAppVersion)
             loadState = .idle
             print("[RemoteSource] 已清除远程源缓存")
         } catch {
@@ -182,8 +238,18 @@ final class RemoteSourceConfigManager: ObservableObject {
         loadCachedManifestState()
     }
 
+    // MARK: - 缓存读取（全部从 all_sources.json 读取）
+
+    private func cachedAllSources() -> AllSourcesContainer? {
+        decodeCached(AllSourcesContainer.self, from: .allSources)
+    }
+
     func cachedAPIConfig() -> SubscribeConfig? {
-        decodeCached(SubscribeConfig.self, from: .apiSources)
+        guard let allSources = cachedAllSources(),
+              let apiSources = allSources.apiSources else { return nil }
+        // 从 allSources.apiSources 重建 SubscribeConfig
+        let jsonData = try? encoder.encode(apiSources)
+        return jsonData.flatMap { try? decoder.decode(SubscribeConfig.self, from: $0) }
     }
 
     func cachedAPISites() -> [SiteConfig] {
@@ -191,38 +257,55 @@ final class RemoteSourceConfigManager: ObservableObject {
     }
 
     func cachedCloudSitesData() -> Data? {
-        read(.cloudSources)
+        guard let allSources = cachedAllSources(),
+              let cloudSources = allSources.cloudSources else { return nil }
+        return try? encoder.encode(cloudSources)
     }
 
     func cachedParsers() -> [ParseConfig] {
-        guard let wrapper = decodeCached(ParserWrapper.self, from: .parsers) else { return [] }
+        guard let allSources = cachedAllSources(),
+              let parsers = allSources.parsers else { return [] }
+        let jsonData = try? encoder.encode(parsers)
+        guard let data = jsonData,
+              let wrapper = try? decoder.decode(ParserWrapper.self, from: data) else { return [] }
         return wrapper.parses
     }
 
     func cachedSpiderConfig() -> SubscribeConfig? {
-        decodeCached(SubscribeConfig.self, from: .spiderSources)
+        guard let allSources = cachedAllSources(),
+              let spiderSources = allSources.spiderSources else { return nil }
+        let jsonData = try? encoder.encode(spiderSources)
+        return jsonData.flatMap { try? decoder.decode(SubscribeConfig.self, from: $0) }
     }
 
     func cachedSpiderSites() -> [SiteConfig] {
         cachedSpiderConfig()?.sites ?? []
     }
 
-    func cachedSpiderJS() -> String? {
-        cachedSpiderConfig()?.spider
-    }
-
     func cachedDisabledHosts() -> [String] {
-        guard let wrapper = decodeCached(DisabledSourcesWrapper.self, from: .disabledSources) else { return [] }
+        guard let allSources = cachedAllSources(),
+              let disabledSources = allSources.disabledSources else { return [] }
+        let jsonData = try? encoder.encode(disabledSources)
+        guard let data = jsonData,
+              let wrapper = try? decoder.decode(DisabledSourcesWrapper.self, from: data) else { return [] }
         return wrapper.disabledHosts ?? []
     }
 
     func cachedDisabledKeys() -> [String] {
-        guard let wrapper = decodeCached(DisabledSourcesWrapper.self, from: .disabledSources) else { return [] }
+        guard let allSources = cachedAllSources(),
+              let disabledSources = allSources.disabledSources else { return [] }
+        let jsonData = try? encoder.encode(disabledSources)
+        guard let data = jsonData,
+              let wrapper = try? decoder.decode(DisabledSourcesWrapper.self, from: data) else { return [] }
         return wrapper.disabledKeys ?? []
     }
 
     func cachedDomainOverrides() -> [DomainOverride] {
-        guard let wrapper = decodeCached(DomainOverridesWrapper.self, from: .domainOverrides) else { return [] }
+        guard let allSources = cachedAllSources(),
+              let domainOverrides = allSources.domainOverrides else { return [] }
+        let jsonData = try? encoder.encode(domainOverrides)
+        guard let data = jsonData,
+              let wrapper = try? decoder.decode(DomainOverridesWrapper.self, from: data) else { return [] }
         return wrapper.overrides ?? []
     }
 
@@ -255,12 +338,7 @@ final class RemoteSourceConfigManager: ObservableObject {
 
     private enum CacheFile: String {
         case manifest = "manifest.json"
-        case apiSources = "api_sources.json"
-        case cloudSources = "cloud_sources.json"
-        case spiderSources = "spider_sources.json"
-        case domainOverrides = "domain_overrides.json"
-        case parsers = "parsers.json"
-        case disabledSources = "disabled_sources.json"
+        case allSources = "all_sources.json"
     }
 
     private var cacheDirectory: URL {
@@ -278,57 +356,49 @@ final class RemoteSourceConfigManager: ObservableObject {
         }
     }
 
-    // MARK: - IO
+    // MARK: - IO（带代理加速）
 
+    /// GitHub 域名白名单：只对 GitHub 域名走代理
+    private func isGitHubDomain(_ url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return host == "raw.githubusercontent.com" || host.hasSuffix(".github.io") || host == "github.com"
+    }
+
+    /// 构造代理 URL 列表：[主代理, 备用代理, 直连]
+    private func buildProxyURLs(for url: URL) -> [URL] {
+        guard isGitHubDomain(url) else { return [url] }
+        var urls: [URL] = []
+        let urlString = url.absoluteString
+        for (_, host) in Self.proxyHosts {
+            if let proxyURL = URL(string: "\(host)/\(urlString)") {
+                urls.append(proxyURL)
+            }
+        }
+        urls.append(url) // 直连兜底
+        return urls
+    }
+
+    /// 带代理降级的数据请求
     private func fetchData(from url: URL) async throws -> Data {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw RemoteSourceError.httpError((response as? HTTPURLResponse)?.statusCode ?? -1)
+        let urls = buildProxyURLs(for: url)
+
+        for (idx, fetchURL) in urls.enumerated() {
+            let label = idx < urls.count - 1 ? "代理" : "直连"
+            do {
+                var request = URLRequest(url: fetchURL)
+                request.timeoutInterval = 15
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    throw RemoteSourceError.httpError((response as? HTTPURLResponse)?.statusCode ?? -1)
+                }
+                return data
+            } catch {
+                print("[RemoteSource] \(label) 请求失败 (\(fetchURL.host ?? "")): \(error.localizedDescription)")
+                if idx == urls.count - 1 { throw error }
+            }
         }
-        return data
-    }
-
-    private func downloadIfPresent(_ urlString: String?, to file: CacheFile) async throws {
-        guard let urlString, !urlString.isEmpty else { return }
-        guard let url = URL(string: urlString) else { throw RemoteSourceError.invalidURL(urlString) }
-        let data = try await fetchData(from: url)
-        try validateJSON(data, file: file)
-        try write(data, to: file)
-        print("[RemoteSource] 下载 \(file.rawValue) 成功")
-    }
-
-    /// 下载到临时 staging 目录（原子同步用，不影响现有缓存）
-    private func downloadToStaging(_ urlString: String?, to file: CacheFile, stagingDir: URL) async throws {
-        guard let urlString, !urlString.isEmpty else { return }
-        guard let url = URL(string: urlString) else { throw RemoteSourceError.invalidURL(urlString) }
-        let data = try await fetchData(from: url)
-        try validateJSON(data, file: file)
-        try data.write(to: stagingDir.appendingPathComponent(file.rawValue), options: .atomic)
-        print("[RemoteSource] 下载 \(file.rawValue) 到 staging 成功")
-    }
-
-    private func write(_ data: Data, to file: CacheFile) throws {
-        try ensureCacheDirectory()
-        try data.write(to: url(for: file), options: .atomic)
-    }
-
-    private func read(_ file: CacheFile) -> Data? {
-        let fileURL = url(for: file)
-        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
-        return try? Data(contentsOf: fileURL)
-    }
-
-    private func decodeCached<T: Decodable>(_ type: T.Type, from file: CacheFile) -> T? {
-        guard let data = read(file) else { return nil }
-        do {
-            return try decoder.decode(type, from: data)
-        } catch {
-            print("[RemoteSource] 缓存 \(file.rawValue) 解码失败: \(error.localizedDescription)")
-            return nil
-        }
+        throw RemoteSourceError.httpError(-1)
     }
 
     // MARK: - State
@@ -355,8 +425,10 @@ final class RemoteSourceConfigManager: ObservableObject {
         lastConfigVersion = version
         lastSyncTime = Date()
         lastSyncError = nil
+        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         UserDefaults.standard.set(version, forKey: RemoteSourceConfigKeys.lastConfigVersion)
         UserDefaults.standard.set(lastSyncTime, forKey: RemoteSourceConfigKeys.lastSyncTime)
+        UserDefaults.standard.set(currentAppVersion, forKey: RemoteSourceConfigKeys.lastSyncAppVersion)
         UserDefaults.standard.removeObject(forKey: RemoteSourceConfigKeys.lastSyncError)
         loadState = .loadedRemote(version: version)
     }
@@ -378,20 +450,15 @@ final class RemoteSourceConfigManager: ObservableObject {
         }
     }
 
-    private func validateJSON(_ data: Data, file: CacheFile) throws {
-        switch file {
-        case .apiSources, .spiderSources:
-            _ = try decoder.decode(SubscribeConfig.self, from: data)
-        case .cloudSources:
-            _ = try decoder.decode(CloudSitesRemoteWrapper.self, from: data)
-        case .parsers:
-            _ = try decoder.decode(ParserWrapper.self, from: data)
-        case .manifest:
-            _ = try decoder.decode(RemoteSourceManifest.self, from: data)
-        case .domainOverrides:
-            _ = try decoder.decode(DomainOverridesWrapper.self, from: data)
-        case .disabledSources:
-            _ = try decoder.decode(DisabledSourcesWrapper.self, from: data)
+    private func decodeCached<T: Decodable>(_ type: T.Type, from file: CacheFile) -> T? {
+        let fileURL = url(for: file)
+        guard fileManager.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL) else { return nil }
+        do {
+            return try decoder.decode(type, from: data)
+        } catch {
+            print("[RemoteSource] 缓存 \(file.rawValue) 解码失败: \(error.localizedDescription)")
+            return nil
         }
     }
 }
@@ -410,16 +477,52 @@ private struct RemoteSourceManifest: Codable {
 }
 
 private struct RemoteSourceFiles: Codable {
-    let apiSources: String?
-    let cloudSources: String?
-    let spiderSources: String?
-    let domainOverrides: String?
-    let parsers: String?
-    let disabledSources: String?
+    let allSources: String
 }
 
-private struct CloudSitesRemoteWrapper: Codable {
-    let cloudSites: [SpiderManager.CloudSiteConfig]
+/// manifest.version 文件结构（约 30 字节）
+private struct ManifestVersionInfo: Codable {
+    let configVersion: String
+}
+
+/// all_sources.json 合并后的顶层结构（CI 自动从 6 个源文件生成）
+private struct AllSourcesContainer: Codable {
+    let apiSources: APISourcesData?
+    let cloudSources: CloudSourcesData?
+    let spiderSources: SpiderSourcesData?
+    let domainOverrides: DomainOverridesData?
+    let parsers: ParsersData?
+    let disabledSources: DisabledSourcesData?
+
+    struct APISourcesData: Codable {
+        let spider: String?
+        let sites: [SiteConfig]?
+        let parses: [ParseConfig]?
+    }
+
+    struct CloudSourcesData: Codable {
+        let dyname: String?
+        let dyzuozhe: String?
+        let cloudSites: [SpiderManager.CloudSiteConfig]?
+    }
+
+    struct SpiderSourcesData: Codable {
+        let spider: String?
+        let sites: [SiteConfig]?
+    }
+
+    struct DomainOverridesData: Codable {
+        let overrides: [DomainOverride]?
+    }
+
+    struct ParsersData: Codable {
+        let parses: [ParseConfig]?
+    }
+
+    struct DisabledSourcesData: Codable {
+        let disabledKeys: [String]?
+        let disabledHosts: [String]?
+    }
 }
 
 private struct ParserWrapper: Codable {

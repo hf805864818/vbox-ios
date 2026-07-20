@@ -65,6 +65,8 @@ def main():
     records = []
 
     for file_path in sorted(SOURCES_DIR.glob("*.json")):
+        if file_path.name == "all_sources.json":
+            continue  # 跳过合并文件，避免重复扫描，6 个原始文件已覆盖
         try:
             data = json.loads(file_path.read_text(encoding="utf-8"))
         except Exception as exc:

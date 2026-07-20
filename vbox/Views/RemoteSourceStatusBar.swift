@@ -33,16 +33,6 @@ struct RemoteSourceStatusBar: View {
                                 font: .systemFont(ofSize: 12, weight: .medium),
                                 color: statusInfo.color,
                                 maxWidth: 200)
-
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            isVisible = false
-                        }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(statusInfo.color.opacity(0.5))
-                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "sources/**"
+      - "domain-monitor/merge_sources.py"
       - "domain-monitor/extract_domains.py"
       - "domain-monitor/check_domains.py"
       - ".github/workflows/check-domains.yml"
@@ -37,6 +38,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Merge sources
+        run: python domain-monitor/merge_sources.py
+
       - name: Extract domains
         run: python domain-monitor/extract_domains.py
 
@@ -47,8 +51,8 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add domain-monitor/domains.json domain-monitor/domains.txt domain-monitor/check-results.json domain-monitor/check-results.md
-          git commit -m "chore: update weekly domain check results" || echo "No changes"
+          git add sources/all_sources.json sources/manifest.json sources/manifest.version domain-monitor/domains.json domain-monitor/domains.txt domain-monitor/check-results.json domain-monitor/check-results.md
+          git commit -m "chore: auto merge sources + update domain check results" || echo "No changes"
           git push
 
       - name: Send email
