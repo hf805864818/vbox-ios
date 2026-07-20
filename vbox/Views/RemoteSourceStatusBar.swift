@@ -9,15 +9,15 @@ struct RemoteSourceStatusBar: View {
     private var statusInfo: (icon: String, message: String, color: Color, bgColor: Color, borderColor: Color) {
         switch remoteSourceManager.loadState {
         case .idle:
-            return ("antenna.radiowaves.left.and.right", "远程源待同步", .gray.opacity(0.8), Color.gray.opacity(0.12), Color.gray.opacity(0.2))
+            return ("antenna.radiowaves.left.and.right", "远程源待同步", .white, Color.gray.opacity(0.7), Color.gray.opacity(0.5))
         case .loading:
-            return ("arrow.triangle.2.circlepath", "远程源同步中...", .red, Color.blue.opacity(0.75), Color.blue.opacity(0.85))
+            return ("arrow.triangle.2.circlepath", "远程源同步中...", .white, Color.blue.opacity(0.75), Color.blue.opacity(0.85))
         case .loadedRemote(let version):
-            return ("checkmark.icloud.fill", "远程源已更新 v\(version)", .green.opacity(0.9), Color.green.opacity(0.12), Color.green.opacity(0.25))
+            return ("checkmark.icloud.fill", "远程源已更新 v\(version)", .white, Color.green.opacity(0.7), Color.green.opacity(0.5))
         case .loadedCache(let version):
-            return ("tray.and.arrow.down.fill", "远程源失败，已用缓存 v\(version)", .orange.opacity(0.9), Color.orange.opacity(0.12), Color.orange.opacity(0.25))
+            return ("tray.and.arrow.down.fill", "远程源失败，已用缓存 v\(version)", .white, Color.orange.opacity(0.7), Color.orange.opacity(0.5))
         case .failed(let message):
-            return ("exclamationmark.triangle.fill", "远程源失败：\(message)", .red.opacity(0.9), Color.red.opacity(0.12), Color.red.opacity(0.25))
+            return ("exclamationmark.triangle.fill", "远程源失败：\(message)", .white, Color.red.opacity(0.7), Color.red.opacity(0.5))
         }
     }
 
