@@ -36,7 +36,9 @@ class SpiderManager: ObservableObject {
     @Published var customFallbackSites: [(name: String, api: String)] = []  // 自定义兜底源
     var enginesCount: Int { engines.count }
 
-    // 内置兜底采集 API 站
+    // 内置兜底采集 API 站 (已废弃，由远程 api_sources.json 替代)
+    // 保留此数组仅用于 bundleSourcesEnabled=true 时的兼容模式，后续版本将移除。
+    @available(*, deprecated, message: "远程默认源已迁移到 vbox-Ai/api，请使用 RemoteSourceConfigManager.shared.cachedAPISites()")
     static let builtinFallbackSites: [(name: String, api: String)] = [
         ("闪电资源",   "https://sdzyapi.com/api.php/provide/vod"),
         ("光速资源",   "https://api.guangsuapi.com/api.php/provide/vod"),
