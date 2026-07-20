@@ -248,24 +248,7 @@ struct ProfileView: View {
                 }
             }
 
-            // Bug 反馈（仅图标+文字，无背景）
-            Button(action: {
-                feedbackTitle = ""
-                feedbackBody = ""
-                feedbackService.reset()
-                showFeedbackSheet = true
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "ladybug.fill")
-                        .font(.system(size: 14))
-                    Text("Bug反馈")
-                        .font(.system(size: 13))
-                }
-                .foregroundColor(accentColor)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-        }
     }
 
     // MARK: - 功能入口
@@ -318,6 +301,14 @@ struct ProfileView: View {
                         showCloudDriveSort = true
                     }
                 }
+            }
+
+            // Bug 反馈
+            featureButton(icon: "ladybug.fill", title: "Bug反馈") {
+                feedbackTitle = ""
+                feedbackBody = ""
+                feedbackService.reset()
+                showFeedbackSheet = true
             }
         }
     }
