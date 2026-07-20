@@ -185,7 +185,7 @@ class UpdateManager: ObservableObject {
     // MARK: - 代理下载（静态代理列表 + 直连兜底）
 
     /// 静态代理列表：主代理 → 备用代理 → 直连
-    private static let proxyHosts: [(name: String, host: String)] = [
+    static let proxyHosts: [(name: String, host: String)] = [
         ("ghfast",    "https://ghfast.top"),
         ("gh-proxy",  "https://gh-proxy.com"),
     ]
