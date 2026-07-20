@@ -125,11 +125,8 @@ private struct MarqueeText: View {
                 }
             )
             .offset(x: needsScroll ? offset : 0)
-            .mask(alignment: .leading) {
-                if needsScroll {
-                    Rectangle().frame(width: maxWidth)
-                }
-            }
+            .frame(width: maxWidth, alignment: .leading)
+            .clipped()
             .onChange(of: text) { _ in
                 restartAnimation()
             }
