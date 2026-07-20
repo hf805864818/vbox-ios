@@ -179,6 +179,18 @@ final class RemoteSourceConfigManager: ObservableObject {
         return wrapper.parses
     }
 
+    func cachedSpiderConfig() -> SubscribeConfig? {
+        decodeCached(SubscribeConfig.self, from: .spiderSources)
+    }
+
+    func cachedSpiderSites() -> [SiteConfig] {
+        cachedSpiderConfig()?.sites ?? []
+    }
+
+    func cachedSpiderJS() -> String? {
+        cachedSpiderConfig()?.spider
+    }
+
     func cachedDisabledHosts() -> [String] {
         guard let wrapper = decodeCached(DisabledSourcesWrapper.self, from: .disabledSources) else { return [] }
         return wrapper.disabledHosts ?? []
