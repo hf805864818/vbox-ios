@@ -68,6 +68,15 @@ struct SettingsView: View {
             }
         }
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
+        .onChange(of: settings.bundleSourcesEnabled) { _ in
+            Task { await spiderManager.reloadAllSources() }
+        }
+        .onChange(of: settings.remoteDefaultSourceEnabled) { newValue in
+            Task {
+                if newValue { await remoteSourceManager.syncNow() }
+                await spiderManager.reloadAllSources()
+            }
+        }
         .alert("清除缓存", isPresented: $showCacheAlert) {
             Button("取消", role: .cancel) {}
             Button("确定", role: .destructive) {
@@ -438,7 +447,10 @@ struct SettingsView: View {
 
                         Button(role: .destructive) {
                             remoteSourceManager.clearCache()
-                            Task { await spiderManager.reloadAllSources() }
+                            Task {
+                                await spiderManager.reloadAllSources()
+                                remoteSourceManager.refreshLoadState()
+                            }
                         } label: {
                             Label("清缓存", systemImage: "trash")
                                 .font(.system(size: 13, weight: .medium))

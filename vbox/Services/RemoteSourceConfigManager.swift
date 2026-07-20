@@ -104,23 +104,38 @@ final class RemoteSourceConfigManager: ObservableObject {
         }
 
         loadState = .loading
+
+        let stagingDir = cacheDirectory.appendingPathComponent(".staging", isDirectory: true)
+        // 清理上次可能残留的 staging 目录
+        try? fileManager.removeItem(at: stagingDir)
+
         do {
+            try fileManager.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+
             let manifestData = try await fetchManifestData()
             let manifest = try decoder.decode(RemoteSourceManifest.self, from: manifestData)
             try validate(manifest: manifest)
 
             let urls = manifest.files
-            try await downloadIfPresent(urls.apiSources, to: .apiSources)
-            try await downloadIfPresent(urls.cloudSources, to: .cloudSources)
-            try await downloadIfPresent(urls.spiderSources, to: .spiderSources)
-            try await downloadIfPresent(urls.domainOverrides, to: .domainOverrides)
-            try await downloadIfPresent(urls.parsers, to: .parsers)
-            try await downloadIfPresent(urls.disabledSources, to: .disabledSources)
+            try await downloadToStaging(urls.apiSources, to: .apiSources, stagingDir: stagingDir)
+            try await downloadToStaging(urls.cloudSources, to: .cloudSources, stagingDir: stagingDir)
+            try await downloadToStaging(urls.spiderSources, to: .spiderSources, stagingDir: stagingDir)
+            try await downloadToStaging(urls.domainOverrides, to: .domainOverrides, stagingDir: stagingDir)
+            try await downloadToStaging(urls.parsers, to: .parsers, stagingDir: stagingDir)
+            try await downloadToStaging(urls.disabledSources, to: .disabledSources, stagingDir: stagingDir)
 
-            try write(manifestData, to: .manifest)
+            // manifest 写入 staging
+            try manifestData.write(to: stagingDir.appendingPathComponent(CacheFile.manifest.rawValue), options: .atomic)
+
+            // 原子替换：删除旧缓存目录，移动 staging 到正式位置
+            try? fileManager.removeItem(at: cacheDirectory)
+            try fileManager.moveItem(at: stagingDir, to: cacheDirectory)
+
             updateSuccess(version: manifest.configVersion)
             print("[RemoteSource] 同步完成 version=\(manifest.configVersion)")
         } catch {
+            // 清理 staging 目录，旧缓存完好无损
+            try? fileManager.removeItem(at: stagingDir)
             updateFailure(error.localizedDescription)
             loadCachedManifestState()
             print("[RemoteSource] 同步失败: \(error.localizedDescription)")
@@ -160,6 +175,11 @@ final class RemoteSourceConfigManager: ObservableObject {
         } catch {
             updateFailure("清除缓存失败：\(error.localizedDescription)")
         }
+    }
+
+    /// 刷新 loadState 以反映当前缓存实际状态（供外部调用，如清缓存后）
+    func refreshLoadState() {
+        loadCachedManifestState()
     }
 
     func cachedAPIConfig() -> SubscribeConfig? {
@@ -278,6 +298,16 @@ final class RemoteSourceConfigManager: ObservableObject {
         try validateJSON(data, file: file)
         try write(data, to: file)
         print("[RemoteSource] 下载 \(file.rawValue) 成功")
+    }
+
+    /// 下载到临时 staging 目录（原子同步用，不影响现有缓存）
+    private func downloadToStaging(_ urlString: String?, to file: CacheFile, stagingDir: URL) async throws {
+        guard let urlString, !urlString.isEmpty else { return }
+        guard let url = URL(string: urlString) else { throw RemoteSourceError.invalidURL(urlString) }
+        let data = try await fetchData(from: url)
+        try validateJSON(data, file: file)
+        try data.write(to: stagingDir.appendingPathComponent(file.rawValue), options: .atomic)
+        print("[RemoteSource] 下载 \(file.rawValue) 到 staging 成功")
     }
 
     private func write(_ data: Data, to file: CacheFile) throws {
