@@ -36,6 +36,14 @@ class UpdateManager: ObservableObject {
     private let repoOwner = "hfkj520"
     private let repoName = "vbox-release"
 
+    /// 分享/下载地址：优先用动态获取的下载地址，否则根据仓库配置构造 fallback
+    var shareURL: URL {
+        if let urlStr = downloadURL, let url = URL(string: urlStr) {
+            return url
+        }
+        return URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/vbox.ipa")!
+    }
+
     /// 下载任务
     private var downloadTask: Task<Void, Never>?
     /// 上次检查更新的时间戳（5分钟内不重复检查）

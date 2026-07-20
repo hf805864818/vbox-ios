@@ -5,6 +5,7 @@ import PhotosUI
 
 struct ProfileView: View {
     @EnvironmentObject private var settings: AppSettings
+    @StateObject private var updateManager = UpdateManager.shared
     @State private var isLoggedIn: Bool = false
     @State private var username: String = ""
     @State private var avatarImage: Image? = nil
@@ -267,7 +268,7 @@ struct ProfileView: View {
 
             HStack(spacing: 12) {
                 // 分享vbox
-                ShareLink(item: URL(string: "https://github.com/hf805864818/vbox-ios/releases/latest/download/vbox.ipa")!) {
+                ShareLink(item: updateManager.shareURL) {
                     VStack(spacing: 8) {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 24))
