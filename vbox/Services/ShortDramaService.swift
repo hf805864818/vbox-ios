@@ -48,8 +48,8 @@ class ShortDramaService: ObservableObject {
             }
         }
         
-        // 加上内置兜底源
-        for fallback in SpiderManager.builtinFallbackSites {
+        // 加上内置兜底源（受 bundleSourcesEnabled 开关控制）
+        for fallback in SpiderManager.shared.allFallbackSites {
             if !checkSites.contains(where: { $0.api == fallback.api }) {
                 checkSites.append(fallback)
             }
