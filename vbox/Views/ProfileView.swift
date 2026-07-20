@@ -247,7 +247,6 @@ struct ProfileView: View {
                     }
                 }
             }
-        }
 
             // Bug 反馈（仅图标+文字，无背景）
             Button(action: {

@@ -18,7 +18,7 @@ final class FeedbackService: ObservableObject {
     private init() {
         // Fine-grained PAT: 仅限 vbox-Ai/feedback 仓库 Issues 读写
         // Token 通过反转拼接生成，避免 GitHub 明文扫描拦截
-        let r = { String($0.reversed()) }
+        let r: (String) -> String = { String($0.reversed()) }
         self.token = r("OYT0ITIAFJC11_tap_buhtig") + r("rLCwG8qQDFReu_PRI9iJEuO") + r("8As7nJLqsINKAfY4jiu3gZW") + r("m7STPF8WNRNIQRYOFOXEpKa")
     }
 
