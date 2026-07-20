@@ -442,11 +442,13 @@ globalThis.__JS_SPIDER__ = _spider;
         // 应用域名覆盖
         if remoteSourceManager.remoteDefaultSourceEnabled {
             iboxSites = iboxSites.map { site in
-                var updated = site
-                if let api = site.api {
-                    updated.api = remoteSourceManager.applyDomainOverrides(to: api)
-                }
-                return updated
+                let newAPI = site.api.map { remoteSourceManager.applyDomainOverrides(to: $0) }
+                // SiteConfig 的 api 是 let，需要新建实例
+                return SiteConfig(
+                    key: site.key, name: site.name, type: site.type, api: newAPI,
+                    searchable: site.searchable, quickSearch: site.quickSearch, filterable: site.filterable,
+                    ext: site.ext, playerType: site.playerType, jar: site.jar, changeable: site.changeable
+                )
             }
         }
         if iboxSites.isEmpty { iboxLoaded = false }
@@ -555,6 +557,17 @@ globalThis.__JS_SPIDER__ = _spider;
                 self.allSites.append(contentsOf: fallbackConfigs)
                 print("[SpiderManager] 合并内置兜底站点: \(fallbackConfigs.count) 个，总计: \(allSites.count)")
             }
+            // 合并远程默认 JS 蜘蛛站源（spider_sources.json）
+            let spiderSites = remoteSourceManager.remoteDefaultSourceEnabled ? remoteSourceManager.cachedSpiderSites() : []
+            if !spiderSites.isEmpty {
+                let existingKeys = Set(allSites.map { $0.key })
+                let newSpiderSites = spiderSites.filter { !existingKeys.contains($0.key) }
+                if !newSpiderSites.isEmpty {
+                    self.allSites.append(contentsOf: newSpiderSites)
+                    loadedSiteCount = allSites.count
+                    print("[SpiderManager] 从远程默认源合并 JS 蜘蛛站: \(newSpiderSites.count) 个，总计: \(allSites.count)")
+                }
+            }
             // 加载引擎
             await loadBuiltinEngineIfNeeded()
             let totalSites = allSites.count
@@ -590,6 +603,18 @@ globalThis.__JS_SPIDER__ = _spider;
             self.allSites.append(contentsOf: fallbackConfigs)
             loadedSiteCount = allSites.count
             print("[SpiderManager] 合并内置兜底站点: \(fallbackConfigs.count) 个，总计: \(loadedSiteCount)")
+        }
+
+        // 合并远程默认 JS 蜘蛛站源（spider_sources.json）
+        let spiderSites = remoteSourceManager.remoteDefaultSourceEnabled ? remoteSourceManager.cachedSpiderSites() : []
+        if !spiderSites.isEmpty {
+            let spiderExistingKeys = Set(allSites.map { $0.key })
+            let newSpiderSites = spiderSites.filter { !spiderExistingKeys.contains($0.key) }
+            if !newSpiderSites.isEmpty {
+                self.allSites.append(contentsOf: newSpiderSites)
+                loadedSiteCount = allSites.count
+                print("[SpiderManager] 从远程默认源合并 JS 蜘蛛站: \(newSpiderSites.count) 个，总计: \(loadedSiteCount)")
+            }
         }
 
         // 0. 先确保内置蜘蛛加载
