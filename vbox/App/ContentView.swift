@@ -76,8 +76,11 @@ struct ContentView: View {
                 .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
-                // 悬浮式底部导航栏
+                // 远程源状态通知条 + 悬浮式底部导航栏
                 VStack(spacing: 0) {
+                    RemoteSourceStatusBar()
+
+                    // 悬浮式底部导航栏
                     HStack(spacing: 0) {
                         ForEach(visibleTabs, id: \.self) { tab in
                             Button {
