@@ -36,13 +36,27 @@ class UpdateManager: ObservableObject {
     private let repoOwner = "hfkj520"
     private let repoName = "vbox-release"
 
-    /// 分享/下载地址：优先用动态获取的下载地址，否则根据仓库配置构造 fallback
+    /// 分享/下载地址：优先走代理，否则直连 GitHub
+    /// ShareLink 分享出去的 URL 别人也能快速下载
     var shareURL: URL {
-        if let urlStr = downloadURL, let url = URL(string: urlStr) {
-            return url
+        // 1. 优先用动态获取的下载地址，走代理
+        if let urlStr = downloadURL {
+            if let proxyURL = URL(string: "\(Self.primaryProxyHost)/\(urlStr)") {
+                return proxyURL
+            }
+            if let url = URL(string: urlStr) {
+                return url
+            }
         }
-        return URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/vbox.ipa")!
+        // 2. fallback: 构造标准 GitHub 地址，走代理
+        let fallback = "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/vbox.ipa"
+        if let proxyURL = URL(string: "\(Self.primaryProxyHost)/\(fallback)") {
+            return proxyURL
+        }
+        return URL(string: fallback)!
     }
+
+    private static var primaryProxyHost: String { proxyHosts.first?.host ?? "" }
 
     /// 下载任务
     private var downloadTask: Task<Void, Never>?
