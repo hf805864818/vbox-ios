@@ -54,12 +54,6 @@ class ShortDramaService: ObservableObject {
                 checkSites.append(fallback)
             }
         }
-        // 加上自定义切片源
-        for fallback in SpiderManager.shared.customFallbackSites {
-            if !checkSites.contains(where: { $0.api == fallback.api }) {
-                checkSites.append(fallback)
-            }
-        }
         
         for site in checkSites {
             guard !seen.contains(site.api) else { continue }

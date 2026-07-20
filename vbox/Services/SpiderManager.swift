@@ -167,9 +167,18 @@ class SpiderManager: ObservableObject {
         NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
-    /// 所有兜底源 = 内置 + 自定义
+    /// 所有兜底源 = 内置（过滤禁用）+ 自定义
     var allFallbackSites: [(name: String, api: String)] {
-        var sites = RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []
+        let remoteSourceManager = RemoteSourceConfigManager.shared
+        var sites: [(name: String, api: String)] = []
+        if remoteSourceManager.bundleSourcesEnabled {
+            for site in Self.builtinFallbackSites {
+                let host = extractHost(from: site.api)
+                if !remoteSourceManager.isHostDisabled(host) {
+                    sites.append(site)
+                }
+            }
+        }
         for cs in customFallbackSites {
             if !sites.contains(where: { $0.api == cs.api }) {
                 sites.append(cs)
