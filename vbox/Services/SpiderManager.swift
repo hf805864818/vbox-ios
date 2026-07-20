@@ -178,15 +178,28 @@ class SpiderManager: ObservableObject {
         return sites
     }
 
-    /// 加载自定义解析器（内置 + 用户自定义）
+    /// 加载自定义解析器（远程默认 + 用户自定义，用户自定义优先级更高）
     private func loadCustomParsers() {
-        // 内置解析器已全部失效（2025-06-18检测），仅保留用户自定义解析器
-        // 用户可通过设置页添加有效的第三方解析器
-        customParsers = []
-        if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
-           let parsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
-            customParsers = parsers
+        var parsers: [ParseConfig] = []
+
+        // 1. 远程默认解析器（parsers.json）
+        let remoteParsers = RemoteSourceConfigManager.shared.cachedParsers()
+        if !remoteParsers.isEmpty {
+            parsers.append(contentsOf: remoteParsers)
+            print("[SpiderManager] 从远程默认源加载解析器: \(remoteParsers.count) 个")
         }
+
+        // 2. 用户自定义解析器（优先级更高，追加到末尾）
+        if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
+           let userParsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
+            for parser in userParsers {
+                if !parsers.contains(where: { $0.url == parser.url }) {
+                    parsers.append(parser)
+                }
+            }
+        }
+
+        customParsers = parsers
     }
 
     /// 保存自定义解析器
@@ -374,6 +387,18 @@ globalThis.__JS_SPIDER__ = _spider;
         Task { await loadActiveSubscription() }
     }
 
+    /// 从 URL 字符串中提取 scheme + host（如 https://example.com）
+    private func extractHost(from urlString: String) -> String {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme,
+              let host = url.host else { return urlString }
+        var result = "\(scheme)://\(host)"
+        if let port = url.port {
+            result += ":\(port)"
+        }
+        return result
+    }
+
     private func loadSitesFromSubscription() async {
         let remoteSourceManager = RemoteSourceConfigManager.shared
 
@@ -383,6 +408,39 @@ globalThis.__JS_SPIDER__ = _spider;
         if iboxLoaded {
             print("[SpiderManager] 从远程默认源缓存读取 API 源: \(iboxSites.count) 个站点")
         }
+
+        // 应用 disabled_sources 过滤和 domain_overrides 域名覆盖
+        let disabledHosts = remoteSourceManager.remoteDefaultSourceEnabled ? remoteSourceManager.cachedDisabledHosts() : []
+        let disabledKeys = remoteSourceManager.remoteDefaultSourceEnabled ? remoteSourceManager.cachedDisabledKeys() : []
+        if !disabledHosts.isEmpty {
+            let before = iboxSites.count
+            iboxSites = iboxSites.filter { site in
+                guard let api = site.api else { return true }
+                let host = extractHost(from: api)
+                return !remoteSourceManager.isHostDisabled(host)
+            }
+            if iboxSites.count != before {
+                print("[SpiderManager] 🚫 disabled_sources 过滤: \(before - iboxSites.count) 个站点被禁用，剩余 \(iboxSites.count)")
+            }
+        }
+        if !disabledKeys.isEmpty {
+            let before = iboxSites.count
+            iboxSites = iboxSites.filter { !disabledKeys.contains($0.key) }
+            if iboxSites.count != before {
+                print("[SpiderManager] 🚫 disabled_sources(keys) 过滤: \(before - iboxSites.count) 个站点被禁用，剩余 \(iboxSites.count)")
+            }
+        }
+        // 应用域名覆盖
+        if remoteSourceManager.remoteDefaultSourceEnabled {
+            iboxSites = iboxSites.map { site in
+                var updated = site
+                if let api = site.api {
+                    updated.api = remoteSourceManager.applyDomainOverrides(to: api)
+                }
+                return updated
+            }
+        }
+        if iboxSites.isEmpty { iboxLoaded = false }
 
         if !iboxLoaded && remoteSourceManager.bundleSourcesEnabled {
             // 加载 Bundle 内置 ibox_sources.json。测试远程源时关闭 bundleSourcesEnabled 后会跳过这里。
@@ -480,6 +538,8 @@ globalThis.__JS_SPIDER__ = _spider;
             let fallbackConfigs = (RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []).compactMap { site -> SiteConfig? in
                 let key = "builtin_" + site.name
                 guard !existingKeys.contains(key) else { return nil }
+                let host = extractHost(from: site.api)
+                guard !remoteSourceManager.isHostDisabled(host) else { return nil }
                 return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
             }
             if !fallbackConfigs.isEmpty {
@@ -513,6 +573,8 @@ globalThis.__JS_SPIDER__ = _spider;
         let fallbackConfigs = (RemoteSourceConfigManager.shared.bundleSourcesEnabled ? Self.builtinFallbackSites : []).compactMap { site -> SiteConfig? in
             let key = "builtin_" + site.name
             guard !existingKeysForFallback.contains(key) else { return nil }
+            let host = extractHost(from: site.api)
+            guard !remoteSourceManager.isHostDisabled(host) else { return nil }
             return SiteConfig(key: key, name: site.name, type: 1, api: site.api, searchable: 1, quickSearch: 0, filterable: 0)
         }
         if !fallbackConfigs.isEmpty {

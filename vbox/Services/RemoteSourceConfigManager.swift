@@ -179,6 +179,39 @@ final class RemoteSourceConfigManager: ObservableObject {
         return wrapper.parses
     }
 
+    func cachedDisabledHosts() -> [String] {
+        guard let wrapper = decodeCached(DisabledSourcesWrapper.self, from: .disabledSources) else { return [] }
+        return wrapper.disabledHosts ?? []
+    }
+
+    func cachedDisabledKeys() -> [String] {
+        guard let wrapper = decodeCached(DisabledSourcesWrapper.self, from: .disabledSources) else { return [] }
+        return wrapper.disabledKeys ?? []
+    }
+
+    func cachedDomainOverrides() -> [DomainOverride] {
+        guard let wrapper = decodeCached(DomainOverridesWrapper.self, from: .domainOverrides) else { return [] }
+        return wrapper.overrides ?? []
+    }
+
+    /// 检查某个 host 是否在禁用列表中
+    func isHostDisabled(_ host: String) -> Bool {
+        let hosts = cachedDisabledHosts()
+        return hosts.contains(host) || hosts.contains { host.hasSuffix($0.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")) }
+    }
+
+    /// 对 URL 字符串应用域名覆盖
+    func applyDomainOverrides(to urlString: String) -> String {
+        let overrides = cachedDomainOverrides()
+        guard !overrides.isEmpty else { return urlString }
+        var result = urlString
+        for override in overrides {
+            guard let from = override.from, let to = override.to, !from.isEmpty, !to.isEmpty else { continue }
+            result = result.replacingOccurrences(of: from, with: to)
+        }
+        return result
+    }
+
     // MARK: - Paths
 
     private enum CacheFile: String {
@@ -305,8 +338,10 @@ final class RemoteSourceConfigManager: ObservableObject {
             _ = try decoder.decode(ParserWrapper.self, from: data)
         case .manifest:
             _ = try decoder.decode(RemoteSourceManifest.self, from: data)
-        case .domainOverrides, .disabledSources:
-            _ = try JSONSerialization.jsonObject(with: data)
+        case .domainOverrides:
+            _ = try decoder.decode(DomainOverridesWrapper.self, from: data)
+        case .disabledSources:
+            _ = try decoder.decode(DisabledSourcesWrapper.self, from: data)
         }
     }
 }
@@ -339,6 +374,21 @@ private struct CloudSitesRemoteWrapper: Codable {
 
 private struct ParserWrapper: Codable {
     let parses: [ParseConfig]
+}
+
+private struct DisabledSourcesWrapper: Codable {
+    let disabledKeys: [String]?
+    let disabledHosts: [String]?
+}
+
+private struct DomainOverridesWrapper: Codable {
+    let overrides: [DomainOverride]?
+}
+
+struct DomainOverride: Codable {
+    let from: String?
+    let to: String?
+    let description: String?
 }
 
 private enum RemoteSourceError: LocalizedError {
