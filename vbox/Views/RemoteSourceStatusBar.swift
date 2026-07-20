@@ -54,6 +54,7 @@ struct RemoteSourceStatusBar: View {
                     Capsule()
                         .stroke(statusInfo.borderColor, lineWidth: 0.5)
                 )
+                .clipShape(Capsule())
                 .padding(.bottom, 6)
                 .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
                 .transition(.asymmetric(
@@ -110,41 +111,41 @@ private struct MarqueeText: View {
 
     @State private var offset: CGFloat = 0
     @State private var textWidth: CGFloat = 0
-    @State private var isScrolling: Bool = false
     @State private var animTask: Task<Void, Never>?
 
     private var needsScroll: Bool { textWidth > maxWidth }
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(text)
-                .font(Font(font))
-                .foregroundColor(color)
-                .lineLimit(1)
-                .fixedSize()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.onAppear {
-                            textWidth = geo.size.width
-                        }
-                        Color.clear.onChange(of: text) { _ in
-                            textWidth = geo.size.width
-                        }
+        Text(text)
+            .font(Font(font))
+            .foregroundColor(color)
+            .lineLimit(1)
+            .fixedSize()
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onAppear {
+                        textWidth = geo.size.width
                     }
-                )
-        }
-        .frame(width: needsScroll ? maxWidth : textWidth, alignment: .leading)
-        .clipped()
-        .offset(x: offset)
-        .onChange(of: text) { _ in
-            restartAnimation()
-        }
-        .onAppear {
-            restartAnimation()
-        }
-        .onDisappear {
-            animTask?.cancel()
-        }
+                    Color.clear.onChange(of: text) { _ in
+                        textWidth = geo.size.width
+                    }
+                }
+            )
+            .offset(x: needsScroll ? offset : 0)
+            .mask(alignment: .leading) {
+                if needsScroll {
+                    Rectangle().frame(width: maxWidth)
+                }
+            }
+            .onChange(of: text) { _ in
+                restartAnimation()
+            }
+            .onAppear {
+                restartAnimation()
+            }
+            .onDisappear {
+                animTask?.cancel()
+            }
     }
 
     private func restartAnimation() {
@@ -160,8 +161,7 @@ private struct MarqueeText: View {
 
             // 循环滚动
             while !Task.isCancelled {
-                // 向左滚动
-                let duration = Double(textWidth + maxWidth) / 40.0 // 40pt/s
+                let duration = Double(textWidth + maxWidth) / 40.0
                 await MainActor.run {
                     withAnimation(.linear(duration: duration)) {
                         offset = -(textWidth + 12)
@@ -170,7 +170,6 @@ private struct MarqueeText: View {
                 try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
                 guard !Task.isCancelled else { return }
 
-                // 回到起点
                 await MainActor.run {
                     offset = maxWidth
                 }
