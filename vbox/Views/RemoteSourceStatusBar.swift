@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 远程源加载状态胶囊通知 — 悬浮在底栏上方居中显示
+/// 远程源加载状态胶囊通知 — 悬浮在底栏上方居中显示，文字超长自动滚动
 struct RemoteSourceStatusBar: View {
     @StateObject private var remoteSourceManager = RemoteSourceConfigManager.shared
     @State private var isVisible: Bool = false
@@ -17,8 +17,7 @@ struct RemoteSourceStatusBar: View {
         case .loadedCache(let version):
             return ("tray.and.arrow.down.fill", "远程源失败，已用缓存 v\(version)", .orange.opacity(0.9), Color.orange.opacity(0.12), Color.orange.opacity(0.25))
         case .failed(let message):
-            let short = message.count > 20 ? String(message.prefix(20)) + "..." : message
-            return ("exclamationmark.triangle.fill", "远程源失败：\(short)", .red.opacity(0.9), Color.red.opacity(0.12), Color.red.opacity(0.25))
+            return ("exclamationmark.triangle.fill", "远程源失败：\(message)", .red.opacity(0.9), Color.red.opacity(0.12), Color.red.opacity(0.25))
         }
     }
 
@@ -30,10 +29,10 @@ struct RemoteSourceStatusBar: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(statusInfo.color)
 
-                    Text(statusInfo.message)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(statusInfo.color)
-                        .lineLimit(1)
+                    MarqueeText(text: statusInfo.message,
+                                font: .systemFont(ofSize: 12, weight: .medium),
+                                color: statusInfo.color,
+                                maxWidth: 200)
 
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -97,6 +96,86 @@ struct RemoteSourceStatusBar: View {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     isVisible = false
                 }
+            }
+        }
+    }
+}
+
+// MARK: - 跑马灯文字组件
+private struct MarqueeText: View {
+    let text: String
+    let font: UIFont
+    let color: Color
+    let maxWidth: CGFloat
+
+    @State private var offset: CGFloat = 0
+    @State private var textWidth: CGFloat = 0
+    @State private var isScrolling: Bool = false
+    @State private var animTask: Task<Void, Never>?
+
+    private var needsScroll: Bool { textWidth > maxWidth }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(text)
+                .font(Font(font))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .fixedSize()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.onAppear {
+                            textWidth = geo.size.width
+                        }
+                        Color.clear.onChange(of: text) { _ in
+                            textWidth = geo.size.width
+                        }
+                    }
+                )
+        }
+        .frame(width: needsScroll ? maxWidth : textWidth, alignment: .leading)
+        .clipped()
+        .offset(x: offset)
+        .onChange(of: text) { _ in
+            restartAnimation()
+        }
+        .onAppear {
+            restartAnimation()
+        }
+        .onDisappear {
+            animTask?.cancel()
+        }
+    }
+
+    private func restartAnimation() {
+        animTask?.cancel()
+        offset = 0
+
+        guard needsScroll else { return }
+
+        animTask = Task {
+            // 初始停留
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+
+            // 循环滚动
+            while !Task.isCancelled {
+                // 向左滚动
+                let duration = Double(textWidth + maxWidth) / 40.0 // 40pt/s
+                await MainActor.run {
+                    withAnimation(.linear(duration: duration)) {
+                        offset = -(textWidth + 12)
+                    }
+                }
+                try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+
+                // 回到起点
+                await MainActor.run {
+                    offset = maxWidth
+                }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
             }
         }
     }
