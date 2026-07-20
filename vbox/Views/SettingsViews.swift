@@ -2285,43 +2285,82 @@ struct ZhanyuanSiteManageView: View {
 struct FallbackConfigView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var spiderManager = SpiderManager.shared
+    @StateObject private var remoteSourceManager = RemoteSourceConfigManager.shared
     @State private var newSiteName = ""
     @State private var newSiteAPI = ""
     @State private var showDeleteAlert = false
     @State private var siteToDelete: Int? = nil
     
+    /// 远程 API 源列表（从缓存读取）
+    private var remoteAPISites: [(name: String, api: String)] {
+        remoteSourceManager.cachedAPISites().map { ($0.name, $0.api) }
+    }
+    
     var body: some View {
         NavigationView {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
-                    // 内置兜底源列表
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("内置兜底源")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 4)
-                        
-                        ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { index, site in
-                            HStack {
-                                Text(site.name)
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                Text("内置")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.gray.opacity(0.5))
-                                    .cornerRadius(4)
+                    // 远程默认 API 源列表
+                    if !remoteAPISites.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("远程默认源")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 4)
+                            
+                            ForEach(Array(remoteAPISites.enumerated()), id: \.offset) { index, site in
+                                HStack {
+                                    Text(site.name)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Text("远程")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.blue.opacity(0.6))
+                                        .cornerRadius(4)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.gray.opacity(0.04))
+                                .cornerRadius(8)
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(Color.gray.opacity(0.04))
-                            .cornerRadius(8)
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
+                    
+                    // 内置兜底源列表（仅兼容模式）
+                    if RemoteSourceConfigManager.shared.bundleSourcesEnabled {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("内置兜底源 (兼容模式)")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 4)
+                            
+                            ForEach(Array(SpiderManager.builtinFallbackSites.enumerated()), id: \.offset) { index, site in
+                                HStack {
+                                    Text(site.name)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Text("内置")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.gray.opacity(0.5))
+                                        .cornerRadius(4)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.gray.opacity(0.04))
+                                .cornerRadius(8)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
                     
                     // 自定义兜底源列表
                     if !spiderManager.customFallbackSites.isEmpty {
