@@ -332,15 +332,17 @@ struct ProfileView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                // 右上角域名设置按钮
-                Button(action: { showWelfareSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(accentColor)
+                // 右上角设置按钮（仅解锁后可操作）
+                if settings.welfareUnlocked {
+                    Button(action: { showWelfareSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 12)
+                    .padding(.top, -40)
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 12)
-                .padding(.top, -40)
             }
             .padding(.top, 26)
 
