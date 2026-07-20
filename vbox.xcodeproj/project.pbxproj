@@ -200,6 +200,7 @@
 		C79D5E5BDB224F76AD4DA758 /* Libavfilter.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CAFE00000000000000000002 /* RemoteSourceConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */; };
 		CAFE00000000000000000004 /* RemoteSourceStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */; };
+		CAFE00000000000000000006 /* FeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000005 /* FeedbackService.swift */; };
 		CB01126FCF83B2983BB94723 /* Libuavs3d.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CC4DF3963FB20A05ADA75B3B /* lcms2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CCCC000000000000000000001 /* HeiliaoHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDD000000000000000000001 /* HeiliaoHomeView.swift */; };
@@ -467,6 +468,7 @@
 		CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareProxyStore.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceConfigManager.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceStatusBar.swift; sourceTree = "<group>"; };
+		CAFE00000000000000000005 /* FeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackService.swift; sourceTree = "<group>"; };
 		CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleMainView.swift; sourceTree = "<group>"; };
 		CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
 		CFF33E1BB4E9046F17208D3E /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
@@ -677,6 +679,7 @@
 				B10011 /* QJSSpiderEngine.swift */,
 				B10019 /* SpiderManager.swift */,
 				CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */,
+				CAFE00000000000000000005 /* FeedbackService.swift */,
 				B10015 /* SubscriptionManager.swift */,
 				B10135 /* BaiduWebViewBridge.swift */,
 				B10016 /* CloudDriveManager.swift */,
@@ -979,6 +982,7 @@
 				C1A000000000000000000003 /* CloudDriveSortManager.swift in Sources */,
 				A10017 /* SpiderManager.swift in Sources */,
 				CAFE00000000000000000002 /* RemoteSourceConfigManager.swift in Sources */,
+				CAFE00000000000000000006 /* FeedbackService.swift in Sources */,
 				CAFE00000000000000000004 /* RemoteSourceStatusBar.swift in Sources */,
 				A10019 /* UpdateSheet.swift in Sources */,
 				C1A000000000000000000004 /* CloudDriveSortView.swift in Sources */,

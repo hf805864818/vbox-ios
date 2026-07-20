@@ -24,6 +24,10 @@ struct ProfileView: View {
     @State private var welfarePasswordError: Bool = false
     @State private var showPushPlay: Bool = false
     @State private var showCloudDriveSort: Bool = false
+    @State private var showFeedbackSheet: Bool = false
+    @State private var feedbackTitle: String = ""
+    @State private var feedbackBody: String = ""
+    @StateObject private var feedbackService = FeedbackService.shared
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -126,6 +130,9 @@ struct ProfileView: View {
         }
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
+        }
+        .sheet(isPresented: $showFeedbackSheet) {
+            feedbackSheet
         }
     }
 
@@ -240,6 +247,25 @@ struct ProfileView: View {
                     }
                 }
             }
+        }
+
+            // Bug 反馈（仅图标+文字，无背景）
+            Button(action: {
+                feedbackTitle = ""
+                feedbackBody = ""
+                feedbackService.reset()
+                showFeedbackSheet = true
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "ladybug.fill")
+                        .font(.system(size: 14))
+                    Text("Bug反馈")
+                        .font(.system(size: 13))
+                }
+                .foregroundColor(accentColor)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
     }
 
@@ -440,6 +466,121 @@ struct ProfileView: View {
                 WelfareSettingsView()
             }
         }
+    }
+
+    // MARK: - Bug 反馈弹窗
+
+    private var feedbackSheet: some View {
+        VStack(spacing: 20) {
+            // 标题
+            HStack {
+                Text("Bug 反馈")
+                    .font(.system(size: 20, weight: .bold))
+                Spacer()
+                Button(action: { showFeedbackSheet = false }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.gray.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 20)
+
+            if feedbackService.submitSuccess {
+                // 提交成功
+                VStack(spacing: 16) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(.green)
+                    Text("提交成功")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("感谢你的反馈！")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    Button("关闭") {
+                        showFeedbackSheet = false
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(accentColor)
+                    .cornerRadius(10)
+                }
+                .padding(.top, 20)
+            } else {
+                // 问题标题
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("问题标题")
+                        .font(.system(size: 14, weight: .medium))
+                    TextField("简要描述问题", text: $feedbackTitle)
+                        .font(.system(size: 15))
+                        .padding(12)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(8)
+                }
+
+                // 问题描述
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("详细描述")
+                        .font(.system(size: 14, weight: .medium))
+                    ZStack(alignment: .topLeading) {
+                        if feedbackBody.isEmpty {
+                            Text("请详细描述问题发生的场景、操作步骤等...")
+                                .font(.system(size: 15))
+                                .foregroundColor(.gray.opacity(0.5))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                        }
+                        TextEditor(text: $feedbackBody)
+                            .font(.system(size: 15))
+                            .padding(8)
+                            .frame(minHeight: 120)
+                            .scrollContentBackground(.hidden)
+                            .background(Color(uiColor: .secondarySystemBackground))
+                            .cornerRadius(8)
+                    }
+                }
+
+                // 错误提示
+                if let error = feedbackService.submitError {
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 4)
+                }
+
+                // 提交按钮
+                Button(action: {
+                    Task {
+                        await feedbackService.submit(title: feedbackTitle, body: feedbackBody)
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        if feedbackService.isSubmitting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        }
+                        Text(feedbackService.isSubmitting ? "提交中..." : "提交反馈")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        feedbackTitle.trimmingCharacters(in: .whitespaces).isEmpty || feedbackService.isSubmitting
+                            ? accentColor.opacity(0.4)
+                            : accentColor
+                    )
+                    .cornerRadius(12)
+                }
+                .disabled(feedbackTitle.trimmingCharacters(in: .whitespaces).isEmpty || feedbackService.isSubmitting)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Helper Methods
