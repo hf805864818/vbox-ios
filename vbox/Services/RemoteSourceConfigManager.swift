@@ -333,6 +333,7 @@ final class RemoteSourceConfigManager: ObservableObject {
 
     private func updateFailure(_ message: String) {
         lastSyncError = message
+        loadState = .failed(message: message)
         UserDefaults.standard.set(message, forKey: RemoteSourceConfigKeys.lastSyncError)
     }
 

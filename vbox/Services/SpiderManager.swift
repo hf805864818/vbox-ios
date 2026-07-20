@@ -167,7 +167,7 @@ class SpiderManager: ObservableObject {
         NotificationCenter.default.post(name: .spiderSitesDidUpdate, object: nil)
     }
 
-    /// 所有兜底源 = 内置（过滤禁用）+ 自定义
+    /// 所有兜底源 = 内置（过滤禁用）+ 自定义（过滤禁用）
     var allFallbackSites: [(name: String, api: String)] {
         let remoteSourceManager = RemoteSourceConfigManager.shared
         var sites: [(name: String, api: String)] = []
@@ -180,12 +180,16 @@ class SpiderManager: ObservableObject {
             }
         }
         for cs in customFallbackSites {
-            if !sites.contains(where: { $0.api == cs.api }) {
+            let host = extractHost(from: cs.api)
+            if !remoteSourceManager.isHostDisabled(host),
+               !sites.contains(where: { $0.api == cs.api }) {
                 sites.append(cs)
             }
         }
         return sites
     }
+
+    private static let userParsersKey = "user_parsers"
 
     /// 加载自定义解析器（远程默认 + 用户自定义，用户自定义优先级更高）
     private func loadCustomParsers() {
@@ -199,7 +203,7 @@ class SpiderManager: ObservableObject {
         }
 
         // 2. 用户自定义解析器（优先级更高，追加到末尾）
-        if let data = UserDefaults.standard.data(forKey: "custom_parsers"),
+        if let data = UserDefaults.standard.data(forKey: Self.userParsersKey),
            let userParsers = try? JSONDecoder().decode([ParseConfig].self, from: data) {
             for parser in userParsers {
                 if !parsers.contains(where: { $0.url == parser.url }) {
@@ -211,10 +215,12 @@ class SpiderManager: ObservableObject {
         customParsers = parsers
     }
 
-    /// 保存自定义解析器
+    /// 保存自定义解析器（仅保存用户自定义的，不含远程默认）
     func saveCustomParsers() {
-        if let data = try? JSONEncoder().encode(customParsers) {
-            UserDefaults.standard.set(data, forKey: "custom_parsers")
+        let remoteURLs = Set(RemoteSourceConfigManager.shared.cachedParsers().map { $0.url })
+        let userParsers = customParsers.filter { !remoteURLs.contains($0.url) }
+        if let data = try? JSONEncoder().encode(userParsers) {
+            UserDefaults.standard.set(data, forKey: Self.userParsersKey)
         }
     }
 
@@ -555,6 +561,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             if !fallbackConfigs.isEmpty {
                 self.allSites.append(contentsOf: fallbackConfigs)
+                loadedSiteCount = allSites.count
                 print("[SpiderManager] 合并内置兜底站点: \(fallbackConfigs.count) 个，总计: \(allSites.count)")
             }
             // 合并远程默认 JS 蜘蛛站源（spider_sources.json）
@@ -578,6 +585,32 @@ globalThis.__JS_SPIDER__ = _spider;
 
         self.allSites = config.sites
         loadedSiteCount = allSites.count
+
+        // 对订阅源站点应用 disabled 过滤和域名覆盖
+        if remoteSourceManager.remoteDefaultSourceEnabled {
+            let disabledHosts = remoteSourceManager.cachedDisabledHosts()
+            let disabledKeys = remoteSourceManager.cachedDisabledKeys()
+            if !disabledHosts.isEmpty || !disabledKeys.isEmpty {
+                let before = allSites.count
+                allSites = allSites.filter { site in
+                    if disabledKeys.contains(site.key) { return false }
+                    guard let api = site.api else { return true }
+                    return !remoteSourceManager.isHostDisabled(extractHost(from: api))
+                }
+                if allSites.count != before {
+                    print("[SpiderManager] 🚫 disabled_sources 过滤订阅源: \(before - allSites.count) 个站点被禁用")
+                }
+            }
+            allSites = allSites.map { site in
+                let newAPI = site.api.map { remoteSourceManager.applyDomainOverrides(to: $0) }
+                return SiteConfig(
+                    key: site.key, name: site.name, type: site.type, api: newAPI,
+                    searchable: site.searchable, quickSearch: site.quickSearch, filterable: site.filterable,
+                    ext: site.ext, playerType: site.playerType, jar: site.jar, changeable: site.changeable
+                )
+            }
+            loadedSiteCount = allSites.count
+        }
 
         // 合并内置 ibox 站点（去重）
         if !iboxSites.isEmpty {
