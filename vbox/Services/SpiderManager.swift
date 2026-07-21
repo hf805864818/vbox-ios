@@ -1751,14 +1751,18 @@ globalThis.__JS_SPIDER__ = _spider;
 
             // 3. QuickJS 蜘蛛
             group.addTask {
+                // 构建引擎 key → 站点名称 映射（侧边栏分组用站点名，非蜘蛛返回的 vod_remarks）
+                let siteNameMap = Dictionary(uniqueKeysWithValues: spiderAllSites.compactMap { site in
+                    engines.keys.contains(site.key) ? (site.key, site.name) : nil
+                })
+
                 for (key, engine) in engines {
                     do {
                         if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
                             var tagged = items
+                            let displayName = siteNameMap[key] ?? key
                             for i in 0..<tagged.count {
-                                if tagged[i].vodRemarks == nil || tagged[i].vodRemarks?.isEmpty == true {
-                                    tagged[i].vodRemarks = key
-                                }
+                                tagged[i].vodRemarks = displayName
                             }
                             log("✅ QuickJS[\(key)] +\(tagged.count)条")
                             onBatch(tagged)
