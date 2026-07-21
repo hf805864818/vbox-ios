@@ -579,6 +579,13 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             // 加载引擎
             await loadBuiltinEngineIfNeeded()
+
+            // 加载远程默认源 JS 蜘蛛引擎
+            if !spiderSites.isEmpty, let baseURL = remoteSpiderBaseURL() {
+                print("[SpiderManager] 开始加载远程默认源 JS 蜘蛛引擎 (无订阅源模式)")
+                await loadRemoteSpiderEngines(baseURL: baseURL, sites: spiderSites)
+            }
+
             let totalSites = allSites.count
             print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
             print("[SpiderManager] 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
@@ -654,6 +661,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 0. 先确保内置蜘蛛加载
         await loadBuiltinEngineIfNeeded()
+
+        // 0.5 加载远程默认源 JS 蜘蛛引擎
+        if !spiderSites.isEmpty, let baseURL = remoteSpiderBaseURL() {
+            print("[SpiderManager] 开始加载远程默认源 JS 蜘蛛引擎 (订阅源模式)")
+            await loadRemoteSpiderEngines(baseURL: baseURL, sites: spiderSites)
+        }
 
         // 1. 尝试从订阅源的 spider 字段加载全局 JS 蜘蛛
         if let spiderField = config.spider, !spiderField.isEmpty {
@@ -962,6 +975,160 @@ globalThis.__JS_SPIDER__ = _spider;
 
         print("[SpiderManager] 强制同步 \(zhanyuanSites.count) 个 zhanyuan 站点到 SQLite")
         DatabaseManager.shared.saveZhanyuanSites(zhanyuanSites, dyurl: dyurl)
+    }
+
+    // MARK: - 远程默认源 JS 蜘蛛引擎加载
+
+    /// 从远程默认源 manifest URL 推导 base URL
+    /// 例如：https://raw.githubusercontent.com/vbox-Ai/api/main/sources/manifest.json
+    /// ->   https://raw.githubusercontent.com/vbox-Ai/api/main/sources/
+    private func remoteSpiderBaseURL() -> String? {
+        let manifestURL = RemoteSourceConfigManager.shared.defaultManifestURL
+        guard let url = URL(string: manifestURL) else {
+            print("[SpiderManager] ⚠️ 无法解析远程默认源 manifest URL: \(manifestURL)")
+            return nil
+        }
+        // 删除最后一个路径组件（manifest.json），得到所在目录
+        let baseURL = url.deletingLastPathComponent().absoluteString
+        print("[SpiderManager] 远程蜘蛛源 base URL: \(baseURL)")
+        return baseURL
+    }
+
+    /// 加载远程默认源 JS 蜘蛛引擎
+    /// - Parameters:
+    ///   - baseURL: 远程源基础 URL（用于解析相对路径）
+    ///   - sites: 蜘蛛站点配置列表
+    /// 逻辑参考订阅源 JS 蜘蛛加载，限制最多 20 个，支持 ext 字段
+    private func loadRemoteSpiderEngines(baseURL: String, sites: [SiteConfig]) async {
+        guard !sites.isEmpty else { return }
+
+        do {
+            // 收集需要加载的 JS 蜘蛛站点
+            var jsSitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
+
+            for site in sites {
+                guard let api = site.api, !api.isEmpty else { continue }
+                let mode = resolveSiteMode(site: site)
+                guard mode == .jsSpider else { continue }
+
+                // 解析相对路径或绝对 URL
+                let resolvedURL: String
+                if api.hasPrefix("./") || (!api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js")) {
+                    // 相对路径，去掉 ./ 前缀后用 baseURL 拼接
+                    let cleanPath = api.hasPrefix("./") ? String(api.dropFirst(2)) : api
+                    if let base = URL(string: baseURL) {
+                        resolvedURL = base.appendingPathComponent(cleanPath).standardized.absoluteString
+                    } else {
+                        print("[SpiderManager] ⚠️ 远程蜘蛛 baseURL 无效，跳过: \(site.name)")
+                        continue
+                    }
+                } else if api.hasPrefix("http://") || api.hasPrefix("https://") {
+                    // 绝对 URL
+                    resolvedURL = api
+                } else {
+                    print("[SpiderManager] 跳过无法识别的远程蜘蛛 URL: \(site.name) api=\(api.prefix(60))")
+                    continue
+                }
+
+                jsSitesToLoad.append((site: site, resolvedURL: resolvedURL))
+            }
+
+            print("[SpiderManager] 远程默认源待加载 JS 蜘蛛: \(jsSitesToLoad.count) 个")
+
+            // 限制最多加载 20 个（避免内存）
+            let maxRemoteSpiders = 20
+            var loaded = 0
+            var failed = 0
+
+            for item in jsSitesToLoad.prefix(maxRemoteSpiders) {
+                let site = item.site
+                let jsURL = item.resolvedURL
+                let key = site.key.isEmpty ? site.name : site.key
+
+                // 已加载则跳过
+                if engines[key] != nil {
+                    print("[SpiderManager] 远程蜘蛛已存在，跳过: \(site.name) (\(key))")
+                    continue
+                }
+
+                guard let url = URL(string: jsURL) else { continue }
+
+                do {
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 15
+                    req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                    let (data, _) = try await URLSession.shared.data(for: req)
+
+                    if let jsCode = String(data: data, encoding: .utf8),
+                       jsCode.count > 200,
+                       (jsCode.contains("function ") || jsCode.contains("var ") || jsCode.contains("spider")) {
+
+                        // 加载 JS 框架
+                        try await loadSpiderEngine(jsCode: jsCode, key: key)
+
+                        // 加载 ext 字段（drpy 系列站点配置）
+                        if let ext = site.ext, !ext.isEmpty {
+                            let extTrimmed = ext.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if extTrimmed.hasPrefix("http://") || extTrimmed.hasPrefix("https://") {
+                                // ext 是 URL，下载并加载
+                                print("[SpiderManager] 远程蜘蛛加载 ext URL: \(site.name) - \(extTrimmed.prefix(80))")
+                                do {
+                                    let extData = try await downloadRawData(url: extTrimmed)
+                                    if let extCode = String(data: extData, encoding: .utf8), extCode.count > 50 {
+                                        if let engine = engines[key] {
+                                            try engine.loadScript(extCode)
+                                            print("[SpiderManager] ✅ 远程蜘蛛 ext URL 加载成功: \(site.name)")
+                                        }
+                                    }
+                                } catch {
+                                    print("[SpiderManager] 远程蜘蛛 ext URL 加载失败: \(site.name) - \(error.localizedDescription)")
+                                }
+                            } else if extTrimmed.hasPrefix("./") || extTrimmed.hasSuffix(".js") {
+                                // ext 是相对路径，用 baseURL 拼接后下载
+                                let cleanExtPath = extTrimmed.hasPrefix("./") ? String(extTrimmed.dropFirst(2)) : extTrimmed
+                                if let base = URL(string: baseURL) {
+                                    let extFullURL = base.appendingPathComponent(cleanExtPath).standardized.absoluteString
+                                    print("[SpiderManager] 远程蜘蛛加载 ext 相对路径: \(site.name) - \(extFullURL.prefix(80))")
+                                    do {
+                                        let extData = try await downloadRawData(url: extFullURL)
+                                        if let extCode = String(data: extData, encoding: .utf8), extCode.count > 50 {
+                                            if let engine = engines[key] {
+                                                try engine.loadScript(extCode)
+                                                print("[SpiderManager] ✅ 远程蜘蛛 ext 相对路径加载成功: \(site.name)")
+                                            }
+                                        }
+                                    } catch {
+                                        print("[SpiderManager] 远程蜘蛛 ext 相对路径加载失败: \(site.name) - \(error.localizedDescription)")
+                                    }
+                                }
+                            } else if extTrimmed.contains("function ") || extTrimmed.contains("var ") || extTrimmed.contains("let ") || extTrimmed.contains("const ") {
+                                // ext 是内联 JS 代码
+                                print("[SpiderManager] 远程蜘蛛加载内联 ext JS: \(site.name)")
+                                if let engine = engines[key] {
+                                    try engine.loadScript(extTrimmed)
+                                    print("[SpiderManager] ✅ 远程蜘蛛内联 ext 加载成功: \(site.name)")
+                                }
+                            } else {
+                                print("[SpiderManager] 远程蜘蛛 ext 不是 JS 代码，可能是配置: \(site.name) - \(extTrimmed.prefix(60))")
+                            }
+                        }
+
+                        loaded += 1
+                        print("[SpiderManager] ✅ 远程蜘蛛加载成功: \(site.name) (\(key))")
+                    } else {
+                        failed += 1
+                        print("[SpiderManager] ⚠️ 远程蜘蛛内容无效: \(site.name)")
+                    }
+                } catch {
+                    failed += 1
+                    print("[SpiderManager] 远程蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
+                }
+            }
+
+            print("[SpiderManager] 远程默认源 JS 蜘蛛加载完成: 成功 \(loaded) 个，失败 \(failed) 个")
+        } catch {
+            print("[SpiderManager] ❌ 远程默认源 JS 蜘蛛加载整体失败: \(error.localizedDescription)")
+        }
     }
 
     /// 加载蜘蛛 JS 到引擎 — 支持双引擎自动回退（JSC 优先，失败时尝试 QuickJS）
