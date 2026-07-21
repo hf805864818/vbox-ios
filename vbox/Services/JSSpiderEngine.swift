@@ -167,79 +167,60 @@ class JSSpiderEngine {
         return result?.toBool() ?? false
     }
 
+    /// 通用调用：自动判断返回值是字符串还是对象，避免双重 JSON 编码
+    private func callSpiderMethod<T: Decodable>(_ methodName: String, args: [String] = [], as type: T.Type) throws -> T {
+        let escapedArgs = args.map { "'\($0.replacingOccurrences(of: "'", with: "\\'"))'" }.joined(separator: ", ")
+        let rawScript = "globalThis.__JS_SPIDER__.\(methodName)(\(escapedArgs))"
+        let rawResult = context.evaluateScript(rawScript)
+
+        let jsonString: String
+        if let result = rawResult {
+            if result.isString {
+                // 返回值已经是 JSON 字符串，直接使用
+                jsonString = result.toString()
+            } else if result.isObject || result.isArray {
+                // 返回值是对象/数组，需要 stringify
+                let stringifyScript = "JSON.stringify(\(rawScript))"
+                guard let str = context.evaluateScript(stringifyScript)?.toString() else {
+                    throw JSError(message: "\(methodName) 返回无效")
+                }
+                jsonString = str
+            } else {
+                throw JSError(message: "\(methodName) 返回类型无效")
+            }
+        } else {
+            throw JSError(message: "\(methodName) 返回无效")
+        }
+
+        guard let data = jsonString.data(using: .utf8) else {
+            throw JSError(message: "\(methodName) 返回无效")
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     /// 调用 spider.homeContent()
     func callHomeContent() throws -> HomeContentResult {
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.homeContent())"
-        guard let result = context.evaluateScript(script)?.toString(),
-              let data = result.data(using: .utf8) else {
-            throw JSError(message: "homeContent 返回无效")
-        }
-        return try JSONDecoder().decode(HomeContentResult.self, from: data)
+        try callSpiderMethod("homeContent", as: HomeContentResult.self)
     }
 
     /// 调用 spider.categoryContent(tid, pg, extend)
     func callCategoryContent(tid: String, pg: Int, extend: String = "{}") throws -> CategoryContentResult {
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.categoryContent('\(tid)', \(pg), '\(extend)'))"
-        guard let result = context.evaluateScript(script)?.toString(),
-              let data = result.data(using: .utf8) else {
-            throw JSError(message: "categoryContent 返回无效")
-        }
-        return try JSONDecoder().decode(CategoryContentResult.self, from: data)
+        try callSpiderMethod("categoryContent", args: [tid, String(pg), extend], as: CategoryContentResult.self)
     }
 
     /// 调用 spider.detailContent(ids)
     func callDetailContent(ids: String) throws -> DetailContentResult {
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.detailContent('\(ids)'))"
-        guard let result = context.evaluateScript(script)?.toString(),
-              let data = result.data(using: .utf8) else {
-            throw JSError(message: "detailContent 返回无效")
-        }
-        return try JSONDecoder().decode(DetailContentResult.self, from: data)
+        try callSpiderMethod("detailContent", args: [ids], as: DetailContentResult.self)
     }
 
     /// 调用 spider.searchContent(keyword, pg)
     func callSearchContent(keyword: String, pg: Int = 1) throws -> SearchContentResult {
-        // 处理关键词中的特殊字符
-        let escaped = keyword.replacingOccurrences(of: "'", with: "\\'")
-                              .replacingOccurrences(of: "\n", with: "\\n")
-        // 先获取原始返回值，避免双重 JSON.stringify
-        let rawScript = "globalThis.__JS_SPIDER__.searchContent('\(escaped)', \(pg))"
-        let rawResult = context.evaluateScript(rawScript)
-        
-        let jsonString: String
-        if let result = rawResult {
-            if result.isString {
-                // 返回值已经是字符串，直接使用（避免二次 stringify）
-                jsonString = result.toString()
-            } else if result.isObject || result.isArray {
-                // 返回值是对象/数组，需要 stringify
-                let stringifyScript = "JSON.stringify(globalThis.__JS_SPIDER__.searchContent('\(escaped)', \(pg)))"
-                guard let str = context.evaluateScript(stringifyScript)?.toString() else {
-                    throw JSError(message: "searchContent 返回无效")
-                }
-                jsonString = str
-            } else {
-                throw JSError(message: "searchContent 返回类型无效")
-            }
-        } else {
-            throw JSError(message: "searchContent 返回无效")
-        }
-        
-        guard let data = jsonString.data(using: .utf8) else {
-            throw JSError(message: "searchContent 返回无效")
-        }
-        return try JSONDecoder().decode(SearchContentResult.self, from: data)
+        try callSpiderMethod("searchContent", args: [keyword, String(pg)], as: SearchContentResult.self)
     }
 
     /// 调用 spider.playerContent(vod_id, flag, url)
     func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
-        let escapedUrl = url.replacingOccurrences(of: "'", with: "\\'")
-        let script = "JSON.stringify(globalThis.__JS_SPIDER__.playerContent('\(vodId)', '\(flag)', '\(escapedUrl)'))"
-        guard let result = context.evaluateScript(script)?.toString(),
-              let data = result.data(using: .utf8) else {
-            throw JSError(message: "playerContent 返回无效")
-        }
-        return try JSONDecoder().decode(PlayerContentResult.self, from: data)
+        try callSpiderMethod("playerContent", args: [vodId, flag, url], as: PlayerContentResult.self)
     }
 
     // MARK: - 通用调用
