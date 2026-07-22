@@ -44,6 +44,7 @@ class CloudDriveManager: ObservableObject {
         case pan123 = "123pan"
         case pan139 = "139pan"
         case pan189 = "189pan"
+        case xunlei = "xunlei"
 
         var displayName: String {
             switch self {
@@ -55,6 +56,7 @@ class CloudDriveManager: ObservableObject {
             case .pan123: return "123云盘"
             case .pan139: return "139云盘"
             case .pan189: return "天翼云盘"
+            case .xunlei: return "迅雷云盘"
             }
         }
 
@@ -68,6 +70,7 @@ class CloudDriveManager: ObservableObject {
             case .pan123: return "Cookie / Token"
             case .pan139: return "Cookie / Session"
             case .pan189: return "Cookie / 扫码登录"
+            case .xunlei: return "Cookie / 网页登录"
             }
         }
     }
@@ -7312,6 +7315,9 @@ class CloudDriveManager: ObservableObject {
                     result = try await resolve139PanPlayURL(shareURL: baseURL, cookie: token.value)
                 case .pan189:
                     result = try await resolve189PanPlayURL(shareURL: baseURL, cookie: token.value)
+                case .xunlei:
+                    // TODO: 迅雷云盘播放解析待实现（WebView 播放方案）
+                    throw DriveError.tokenNotConfigured("迅雷云盘播放解析尚未实现")
                 }
                 self.log("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result

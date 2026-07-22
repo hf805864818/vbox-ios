@@ -1405,6 +1405,118 @@ final class CloudDriveAuthManager: ObservableObject {
         }
     }
 
+    // MARK: - 迅雷云盘网页登录
+
+    @MainActor
+    final class XunleiLoginHelper: NSObject, WKNavigationDelegate, ObservableObject {
+        @Published var statusText = "正在加载..."
+        @Published var isLoggedIn = false
+        @Published var errorText = ""
+
+        let webView: WKWebView
+        private var pollTask: Task<Void, Never>?
+
+        override init() {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            webView = WKWebView(frame: frame, configuration: config)
+            super.init()
+            webView.navigationDelegate = self
+            webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        func startLogin() {
+            statusText = "正在加载迅雷云盘页面..."
+            guard let url = URL(string: "https://login.xunlei.com/") else { return }
+            webView.load(URLRequest(url: url))
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            Task { @MainActor in
+                // 页面加载后等待一会儿再开始轮询 Cookie
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                startPolling()
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            self.errorText = "页面加载失败"
+            self.statusText = "请检查网络后重试"
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            self.errorText = "链接失败: \(error.localizedDescription)"
+            self.statusText = "加载失败"
+        }
+
+        private func startPolling() {
+            pollTask?.cancel()
+            pollTask = Task { [weak self] in
+                guard let self = self else { return }
+                self.statusText = "请在页面中登录迅雷账号（手机号+密码或扫码）"
+                for _ in 1...180 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if Task.isCancelled { return }
+
+                    let cookies = await self.getAllCookies()
+                    let cookieStr = cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+
+                    // 检测是否已登录：迅雷登录成功的标志性 Cookie
+                    let hasLoginCookie = cookies.contains { cookie in
+                        let name = cookie.name.lowercased()
+                        return (name == "userid" || name == "usernewno" ||
+                                name == "xunlei_kis" || name == "xunlei_kisp" ||
+                                name.contains("gdriveid") || name.contains("xunlei")) && cookie.value.count > 5
+                    }
+
+                    if hasLoginCookie {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .xunlei, cookie: cookieStr)
+                        }
+                        return
+                    }
+
+                    // 检测 URL 跳转到主页
+                    if let currentURL = self.webView.url?.absoluteString,
+                       (currentURL.contains("pan.xunlei.com") && !currentURL.contains("login")) {
+                        await MainActor.run {
+                            self.isLoggedIn = true
+                            self.statusText = "登录成功，正在保存 Cookie..."
+                            CloudDriveAuthManager.shared.saveWebViewCookie(type: .xunlei, cookie: cookieStr)
+                        }
+                        return
+                    }
+                }
+                await MainActor.run {
+                    self.errorText = "登录超时（6分钟），请重试"
+                    self.statusText = "登录超时"
+                }
+            }
+        }
+
+        private func getAllCookies() async -> [HTTPCookie] {
+            return await withCheckedContinuation { cont in
+                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                    cont.resume(returning: cookies)
+                }
+            }
+        }
+
+        func cleanup() {
+            pollTask?.cancel()
+            pollTask = nil
+            webView.stopLoading()
+            statusText = "正在加载..."
+            isLoggedIn = false
+            errorText = ""
+        }
+    }
+
     // MARK: - 天翼云盘网页登录
 
     @MainActor
@@ -2133,6 +2245,8 @@ final class CloudDriveAuthManager: ObservableObject {
                 try await validateCookie(url: "https://yun.139.com/", cookie: credential.cookie ?? "", referer: "https://yun.139.com/")
             case .pan189:
                 try await validateCookie(url: "https://cloud.189.cn/", cookie: credential.cookie ?? "", referer: "https://cloud.189.cn/")
+            case .xunlei:
+                try await validateCookie(url: "https://pan.xunlei.com/", cookie: credential.cookie ?? "", referer: "https://pan.xunlei.com/")
             }
             markValid(driveType, message: "授权检测正常")
             return true

@@ -1322,6 +1322,7 @@ struct CloudAuthCenterView: View {
     @State private var show115NativeQR = false
     @State private var show139NativeQR = false
     @State private var show189NativeQR = false
+    @State private var showXunleiNativeQR = false
     @State private var webAuthDriveType: CloudDriveManager.DriveType? = nil
     @State private var selectedDriveType: CloudDriveManager.DriveType = .ali
     @State private var driveTokenName = ""
@@ -1339,6 +1340,7 @@ struct CloudAuthCenterView: View {
                     providerAccountCard(type: .pan123, note: "123云盘支持网页扫码登录回收 Cookie，播放分享链接时自动使用。")
                     providerAccountCard(type: .pan139, note: "139云盘（移动云盘）支持网页扫码登录回收 Cookie。")
                     providerAccountCard(type: .pan189, note: "天翼云盘支持原生扫码登录获取 Cookie，用于解析播放分享链接。")
+                    providerAccountCard(type: .xunlei, note: "迅雷云盘支持网页登录获取 Cookie，用于后续迅雷云盘资源解析播放。")
                     manualTokenFallbackCard
 
                     Text("播放前不会强制检测授权状态；解析失败且像授权失效时才反向标记。手动粘贴入口继续保留为高级兜底。")
@@ -1399,6 +1401,9 @@ struct CloudAuthCenterView: View {
             }
             .sheet(isPresented: $show189NativeQR) {
                 NativeCloudQRLoginView(driveType: .pan189)
+            }
+            .sheet(isPresented: $showXunleiNativeQR) {
+                NativeCloudQRLoginView(driveType: .xunlei)
             }
             .sheet(item: $webAuthDriveType) { type in
                 CloudDriveWebAuthView(driveType: type)
@@ -1644,6 +1649,13 @@ struct CloudAuthCenterView: View {
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel("网页兜底", icon: "globe")
                     }
+                } else if type == .xunlei {
+                    Button(action: { showXunleiNativeQR = true }) {
+                        authButtonLabel("网页登录授权", icon: "globe")
+                    }
+                    Button(action: { webAuthDriveType = type }) {
+                        authButtonLabel("网页兜底", icon: "globe")
+                    }
                 } else if type == .pan123 {
                     Button(action: { show123NativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
@@ -1799,6 +1811,7 @@ struct CloudAuthCenterView: View {
         case .pan123: return "1.square.fill"
         case .pan139: return "9.square.fill"
         case .pan189: return "icloud.fill"
+        case .xunlei: return "bolt.fill"
         }
     }
 }
@@ -2076,6 +2089,7 @@ struct CloudPlaybackCacheView: View {
         case .pan123: return "1.square.fill"
         case .pan139: return "9.square.fill"
         case .pan189: return "icloud.fill"
+        case .xunlei: return "bolt.fill"
         }
     }
 }
@@ -3484,6 +3498,13 @@ struct Pan189WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+struct XunleiWebView: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
 struct Pan123WebView: UIViewRepresentable {
     let webView: WKWebView
 
@@ -3529,6 +3550,7 @@ struct NativeCloudQRLoginView: View {
     @State private var pan189Token: CloudDriveAuthManager.Pan189QrLoginToken? = nil
     @StateObject private var pan139Helper = CloudDriveAuthManager.Pan139QrLoginHelper()
     @StateObject private var pan189Helper = CloudDriveAuthManager.Pan189LoginHelper()
+    @StateObject private var xunleiHelper = CloudDriveAuthManager.XunleiLoginHelper()
     @StateObject private var pan123Helper = CloudDriveAuthManager.Pan123LoginHelper()
     @StateObject private var pan115Helper = CloudDriveAuthManager.Pan115LoginHelper()
     @StateObject private var aliOpenListHelper = CloudDriveAuthManager.AliOpenListQrLoginHelper()
@@ -3571,6 +3593,9 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .pan189 {
                     pan189Helper.cleanup()
                 }
+                if driveType == .xunlei {
+                    xunleiHelper.cleanup()
+                }
                 if driveType == .pan123 {
                     pan123Helper.cleanup()
                 }
@@ -3599,6 +3624,11 @@ struct NativeCloudQRLoginView: View {
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if driveType == .pan189 {
                 Pan189WebView(webView: pan189Helper.webView)
+                    .frame(height: 320)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+            } else if driveType == .xunlei {
+                XunleiWebView(webView: xunleiHelper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
@@ -3689,6 +3719,8 @@ struct NativeCloudQRLoginView: View {
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
             return "页面会自动切换到扫码登录。请使用天翼云盘 APP 扫描二维码并确认，登录成功后自动获取 Cookie。"
+        case .xunlei:
+            return "请在页面中登录迅雷账号（手机号+密码或扫码）。登录成功后自动获取 Cookie，用于后续迅雷云盘资源解析播放。"
         case .pan123:
             return "请在页面中登录123云盘（手机号/微信扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .one15:
@@ -3750,6 +3782,14 @@ struct NativeCloudQRLoginView: View {
                 statusText = pan189Helper.statusText
                 detailText = ""
                 await pollPan189()
+            case .xunlei:
+                xunleiHelper.cleanup()
+                xunleiHelper.startLogin()
+                isGenerating = false
+                isPolling = true
+                statusText = xunleiHelper.statusText
+                detailText = ""
+                await pollXunlei()
             case .pan123:
                 pan123Helper.cleanup()
                 pan123Helper.startLogin()
@@ -3996,6 +4036,33 @@ struct NativeCloudQRLoginView: View {
             isPolling = false
             statusText = "登录超时"
             detailText = "请在6分钟内完成登录，或重新打开页面。"
+        }
+    }
+
+    @MainActor
+    private func pollXunlei() async {
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            if xunleiHelper.isLoggedIn {
+                isPolling = false
+                statusText = "登录成功"
+                detailText = "迅雷云盘 Cookie 已保存"
+                dismiss()
+                return
+            }
+            if !xunleiHelper.errorText.isEmpty {
+                statusText = "登录失败"
+                errorText = xunleiHelper.errorText
+                isPolling = false
+                return
+            }
+            statusText = xunleiHelper.statusText
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if isPolling {
+            isPolling = false
+            statusText = "超时"
+            errorText = "登录超时（3分钟）"
         }
     }
 
