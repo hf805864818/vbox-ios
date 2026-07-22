@@ -71,7 +71,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .pan189:
             return URL(string: "https://cloud.189.cn/")!
         case .xunlei:
-            return URL(string: "https://login.xunlei.com/")!
+            return URL(string: "https://pan.xunlei.com/")!
         }
     }
 

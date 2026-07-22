@@ -1428,7 +1428,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
         func startLogin() {
             statusText = "正在加载迅雷云盘页面..."
-            guard let url = URL(string: "https://login.xunlei.com/") else { return }
+            guard let url = URL(string: "https://pan.xunlei.com/") else { return }
             webView.load(URLRequest(url: url))
         }
 
