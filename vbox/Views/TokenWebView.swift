@@ -71,7 +71,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .pan189:
             return URL(string: "https://cloud.189.cn/")!
         case .xunlei:
-            return URL(string: "https://pan.xunlei.com/")!
+            return URL(string: "https://i.xunlei.com/xluser/login.html")!
         }
     }
 
@@ -108,7 +108,7 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
         case .pan123: return ["www.123pan.com", ".123pan.com", "123684.com", ".123684.com", "api.123pan.com", "openapi.123pan.com"]
         case .pan139: return ["yun.139.com", ".139.com", "caiyun.139.com"]
         case .pan189: return ["cloud.189.cn", ".189.cn", "api.189.cn"]
-        case .xunlei: return ["pan.xunlei.com", ".xunlei.com", "login.xunlei.com", "dynamic.cloud.vip.xunlei.com"]
+        case .xunlei: return ["pan.xunlei.com", ".xunlei.com", "i.xunlei.com", "login.xunlei.com", "dynamic.cloud.vip.xunlei.com"]
         }
     }
 
