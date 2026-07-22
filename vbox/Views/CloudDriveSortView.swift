@@ -99,6 +99,7 @@ struct CloudDriveSortPopup: View {
         case .pan123: return "externaldrive"
         case .pan139: return "tray.full"
         case .pan189: return "cloud"
+        case .xunlei: return "bolt"
         }
     }
 }
