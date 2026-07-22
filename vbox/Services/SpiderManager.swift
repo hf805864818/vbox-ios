@@ -2060,6 +2060,8 @@ globalThis.__JS_SPIDER__ = _spider;
         case cms
         case forum
         case spa
+        case wordpress
+        case dedecms
     }
 
     struct CloudSiteConfig: Codable {
@@ -2117,6 +2119,10 @@ globalThis.__JS_SPIDER__ = _spider;
             return await searchOneForumSite(keyword: keyword, site: site, onLog: onLog)
         case .spa:
             return await searchOneSpaSite(keyword: keyword, site: site, onLog: onLog)
+        case .wordpress:
+            return await searchOneWordPressSite(keyword: keyword, site: site, onLog: onLog)
+        case .dedecms:
+            return await searchOneDedeCMSSite(keyword: keyword, site: site, onLog: onLog)
         }
     }
 
@@ -2314,6 +2320,167 @@ globalThis.__JS_SPIDER__ = _spider;
         // 去重
         var seen = Set<String>()
         return items.filter { seen.insert($0.vodId).inserted }
+    }
+
+    // MARK: - WordPress 型站点搜索
+
+    private func searchOneWordPressSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        // WordPress 搜索 URL 格式: https://example.com/?s=关键词
+        let fullURL: String
+        if site.searchurl.contains("{kw}") {
+            fullURL = site.searchurl.replacingOccurrences(of: "{kw}", with: encodedKW)
+        } else {
+            fullURL = site.searchurl + encodedKW
+        }
+        log("☁️ \(site.name)(WP) 请求中...")
+
+        guard let url = URL(string: fullURL) else { return [] }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            req.setValue(site.ua == "pc" ? cloudPcUA : cloudMobileUA, forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            if let httpResp = response as? HTTPURLResponse {
+                guard httpResp.statusCode == 200 else {
+                    log("☁️ \(site.name)(WP) HTTP \(httpResp.statusCode)")
+                    return []
+                }
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            return extractWordPressSearchItems(from: html, site: site)
+        } catch {
+            log("☁️ ❌ \(site.name)(WP) 失败")
+            return []
+        }
+    }
+
+    /// 从 WordPress 搜索结果中提取条目
+    /// WordPress 文章链接格式: /12345.html 或 /2026/0522/12345.html
+    private func extractWordPressSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
+        // 匹配 WordPress 文章详情页链接: href="/{数字}.html" 或 href="/{年/月/日}/{数字}.html"
+        let pattern = #"<a[^>]*href="((?:/[\d]{4}/[\d]{2}/[\d]{2}/)?(\d+)\.html)"[^>]*>(.+?)</a>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+        var items: [VodItem] = []
+        var seen = Set<String>()
+        for match in matches {
+            guard match.numberOfRanges >= 4 else { continue }
+            let hrefRange = match.range(at: 1)
+            let nameRange = match.range(at: 3)
+            guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                  let hRange = Range(hrefRange, in: html),
+                  let nRange = Range(nameRange, in: html) else { continue }
+            let detailPath = String(html[hRange])
+            let innerHTML = String(html[nRange])
+
+            var title = innerHTML.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // 跳过太短的标题（导航链接、页码等）
+            if title.count < 4 { continue }
+            if title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
+
+            // 跳过非影视相关页面（通过 URL 路径判断）
+            let linkLower = detailPath.lowercased()
+            if linkLower.contains("/page/") || linkLower.contains("/wp-") || linkLower.contains("/author/") || linkLower.contains("/tag/") { continue }
+
+            let detailURL = site.detailBase + detailPath
+            if seen.contains(detailURL) { continue }
+            seen.insert(detailURL)
+
+            // 提取缩略图
+            var pic = ""
+            if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)"#),
+               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let pRange = Range(picMatch.range(at: 1), in: html) {
+                pic = String(html[pRange])
+            }
+
+            items.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name))
+        }
+        return items
+    }
+
+    // MARK: - DedeCMS 型站点搜索
+
+    private func searchOneDedeCMSSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        let fullURL: String
+        if site.searchurl.contains("{kw}") {
+            fullURL = site.searchurl.replacingOccurrences(of: "{kw}", with: encodedKW)
+        } else {
+            fullURL = site.searchurl + encodedKW
+        }
+        log("☁️ \(site.name)(Dede) 请求中...")
+
+        guard let url = URL(string: fullURL) else { return [] }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            req.setValue(site.ua == "pc" ? cloudPcUA : cloudMobileUA, forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            if let httpResp = response as? HTTPURLResponse {
+                guard httpResp.statusCode == 200 else {
+                    log("☁️ \(site.name)(Dede) HTTP \(httpResp.statusCode)")
+                    return []
+                }
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            return extractDedeCMSSearchItems(from: html, site: site)
+        } catch {
+            log("☁️ ❌ \(site.name)(Dede) 失败")
+            return []
+        }
+    }
+
+    /// 从 DedeCMS 搜索结果中提取条目
+    /// DedeCMS 详情页链接格式: /movie/2026/0522/12345.html 或 /dianshiju/2026/0416/12345.html
+    private func extractDedeCMSSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
+        // 匹配 DedeCMS 详情页: href="/{分类}/{年/月/日}/{aid}.html"
+        let pattern = #"<a[^>]*href="((?:/[a-z]+/)?\d{4}/\d{2}/\d{2}/(\d+)\.html)"[^>]*>(.+?)</a>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+        var items: [VodItem] = []
+        var seen = Set<String>()
+        for match in matches {
+            guard match.numberOfRanges >= 4 else { continue }
+            let hrefRange = match.range(at: 1)
+            let nameRange = match.range(at: 3)
+            guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                  let hRange = Range(hrefRange, in: html),
+                  let nRange = Range(nameRange, in: html) else { continue }
+            let detailPath = String(html[hRange])
+            let innerHTML = String(html[nRange])
+
+            var title = innerHTML.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if title.count < 4 { continue }
+            if title.hasPrefix("首页") || title.hasPrefix("网址") || title.hasPrefix("APP") { continue }
+
+            let detailURL = site.detailBase + detailPath
+            if seen.contains(detailURL) { continue }
+            seen.insert(detailURL)
+
+            var pic = ""
+            if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)"#),
+               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let pRange = Range(picMatch.range(at: 1), in: html) {
+                pic = String(html[pRange])
+            }
+
+            items.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name))
+        }
+        return items
     }
 
     // MARK: - 论坛型站点搜索
