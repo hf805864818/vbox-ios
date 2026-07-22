@@ -1428,7 +1428,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
         func startLogin() {
             statusText = "正在加载迅雷云盘页面..."
-            guard let url = URL(string: "https://pan.xunlei.com/") else { return }
+            guard let url = URL(string: "https://i.xunlei.com/xluser/login.html") else { return }
             webView.load(URLRequest(url: url))
         }
 
@@ -1483,7 +1483,7 @@ final class CloudDriveAuthManager: ObservableObject {
 
                     // 检测 URL 跳转到主页
                     if let currentURL = self.webView.url?.absoluteString,
-                       (currentURL.contains("pan.xunlei.com") && !currentURL.contains("login")) {
+                       (currentURL.contains("pan.xunlei.com") && !currentURL.contains("login")) || currentURL.contains("i.xunlei.com/xluser/home") {
                         await MainActor.run {
                             self.isLoggedIn = true
                             self.statusText = "登录成功，正在保存 Cookie..."

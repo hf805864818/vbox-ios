@@ -3513,6 +3513,8 @@ globalThis.__JS_SPIDER__ = _spider;
             case .cms: cat = .cloudCMS
             case .forum: cat = .cloudForum
             case .spa: cat = .cloudSPA
+            case .wordpress: cat = .cloudCMS
+            case .dedecms: cat = .cloudCMS
             }
             let api = site.type == .cms ? "\(site.detailBase)/api.php/provide/vod" : nil
             items.append(SourceDisplayItem(
