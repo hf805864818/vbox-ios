@@ -83,6 +83,9 @@ class WKWebViewParser: NSObject {
         timeoutTimer = nil
         let block = completionBlock
         completionBlock = nil
+        // 关键修复：解析完成后必须清理 WKWebView，否则多次解析失败后
+        // WKWebView 堆积在主线程，导致 App 卡死
+        cleanup()
         DispatchQueue.main.async { block?(result) }
     }
 
@@ -91,7 +94,8 @@ class WKWebViewParser: NSObject {
         timeoutTimer = nil
         if let wv = webView {
             wv.stopLoading()
-            wv.configuration.userContentController.removeScriptMessageHandler(forName: "parserHandler")
+            // 安全移除 ScriptMessageHandler，防止重复移除导致崩溃
+            wv.configuration.userContentController.removeAllScriptMessageHandlers()
             webView = nil
         }
     }

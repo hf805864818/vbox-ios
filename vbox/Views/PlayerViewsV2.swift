@@ -3115,6 +3115,19 @@ class PlayerState: ObservableObject {
         // 3. 尝试 QuickJS playerContent
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
             let pu = pr.playUrl ?? pr.url
+            // 关键修复：如果 playerContent 返回 parse:1，说明 URL 需要走解析器链路
+            // 不能直接传给播放器（如 v.qq.com 网页地址），需要重新走 SpiderManager.parsePlayUrl
+            if pr.parse == 1, let rawUrl = pu, !rawUrl.isEmpty {
+                log("[PlayerV2] playerContent 返回 parse=1，重新走解析器链路: \(rawUrl.prefix(60))")
+                if let reparsedUrl = await spider.parsePlayUrl(from: rawUrl) {
+                    log("[PlayerV2] ✅ playerContent 二次解析成功: \(reparsedUrl.prefix(60))")
+                    if let url = createURL(from: reparsedUrl) {
+                        await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
+                        return
+                    }
+                }
+                log("[PlayerV2] ⚠️ playerContent 二次解析失败，尝试直接使用URL")
+            }
             if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
                 log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
                 await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }

@@ -275,7 +275,7 @@ final class TencentVideoNativeSpider {
             guard let params = item["item_params"] as? [String: Any] else { continue }
 
             let title = params["union_title"] as? String ?? ""
-            let entry = "\(title)$\(cid)@\(itemId)"
+            let entry = "\(title)$https://v.qq.com/x/cover/\(cid)/\(itemId).html"
 
             if title.contains("预告") {
                 ylist.append(entry)
@@ -314,7 +314,7 @@ final class TencentVideoNativeSpider {
                         guard let params = item["item_params"] as? [String: Any] else { continue }
 
                         let title = params["union_title"] as? String ?? ""
-                        let entry = "\(title)$\(cid)@\(itemId)"
+                        let entry = "\(title)$https://v.qq.com/x/cover/\(cid)/\(itemId).html"
 
                         if title.contains("预告") {
                             ylist.append(entry)
