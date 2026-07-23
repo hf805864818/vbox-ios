@@ -11,8 +11,6 @@ final class TencentVideoNativeSpider {
     static let siteKey = "drpy_js_腾云驾雾"
 
     private let apiHost = "https://pbaccess.video.qq.com"
-    private let webHost = "https://v.qq.com"
-
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 12
@@ -231,23 +229,6 @@ final class TencentVideoNativeSpider {
         }
     }
 
-    // MARK: - 播放
-
-    func playerContent(vodId: String, flag: String, url: String) -> PlayerContentResult? {
-        let parts = url.components(separatedBy: "$")
-        guard parts.count >= 2 else { return nil }
-
-        let ids = parts[1]
-        let idParts = ids.components(separatedBy: "@")
-        guard idParts.count >= 2 else { return nil }
-
-        let cid = idParts[0]
-        let vid = idParts[1]
-
-        let playURL = "\(webHost)/x/cover/\(cid)/\(vid).html"
-
-        return PlayerContentResult(parse: 1, playUrl: nil, url: playURL, header: nil)
-    }
 
     // MARK: - Private
 
