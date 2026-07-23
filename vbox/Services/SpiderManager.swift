@@ -1661,10 +1661,16 @@ globalThis.__JS_SPIDER__ = _spider;
             }
 
         case .jsSpider:
-            guard let key = source.engineKey, let engine = engines[key] else { return [] }
+            guard let key = source.engineKey, let engine = engines[key] else {
+                print("[SpiderManager] jsSpiderCategory[\(source.name)] 引擎未找到: engineKey=\(source.engineKey ?? "nil")")
+                return []
+            }
             do {
+                print("[SpiderManager] jsSpiderCategory[\(source.name)] 请求分类: tid=\(categoryTypeId), pg=\(page)")
                 let result = try engine.callCategoryContent(tid: categoryTypeId, pg: page, extend: "{}")
-                return result.list ?? []
+                let list = result.list ?? []
+                print("[SpiderManager] jsSpiderCategory[\(source.name)] 返回 \(list.count) 条数据")
+                return list
             } catch {
                 print("[SpiderManager] jsSpiderCategory[\(source.name)] 失败: \(error)")
                 return []
@@ -2997,20 +3003,39 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     // MARK: - WKWebView 客户端解析回退
-    private func tryWKWebViewParse(originalURL: String) async -> String? {
-        return await withCheckedContinuation { continuation in
-            WKWebViewParser.shared.parse(url: originalURL, parserType: .jsParser(jsURL: "https://jx.xmflv.com/?url=")) { result in
-                if let result = result, !result.isEmpty {
-                    // 尝试从结果中提取视频地址
-                    if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", options: .regularExpression) {
-                        continuation.resume(returning: String(result[urlRange]))
-                    } else if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*", options: .regularExpression) {
-                        continuation.resume(returning: String(result[urlRange]))
+    nonisolated private func tryWKWebViewParse(originalURL: String) async -> String? {
+        // WKWebView 必须在主线程上创建和使用，使用 MainActor.run 确保主线程执行
+        // 之前 Task.detached 在后台线程调用 WKWebView 导致 App 卡死
+        return await MainActor.run {
+            await withCheckedContinuation { continuation in
+                var resumed = false
+                
+                // 安全超时：16秒后强制 resume（比 WKWebViewParser 内部15秒多1秒余量）
+                // 防止因 WKWebView 内部回调未触发导致 continuation 永久挂起
+                let safetyTimeout = DispatchWorkItem {
+                    guard !resumed else { return }
+                    resumed = true
+                    print("[SpiderManager] ⚠️ tryWKWebViewParse 安全超时触发，强制结束")
+                    continuation.resume(returning: nil)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 16, execute: safetyTimeout)
+                
+                WKWebViewParser.shared.parse(url: originalURL, parserType: .jsParser(jsURL: "https://jx.xmflv.com/?url=")) { result in
+                    safetyTimeout.cancel()
+                    guard !resumed else { return }
+                    resumed = true
+                    if let result = result, !result.isEmpty {
+                        // 尝试从结果中提取视频地址
+                        if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.m3u8[^\\s\"'<>]*", options: .regularExpression) {
+                            continuation.resume(returning: String(result[urlRange]))
+                        } else if let urlRange = result.range(of: "https?://[^\\s\"'<>]+\\.mp4[^\\s\"'<>]*", options: .regularExpression) {
+                            continuation.resume(returning: String(result[urlRange]))
+                        } else {
+                            continuation.resume(returning: nil)
+                        }
                     } else {
                         continuation.resume(returning: nil)
                     }
-                } else {
-                    continuation.resume(returning: nil)
                 }
             }
         }
@@ -4003,8 +4028,7 @@ globalThis.__JS_SPIDER__ = _spider;
             let categories = result.class ?? []
             let list = result.list ?? []
 
-            guard !list.isEmpty else { return nil }
-
+            // 允许 list 为空：分类列表仍然可用，用户可切换分类浏览
             return SourceHomeData(
                 sourceName: source.name,
                 categories: categories,

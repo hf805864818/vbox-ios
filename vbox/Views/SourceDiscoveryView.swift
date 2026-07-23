@@ -34,8 +34,8 @@ struct SourceDiscoveryView: View {
     }
 
     private var displayVideos: [VodItem] {
-        if let catId = selectedCategoryId, !categoryVideos.isEmpty {
-            return categoryVideos
+        if selectedCategoryId != nil {
+            return categoryVideos  // 选中分类时始终显示分类数据，即使为空也不回退到首页
         }
         return homeData?.recommended ?? []
     }
@@ -96,7 +96,7 @@ struct SourceDiscoveryView: View {
                                     Image(systemName: "tray")
                                         .font(.system(size: 36))
                                         .foregroundColor(.secondary)
-                                    Text("暂无推荐内容")
+                                    Text(selectedCategoryId != nil ? "该分类暂无数据" : "暂无推荐内容")
                                         .font(.system(size: 14))
                                         .foregroundColor(.secondary)
                                     Text("可前往搜索获取更多资源")
@@ -123,6 +123,27 @@ struct SourceDiscoveryView: View {
                     allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
                 }
                 if homeData == nil { Task { await loadData() } }
+            }
+            .onChange(of: source.id) { _ in
+                // 切换源时重置状态并重新加载
+                selectedCategoryId = nil
+                categoryVideos = []
+                homeData = nil
+                loadError = nil
+                resetFilters()
+                Task { await loadData() }
+            }
+            .onChange(of: selectedCategoryId) { newValue in
+                // 关键修复：通过 onChange 驱动分类数据加载，避免 onTapGesture 中 Task 因视图重建丢失
+                if let catId = newValue {
+                    if catId == "__all__" {
+                        categoryVideos = []
+                    } else {
+                        categoryVideos = []
+                        isLoadingCategory = true
+                        Task { await loadCategoryContent(catId: catId) }
+                    }
+                }
             }
 
             // 左上角小竖长条选源浮层
@@ -350,11 +371,7 @@ struct SourceDiscoveryView: View {
                             if selectedCategoryId != cat.typeId {
                                 resetFilters()
                                 selectedCategoryId = cat.typeId
-                                if cat.typeId == "__all__" {
-                                    categoryVideos = []
-                                } else {
-                                    Task { await loadCategoryContent(cat) }
-                                }
+                                // 数据加载由 onChange(of: selectedCategoryId) 驱动
                             }
                         }
                     }
@@ -550,17 +567,20 @@ struct SourceDiscoveryView: View {
         isLoading = false
     }
 
-    private func loadCategoryContent(_ cat: VodCategory) async {
-        isLoadingCategory = true
+    private func loadCategoryContent(catId: String) async {
         let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
             source: source,
-            categoryTypeId: cat.typeId,
+            categoryTypeId: catId,
             page: 1
         )
         categoryVideos = items
         // 从数据中自适应提取筛选选项
         filterOptions = SpiderManager.extractAdaptiveFilters(from: items)
         isLoadingCategory = false
+    }
+
+    private func loadCategoryContent(_ cat: VodCategory) async {
+        await loadCategoryContent(catId: cat.typeId)
     }
 
     private func reloadCategoryWithFilters(categoryId: String) async {
