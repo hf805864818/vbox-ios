@@ -46,7 +46,6 @@ final class RemoteSourceConfigManager: ObservableObject {
     }
 
     static let defaultManifestURL = "https://vbox-ai.github.io/api/sources/manifest.json"
-    static let fallbackManifestURL = "https://raw.githubusercontent.com/vbox-Ai/api/main/sources/manifest.json"
 
     @Published var remoteDefaultSourceEnabled: Bool {
         didSet { UserDefaults.standard.set(remoteDefaultSourceEnabled, forKey: RemoteSourceConfigKeys.remoteDefaultSourceEnabled) }
@@ -198,20 +197,11 @@ final class RemoteSourceConfigManager: ObservableObject {
     }
 
     private func fetchManifestData() async throws -> Data {
-        do {
-            guard let manifestURL = URL(string: defaultManifestURL) else {
-                throw RemoteSourceError.invalidURL(defaultManifestURL)
-            }
-            print("[RemoteSource] 开始同步 manifest: \(defaultManifestURL)")
-            return try await fetchData(from: manifestURL)
-        } catch {
-            guard defaultManifestURL != Self.fallbackManifestURL,
-                  let fallbackURL = URL(string: Self.fallbackManifestURL) else {
-                throw error
-            }
-            print("[RemoteSource] 默认 manifest 失败，尝试兜底地址: \(Self.fallbackManifestURL)")
-            return try await fetchData(from: fallbackURL)
+        guard let manifestURL = URL(string: defaultManifestURL) else {
+            throw RemoteSourceError.invalidURL(defaultManifestURL)
         }
+        print("[RemoteSource] 开始同步 manifest: \(defaultManifestURL)")
+        return try await fetchData(from: manifestURL)
     }
 
     func clearCache() {

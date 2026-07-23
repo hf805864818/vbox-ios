@@ -60,6 +60,7 @@ class AppSettings: ObservableObject {
     private static let remoteDefaultSourceEnabledKey = RemoteSourceConfigKeys.remoteDefaultSourceEnabled
     private static let bundleSourcesEnabledKey = RemoteSourceConfigKeys.bundleSourcesEnabled
     private static let defaultManifestURLKey = RemoteSourceConfigKeys.defaultManifestURL
+    private static let lastAppVersionKey = "app_last_launch_version"
 
     @Published var isSpiderReady = false
     @Published var subscribedSites: [SiteConfig] = []
@@ -145,6 +146,15 @@ class AppSettings: ObservableObject {
         welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
         remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: Self.remoteDefaultSourceEnabledKey) as? Bool ?? true
         bundleSourcesEnabled = UserDefaults.standard.object(forKey: Self.bundleSourcesEnabledKey) as? Bool ?? false
+
+        // 版本升级时清除旧的 manifest URL，让用户自动用回默认主地址
+        let currentAppVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let lastAppVersion = UserDefaults.standard.string(forKey: Self.lastAppVersionKey) ?? ""
+        if !currentAppVersion.isEmpty && currentAppVersion != lastAppVersion {
+            UserDefaults.standard.removeObject(forKey: Self.defaultManifestURLKey)
+            UserDefaults.standard.set(currentAppVersion, forKey: Self.lastAppVersionKey)
+        }
+
         defaultManifestURL = UserDefaults.standard.string(forKey: Self.defaultManifestURLKey) ?? RemoteSourceConfigManager.defaultManifestURL
     }
 
