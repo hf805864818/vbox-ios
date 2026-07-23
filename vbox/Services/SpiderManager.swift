@@ -1394,7 +1394,8 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         // 1. 腾讯视频原生搜索（不走 JS 引擎）
-        if let txItems = await TencentVideoNativeSpider.shared.search(keyword: keyword, pg: pg), !txItems.isEmpty {
+        let txItems = await TencentVideoNativeSpider.shared.search(keyword: keyword, pg: pg)
+        if !txItems.isEmpty {
             allResults.append(contentsOf: txItems)
             print("[SpiderManager] 腾讯原生搜索: \(txItems.count) 条")
         }

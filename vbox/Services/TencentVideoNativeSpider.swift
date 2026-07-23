@@ -187,7 +187,7 @@ final class TencentVideoNativeSpider {
             }
 
             // 提取剧集列表
-            let allEpisodes = self.processEpisodes(edata: edata, episodeBody: episodeBody, cid: cid)
+            let allEpisodes = await self.processEpisodes(edata: edata, episodeBody: episodeBody, cid: cid)
 
             if allEpisodes.plist.isEmpty && allEpisodes.ylist.isEmpty {
                 print("[TencentNative] 无剧集数据"); return nil
@@ -214,7 +214,7 @@ final class TencentVideoNativeSpider {
             return VodItem(
                 vodId: ids,
                 vodName: title,
-                vodPic: pic ?? "",
+                vodPic: pic,
                 vodRemarks: "\(typeName) \(year)",
                 vodYear: year,
                 vodArea: area,
@@ -244,12 +244,12 @@ final class TencentVideoNativeSpider {
 
         let playURL = "\(webHost)/x/cover/\(cid)/\(vid).html"
 
-        return PlayerContentResult(parse: 1, url: playURL, header: "")
+        return PlayerContentResult(parse: 1, playUrl: nil, url: playURL, header: nil)
     }
 
     // MARK: - Private
 
-    private func processEpisodes(edata: [String: Any], episodeBody: [String: Any], cid: String) -> (plist: [String], ylist: [String]) {
+    private func processEpisodes(edata: [String: Any], episodeBody: [String: Any], cid: String) async -> (plist: [String], ylist: [String]) {
         var plist: [String] = []
         var ylist: [String] = []
 
