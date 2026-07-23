@@ -2967,7 +2967,16 @@ globalThis.__JS_SPIDER__ = _spider;
             return actualUrl
         }
 
-        // 1.5 B站直链解析
+        // 1.5 腾讯视频直链解析
+        if actualUrl.contains("v.qq.com") {
+            if let txUrl = await parseTencentVideo(url: actualUrl) {
+                print("[SpiderManager] ✅ 腾讯视频解析成功：\(txUrl.prefix(80))...")
+                return txUrl
+            }
+            print("[SpiderManager] 腾讯视频直链解析失败，尝试通用解析器...")
+        }
+
+        // 1.6 B站直链解析
         if actualUrl.contains("bilibili.com") || actualUrl.contains("b23.tv") {
             let bvid = extractBilibiliID(from: playPageUrl)
             if !bvid.isEmpty {
@@ -3018,6 +3027,94 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
         }
+    }
+
+    // MARK: - 腾讯视频解析
+    private func parseTencentVideo(url: String) async -> String? {
+        // 从 URL 中提取 cid 和 vid
+        // URL 格式: https://v.qq.com/x/cover/{cid}/{vid}.html
+        let patterns = [
+            "v\\.qq\\.com/x/cover/([^/]+)/([^/]+)\\.html",
+            "v\\.qq\\.com/x/cover/([^/]+)/([^/?#]+)"
+        ]
+        var cid = ""
+        var vid = ""
+        for pattern in patterns {
+            if let range = url.range(of: pattern, options: .regularExpression) {
+                let match = String(url[range])
+                let parts = match.components(separatedBy: "/")
+                if parts.count >= 2 {
+                    // cover/xxx/yyy.html -> cid=xxx, vid=yyy.html
+                    let cidPart = parts[parts.count - 2]
+                    var vidPart = parts[parts.count - 1]
+                    if vidPart.hasSuffix(".html") {
+                        vidPart = String(vidPart.dropLast(5))
+                    }
+                    cid = cidPart
+                    vid = vidPart
+                    break
+                }
+            }
+        }
+        if cid.isEmpty || vid.isEmpty { return nil }
+
+        // 使用腾讯视频 getkey API 获取播放地址
+        let apiURL = "https://pbaccess.video.qq.com/trpc.universal_backend_service.page_server_rpc.PageServer/GetPageData?video_appid=3000010&vplatform=2&vversion_name=8.2.96"
+        let body: [String: Any] = [
+            "page_params": [
+                "req_from": "web_vsite",
+                "page_id": "vsite_episode_list",
+                "page_type": "detail_operation",
+                "id_type": "1",
+                "page_size": "",
+                "cid": cid,
+                "vid": vid,
+                "lid": "",
+                "page_num": "",
+                "page_context": "",
+                "detail_page_type": "1"
+            ],
+            "has_cache": 1
+        ]
+
+        guard let reqUrl = URL(string: apiURL) else { return nil }
+        var req = URLRequest(url: reqUrl)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("https://v.qq.com", forHTTPHeaderField: "Origin")
+        req.setValue("https://v.qq.com/", forHTTPHeaderField: "Referer")
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5410.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+            // 尝试从返回数据中提取 playUrl
+            if let moduleList = (json["data"] as? [String: Any])?["module_list_datas"] as? [[String: Any]] {
+                for module in moduleList {
+                    guard let moduleDatas = module["module_datas"] as? [[String: Any]] else { continue }
+                    for md in moduleDatas {
+                        guard let itemLists = md["item_data_lists"] as? [String: Any],
+                              let items = itemLists["item_datas"] as? [[String: Any]] else { continue }
+                        for item in items {
+                            if let params = item["item_params"] as? [String: Any] {
+                                // 检查多种可能的播放地址字段
+                                for key in ["playUrl", "play_url", "video_url", "url"] {
+                                    if let playUrl = params[key] as? String, !playUrl.isEmpty,
+                                       playUrl.hasPrefix("http") {
+                                        return playUrl
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[SpiderManager] 腾讯视频解析请求失败: \(error)")
+        }
+        return nil
     }
 
     // MARK: - B站直链辅助方法

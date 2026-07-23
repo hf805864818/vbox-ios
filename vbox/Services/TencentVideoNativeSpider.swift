@@ -66,42 +66,41 @@ final class TencentVideoNativeSpider {
 
             let validTypes: Set<String> = ["电视剧", "电影", "综艺", "纪录片", "动漫", "少儿", "短剧"]
             var items: [VodItem] = []
+            var seenCids = Set<String>()
 
-            // 解析 normalList + areaBoxList
-            var allList: [[String: Any]] = []
+            // 只解析 normalList（areaBoxList 是推荐内容，不是搜索结果）
             if let normalList = (json["data"] as? [String: Any])?["normalList"] as? [String: Any],
                let nl = normalList["itemList"] as? [[String: Any]] {
-                allList.append(contentsOf: nl)
-            }
-            if let areaBoxList = (json["data"] as? [String: Any])?["areaBoxList"] as? [[String: Any]],
-               let areaItemList = areaBoxList.first?["itemList"] as? [[String: Any]] {
-                allList.append(contentsOf: areaItemList)
-            }
 
-            for k in allList {
-                guard let doc = k["doc"] as? [String: Any],
-                      let docId = doc["id"] as? String, !docId.isEmpty,
-                      let videoInfo = k["videoInfo"] as? [String: Any],
-                      let title = videoInfo["title"] as? String,
-                      let typeName = videoInfo["typeName"] as? String,
-                      validTypes.contains(typeName)
-                else { continue }
+                for k in nl {
+                    guard let doc = k["doc"] as? [String: Any],
+                          let docId = doc["id"] as? String, !docId.isEmpty,
+                          let videoInfo = k["videoInfo"] as? [String: Any],
+                          let title = videoInfo["title"] as? String,
+                          let typeName = videoInfo["typeName"] as? String,
+                          validTypes.contains(typeName)
+                    else { continue }
 
-                // 排除外站
-                let subTitle = videoInfo["subTitle"] as? String ?? ""
-                if subTitle.contains("外站") {
-                    continue
+                    // 排除外站
+                    let subTitle = videoInfo["subTitle"] as? String ?? ""
+                    if subTitle.contains("外站") {
+                        continue
+                    }
+
+                    // 去重：同一个 cid 只保留一条
+                    if seenCids.contains(docId) { continue }
+                    seenCids.insert(docId)
+
+                    let pic = videoInfo["imgUrl"] as? String ?? ""
+                    let remarks = videoInfo["year"] as? String ?? ""
+
+                    items.append(VodItem(
+                        vodId: docId,
+                        vodName: TencentVideoNativeSpider.removeHtmlTags(title),
+                        vodPic: pic,
+                        vodRemarks: "\(typeName) ⭐\(remarks)"
+                    ))
                 }
-
-                let pic = videoInfo["imgUrl"] as? String ?? ""
-                let remarks = videoInfo["year"] as? String ?? ""
-
-                items.append(VodItem(
-                    vodId: docId,
-                    vodName: TencentVideoNativeSpider.removeHtmlTags(title),
-                    vodPic: pic,
-                    vodRemarks: "\(typeName) ⭐\(remarks)"
-                ))
             }
 
             return items
@@ -167,7 +166,7 @@ final class TencentVideoNativeSpider {
                 print("[TencentNative] 详情JSON解析失败"); return nil
             }
 
-            // 提取基础信息 — 使用原生字典访问
+            // 提取基础信息
             guard let itemParams = getDeepValue(vdata, keys: "data", "module_list_datas", "0", "module_datas", "0", "item_data_lists", "item_datas", "0", "item_params") as? [String: Any] else {
                 print("[TencentNative] 详情页无数据"); return nil
             }
