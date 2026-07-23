@@ -2967,13 +2967,28 @@ globalThis.__JS_SPIDER__ = _spider;
             return actualUrl
         }
 
-        // 1.5 腾讯视频直链解析
+        // 1.5 腾讯视频解析
         if actualUrl.contains("v.qq.com") {
+            // 使用 69mini 解析服务
+            let parseAPI = "https://jiexi.69mini.com/api/?key=1c12475a5ed4fe3057651dc9cee15d94&url=\(actualUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? actualUrl)"
+            if let reqUrl = URL(string: parseAPI) {
+                var req = URLRequest(url: reqUrl)
+                req.timeoutInterval = 10
+                req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                if let (data, _) = try? await URLSession.shared.data(for: req),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let code = json["code"] as? Int, code == 200,
+                   let m3u8Url = json["url"] as? String, m3u8Url.hasPrefix("http") {
+                    print("[SpiderManager] ✅ 腾讯视频解析成功：\(m3u8Url.prefix(80))...")
+                    return m3u8Url
+                }
+            }
+            // 69mini 失败，尝试腾讯内部 API
             if let txUrl = await parseTencentVideo(url: actualUrl) {
-                print("[SpiderManager] ✅ 腾讯视频解析成功：\(txUrl.prefix(80))...")
+                print("[SpiderManager] ✅ 腾讯API解析成功：\(txUrl.prefix(80))...")
                 return txUrl
             }
-            print("[SpiderManager] 腾讯视频直链解析失败，尝试通用解析器...")
+            print("[SpiderManager] 腾讯视频解析失败，尝试通用解析器...")
         }
 
         // 1.6 B站直链解析
