@@ -22,6 +22,7 @@
 		11FFC77DC15A70173DBE12E5 /* Libfreetype.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		12A1AC8CFD69FC77D785A754 /* Libass.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		131397EAF768968080F2390B /* Libswscale.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		15C55930D7E7595531B91B84 /* TencentVideoNativeSpider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */; };
 		18B1B3504B90430DAE0FD79C /* FuliPlatformKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */; };
 		1AEC37DF5549D8E4AAC46D23 /* Libfribidi.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 51D064347CEF883DED6CEE39 /* Libfribidi.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1D659AECAD5496C5F3EAC601 /* PlatformImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */; };
@@ -34,7 +35,6 @@
 		2789C67E88E95C3033EBD462 /* Libdovi.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */; };
 		290F6A90927942109B5BEABC /* BananaVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9635B11828EC465785E74A90 /* BananaVideoService.swift */; };
-		15C55930D7E7595531B91B84 /* TencentVideoNativeSpider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */; };
 		295555039AFA483DAA53B700 /* FullHDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5810649382674CEDBAA6A2CF /* FullHDService.swift */; };
 		298BCE972FC626E85E68058C /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */; };
 		2B5C387D5552BAB2763DD550 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E27763D993B6E8409086841 /* libbz2.tbd */; };
@@ -334,6 +334,7 @@
 		62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieMainView.swift; sourceTree = "<group>"; };
 		67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IJKPlayerRepresentable.swift; sourceTree = "<group>"; };
 		789ABCDEF0123456789012345 /* KanliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoHomeView.swift; sourceTree = "<group>"; };
+		7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TencentVideoNativeSpider.swift; sourceTree = "<group>"; };
 		7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunPlayer.framework; path = vbox/Libraries/AliyunPlayer.framework; sourceTree = SOURCE_ROOT; };
 		807222ECDB74BD55495F6395 /* libz.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
 		822F991529A94E749D9BC1C5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
@@ -344,7 +345,6 @@
 		9353A6CB751B12B08CDC9742 /* Libass.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libass.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libass.xcframework; sourceTree = SOURCE_ROOT; };
 		95838F158F95F94719AAE9D0 /* OnePlatformService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformService.swift; sourceTree = "<group>"; };
 		9635B11828EC465785E74A90 /* BananaVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BananaVideoService.swift; sourceTree = "<group>"; };
-		7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TencentVideoNativeSpider.swift; sourceTree = "<group>"; };
 		97FF67C178D2D217311C1C6C /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libunibreak.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libunibreak.xcframework; sourceTree = SOURCE_ROOT; };
 		9C7C813277704DC9A355F569 /* PandaVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PandaVideoService.swift; sourceTree = "<group>"; };
