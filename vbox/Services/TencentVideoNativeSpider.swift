@@ -62,18 +62,19 @@ final class TencentVideoNativeSpider {
 
         do {
             let (data, _) = try await session.data(for: req)
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
 
             let validTypes: Set<String> = ["电视剧", "电影", "综艺", "纪录片", "动漫", "少儿", "短剧"]
             var items: [VodItem] = []
 
             // 解析 normalList + areaBoxList
             var allList: [[String: Any]] = []
-            if let normalList = json.value(forKeyPath: "data.normalList.itemList") as? [[String: Any]] {
-                allList.append(contentsOf: normalList)
+            if let normalList = (json["data"] as? [String: Any])?["normalList"] as? [String: Any],
+               let nl = normalList["itemList"] as? [[String: Any]] {
+                allList.append(contentsOf: nl)
             }
-            if let areaList = json.value(forKeyPath: "data.areaBoxList") as? [[String: Any]],
-               let areaItemList = areaList.first?["itemList"] as? [[String: Any]] {
+            if let areaBoxList = (json["data"] as? [String: Any])?["areaBoxList"] as? [[String: Any]],
+               let areaItemList = areaBoxList.first?["itemList"] as? [[String: Any]] {
                 allList.append(contentsOf: areaItemList)
             }
 
@@ -113,10 +114,8 @@ final class TencentVideoNativeSpider {
     // MARK: - 详情
 
     func detail(ids: String) async -> VodItem? {
-        // ids 就是 cid (例如 mzc00200abcdefgh)
         let cid = ids
 
-        // 并发请求详情基础信息 + 剧集列表
         let detailBody: [String: Any] = [
             "page_params": [
                 "req_from": "web",
@@ -162,25 +161,30 @@ final class TencentVideoNativeSpider {
             let (dData, _) = try await session.data(for: dReq)
             let (eData, _) = try await session.data(for: eReq)
 
-            guard let vdata = try? JSONSerialization.jsonObject(with: dData) as? [String: Any],
-                  let edata = try? JSONSerialization.jsonObject(with: eData) as? [String: Any]
+            guard let vdata = try JSONSerialization.jsonObject(with: dData) as? [String: Any],
+                  let edata = try JSONSerialization.jsonObject(with: eData) as? [String: Any]
             else {
                 print("[TencentNative] 详情JSON解析失败"); return nil
             }
 
-            // 提取基础信息
-            let title = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.title") as? String ?? ""
-            let pic = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.new_pic_hz") as? String ?? ""
-            let year = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.year") as? String ?? ""
-            let area = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.area_name") as? String ?? ""
-            let desc = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.cover_description") as? String ?? ""
-            let typeName = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.item_params.sub_genre") as? String ?? ""
+            // 提取基础信息 — 使用原生字典访问
+            guard let itemParams = getDeepValue(vdata, keys: "data", "module_list_datas", "0", "module_datas", "0", "item_data_lists", "item_datas", "0", "item_params") as? [String: Any] else {
+                print("[TencentNative] 详情页无数据"); return nil
+            }
+
+            let title = itemParams["title"] as? String ?? ""
+            let pic = itemParams["new_pic_hz"] as? String ?? ""
+            let year = itemParams["year"] as? String ?? ""
+            let area = itemParams["area_name"] as? String ?? ""
+            let desc = itemParams["cover_description"] as? String ?? ""
+            let typeName = itemParams["sub_genre"] as? String ?? ""
 
             // 提取演员
             var actors: [String] = []
-            if let starList = vdata.value(forKeyPath: "data.module_list_datas.0.module_datas.0.item_data_lists.item_datas.0.sub_items.star_list.item_datas") as? [[String: Any]] {
+            if let starList = getDeepValue(vdata, keys: "data", "module_list_datas", "0", "module_datas", "0", "item_data_lists", "item_datas", "0", "sub_items", "star_list", "item_datas") as? [[String: Any]] {
                 for star in starList {
-                    if let name = star.value(forKeyPath: "item_params.name") as? String {
+                    if let params = star["item_params"] as? [String: Any],
+                       let name = params["name"] as? String {
                         actors.append(name)
                     }
                 }
@@ -231,7 +235,6 @@ final class TencentVideoNativeSpider {
     // MARK: - 播放
 
     func playerContent(vodId: String, flag: String, url: String) -> PlayerContentResult? {
-        // url 格式: "标题$cid@vid" 或 "标题$cid@vid"
         let parts = url.components(separatedBy: "$")
         guard parts.count >= 2 else { return nil }
 
@@ -249,11 +252,34 @@ final class TencentVideoNativeSpider {
 
     // MARK: - Private
 
+    /// 安全地按 key 链访问嵌套字典，自动处理数字 string key 作为 array 索引
+    private func getDeepValue(_ dict: [String: Any], keys: String...) -> Any? {
+        return getDeepValueRecursive(dict, keys: keys)
+    }
+
+    private func getDeepValueRecursive(_ value: Any?, keys: [String]) -> Any? {
+        guard var current = value, !keys.isEmpty else { return value }
+
+        let remaining = Array(keys.dropFirst())
+        let key = keys[0]
+
+        if let d = current as? [String: Any] {
+            return getDeepValueRecursive(d[key], keys: remaining)
+        } else if let arr = current as? [Any] {
+            if key == "last" {
+                return getDeepValueRecursive(arr.last, keys: remaining)
+            } else if let idx = Int(key), idx >= 0, idx < arr.count {
+                return getDeepValueRecursive(arr[idx], keys: remaining)
+            }
+        }
+        return nil
+    }
+
     private func processEpisodes(edata: [String: Any], episodeBody: [String: Any], cid: String) async -> (plist: [String], ylist: [String]) {
         var plist: [String] = []
         var ylist: [String] = []
 
-        guard let modules = edata.value(forKeyPath: "data.module_list_datas") as? [[String: Any]],
+        guard let modules = getDeepValue(edata, keys: "data", "module_list_datas") as? [[String: Any]],
               let lastModule = modules.last,
               let mDatas = lastModule["module_datas"] as? [[String: Any]],
               let lastMData = mDatas.last,
@@ -279,13 +305,12 @@ final class TencentVideoNativeSpider {
         }
 
         // 获取其他 tab 的剧集
-        if let tabsStr = lastMData["module_params"] as? [String: Any],
-           let tabs = tabsStr["tabs"] as? String,
-           let tabsData = try? JSONSerialization.jsonObject(with: tabs.data) as? [[String: Any]],
+        if let moduleParams = lastMData["module_params"] as? [String: Any],
+           let tabsStr = moduleParams["tabs"] as? String,
+           let tabsData = try? JSONSerialization.jsonObject(with: Data(tabsStr.utf8)) as? [[String: Any]],
            tabsData.count > 1 {
 
             let remainingTabs = Array(tabsData.dropFirst())
-            // 不用多线程，顺序请求即可
             for tab in remainingTabs {
                 guard let pageCtx = tab["page_context"] as? String else { continue }
 
@@ -302,7 +327,7 @@ final class TencentVideoNativeSpider {
 
                 if let (data, _) = try? await session.data(for: req),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let moreItems = json.value(forKeyPath: "data.module_list_datas.last.module_datas.last.item_data_lists.item_datas") as? [[String: Any]] {
+                   let moreItems = getDeepValue(json, keys: "data", "module_list_datas", "last", "module_datas", "last", "item_data_lists", "item_datas") as? [[String: Any]] {
 
                     for item in moreItems {
                         guard let itemId = item["item_id"] as? String else { continue }
