@@ -1393,8 +1393,15 @@ globalThis.__JS_SPIDER__ = _spider;
             await loadBuiltinEngineIfNeeded()
         }
 
-        // 1. QuickJS 蜘蛛搜索
+        // 1. 腾讯视频原生搜索（不走 JS 引擎）
+        if let txItems = await TencentVideoNativeSpider.shared.search(keyword: keyword, pg: pg), !txItems.isEmpty {
+            allResults.append(contentsOf: txItems)
+            print("[SpiderManager] 腾讯原生搜索: \(txItems.count) 条")
+        }
+
+        // 2. QuickJS 蜘蛛搜索（跳过腾讯，已走原生）
         for (key, engine) in engines {
+            if key == TencentVideoNativeSpider.siteKey { continue }
             do {
                 if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
                     for var item in items {
@@ -1855,8 +1862,15 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] ❌ 网盘详情页解析失败")
             return nil
         }
-        // 1. 先尝试所有引擎
-        for (_, engine) in engines {
+        // 0. 腾讯视频原生详情（不走 JS 引擎）
+        if !ids.hasPrefix("http") {
+            if let txItem = await TencentVideoNativeSpider.shared.detail(ids: ids) {
+                return txItem
+            }
+        }
+        // 1. 先尝试所有引擎（跳过腾讯，已走原生）
+        for (key, engine) in engines {
+            if key == TencentVideoNativeSpider.siteKey { continue }
             do {
                 if let item = try engine.callDetailContent(ids: ids).list?.first {
                     return item
@@ -1869,7 +1883,12 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     func getPlayerContent(vodId: String, flag: String = "play", url: String) async -> PlayerContentResult? {
-        for (_, engine) in engines {
+        // 腾讯视频原生播放解析
+        if let txResult = TencentVideoNativeSpider.shared.playerContent(vodId: vodId, flag: flag, url: url) {
+            return txResult
+        }
+        for (key, engine) in engines {
+            if key == TencentVideoNativeSpider.siteKey { continue }
             do { return try engine.callPlayerContent(vodId: vodId, flag: flag, url: url) } catch { continue }
         }
         return nil
