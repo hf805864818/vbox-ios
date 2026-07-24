@@ -3021,6 +3021,52 @@ class PlayerState: ObservableObject {
         return nil
     }
     
+    /// 判断 episode.url 是否是不含 http 的占位符/相对路径，需要调用 playerContent 解析
+    /// 保持 http/https 直链的原有播放行为，避免影响 CMS/API/网盘等其他资源
+    private func shouldCallPlayerContentForEpisode(_ urlString: String) -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        // http/https 链接保持原有直接播放逻辑（可能是直链或播放页）
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return false
+        }
+        // 非 http 链接（如剧迷的 vid-ep_id、相对路径等），尝试 playerContent
+        return true
+    }
+    
+    /// 统一处理 playerContent 返回结果并播放（含 parse:1 二次解析和 header 透传）
+    private func playFromPlayerContentResult(_ pr: PlayerContentResult, episodeName: String, spider: SpiderManager, baseHeaders: [String: String]? = nil) async {
+        let pu = pr.playUrl ?? pr.url
+        var mergedHeaders = baseHeaders ?? [:]
+        if let spiderHeaders = pr.header {
+            for (key, value) in spiderHeaders where !key.isEmpty {
+                mergedHeaders[key] = value
+            }
+        }
+        if pr.parse == 1, let rawUrl = pu, !rawUrl.isEmpty {
+            log("[PlayerV2] playerContent 返回 parse=1，重新走解析器链路: \(rawUrl.prefix(60))")
+            if let reparsedUrl = await spider.parsePlayUrl(from: rawUrl) {
+                log("[PlayerV2] ✅ playerContent 二次解析成功: \(reparsedUrl.prefix(60))")
+                if let url = createURL(from: reparsedUrl) {
+                    await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                    return
+                }
+            }
+            log("[PlayerV2] ⚠️ playerContent 二次解析失败")
+        }
+        if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
+            log("[PlayerV2] ✅ playerContent 直链成功: \(pu.prefix(60))")
+            await MainActor.run {
+                self.currentTime = 0
+                self.initPlayer(url: url, customHeaders: mergedHeaders)
+                if let video = self.currentVideo {
+                    self.restorePlaybackProgress(for: video)
+                    self.loadDanmaku(for: video, fileName: episodeName)
+                }
+            }
+        }
+    }
+    
     // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil) async {
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
@@ -3115,6 +3161,14 @@ class PlayerState: ObservableObject {
         // 3. 尝试 QuickJS playerContent
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
             let pu = pr.playUrl ?? pr.url
+            // 合并 JS 蜘蛛返回的 header（如剧迷需要 Referer/UA），不覆盖已有自定义头
+            var mergedHeaders = customHeaders ?? [:]
+            if let spiderHeaders = pr.header {
+                for (key, value) in spiderHeaders where !key.isEmpty {
+                    mergedHeaders[key] = value
+                }
+                log("[PlayerV2] 合并 playerContent header: \(mergedHeaders.keys.sorted().joined(separator: ","))")
+            }
             // 关键修复：如果 playerContent 返回 parse:1，说明 URL 需要走解析器链路
             // 不能直接传给播放器（如 v.qq.com 网页地址），需要重新走 SpiderManager.parsePlayUrl
             if pr.parse == 1, let rawUrl = pu, !rawUrl.isEmpty {
@@ -3122,7 +3176,7 @@ class PlayerState: ObservableObject {
                 if let reparsedUrl = await spider.parsePlayUrl(from: rawUrl) {
                     log("[PlayerV2] ✅ playerContent 二次解析成功: \(reparsedUrl.prefix(60))")
                     if let url = createURL(from: reparsedUrl) {
-                        await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
+                        await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
                         return
                     }
                 }
@@ -3130,7 +3184,7 @@ class PlayerState: ObservableObject {
             }
             if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
                 log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
-                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
+                await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
                 return
             }
         }
@@ -3382,8 +3436,8 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             switch episode.sourceType {
             case .normal:
-                // 普通资源：直接用URL播放
-                if let url = URL(string: episode.url) {
+                // 普通资源：先判断 URL 是否已经是可直接播放的链接
+                if !self.shouldCallPlayerContentForEpisode(episode.url), let url = URL(string: episode.url) {
                     await MainActor.run {
                         // 重置当前时间，避免上一集进度影响
                         self.currentTime = 0
@@ -3396,6 +3450,15 @@ class PlayerState: ObservableObject {
                         if let video = self.currentVideo {
                             self.loadDanmaku(for: video, fileName: episode.name)
                         }
+                    }
+                } else {
+                    // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
+                    log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
+                    guard let video = self.currentVideo else { return }
+                    if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url) {
+                        await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: spider)
+                    } else {
+                        log("[PlayerV2] ⚠️ 切集 playerContent 无结果")
                     }
                 }
             case .baidu:
