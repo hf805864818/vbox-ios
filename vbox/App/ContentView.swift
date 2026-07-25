@@ -81,48 +81,52 @@ struct ContentView: View {
                     RemoteSourceStatusBar()
 
                     // 悬浮式底部导航栏
-                    HStack(spacing: 0) {
-                        ForEach(visibleTabs, id: \.self) { tab in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedTab = tab
-                                }
-                            } label: {
-                                VStack(spacing: 1) {
-                                    Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
-                                        .font(.system(size: 18, weight: .semibold))
-                                        .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
+                    if !settings.isTabBarHidden {
+                        HStack(spacing: 0) {
+                            ForEach(visibleTabs, id: \.self) { tab in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedTab = tab
+                                    }
+                                } label: {
+                                    VStack(spacing: 1) {
+                                        Image(systemName: selectedTab == tab ? tab.iconFill : tab.iconOutline)
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
 
-                                    Text(tab.rawValue)
-                                        .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
-                                        .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
+                                        Text(tab.rawValue)
+                                            .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .regular))
+                                            .foregroundColor(selectedTab == tab ? activeTabColor : inactiveTabColor)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 3)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 3)
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: min(UIScreen.main.bounds.width - 140, CGFloat(visibleTabs.count * 56 + 28)))
+                        .background(
+                            Capsule()
+                                .fill(.ultraThinMaterial)
+                                .background(Capsule().fill(tabBarBaseColor))
+                                .overlay(
+                                    Capsule()
+                                        .stroke(tabBarStrokeColor, lineWidth: 1)
+                                )
+                        )
+                        .clipShape(Capsule())
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: min(UIScreen.main.bounds.width - 140, CGFloat(visibleTabs.count * 56 + 28)))
-                    .background(
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                            .background(Capsule().fill(tabBarBaseColor))
-                            .overlay(
-                                Capsule()
-                                    .stroke(tabBarStrokeColor, lineWidth: 1)
-                            )
-                    )
-                    .clipShape(Capsule())
-                    .padding(.bottom, 8)
                 }
             }
         }
         .environmentObject(settings)
         .preferredColorScheme(settings.preferredColorScheme)
         .tint(activeTabColor)
+        .animation(.easeInOut(duration: 0.25), value: settings.isTabBarHidden)
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { selectedTab = .home }
         }

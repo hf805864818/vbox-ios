@@ -50,8 +50,12 @@ struct MainTabView: View {
             .accentColor(Color(hex: "E11D48"))
 
             // 底部悬浮半圆导航栏
-            GlassBottomTabBar(selectedTab: $selectedTab)
+            if !settings.isTabBarHidden {
+                GlassBottomTabBar(selectedTab: $selectedTab)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: settings.isTabBarHidden)
         .ignoresSafeArea(.keyboard)
         .edgeSwipeBack {
             guard selectedTab != 0 else { return }

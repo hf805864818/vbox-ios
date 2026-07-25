@@ -78,6 +78,7 @@ class AppSettings: ObservableObject {
         }
     }
     @Published var showSettings = false
+    @Published var isTabBarHidden = false
     @Published var enableTMDB: Bool {
         didSet {
             UserDefaults.standard.set(enableTMDB, forKey: Self.enableTMDBKey)

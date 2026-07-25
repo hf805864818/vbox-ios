@@ -18,6 +18,12 @@ struct SourceDiscoveryView: View {
     @State private var showSourceDropdown = false
     @State private var allSources: [SourceDisplayItem] = []
 
+    // 分页状态
+    @State private var currentPage = 1
+    @State private var isLoadingMore = false
+    @State private var hasMorePages = true
+    @State private var hasInitialCategoryLoad = false  // 防止 onAppear 首次渲染时立即触发加载更多
+
     // 自适应筛选状态
     @State private var filterOptions = SpiderManager.AdaptiveFilterOptions()
     @State private var selectedClass = "全部"
@@ -61,7 +67,7 @@ struct SourceDiscoveryView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                } else if let error = loadError {
+                } else if let error = loadError, homeData == nil {
                     Spacer()
                     VStack(spacing: 16) {
                         Image(systemName: "wifi.slash")
@@ -92,27 +98,40 @@ struct SourceDiscoveryView: View {
 
                             // 内容网格
                             if displayVideos.isEmpty {
-                                VStack(spacing: 12) {
-                                    Image(systemName: "tray")
-                                        .font(.system(size: 36))
-                                        .foregroundColor(.secondary)
-                                    Text(selectedCategoryId != nil ? "该分类暂无数据" : "暂无推荐内容")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.secondary)
-                                    Text("可前往搜索获取更多资源")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
+                                if isLoadingCategory {
+                                    ProgressView()
+                                        .padding(.vertical, 40)
+                                } else {
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "tray")
+                                            .font(.system(size: 36))
+                                            .foregroundColor(.secondary)
+                                        Text(selectedCategoryId != nil ? "该分类暂无数据" : "暂无推荐内容")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.secondary)
+                                        Text("可前往搜索获取更多资源")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.top, 80)
                                 }
-                                .padding(.top, 80)
                             } else {
                                 if isLoadingCategory {
                                     ProgressView()
                                         .padding(.vertical, 40)
                                 }
                                 videoGrid
+
+                                // 加载更多
+                                if selectedCategoryId != nil && selectedCategoryId != "__all__" && hasMorePages {
+                                    loadMoreFooter
+                                }
                             }
                         }
                         .padding(.bottom, 100)
+                    }
+                    .refreshable {
+                        await refreshContent()
                     }
                 }
             }
@@ -123,6 +142,12 @@ struct SourceDiscoveryView: View {
                     allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
                 }
                 if homeData == nil { Task { await loadData() } }
+                // 进入源发现页时隐藏底栏
+                settings.isTabBarHidden = true
+            }
+            .onDisappear {
+                // 离开源发现页时恢复底栏
+                settings.isTabBarHidden = false
             }
             .onChange(of: source.id) { _ in
                 // 切换源时重置状态并重新加载
@@ -130,11 +155,17 @@ struct SourceDiscoveryView: View {
                 categoryVideos = []
                 homeData = nil
                 loadError = nil
+                currentPage = 1
+                hasMorePages = true
+                hasInitialCategoryLoad = false
                 resetFilters()
                 Task { await loadData() }
             }
             .onChange(of: selectedCategoryId) { newValue in
                 // 关键修复：通过 onChange 驱动分类数据加载，避免 onTapGesture 中 Task 因视图重建丢失
+                currentPage = 1
+                hasMorePages = true
+                hasInitialCategoryLoad = false
                 if let catId = newValue {
                     if catId == "__all__" {
                         categoryVideos = []
@@ -513,7 +544,7 @@ struct SourceDiscoveryView: View {
         ) {
             ForEach(displayVideos.indices, id: \.self) { index in
                 let video = displayVideos[index]
-                NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName)) {
+                NavigationLink(destination: VideoDetailView(video: video, searchKeyword: video.vodName, isFromSourceDiscovery: true)) {
                     SourceVideoCard(
                         video: video,
                         referer: source.referer,
@@ -522,10 +553,44 @@ struct SourceDiscoveryView: View {
                 }
                 .id("\(index)|\(video.discoveryStableId)")
                 .buttonStyle(.plain)
+                .onAppear {
+                    // 只有初次分类加载完成后，且用户滚动到接近底部时才触发加载更多
+                    if hasInitialCategoryLoad && index >= displayVideos.count - 4 && !isLoadingMore && hasMorePages {
+                        Task { await loadMoreContent() }
+                    }
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    // MARK: - 加载更多底部
+
+    private var loadMoreFooter: some View {
+        HStack {
+            if isLoadingMore {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("加载中...")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            } else {
+                Button(action: {
+                    Task { await loadMoreContent() }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 12))
+                        Text("加载更多")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 20)
     }
 
     // MARK: - 皮肤
@@ -559,6 +624,8 @@ struct SourceDiscoveryView: View {
     private func loadData() async {
         isLoading = true
         loadError = nil
+        currentPage = 1
+        hasMorePages = true
         if let data = await SpiderManager.shared.fetchHomeData(for: source) {
             homeData = data
         } else {
@@ -567,7 +634,60 @@ struct SourceDiscoveryView: View {
         isLoading = false
     }
 
+    /// 下拉刷新
+    private func refreshContent() async {
+        if let catId = selectedCategoryId, catId != "__all__" {
+            // 刷新当前分类
+            currentPage = 1
+            hasMorePages = true
+            isLoadingCategory = true
+            let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
+                source: source,
+                categoryTypeId: catId,
+                page: 1
+            )
+            categoryVideos = items
+            filterOptions = SpiderManager.extractAdaptiveFilters(from: items)
+            hasMorePages = !items.isEmpty
+            hasInitialCategoryLoad = true  // 刷新完成后允许滚动触发加载更多
+            isLoadingCategory = false
+        } else {
+            // 刷新首页推荐：不设置 isLoading = true，保持 ScrollView 可见
+            loadError = nil
+            currentPage = 1
+            hasMorePages = true
+            if let data = await SpiderManager.shared.fetchHomeData(for: source) {
+                homeData = data
+                loadError = nil
+            } else {
+                loadError = "\(source.name) 暂无数据，请检查网络或切换其他源"
+            }
+        }
+    }
+
+    /// 加载更多（分页）
+    private func loadMoreContent() async {
+        guard let catId = selectedCategoryId, catId != "__all__", !isLoadingMore, hasMorePages else { return }
+        isLoadingMore = true
+        let nextPage = currentPage + 1
+        let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
+            source: source,
+            categoryTypeId: catId,
+            page: nextPage
+        )
+        if items.isEmpty {
+            hasMorePages = false
+        } else {
+            categoryVideos.append(contentsOf: items)
+            currentPage = nextPage
+        }
+        isLoadingMore = false
+    }
+
     private func loadCategoryContent(catId: String) async {
+        currentPage = 1
+        hasMorePages = true
+        hasInitialCategoryLoad = false
         let items = await SpiderManager.shared.fetchSingleSourceCategoryContent(
             source: source,
             categoryTypeId: catId,
@@ -576,6 +696,8 @@ struct SourceDiscoveryView: View {
         categoryVideos = items
         // 从数据中自适应提取筛选选项
         filterOptions = SpiderManager.extractAdaptiveFilters(from: items)
+        hasMorePages = !items.isEmpty
+        hasInitialCategoryLoad = true  // 标记初次加载完成，后续滚动才触发加载更多
         isLoadingCategory = false
     }
 
@@ -585,6 +707,8 @@ struct SourceDiscoveryView: View {
 
     private func reloadCategoryWithFilters(categoryId: String) async {
         isLoadingCategory = true
+        currentPage = 1
+        hasMorePages = true
         var params = SpiderManager.CategoryFilterParams()
         params.class = selectedClass == "全部" ? nil : selectedClass
         params.area = selectedArea == "全部" ? nil : selectedArea
@@ -598,6 +722,7 @@ struct SourceDiscoveryView: View {
             filters: params
         )
         categoryVideos = items
+        hasMorePages = !items.isEmpty
         isLoadingCategory = false
     }
 }
