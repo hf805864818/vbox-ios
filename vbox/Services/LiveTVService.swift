@@ -37,7 +37,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     var sourceURL: String? {
         switch self {
         case .defaultM3U:
-            return "bundle://default_live.m3u"  // 从 App Bundle 加载 M3U 文件
+            return "https://gh-proxy.com/raw.githubusercontent.com/vbskycn/iptv/refs/heads/master/tv/iptv4.m3u"  // 远程实时拉取新鲜M3U
         case .defaultIPTV2:
             return "http://mg.earxo.com/itv_ANGEHPV3YLVD/m3u"
         case .subscribe(_, let url):
@@ -315,10 +315,7 @@ class LiveTVService: ObservableObject {
         subscribeChannels = [] // 清空缓存，强制重新加载
         dynamicCategories = []
 
-        if case .defaultM3U = source {
-            // 从 App Bundle 加载 M3U 文件
-            loadBundleM3U()
-        } else if let url = source.sourceURL {
+        if let url = source.sourceURL {
             // 如果是本地导入的源，从缓存加载
             if url.hasPrefix("local://") {
                 let localName = String(url.dropFirst(8))

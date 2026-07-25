@@ -360,12 +360,9 @@ struct LiveTVView: View {
                 }
             }
             .onAppear {
-                // 主动触发默认源加载
+                // 主动触发默认源加载（defaultM3U 也改为远程拉取，走统一路径）
                 if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
-                    if case .defaultM3U = service.currentSource {
-                        // Bundle M3U 源：同步加载本地文件
-                        service.loadBundleM3U()
-                    } else if let url = service.currentSource.sourceURL {
+                    if let url = service.currentSource.sourceURL {
                         Task {
                             await service.fetchSubscribeChannels(url: url)
                         }
