@@ -3352,6 +3352,7 @@ class PlayerState: ObservableObject {
         let urlBlock: String
         if playUrl.contains("$$$") {
             // 多源：选包含最多集数（#最多）的源
+            // 修复：支持占位符URL（如剧迷的 vid-ep_id|lineIdx），不只认http/m3u8/mp4
             let urlBlocks = playUrl.components(separatedBy: "$$$")
             var bestBlock = urlBlocks.first ?? ""
             var bestEpisodeCount = 0
@@ -3359,8 +3360,9 @@ class PlayerState: ObservableObject {
                 let count = block.components(separatedBy: "#").filter { part in
                     let trimmed = part.trimmingCharacters(in: .whitespaces)
                     guard !trimmed.isEmpty else { return false }
-                    // 检查是否包含有效的URL
-                    return trimmed.contains("http") || trimmed.contains("m3u8") || trimmed.contains("mp4")
+                    // 检查是否包含有效的URL或占位符（支持 http直链、m3u8、mp4、以及剧迷等源的占位符格式）
+                    let urlPart = extractFirstEpisodeUrl(trimmed)
+                    return !urlPart.isEmpty
                 }.count
                 if count > bestEpisodeCount {
                     bestEpisodeCount = count
@@ -3368,14 +3370,8 @@ class PlayerState: ObservableObject {
                 }
             }
             if bestEpisodeCount == 0 {
-                // 没有URL格式的集数，取第一个有http的源
-                for block in urlBlocks {
-                    let firstUrl = extractFirstEpisodeUrl(block)
-                    if firstUrl.hasPrefix("http") {
-                        bestBlock = block
-                        break
-                    }
-                }
+                // 没有有效集数，取第一个非空块
+                bestBlock = urlBlocks.first { !$0.isEmpty } ?? ""
             }
             urlBlock = bestBlock
         } else {
@@ -3408,7 +3404,8 @@ class PlayerState: ObservableObject {
             }
         }
         
-        if items.count > 1 {
+        // 修复：单集资源（电影）也要显示，原逻辑 items.count>1 导致单集不显示
+        if items.count >= 1 {
             log("[PlayerV2] 解析到 \(items.count) 集普通资源: \(items.map { $0.name }.joined(separator: ", "))")
             episodeItems = items
             // 根据 vodName 自动定位到当前集
