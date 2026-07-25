@@ -189,7 +189,7 @@ struct SourceRowView: View {
 
     private var typeIcon: String {
             switch source {
-            case .yangshipin, .defaultIPTV2:
+            case .defaultM3U, .defaultIPTV2:
                 return "tv"
             case .subscribe:
                 return "doc.text"
@@ -200,7 +200,7 @@ struct SourceRowView: View {
 
         private var typeColor: Color {
             switch source {
-            case .yangshipin, .defaultIPTV2:
+            case .defaultM3U, .defaultIPTV2:
                 return .blue
             case .subscribe:
                 return .green
@@ -211,7 +211,7 @@ struct SourceRowView: View {
 
         private var typeLabel: String {
             switch source {
-            case .yangshipin, .defaultIPTV2:
+            case .defaultM3U, .defaultIPTV2:
                 return "默认源"
             case .subscribe:
                 return "订阅源"
@@ -255,9 +255,6 @@ struct LiveTVView: View {
     @State private var exportFileURL: URL?
 
     private var currentCategories: [LiveCategory] {
-        if case .yangshipin = service.currentSource {
-            return service.yangshipinCategories
-        }
         return service.dynamicCategories
     }
 
@@ -364,14 +361,11 @@ struct LiveTVView: View {
             }
             .onAppear {
                 // 主动触发默认源加载
-                if case .yangshipin = service.currentSource {
-                    // 央视频：确保频道数据已加载
-                    if service.yangshipinCategories.isEmpty {
-                        service.loadYangshipinChannels()
-                        service.buildYangshipinCategories()
-                    }
-                } else if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
-                    if let url = service.currentSource.sourceURL {
+                if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
+                    if case .defaultM3U = service.currentSource {
+                        // Bundle M3U 源：同步加载本地文件
+                        service.loadBundleM3U()
+                    } else if let url = service.currentSource.sourceURL {
                         Task {
                             await service.fetchSubscribeChannels(url: url)
                         }
@@ -404,13 +398,11 @@ struct LiveTVView: View {
                     }
                 }
             }
-            .onChange(of: service.yangshipinCategories) { _ in
-                if case .yangshipin = service.currentSource {
-                    channelsCache.removeAll()
-                    if let first = currentCategories.first {
-                        currentCategory = first.tid
-                        loadChannelsIfNeeded(for: first.tid)
-                    }
+            .onChange(of: service.dynamicCategories) { _ in
+                channelsCache.removeAll()
+                if let first = currentCategories.first {
+                    currentCategory = first.tid
+                    loadChannelsIfNeeded(for: first.tid)
                 }
             }
         }

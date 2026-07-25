@@ -265,14 +265,10 @@ struct HomeView: View {
                     .environmentObject(settings)
                 }
                 .navigationViewStyle(.stack)
-                .id(selectedSource?.id)
+                .id(source.id)  // 使用 source.id 而非 selectedSource?.id，避免 nil 导致的 identity 变化触发额外生命周期
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
-                    .onAppear {
-                        // 确保从源发现页返回时底栏恢复显示
-                        settings.isTabBarHidden = false
-                    }
             }
         }
         .onAppear {
@@ -288,6 +284,15 @@ struct HomeView: View {
         }
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { showSearch = true }
+        }
+        // ★ 关键修复：通过 onChange 兜底保证底栏状态与 selectedSource 同步
+        // SwiftUI 的 onAppear/onDisappear 在视图快速切换时触发顺序不确定，
+        // onChange 在状态变更后触发，能确保最终状态正确
+        .onChange(of: selectedSource) { newValue in
+            if newValue == nil {
+                // 返回首页时恢复底栏
+                settings.isTabBarHidden = false
+            }
         }
     }
 
