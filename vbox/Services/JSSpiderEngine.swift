@@ -1,5 +1,7 @@
 import Foundation
 import JavaScriptCore
+import CryptoKit
+import CommonCrypto
 
 /// JavaScriptCore 异常
 struct JSError: Error, LocalizedError {
@@ -67,6 +69,69 @@ class JSSpiderEngine {
             return _http(url, options);
         };
         var req = http;
+        """)
+
+        // 桥接 crypto — AES-CBC 解密 + MD5 哈希
+        let aesDecrypt: @convention(block) (String, String) -> String = { encData, keyB64 in
+            guard let keyData = Data(base64Encoded: keyB64),
+                  let cipherData = Data(base64Encoded: encData) else {
+                return ""
+            }
+            let cryptLength = cipherData.count + kCCBlockSizeAES128
+            var cryptData = Data(count: cryptLength)
+            var numBytesDecrypted: size_t = 0
+            let status = cryptData.withUnsafeMutableBytes { cryptBytes in
+                cipherData.withUnsafeBytes { dataBytes in
+                    keyData.withUnsafeBytes { keyBytes in
+                        CCCrypt(CCOperation(kCCDecrypt),
+                                CCAlgorithm(kCCAlgorithmAES),
+                                CCOptions(kCCOptionPKCS7Padding),
+                                keyBytes.baseAddress, keyData.count,
+                                keyBytes.baseAddress,  // IV = key
+                                dataBytes.baseAddress, cipherData.count,
+                                cryptBytes.baseAddress, cryptLength,
+                                &numBytesDecrypted)
+                    }
+                }
+            }
+            guard status == kCCSuccess else { return "" }
+            cryptData.count = numBytesDecrypted
+            return String(data: cryptData, encoding: .utf8) ?? ""
+        }
+        context.setObject(unsafeBitCast(aesDecrypt, to: AnyObject.self),
+                         forKeyedSubscript: "__aesDecrypt" as NSString)
+
+        let md5Hash: @convention(block) (String) -> String = { text in
+            let digest = Insecure.MD5.hash(data: text.data(using: .utf8) ?? Data())
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }
+        context.setObject(unsafeBitCast(md5Hash, to: AnyObject.self),
+                         forKeyedSubscript: "__md5" as NSString)
+
+        let b64Decode: @convention(block) (String) -> String = { text in
+            guard let data = Data(base64Encoded: text) else { return "" }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+        context.setObject(unsafeBitCast(b64Decode, to: AnyObject.self),
+                         forKeyedSubscript: "__b64Decode" as NSString)
+
+        let b64Encode: @convention(block) (String) -> String = { text in
+            return Data(text.utf8).base64EncodedString()
+        }
+        context.setObject(unsafeBitCast(b64Encode, to: AnyObject.self),
+                         forKeyedSubscript: "__b64Encode" as NSString)
+
+        context.evaluateScript("""
+        var crypto = {
+            AES: {
+                decrypt: function(encData, keyB64) { return __aesDecrypt(encData, keyB64); }
+            },
+            MD5: function(text) { return __md5(text); },
+            base64: {
+                decode: function(text) { return __b64Decode(text); },
+                encode: function(text) { return __b64Encode(text); }
+            }
+        };
         """)
 
         // 桥接 XMLHttpRequest (简化版)

@@ -2,6 +2,7 @@
 #import "quickjs.h"
 #import "quickjs-libc.h"
 #import <Foundation/Foundation.h>
+#import <CommonCrypto/CommonCrypto.h>
 #import <string.h>
 
 void* QJSBridge_createRuntime(void) {
@@ -158,4 +159,114 @@ void QJSBridge_registerHTTP(void* ctx) {
     JSValue func = JS_NewCFunction((JSContext*)ctx, js_http_func, "http", 2);
     JS_SetPropertyStr((JSContext*)ctx, global, "http", func);
     JS_FreeValue((JSContext*)ctx, global);
+}
+
+// ====== Crypto 桥接 — AES-CBC + MD5 + base64 ======
+
+static JSValue js_aes_decrypt_func(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv) {
+    if (argc < 2) return JS_ThrowTypeError(ctx, "aesDecrypt(encData, keyB64) needs 2 arguments");
+    
+    const char* enc_cstr = JS_ToCString(ctx, argv[0]);
+    const char* key_cstr = JS_ToCString(ctx, argv[1]);
+    NSString* encData = [NSString stringWithUTF8String:enc_cstr];
+    NSString* keyB64 = [NSString stringWithUTF8String:key_cstr];
+    JS_FreeCString(ctx, enc_cstr);
+    JS_FreeCString(ctx, key_cstr);
+    
+    NSData* keyData = [[NSData alloc] initWithBase64EncodedString:keyB64 options:0];
+    NSData* cipherData = [[NSData alloc] initWithBase64EncodedString:encData options:0];
+    if (!keyData || !cipherData) return JS_NewString(ctx, "");
+    
+    size_t cryptLength = cipherData.length + kCCBlockSizeAES128;
+    NSMutableData* cryptData = [NSMutableData dataWithLength:cryptLength];
+    size_t numBytesDecrypted = 0;
+    
+    CCCryptorStatus status = CCCrypt(kCCDecrypt,
+                                     kCCAlgorithmAES,
+                                     kCCOptionPKCS7Padding,
+                                     keyData.bytes, keyData.length,
+                                     keyData.bytes,  // IV = key
+                                     cipherData.bytes, cipherData.length,
+                                     cryptData.mutableBytes, cryptLength,
+                                     &numBytesDecrypted);
+    
+    if (status != kCCSuccess) return JS_NewString(ctx, "");
+    cryptData.length = numBytesDecrypted;
+    NSString* result = [[NSString alloc] initWithData:cryptData encoding:NSUTF8StringEncoding];
+    return JS_NewString(ctx, result ? [result UTF8String] : "");
+}
+
+static JSValue js_md5_func(JSContext *ctx, JSValueConst this_val,
+                            int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_NewString(ctx, "");
+    const char* text_cstr = JS_ToCString(ctx, argv[0]);
+    NSString* text = [NSString stringWithUTF8String:text_cstr];
+    JS_FreeCString(ctx, text_cstr);
+    
+    NSData* data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(data.bytes, (CC_LONG)data.length, digest);
+    
+    NSMutableString* hex = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [hex appendFormat:@"%02x", digest[i]];
+    }
+    return JS_NewString(ctx, [hex UTF8String]);
+}
+
+static JSValue js_b64_decode_func(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_NewString(ctx, "");
+    const char* text_cstr = JS_ToCString(ctx, argv[0]);
+    NSString* text = [NSString stringWithUTF8String:text_cstr];
+    JS_FreeCString(ctx, text_cstr);
+    
+    NSData* data = [[NSData alloc] initWithBase64EncodedString:text options:0];
+    if (!data) return JS_NewString(ctx, "");
+    NSString* result = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return JS_NewString(ctx, result ? [result UTF8String] : "");
+}
+
+static JSValue js_b64_encode_func(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_NewString(ctx, "");
+    const char* text_cstr = JS_ToCString(ctx, argv[0]);
+    NSString* text = [NSString stringWithUTF8String:text_cstr];
+    JS_FreeCString(ctx, text_cstr);
+    
+    NSData* data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    NSString* result = [data base64EncodedStringWithOptions:0];
+    return JS_NewString(ctx, [result UTF8String]);
+}
+
+void QJSBridge_registerCrypto(void* ctx) {
+    JSContext* jsCtx = (JSContext*)ctx;
+    
+    // 创建 crypto 对象
+    JSValue cryptoObj = JS_NewObject(jsCtx);
+    
+    // AES 子对象
+    JSValue aesObj = JS_NewObject(jsCtx);
+    JSValue aesDecryptFunc = JS_NewCFunction(jsCtx, js_aes_decrypt_func, "decrypt", 2);
+    JS_SetPropertyStr(jsCtx, aesObj, "decrypt", aesDecryptFunc);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "AES", aesObj);
+    
+    // MD5
+    JSValue md5Func = JS_NewCFunction(jsCtx, js_md5_func, "MD5", 1);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "MD5", md5Func);
+    
+    // base64 子对象
+    JSValue b64Obj = JS_NewObject(jsCtx);
+    JSValue b64DecodeFunc = JS_NewCFunction(jsCtx, js_b64_decode_func, "decode", 1);
+    JSValue b64EncodeFunc = JS_NewCFunction(jsCtx, js_b64_encode_func, "encode", 1);
+    JS_SetPropertyStr(jsCtx, b64Obj, "decode", b64DecodeFunc);
+    JS_SetPropertyStr(jsCtx, b64Obj, "encode", b64EncodeFunc);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "base64", b64Obj);
+    
+    // 注册到全局
+    JSValue global = JS_GetGlobalObject(jsCtx);
+    JS_SetPropertyStr(jsCtx, global, "crypto", cryptoObj);
+    JS_FreeValue(jsCtx, global);
+    JS_FreeValue(jsCtx, cryptoObj);
 }
