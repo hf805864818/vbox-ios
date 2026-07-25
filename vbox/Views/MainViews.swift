@@ -250,29 +250,27 @@ struct HomeView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
+            // 豆瓣首页始终存活，避免条件创建/销毁导致的卡顿和底栏状态丢失
+            doubanHomeContent
+                .zIndex(0)
+                .allowsHitTesting(selectedSource == nil)
+
+            // 源发现页作为覆盖层，通过 transition 动画进入/退出
             if let source = selectedSource {
-                // 多源发现模式
                 NavigationView {
                     SourceDiscoveryView(
                         source: source,
                         selectedSource: $selectedSource,
                         onDismiss: {
-                        selectedSource = nil
-                        settings.isTabBarHidden = false
-                    }
+                            selectedSource = nil
+                        }
                     )
                     .environmentObject(settings)
                 }
                 .navigationViewStyle(.stack)
-                .id(source.id)  // 使用 source.id 而非 selectedSource?.id，避免 nil 导致的 identity 变化触发额外生命周期
-            } else {
-                // 豆瓣首页模式
-                doubanHomeContent
-                    .onAppear {
-                        // ★ 双重兜底：确保从源发现页返回时底栏一定恢复
-                        settings.isTabBarHidden = false
-                    }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .zIndex(1)
             }
         }
         .onAppear {
@@ -289,13 +287,10 @@ struct HomeView: View {
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { showSearch = true }
         }
-        // ★ 关键修复：通过 onChange 兜底保证底栏状态与 selectedSource 同步
-        // SwiftUI 的 onAppear/onDisappear 在视图快速切换时触发顺序不确定，
-        // onChange 在状态变更后触发，能确保最终状态正确
+        // ★ 唯一控制点：底栏显示/隐藏仅由 selectedSource 决定，消除多路径竞争
         .onChange(of: selectedSource) { newValue in
-            if newValue == nil {
-                // 返回首页时恢复底栏
-                settings.isTabBarHidden = false
+            withAnimation(.easeInOut(duration: 0.25)) {
+                settings.isTabBarHidden = newValue != nil
             }
         }
     }
