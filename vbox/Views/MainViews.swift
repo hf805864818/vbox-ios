@@ -269,6 +269,10 @@ struct HomeView: View {
             } else {
                 // 豆瓣首页模式
                 doubanHomeContent
+                    .onAppear {
+                        // 确保从源发现页返回时底栏恢复显示
+                        settings.isTabBarHidden = false
+                    }
             }
         }
         .onAppear {

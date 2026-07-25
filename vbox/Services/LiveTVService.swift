@@ -1004,7 +1004,7 @@ class LiveTVService: ObservableObject {
         let (ckey, timestamp) = YangshipinCrypto.genCKey(cnlid: channel.cnlid, guid: guid)
         let flowid = YangshipinCrypto.genFlowID()
 
-        var urlComponents = URLComponents(string: "https://bkliveinfo.ysp.cctv.cn")!
+        var urlComponents = URLComponents(string: "https://liveinfo.ysp.cctv.cn")!
         urlComponents.queryItems = [
             URLQueryItem(name: "atime", value: "120"),
             URLQueryItem(name: "livepid", value: channel.livepid),
@@ -1058,18 +1058,35 @@ class LiveTVService: ObservableObject {
             request.setValue("qqlive", forHTTPHeaderField: "User-Agent")
             request.setValue("Keep-Alive", forHTTPHeaderField: "Connection")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("https://m.yangshipin.cn", forHTTPHeaderField: "Referer")
             request.timeoutInterval = 15
 
-            let (data, _) = try await URLSession.shared.data(for: request)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let iretcode = json["iretcode"] as? Int, iretcode == 0,
-               let playurl = json["playurl"] as? String {
-                print("[LiveTV] 央视频播放地址获取成功: \(channel.displayName)")
-                return playurl
-            } else {
-                print("[LiveTV] 央视频播放地址获取失败: \(channel.displayName)")
-                return nil
+            let (data, response) = try await URLSession.shared.data(for: request)
+            // 打印 HTTP 状态码
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[LiveTV] 央视频 API HTTP \(httpResponse.statusCode): \(channel.displayName)")
             }
+            // 打印原始响应（前 500 字符）
+            if let rawStr = String(data: data, encoding: .utf8) {
+                print("[LiveTV] 央视频 API 原始响应: \(String(rawStr.prefix(500)))")
+            }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let iretcode = json["iretcode"] as? Int {
+                    print("[LiveTV] 央视频 iretcode=\(iretcode): \(channel.displayName)")
+                    if iretcode == 0, let playurl = json["playurl"] as? String {
+                        print("[LiveTV] 央视频播放地址获取成功: \(channel.displayName)")
+                        return playurl
+                    } else {
+                        let errmsg = json["errmsg"] as? String ?? "未知错误"
+                        print("[LiveTV] 央视频播放地址获取失败: \(channel.displayName), iretcode=\(iretcode), errmsg=\(errmsg)")
+                    }
+                } else {
+                    print("[LiveTV] 央视频响应无 iretcode 字段: \(channel.displayName), keys=\(json.keys)")
+                }
+            } else {
+                print("[LiveTV] 央视频响应非 JSON: \(channel.displayName)")
+            }
+            return nil
         } catch {
             print("[LiveTV] 央视频播放地址请求异常: \(error.localizedDescription)")
             return nil
