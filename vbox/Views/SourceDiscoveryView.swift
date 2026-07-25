@@ -143,13 +143,9 @@ struct SourceDiscoveryView: View {
                     allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
                 }
                 if homeData == nil { Task { await loadData() } }
-                // 进入源发现页时隐藏底栏
-                settings.isTabBarHidden = true
             }
             .onDisappear {
-                // 注意：push 到详情页时 onDisappear 会在子视图 onAppear 之后触发，
-                // 因此底栏恢复由 VideoDetailView.onDisappear 负责，此处不处理。
-                // 只有当用户通过 edgeSwipeBack 返回时，onDismiss 会恢复底栏。
+                // 底栏状态由 HomeView.onChange(of: selectedSource) 统一控制，此处无需处理
             }
             .onChange(of: source.id) { _ in
                 // 切换源时重置状态并重新加载
