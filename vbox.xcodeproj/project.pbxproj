@@ -139,8 +139,8 @@
 		A10141 /* ibox_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10141 /* ibox_sources.json */; };
 		A10142 /* LiveTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10142 /* LiveTVView.swift */; };
 		A10143 /* LiveTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10143 /* LiveTVService.swift */; };
-		A10145 /* YangshipinCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10145 /* YangshipinCrypto.swift */; };
 		A10144 /* video_sources.json in Resources */ = {isa = PBXBuildFile; fileRef = B10144 /* video_sources.json */; };
+		A10145 /* YangshipinCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10145 /* YangshipinCrypto.swift */; };
 		A10150 /* DoubanCategoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* DoubanCategoryBrowserView.swift */; };
 		A10151 /* DoubanRankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10151 /* DoubanRankingView.swift */; };
 		A10152 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10152 /* TMDBService.swift */; };
@@ -404,8 +404,8 @@
 		B10141 /* ibox_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ibox_sources.json; sourceTree = "<group>"; };
 		B10142 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
 		B10143 /* LiveTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVService.swift; sourceTree = "<group>"; };
-		B10145 /* YangshipinCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YangshipinCrypto.swift; sourceTree = "<group>"; };
 		B10144 /* video_sources.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = video_sources.json; sourceTree = "<group>"; };
+		B10145 /* YangshipinCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YangshipinCrypto.swift; sourceTree = "<group>"; };
 		B10150 /* DoubanCategoryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanCategoryBrowserView.swift; sourceTree = "<group>"; };
 		B10151 /* DoubanRankingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanRankingView.swift; sourceTree = "<group>"; };
 		B10152 /* TMDBService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBService.swift; sourceTree = "<group>"; };
