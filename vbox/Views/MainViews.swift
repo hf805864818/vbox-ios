@@ -264,6 +264,7 @@ struct HomeView: View {
                         selectedSource: $selectedSource,
                         onDismiss: {
                             selectedSource = nil
+                            settings.isTabBarHidden = false
                         }
                     )
                     .environmentObject(settings)
