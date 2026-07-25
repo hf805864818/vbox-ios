@@ -16,7 +16,11 @@ void* QJSBridge_createContext(void* rt) {
 }
 
 void QJSBridge_freeRuntime(void* rt) {
-    JS_FreeRuntime((JSRuntime*)rt);
+    JSRuntime* runtime = (JSRuntime*)rt;
+    if (runtime) {
+        JS_RunGC(runtime);          // 先手动 GC，清理所有悬空对象
+        JS_FreeRuntime(runtime);    // 再安全释放 runtime
+    }
 }
 
 void QJSBridge_freeContext(void* ctx) {
