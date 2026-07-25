@@ -3452,8 +3452,8 @@ class PlayerState: ObservableObject {
                     // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
                     log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
                     guard let video = self.currentVideo else { return }
-                    if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url) {
-                        await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: spider)
+                    if let pr = await SpiderManager.shared.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url) {
+                        await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: SpiderManager.shared)
                     } else {
                         log("[PlayerV2] ⚠️ 切集 playerContent 无结果")
                     }
