@@ -27,10 +27,12 @@ private enum DriveExpandState {
 struct VideoDetailView: View {
     let video: VodItem
     let searchKeyword: String?
+    let isFromSourceDiscovery: Bool
 
-    init(video: VodItem, searchKeyword: String? = nil) {
+    init(video: VodItem, searchKeyword: String? = nil, isFromSourceDiscovery: Bool = false) {
         self.video = video
         self.searchKeyword = searchKeyword
+        self.isFromSourceDiscovery = isFromSourceDiscovery
     }
 
     @EnvironmentObject private var settings: AppSettings
@@ -773,6 +775,9 @@ struct VideoDetailView: View {
             }
             checkFavorite()
         }
+        .onDisappear {
+            // 底栏由 SourceDiscoveryView 管理，此处不再处理
+        }
         .onReceive(cloudDriveSortManager.$order) { _ in
             guard isCloudVideo, !rawCloudLinks.isEmpty else { return }
             // 重新排序 rawCloudLinks
@@ -782,6 +787,12 @@ struct VideoDetailView: View {
             selectedCloudDrive = cloudDriveGroups.first?.drive
         }
         .edgeSwipeBack { dismiss() }
+        .navigationBarHidden(isFromSourceDiscovery)
+        .navigationBarBackButtonHidden(isFromSourceDiscovery)
+        .toolbar(isFromSourceDiscovery ? .hidden : .visible, for: .navigationBar)
+        .toolbar(isFromSourceDiscovery ? .hidden : .visible, for: .tabBar)
+        .toolbarBackground(isFromSourceDiscovery ? .hidden : .visible, for: .navigationBar)
+        .toolbarBackground(isFromSourceDiscovery ? .hidden : .visible, for: .tabBar)
     }
 
     // MARK: - 背景层
