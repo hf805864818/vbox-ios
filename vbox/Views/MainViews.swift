@@ -290,9 +290,7 @@ struct HomeView: View {
         }
         // ★ 唯一控制点：底栏显示/隐藏仅由 selectedSource 决定，消除多路径竞争
         .onChange(of: selectedSource) { newValue in
-            withAnimation(.easeInOut(duration: 0.25)) {
-                settings.isTabBarHidden = newValue != nil
-            }
+            settings.isTabBarHidden = newValue != nil
         }
     }
 
