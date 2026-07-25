@@ -774,9 +774,12 @@ struct VideoDetailView: View {
                 loadDoubanData()
             }
             checkFavorite()
+            if isFromSourceDiscovery {
+                settings.isTabBarHidden = true
+            }
         }
         .onDisappear {
-            // 底栏由 SourceDiscoveryView 管理，此处不再处理
+            // 底栏由 SourceDiscoveryView.onDisappear 统一恢复，此处不处理
         }
         .onReceive(cloudDriveSortManager.$order) { _ in
             guard isCloudVideo, !rawCloudLinks.isEmpty else { return }
