@@ -137,6 +137,7 @@ struct SourceDiscoveryView: View {
             }
             .background(skinBackground)
             .navigationBarHidden(true)
+            .edgeSwipeBack { onDismiss() }
             .onAppear {
                 if allSources.isEmpty {
                     allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
