@@ -45,7 +45,7 @@ final class RemoteSourceConfigManager: ObservableObject {
         }
     }
 
-    static let defaultManifestURL = "https://raw.githubusercontent.com/vbox-Ai/api/main/sources/manifest.json"
+    static let defaultManifestURL = "https://vbox-ai.github.io/api/sources/manifest.json"
 
     @Published var remoteDefaultSourceEnabled: Bool {
         didSet { UserDefaults.standard.set(remoteDefaultSourceEnabled, forKey: RemoteSourceConfigKeys.remoteDefaultSourceEnabled) }
