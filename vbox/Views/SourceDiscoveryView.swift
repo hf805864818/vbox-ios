@@ -147,8 +147,9 @@ struct SourceDiscoveryView: View {
                 settings.isTabBarHidden = true
             }
             .onDisappear {
-                // 离开源发现页时恢复底栏
-                settings.isTabBarHidden = false
+                // 注意：push 到详情页时 onDisappear 会在子视图 onAppear 之后触发，
+                // 因此底栏恢复由 VideoDetailView.onDisappear 负责，此处不处理。
+                // 只有当用户通过 edgeSwipeBack 返回时，onDismiss 会恢复底栏。
             }
             .onChange(of: source.id) { _ in
                 // 切换源时重置状态并重新加载

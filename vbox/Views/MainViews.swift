@@ -257,7 +257,10 @@ struct HomeView: View {
                     SourceDiscoveryView(
                         source: source,
                         selectedSource: $selectedSource,
-                        onDismiss: { selectedSource = nil }
+                        onDismiss: {
+                        selectedSource = nil
+                        settings.isTabBarHidden = false
+                    }
                     )
                     .environmentObject(settings)
                 }

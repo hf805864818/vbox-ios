@@ -255,6 +255,9 @@ struct LiveTVView: View {
     @State private var exportFileURL: URL?
 
     private var currentCategories: [LiveCategory] {
+        if case .yangshipin = service.currentSource {
+            return service.yangshipinCategories
+        }
         return service.dynamicCategories
     }
 
@@ -331,7 +334,11 @@ struct LiveTVView: View {
                         showFileImporter = true
                     },
                     onExportCustom: { index, name, url in
-                        exportCustomSource(name: name, url: url)
+                        // 先关闭源选择器 sheet，再弹出导出分享 sheet
+                        showSourcePicker = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            exportCustomSource(name: name, url: url)
+                        }
                     }
                 )
                 .presentationDetents([.medium])
@@ -357,7 +364,13 @@ struct LiveTVView: View {
             }
             .onAppear {
                 // 主动触发默认源加载
-                if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
+                if case .yangshipin = service.currentSource {
+                    // 央视频：确保频道数据已加载
+                    if service.yangshipinCategories.isEmpty {
+                        service.loadYangshipinChannels()
+                        service.buildYangshipinCategories()
+                    }
+                } else if service.dynamicCategories.isEmpty && service.subscribeChannels.isEmpty {
                     if let url = service.currentSource.sourceURL {
                         Task {
                             await service.fetchSubscribeChannels(url: url)
@@ -385,6 +398,15 @@ struct LiveTVView: View {
             }
             .onChange(of: service.dynamicCategories) { _ in
                 if !currentCategories.contains(where: { $0.tid == currentCategory }) {
+                    if let first = currentCategories.first {
+                        currentCategory = first.tid
+                        loadChannelsIfNeeded(for: first.tid)
+                    }
+                }
+            }
+            .onChange(of: service.yangshipinCategories) { _ in
+                if case .yangshipin = service.currentSource {
+                    channelsCache.removeAll()
                     if let first = currentCategories.first {
                         currentCategory = first.tid
                         loadChannelsIfNeeded(for: first.tid)
