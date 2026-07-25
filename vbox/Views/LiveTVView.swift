@@ -16,6 +16,7 @@ struct LiveSourcePickerView: View {
     let onAddCustom: (String, String) -> Void
     let onRemoveCustom: (Int) -> Void
     var onImportLocal: (() -> Void)? = nil
+    var onExportCustom: ((Int, String, String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var showAddAlert = false
@@ -39,6 +40,16 @@ struct LiveSourcePickerView: View {
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if isCustomSource(source) {
                                 if let index = customSourceIndex(of: source) {
+                                    if let onExport = onExportCustom {
+                                        Button {
+                                            if case .custom(let name, let url) = source {
+                                                onExport(index, name, url)
+                                            }
+                                        } label: {
+                                            Label("导出", systemImage: "square.and.arrow.up")
+                                        }
+                                        .tint(.blue)
+                                    }
                                     Button(role: .destructive) {
                                         onRemoveCustom(index)
                                     } label: {
@@ -239,6 +250,10 @@ struct LiveTVView: View {
     // 本地文件导入
     @State private var showFileImporter = false
 
+    // 导出自定义源
+    @State private var showExportShare = false
+    @State private var exportFileURL: URL?
+
     private var currentCategories: [LiveCategory] {
         return service.dynamicCategories
     }
@@ -314,6 +329,9 @@ struct LiveTVView: View {
                     },
                     onImportLocal: {
                         showFileImporter = true
+                    },
+                    onExportCustom: { index, name, url in
+                        exportCustomSource(name: name, url: url)
                     }
                 )
                 .presentationDetents([.medium])
@@ -331,6 +349,11 @@ struct LiveTVView: View {
                 Button("确定", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "未知错误")
+            }
+            .sheet(isPresented: $showExportShare) {
+                if let fileURL = exportFileURL {
+                    ActivityShareSheet(activityItems: [fileURL])
+                }
             }
             .onAppear {
                 // 主动触发默认源加载
@@ -446,6 +469,104 @@ struct LiveTVView: View {
             }
         } catch {
             print("[LiveTV] 读取文件失败: \(error)")
+        }
+    }
+
+    // MARK: - 导出自定义源
+    private func exportCustomSource(name: String, url: String) {
+        print("[LiveTV] 导出自定义源: \(name), URL: \(url)")
+        
+        // 本地导入的源，直接从缓存中导出
+        if url.hasPrefix("local://") {
+            let localName = String(url.dropFirst(8))
+            if let channels = service.localChannelsMap[localName], !channels.isEmpty {
+                exportChannelsToFile(name: localName, channels: channels)
+                return
+            } else {
+                errorMessage = "本地源已失效，请重新导入"
+                showError = true
+                return
+            }
+        }
+        
+        // 网络源：从 URL 获取内容
+        Task {
+            do {
+                var request = URLRequest(url: URL(string: url)!)
+                request.timeoutInterval = 15
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    print("[LiveTV] 导出失败: HTTP 状态码异常")
+                    await MainActor.run {
+                        errorMessage = "无法获取直播源内容，请检查网络连接"
+                        showError = true
+                    }
+                    return
+                }
+
+                guard let content = String(data: data, encoding: .utf8),
+                      !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    print("[LiveTV] 导出失败: 内容为空")
+                    await MainActor.run {
+                        errorMessage = "直播源内容为空"
+                        showError = true
+                    }
+                    return
+                }
+
+                // 确定文件扩展名（M3U 或 TXT）
+                let isM3U = content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U")
+                let ext = isM3U ? "m3u" : "txt"
+                let safeName = name.replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: " ", with: "_")
+                let fileName = "\(safeName).\(ext)"
+
+                // 写入临时文件
+                let tempDir = FileManager.default.temporaryDirectory
+                let fileURL = tempDir.appendingPathComponent(fileName)
+
+                try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+                await MainActor.run {
+                    exportFileURL = fileURL
+                    showExportShare = true
+                    print("[LiveTV] 导出成功: \(fileURL.path)")
+                }
+            } catch {
+                print("[LiveTV] 导出失败: \(error.localizedDescription)")
+                await MainActor.run {
+                    errorMessage = "导出失败: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    /// 本地频道导出为 M3U 文件
+    private func exportChannelsToFile(name: String, channels: [SubscribeChannel]) {
+        var m3uContent = "#EXTM3U\n"
+        for channel in channels {
+            let groupTag = channel.group.map { " group-title=\"\($0)\"" } ?? ""
+            let logoTag = channel.logo.map { " tvg-logo=\"\($0)\"" } ?? ""
+            m3uContent += "#EXTINF:-1\(groupTag)\(logoTag),\(channel.name)\n"
+            m3uContent += "\(channel.url)\n"
+        }
+        
+        let safeName = name.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        let fileName = "\(safeName).m3u"
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(fileName)
+        
+        do {
+            try m3uContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            exportFileURL = fileURL
+            showExportShare = true
+            print("[LiveTV] 本地源导出成功: \(fileURL.path)")
+        } catch {
+            errorMessage = "导出失败: \(error.localizedDescription)"
+            showError = true
         }
     }
 
@@ -1885,6 +2006,18 @@ struct DocumentPickerView: UIViewControllerRepresentable {
             dismiss()
         }
     }
+}
+
+// MARK: - 分享 Sheet（UIActivityViewController 封装）
+struct ActivityShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Preview
