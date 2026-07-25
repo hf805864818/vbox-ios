@@ -3,15 +3,15 @@ import SwiftUI
 
 // MARK: - 直播源类型
 enum LiveSourceType: Identifiable, Equatable, Codable {
-    case yangshipin       // 央视频（内置直播源，替换默认源1）
+    case defaultM3U       // 默认源1 (秒播M3U直播源)
     case defaultIPTV2     // 默认源2 (运营商IPTV)
     case subscribe(name: String, url: String)  // 订阅配置中的源
     case custom(name: String, url: String)     // 用户自定义源
 
     var id: String {
         switch self {
-        case .yangshipin:
-            return "yangshipin"
+        case .defaultM3U:
+            return "default_m3u"
         case .defaultIPTV2:
             return "default_iptv_2"
         case .subscribe(let name, let url):
@@ -23,8 +23,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var displayName: String {
         switch self {
-        case .yangshipin:
-            return "默认源1 (央视频)"
+        case .defaultM3U:
+            return "默认源1 (秒播)"
         case .defaultIPTV2:
             return "默认源2 (运营商IPTV)"
         case .subscribe(let name, _):
@@ -36,8 +36,8 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var sourceURL: String? {
         switch self {
-        case .yangshipin:
-            return nil  // 央视频使用内置频道数据，无需 URL
+        case .defaultM3U:
+            return "bundle://default_live.m3u"  // 从 App Bundle 加载 M3U 文件
         case .defaultIPTV2:
             return "http://mg.earxo.com/itv_ANGEHPV3YLVD/m3u"
         case .subscribe(_, let url):
@@ -49,7 +49,7 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
 
     var isDefault: Bool {
         switch self {
-        case .yangshipin, .defaultIPTV2:
+        case .defaultM3U, .defaultIPTV2:
             return true
         case .subscribe, .custom:
             return false
@@ -62,14 +62,14 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
     }
 
     enum SourceKind: String, Codable {
-        case yangshipin, defaultIPTV2, subscribe, custom
+        case defaultM3U, yangshipin, defaultIPTV2, subscribe, custom
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .yangshipin:
-            try container.encode(SourceKind.yangshipin.rawValue, forKey: .type)
+        case .defaultM3U:
+            try container.encode(SourceKind.defaultM3U.rawValue, forKey: .type)
         case .defaultIPTV2:
             try container.encode(SourceKind.defaultIPTV2.rawValue, forKey: .type)
         case .subscribe(let name, let url):
@@ -87,8 +87,9 @@ enum LiveSourceType: Identifiable, Equatable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(SourceKind.self, forKey: .type)
         switch type {
-        case .yangshipin:
-            self = .yangshipin
+        case .defaultM3U, .yangshipin:
+            // 兼容旧版 yangshipin 类型，统一映射为 defaultM3U
+            self = .defaultM3U
         case .defaultIPTV2:
             self = .defaultIPTV2
         case .subscribe:
@@ -108,8 +109,9 @@ extension LiveSourceType {
     init?(dictionary: [String: String]) {
         guard let type = dictionary["type"] else { return nil }
         switch type {
-        case "yangshipin":
-            self = .yangshipin
+        case "defaultM3U", "yangshipin":
+            // 兼容旧版 yangshipin 类型
+            self = .defaultM3U
         case "defaultIPTV2":
             self = .defaultIPTV2
         case "subscribe":
@@ -125,8 +127,8 @@ extension LiveSourceType {
 
     func toDictionary() -> [String: String] {
         switch self {
-        case .yangshipin:
-            return ["type": "yangshipin"]
+        case .defaultM3U:
+            return ["type": "defaultM3U"]
         case .defaultIPTV2:
             return ["type": "defaultIPTV2"]
         case .subscribe(let name, let url):
@@ -220,7 +222,7 @@ class LiveTVService: ObservableObject {
     var m3u8Cache: [String: String] = [:]
 
     /// 当前直播源
-    @Published var currentSource: LiveSourceType = .yangshipin {
+    @Published var currentSource: LiveSourceType = .defaultM3U {
         didSet {
             // 切换源时清空缓存
             clearCache()
@@ -243,7 +245,7 @@ class LiveTVService: ObservableObject {
 
     /// 所有可用源列表
     var availableSources: [LiveSourceType] {
-        var sources: [LiveSourceType] = [.yangshipin, .defaultIPTV2]
+        var sources: [LiveSourceType] = [.defaultM3U, .defaultIPTV2]
         // 可以从配置文件读取的订阅源
         sources.append(contentsOf: configSubscribeSources)
         // 用户自定义源
@@ -313,10 +315,9 @@ class LiveTVService: ObservableObject {
         subscribeChannels = [] // 清空缓存，强制重新加载
         dynamicCategories = []
 
-        if case .yangshipin = source {
-            // 央视频使用内置频道数据
-            loadYangshipinChannels()
-            buildYangshipinCategories()
+        if case .defaultM3U = source {
+            // 从 App Bundle 加载 M3U 文件
+            loadBundleM3U()
         } else if let url = source.sourceURL {
             // 如果是本地导入的源，从缓存加载
             if url.hasPrefix("local://") {
@@ -345,7 +346,7 @@ class LiveTVService: ObservableObject {
         saveCustomSources()
         // 如果删除的是当前正在使用的源，切回默认源
         if removed.id == currentSource.id {
-            currentSource = .yangshipin
+            currentSource = .defaultM3U
         }
     }
 
@@ -446,11 +447,6 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 获取分类频道列表
     func fetchChannels(tid: String) async -> [LiveChannel] {
-        // 央视频分类
-        if tid.hasPrefix("ysp_") {
-            return fetchYangshipinChannels(forTid: tid)
-        }
-
         // 统一使用 dynamicCategories
         if dynamicCategories.isEmpty {
             if let url = currentSource.sourceURL {
@@ -544,16 +540,6 @@ class LiveTVService: ObservableObject {
 
     // MARK: - 解析频道所有可用线路
     func resolveAllSources(channel: LiveChannel) async -> [String] {
-        // 央视频频道：动态获取播放地址
-        if channel.id.hasPrefix("ysp_") {
-            if let yspChannel = yangshipinChannels.first(where: { $0.key == channel.id.replacingOccurrences(of: "ysp_", with: "") }) {
-                if let playURL = await fetchYangshipinPlayURL(for: yspChannel) {
-                    return [playURL]
-                }
-            }
-            return []
-        }
-
         // 直接返回频道已有的 sources（M3U订阅源中已包含播放地址）
         if !channel.sources.isEmpty {
             return channel.sources
@@ -751,373 +737,22 @@ class LiveTVService: ObservableObject {
         }
     }
 
-    // MARK: - 央视频频道数据
+    // MARK: - Bundle M3U 加载
 
-    /// 央视频频道模型
-    struct YangshipinChannel {
-        let key: String
-        let cnlid: String
-        let livepid: String
-        let defn: String
-        let displayName: String
-        let logo: String
-    }
-
-    /// 央视频分类模型
-    struct YangshipinCategory {
-        let name: String
-        let ids: [String]
-    }
-
-    /// 央视频频道台标
-    private static let yangshipinLogos: [String: String] = [
-        "cctv1": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV1.png",
-        "cctv2": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV2.png",
-        "cctv3": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV3.png",
-        "cctv4": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV4.png",
-        "cctv5": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV5.png",
-        "cctv5p": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV5plus.png",
-        "cctv6": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV6.png",
-        "cctv7": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV7.png",
-        "cctv8": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV8.png",
-        "cctv9": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV9.png",
-        "cctv10": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV10.png",
-        "cctv11": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV11.png",
-        "cctv12": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV12.png",
-        "cctv13": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV13.png",
-        "cctv14": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV14.png",
-        "cctv15": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV15.png",
-        "cctv16": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV16.png",
-        "cctv164k": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV16.png",
-        "cctv17": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV17.png",
-        "cctv4k": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV4K.png",
-        "cctv8k": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTV8K.png",
-        "cgtn": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTN.png",
-        "cgtnfy": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTNfy.png",
-        "cgtney": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTNey.png",
-        "cgtnalby": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTNalby.png",
-        "cgtnxby": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTNxbyy.png",
-        "cgtnwyjl": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CGTNjilu.png",
-        "cctvfyjc": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVfyjc.png",
-        "cctvdyjc": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVdyjc.png",
-        "cctvhjjc": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVhjjc.png",
-        "cctvsjdl": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVsjdl.png",
-        "cctvfyyy": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVfyyy.png",
-        "cctvbqkj": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVbqkj.png",
-        "cctvfyzq": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVfyzq.png",
-        "cctvgeqwq": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVgefwq.png",
-        "cctvnxss": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVnxss.png",
-        "cctvyswhjp": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVyswhjp.png",
-        "cctvystq": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVystq.png",
-        "cctvdszn": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVdszn.png",
-        "cctvwsjk": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CCTVwsjk.png",
-        "bjws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Beijing.png",
-        "jsws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Jiangsu.png",
-        "dfws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Dongfang.png",
-        "zjws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Zhejiang.png",
-        "hnws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Hunan.png",
-        "hbws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Hubei.png",
-        "gdws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Guangdong.png",
-        "gxws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Guangxi.png",
-        "hljws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Heilongjiang.png",
-        "hnws2": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Hainan.png",
-        "cqws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Chongqing.png",
-        "szws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Shenzhen.png",
-        "scws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Sichuan.png",
-        "henanws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Henan.png",
-        "fjdnhz": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Dongnan.png",
-        "gzhws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Guizhou.png",
-        "jxws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Jiangxi.png",
-        "lnws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Liaoning.png",
-        "ahws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Anhui.png",
-        "hbws2": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Hebei.png",
-        "sdws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Shandong.png",
-        "tjws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Tianjin.png",
-        "jlws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Jilin.png",
-        "shanxiws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Shanxi.png",
-        "nxws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Ningxia.png",
-        "nmgws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Neimeng.png",
-        "ynws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Yunnan.png",
-        "shanxiws2": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Shanxi_.png",
-        "qhws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Qinghai.png",
-        "xzws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Xizang.png",
-        "xjws": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/Xinjiang.png",
-        "cetv1": "https://cdn.jsdelivr.net/gh/wanglindl/TVlogo@main/img/CETV1.png",
-        "gxpd": ""
-    ]
-
-    /// 央视频频道原始数据 [key: [cnlid, livepid, defn, displayName]]
-    private static let yangshipinRawData: [String: [String]] = [
-        "cctv1":     ["2024078201", "600001859", "fhd", "CCTV-1"],
-        "cctv2":     ["2024075401", "600001800", "fhd", "CCTV-2"],
-        "cctv3":     ["2024068501", "600001801", "fhd", "CCTV-3"],
-        "cctv4":     ["2029797101", "600001814", "fhd", "CCTV-4"],
-        "cctv5":     ["2024078401", "600001818", "fhd", "CCTV-5"],
-        "cctv5p":    ["2024078001", "600001817", "fhd", "CCTV-5+"],
-        "cctv6":     ["2013693901", "600108442", "fhd", "CCTV-6"],
-        "cctv7":     ["2024072001", "600004092", "fhd", "CCTV-7"],
-        "cctv8":     ["2029793001", "600001803", "fhd", "CCTV-8"],
-        "cctv9":     ["2024078601", "600004078", "fhd", "CCTV-9"],
-        "cctv10":    ["2024078701", "600001805", "fhd", "CCTV-10"],
-        "cctv11":    ["2027248701", "600001806", "fhd", "CCTV-11"],
-        "cctv12":    ["2027248801", "600001807", "fhd", "CCTV-12"],
-        "cctv13":    ["2029797201", "600001811", "fhd", "CCTV-13"],
-        "cctv14":    ["2027248901", "600001809", "fhd", "CCTV-14"],
-        "cctv15":    ["2027249001", "600001815", "fhd", "CCTV-15"],
-        "cctv16":    ["2027249101", "600098637", "fhd", "CCTV-16"],
-        "cctv164k":  ["2027249301", "600099502", "fhd", "CCTV-16(4K)"],
-        "cctv17":    ["2027249401", "600001810", "fhd", "CCTV-17"],
-        "cctv4k":    ["2029810301", "600002264", "fhd", "CCTV-4K"],
-        "cctv8k":    ["2026774101", "600156816", "fhd", "CCTV-8K"],
-        "cgtn":      ["2024181701", "600014550", "fhd", "CGTN"],
-        "cgtnfy":    ["2024181801", "600084704", "fhd", "CGTN法语"],
-        "cgtney":    ["2024181901", "600084758", "fhd", "CGTN俄语"],
-        "cgtnalby":  ["2024182001", "600084782", "fhd", "CGTN阿拉伯语"],
-        "cgtnxby":   ["2024182101", "600084744", "fhd", "CGTN西班牙语"],
-        "cgtnwyjl":  ["2024182301", "600084781", "fhd", "CGTN外语纪录"],
-        "cctvfyjc":  ["2025637103", "600099658", "shd", "风云剧场"],
-        "cctvdyjc":  ["2026874203", "600099655", "shd", "第一剧场"],
-        "cctvhjjc":  ["2026874303", "600099620", "shd", "怀旧剧场"],
-        "cctvsjdl":  ["2026874403", "600099637", "shd", "世界地理"],
-        "cctvfyyy":  ["2026874503", "600099660", "shd", "风云音乐"],
-        "cctvbqkj":  ["2026874603", "600099649", "shd", "兵器科技"],
-        "cctvfyzq":  ["2026966203", "600099636", "shd", "风云足球"],
-        "cctvgeqwq": ["2026874703", "600099659", "shd", "高尔夫·网球"],
-        "cctvnxss":  ["2026874803", "600099650", "shd", "女性时尚"],
-        "cctvyswhjp":["2026874903", "600099653", "shd", "央视文化精品"],
-        "cctvystq":  ["2026875003", "600099652", "shd", "央视台球"],
-        "cctvdszn":  ["2026875103", "600099656", "shd", "电视指南"],
-        "cctvwsjk":  ["2025637003", "600099651", "shd", "卫生健康"],
-        "bjws":      ["2024052703", "600002309", "fhd", "北京卫视"],
-        "jsws":      ["2024171103", "600002521", "fhd", "江苏卫视"],
-        "dfws":      ["2024054503", "600002483", "fhd", "东方卫视"],
-        "zjws":      ["2024054703", "600002520", "fhd", "浙江卫视"],
-        "hnws":      ["2024054803", "600002475", "fhd", "湖南卫视"],
-        "hbws":      ["2024171203", "600002508", "fhd", "湖北卫视"],
-        "gdws":      ["2024060903", "600002485", "fhd", "广东卫视"],
-        "gxws":      ["2024060703", "600002509", "fhd", "广西卫视"],
-        "hljws":     ["2029797003", "600002498", "fhd", "黑龙江卫视"],
-        "hnws2":     ["2024055603", "600002506", "fhd", "海南卫视"],
-        "cqws":      ["2024061103", "600002531", "fhd", "重庆卫视"],
-        "szws":      ["2024061303", "600002481", "fhd", "深圳卫视"],
-        "scws":      ["2024061403", "600002516", "fhd", "四川卫视"],
-        "henanws":   ["2029797303", "600002525", "fhd", "河南卫视"],
-        "fjdnhz":    ["2024061503", "600002484", "fhd", "福建东南卫视"],
-        "gzhws":     ["2024061603", "600002490", "fhd", "贵州卫视"],
-        "jxws":      ["2024061703", "600002503", "fhd", "江西卫视"],
-        "lnws":      ["2024171303", "600002505", "fhd", "辽宁卫视"],
-        "ahws":      ["2024171403", "600002532", "fhd", "安徽卫视"],
-        "hbws2":     ["2024171503", "600002493", "fhd", "河北卫视"],
-        "sdws":      ["2029787903", "600002513", "fhd", "山东卫视"],
-        "tjws":      ["2019927003", "600152137", "fhd", "天津卫视"],
-        "jlws":      ["2025561503", "600190405", "fhd", "吉林卫视"],
-        "shanxiws":  ["2029795103", "600190400", "fhd", "陕西卫视"],
-        "nxws":      ["2025608503", "600190737", "fhd", "宁夏卫视"],
-        "nmgws":     ["2025561203", "600190401", "fhd", "内蒙古卫视"],
-        "ynws":      ["2025561303", "600190402", "fhd", "云南卫视"],
-        "shanxiws2": ["2025560803", "600190407", "fhd", "山西卫视"],
-        "qhws":      ["2025559103", "600190406", "fhd", "青海卫视"],
-        "xzws":      ["2025558003", "600190403", "fhd", "西藏卫视"],
-        "xjws":      ["2019927403", "600152138", "fhd", "新疆卫视"],
-        "cetv1":     ["2022823801", "600171827", "fhd", "中国教育电视台"],
-        "gxpd":      ["2029360403", "600213139", "fhd", "国学频道"]
-    ]
-
-    /// 央视频分类定义
-    private static let yangshipinCats: [YangshipinCategory] = [
-        YangshipinCategory(name: "央视", ids: [
-            "cctv1", "cctv2", "cctv3", "cctv4", "cctv5", "cctv5p",
-            "cctv6", "cctv7", "cctv8", "cctv9", "cctv10", "cctv11",
-            "cctv12", "cctv13", "cctv14", "cctv15", "cctv16", "cctv164k",
-            "cctv17", "cctv4k", "cctv8k"
-        ]),
-        YangshipinCategory(name: "CGTN", ids: [
-            "cgtn", "cgtnfy", "cgtney", "cgtnalby", "cgtnxby", "cgtnwyjl"
-        ]),
-        YangshipinCategory(name: "央视付费", ids: [
-            "cctvfyjc", "cctvdyjc", "cctvhjjc", "cctvsjdl", "cctvfyyy",
-            "cctvbqkj", "cctvfyzq", "cctvgeqwq", "cctvnxss", "cctvyswhjp",
-            "cctvystq", "cctvdszn", "cctvwsjk"
-        ]),
-        YangshipinCategory(name: "卫视", ids: [
-            "bjws", "jsws", "dfws", "zjws", "hnws", "hbws", "gdws",
-            "gxws", "hljws", "hnws2", "cqws", "szws", "scws", "henanws",
-            "fjdnhz", "gzhws", "jxws", "lnws", "ahws", "hbws2", "sdws",
-            "tjws", "jlws", "shanxiws", "nxws", "nmgws", "ynws",
-            "shanxiws2", "qhws", "xzws", "xjws"
-        ]),
-        YangshipinCategory(name: "其他", ids: [
-            "cetv1", "gxpd"
-        ])
-    ]
-
-    /// 已解析的央视频频道列表
-    @Published var yangshipinChannels: [YangshipinChannel] = []
-
-    /// 央视频分类列表
-    @Published var yangshipinCategories: [LiveCategory] = []
-
-    // MARK: - 央视频频道加载
-
-    /// 加载央视频内置频道数据
-    func loadYangshipinChannels() {
-        var channels: [YangshipinChannel] = []
-        for (key, data) in Self.yangshipinRawData {
-            guard data.count >= 4 else { continue }
-            let logo = Self.yangshipinLogos[key] ?? ""
-            channels.append(YangshipinChannel(
-                key: key,
-                cnlid: data[0],
-                livepid: data[1],
-                defn: data[2],
-                displayName: data[3],
-                logo: logo
-            ))
+    /// 从 App Bundle 加载 M3U 直播源文件
+    func loadBundleM3U() {
+        guard let url = Bundle.main.url(forResource: "default_live", withExtension: "m3u") else {
+            print("[LiveTV] Bundle 中未找到 default_live.m3u")
+            return
         }
-        yangshipinChannels = channels
-    }
-
-    /// 构建央视频分类列表
-    func buildYangshipinCategories() {
-        var cats: [LiveCategory] = []
-        for (idx, cat) in Self.yangshipinCats.enumerated() {
-            // 取第一个频道台标作为分类图标
-            let firstLogo = cat.ids.first.flatMap { Self.yangshipinLogos[$0] }
-            cats.append(LiveCategory(
-                id: "ysp_cat_\(idx)",
-                name: cat.name,
-                tid: "ysp_\(idx)",
-                icon: "tv",
-                logo: firstLogo
-            ))
-        }
-        yangshipinCategories = cats
-    }
-
-    // MARK: - 央视频播放地址获取
-
-    /// 获取央视频频道的播放地址
-    /// - Parameter channel: 央视频频道
-    /// - Returns: 播放 URL，失败返回 nil
-    func fetchYangshipinPlayURL(for channel: YangshipinChannel) async -> String? {
-        let guid = YangshipinCrypto.genGUID()
-        let (ckey, timestamp) = YangshipinCrypto.genCKey(cnlid: channel.cnlid, guid: guid)
-        let flowid = YangshipinCrypto.genFlowID()
-
-        var urlComponents = URLComponents(string: "https://liveinfo.ysp.cctv.cn")!
-        urlComponents.queryItems = [
-            URLQueryItem(name: "atime", value: "120"),
-            URLQueryItem(name: "livepid", value: channel.livepid),
-            URLQueryItem(name: "cnlid", value: channel.cnlid),
-            URLQueryItem(name: "appVer", value: "V8.22.1035.3031"),
-            URLQueryItem(name: "app_version", value: "300090"),
-            URLQueryItem(name: "caplv", value: "1"),
-            URLQueryItem(name: "cmd", value: "2"),
-            URLQueryItem(name: "defn", value: channel.defn),
-            URLQueryItem(name: "device", value: "iPhone"),
-            URLQueryItem(name: "encryptVer", value: "4.2"),
-            URLQueryItem(name: "getpreviewinfo", value: "0"),
-            URLQueryItem(name: "hevclv", value: "33"),
-            URLQueryItem(name: "lang", value: "zh-Hans_JP"),
-            URLQueryItem(name: "livequeue", value: "0"),
-            URLQueryItem(name: "logintype", value: "1"),
-            URLQueryItem(name: "nettype", value: "1"),
-            URLQueryItem(name: "newnettype", value: "1"),
-            URLQueryItem(name: "newplatform", value: "4330403"),
-            URLQueryItem(name: "platform", value: "4330403"),
-            URLQueryItem(name: "sdtfrom", value: "v3021"),
-            URLQueryItem(name: "spacode", value: "23"),
-            URLQueryItem(name: "spaudio", value: "1"),
-            URLQueryItem(name: "spdemuxer", value: "6"),
-            URLQueryItem(name: "spdrm", value: "2"),
-            URLQueryItem(name: "spdynamicrange", value: "7"),
-            URLQueryItem(name: "spflv", value: "1"),
-            URLQueryItem(name: "spflvaudio", value: "1"),
-            URLQueryItem(name: "sphdrfps", value: "60"),
-            URLQueryItem(name: "sphttps", value: "0"),
-            URLQueryItem(name: "spvcode", value: "MSgzMDoyMTYwLDYwOjIxNjB8MzA6MjE2MCw2MDoyMTYwKTsyKDMwOjIxNjAsNjA6MjE2MHwzMDoyMTYwLDYwOjIxNjAp"),
-            URLQueryItem(name: "spvideo", value: "4"),
-            URLQueryItem(name: "stream", value: "1"),
-            URLQueryItem(name: "system", value: "1"),
-            URLQueryItem(name: "sysver", value: "ios18.2.1"),
-            URLQueryItem(name: "uhd_flag", value: "4"),
-            URLQueryItem(name: "cKey", value: ckey),
-            URLQueryItem(name: "guid", value: guid),
-            URLQueryItem(name: "fntick", value: "\(timestamp)"),
-            URLQueryItem(name: "flowid", value: flowid),
-            URLQueryItem(name: "playbacktime", value: "0")
-        ]
-
-        guard let url = urlComponents.url else {
-            print("[LiveTV] 央视频播放地址 URL 构建失败")
-            return nil
-        }
-
         do {
-            var request = URLRequest(url: url)
-            request.setValue("qqlive", forHTTPHeaderField: "User-Agent")
-            request.setValue("Keep-Alive", forHTTPHeaderField: "Connection")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("https://m.yangshipin.cn", forHTTPHeaderField: "Referer")
-            request.timeoutInterval = 15
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            // 打印 HTTP 状态码
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[LiveTV] 央视频 API HTTP \(httpResponse.statusCode): \(channel.displayName)")
-            }
-            // 打印原始响应（前 500 字符）
-            if let rawStr = String(data: data, encoding: .utf8) {
-                print("[LiveTV] 央视频 API 原始响应: \(String(rawStr.prefix(500)))")
-            }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                if let iretcode = json["iretcode"] as? Int {
-                    print("[LiveTV] 央视频 iretcode=\(iretcode): \(channel.displayName)")
-                    if iretcode == 0, let playurl = json["playurl"] as? String {
-                        print("[LiveTV] 央视频播放地址获取成功: \(channel.displayName)")
-                        return playurl
-                    } else {
-                        let errmsg = json["errmsg"] as? String ?? "未知错误"
-                        print("[LiveTV] 央视频播放地址获取失败: \(channel.displayName), iretcode=\(iretcode), errmsg=\(errmsg)")
-                    }
-                } else {
-                    print("[LiveTV] 央视频响应无 iretcode 字段: \(channel.displayName), keys=\(json.keys)")
-                }
-            } else {
-                print("[LiveTV] 央视频响应非 JSON: \(channel.displayName)")
-            }
-            return nil
+            let content = try String(contentsOf: url, encoding: .utf8)
+            let channels = parseM3U(content: content)
+            subscribeChannels = channels
+            buildDynamicCategories()
+            print("[LiveTV] Bundle M3U 加载成功: \(channels.count) 个频道")
         } catch {
-            print("[LiveTV] 央视频播放地址请求异常: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    // MARK: - 央视频频道按分类获取
-
-    /// 按分类获取央视频频道列表
-    func fetchYangshipinChannels(forTid tid: String) -> [LiveChannel] {
-        guard tid.hasPrefix("ysp_"),
-              let catIdx = Int(tid.replacingOccurrences(of: "ysp_", with: "")),
-              catIdx >= 0, catIdx < Self.yangshipinCats.count else {
-            return []
-        }
-
-        let cat = Self.yangshipinCats[catIdx]
-        return cat.ids.compactMap { key -> LiveChannel? in
-            guard let data = Self.yangshipinRawData[key], data.count >= 4,
-                  let channel = yangshipinChannels.first(where: { $0.key == key }) else {
-                return nil
-            }
-            return LiveChannel(
-                id: "ysp_\(key)",
-                name: channel.displayName,
-                tid: tid,
-                channelId: channel.cnlid,
-                token: channel.livepid,
-                logo: channel.logo,
-                sources: []
-            )
+            print("[LiveTV] Bundle M3U 加载失败: \(error)")
         }
     }
 }
