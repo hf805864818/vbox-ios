@@ -11,3 +11,6 @@ void QJSBridge_freeString(void* _Nonnull ctx, const char* _Nonnull str);
 
 // 注册 http() 全局函数 — 让 JS 蜘蛛可以发网络请求
 void QJSBridge_registerHTTP(void* _Nonnull ctx);
+
+// 注册 crypto 全局对象 — 让 JS 蜘蛛可以使用 AES/MD5/base64
+void QJSBridge_registerCrypto(void* _Nonnull ctx);

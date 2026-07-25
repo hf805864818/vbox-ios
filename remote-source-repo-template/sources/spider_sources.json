@@ -5,5 +5,16 @@
     "description": "用于存放 TVBox / drpy / JS 蜘蛛 / 站源类配置，后期从 default_subscribe.json 分阶段迁移"
   },
   "spider": "",
-  "sites": []
+  "sites": [
+    {
+      "key": "tetui",
+      "name": "特推",
+      "type": 3,
+      "api": "tetui_spider.js",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 1,
+      "ext": ""
+    }
+  ]
 }
