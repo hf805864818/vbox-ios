@@ -9,7 +9,9 @@ struct ShortDramaSource: Identifiable, Equatable {
     let categoryId: String
     let categoryName: String
     var totalCount: Int = 0
-    
+    let sourceType: SourceCategory       // .api 或 .jsSpider
+    let engineKey: String?               // JS 蜘蛛源的引擎 key
+
     static func == (lhs: ShortDramaSource, rhs: ShortDramaSource) -> Bool {
         lhs.id == rhs.id
     }
@@ -37,38 +39,38 @@ class ShortDramaService: ObservableObject {
     func scanShortDramaSources(from sites: [SiteConfig]) async {
         var sources: [ShortDramaSource] = []
         var seen = Set<String>()
-        
+
         // 收集所有 VOD API 站点
         var checkSites: [(name: String, api: String)] = []
-        
+
         for site in sites {
             guard let api = site.api, !api.isEmpty else { continue }
             if api.contains("provide/vod") || api.contains("api.php") {
                 checkSites.append((site.name, api))
             }
         }
-        
+
         // 加上内置兜底源（受 bundleSourcesEnabled 开关控制）
         for fallback in SpiderManager.shared.allFallbackSites {
             if !checkSites.contains(where: { $0.api == fallback.api }) {
                 checkSites.append(fallback)
             }
         }
-        
+
         for site in checkSites {
             guard !seen.contains(site.api) else { continue }
             seen.insert(site.api)
-            
+
             let baseAPI = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
             let listUrl = "\(baseAPI)?ac=list&pg=1"
-            
+
             guard let url = URL(string: listUrl) else { continue }
-            
+
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let classes = json["class"] as? [[String: Any]] else { continue }
-                
+
                 for cls in classes {
                     let name = cls["type_name"] as? String ?? ""
                     let typeId: String
@@ -79,9 +81,9 @@ class ShortDramaService: ObservableObject {
                     } else {
                         continue
                     }
-                    
+
                     guard dramaKeywords.contains(where: { name.contains($0) }) else { continue }
-                    
+
                     let sourceId = "\(site.name)_\(typeId)"
                     sources.append(ShortDramaSource(
                         id: sourceId,
@@ -89,21 +91,62 @@ class ShortDramaService: ObservableObject {
                         api: site.api,
                         categoryId: typeId,
                         categoryName: name,
-                        totalCount: json["total"] as? Int ?? 0
+                        totalCount: json["total"] as? Int ?? 0,
+                        sourceType: .api,
+                        engineKey: nil
                     ))
                 }
             } catch {
                 print("[ShortDrama] 扫描失败 \(site.name): \(error.localizedDescription)")
             }
         }
-        
+
+        // MARK: - 扫描 JS 蜘蛛源（type:3）的短剧分类
+        let spiderManager = SpiderManager.shared
+        for site in sites where site.type == 3 {
+            let engineKey = site.key.isEmpty ? site.name : site.key
+            guard let engine = spiderManager.getEngine(forKey: engineKey) else {
+                print("[ShortDrama] JS蜘蛛引擎未加载: \(site.name) (\(engineKey))")
+                continue
+            }
+
+            let sourceId = "js_\(site.name)_shortdrama"
+            guard !seen.contains(sourceId) else { continue }
+            seen.insert(sourceId)
+
+            do {
+                let result = try engine.callHomeContent()
+                let categories = result.class ?? []
+
+                for cat in categories {
+                    let catName = cat.typeName
+                    guard dramaKeywords.contains(where: { catName.contains($0) }) else { continue }
+
+                    sources.append(ShortDramaSource(
+                        id: "js_\(site.name)_\(cat.typeId)",
+                        name: site.name,
+                        api: site.api ?? "",
+                        categoryId: cat.typeId,
+                        categoryName: catName,
+                        totalCount: 0,
+                        sourceType: .jsSpider,
+                        engineKey: engineKey
+                    ))
+                    print("[ShortDrama] JS蜘蛛源发现短剧分类: \(site.name) → \(catName)(ID=\(cat.typeId))")
+                }
+            } catch {
+                print("[ShortDrama] JS蜘蛛扫描失败 \(site.name): \(error.localizedDescription)")
+            }
+        }
+
         sources.sort { $0.name < $1.name }
         self.shortDramaSources = sources
-        
+
         if !sources.isEmpty {
             print("[ShortDrama] ✅ 识别到 \(sources.count) 个短剧源:")
             for s in sources {
-                print("  - \(s.name): \(s.categoryName)(ID=\(s.categoryId)) \(s.totalCount)部")
+                let typeTag = s.sourceType == .jsSpider ? "[JS]" : "[API]"
+                print("  - \(typeTag) \(s.name): \(s.categoryName)(ID=\(s.categoryId)) \(s.totalCount)部")
             }
         }
     }
@@ -167,6 +210,9 @@ class ShortDramaService: ObservableObject {
         
         Task {
             for source in shortDramaSources {
+                // JS 蜘蛛源跳过封面补全（homeContent/categoryContent 已返回封面）
+                guard source.sourceType != .jsSpider else { continue }
+
                 let batchSize = 30
                 for batchStart in stride(from: 0, to: vodIds.count, by: batchSize) {
                     let batch = Array(vodIds[batchStart..<min(batchStart + batchSize, vodIds.count)])
@@ -222,17 +268,38 @@ class ShortDramaService: ObservableObject {
     }
 
     private func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
+        // JS 蜘蛛源：通过引擎调用 categoryContent
+        if source.sourceType == .jsSpider, let engineKey = source.engineKey,
+           let engine = SpiderManager.shared.getEngine(forKey: engineKey) {
+            do {
+                let result = try engine.callCategoryContent(tid: source.categoryId, pg: page, extend: "{}")
+                guard let list = result.list, !list.isEmpty else { return [] }
+
+                return list.map { item in
+                    var vod = item
+                    if vod.vodRemarks == nil || vod.vodRemarks?.isEmpty == true {
+                        vod.vodRemarks = "\(source.name)"
+                    }
+                    return vod
+                }
+            } catch {
+                print("[ShortDrama] JS蜘蛛获取失败 \(source.name): \(error.localizedDescription)")
+                return []
+            }
+        }
+
+        // API 源：通过 HTTP 调用 ac=list 接口
         let api = source.api
         let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
         let listUrl = "\(baseAPI)?ac=list&t=\(source.categoryId)&pg=\(page)"
-        
+
         guard let url = URL(string: listUrl) else { return [] }
-        
+
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let list = json["list"] as? [[String: Any]] else { return [] }
-            
+
             return list.compactMap { dict -> VodItem? in
                 guard let name = dict["vod_name"] as? String else { return nil }
                 let vid = dict["vod_id"] as? String ?? "\(dict["vod_id"] as? Int ?? 0)"

@@ -70,6 +70,11 @@ class SpiderManager: ObservableObject {
     func hasEngine(forKey key: String) -> Bool {
         return engines[key] != nil
     }
+
+    /// 获取指定 key 的蜘蛛引擎
+    func getEngine(forKey key: String) -> (any SpiderEngineProtocol)? {
+        return engines[key]
+    }
     
     /// 获取引擎加载统计
     var engineStats: (loaded: Int, total: Int) {
