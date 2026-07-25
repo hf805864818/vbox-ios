@@ -779,7 +779,7 @@ struct VideoDetailView: View {
             }
         }
         .onDisappear {
-            // 底栏由 SourceDiscoveryView.onDisappear 统一恢复，此处不处理
+            // 底栏由 MainViews.onDismiss 统一恢复，此处不处理
         }
         .onReceive(cloudDriveSortManager.$order) { _ in
             guard isCloudVideo, !rawCloudLinks.isEmpty else { return }
