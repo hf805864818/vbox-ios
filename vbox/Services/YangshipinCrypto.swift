@@ -420,7 +420,7 @@ enum YangshipinCrypto {
         let params: [String: Any] = [
             "Platform": 4330403,
             "Timestamp": ts,
-            "Sdtfrom": "dcgh",
+            "Sdtfrom": "v3021",
             "vid": cnlid,
             "guid": guid,
             "appVer": "V8.22.1035.3031",
