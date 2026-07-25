@@ -1143,6 +1143,10 @@ globalThis.__JS_SPIDER__ = _spider;
             ? [.javaScriptCore, .quickJS]
             : [.quickJS, .javaScriptCore]
         
+        // 安全移除旧引擎，避免在创建新引擎过程中被意外释放
+        // 将旧引擎保存到局部变量，延长其生命周期至函数末尾
+        let oldEngine = engines.removeValue(forKey: key)
+        
         var lastError: Error?
         
         for engineType in enginesToTry {

@@ -23,8 +23,17 @@ class QJSSpiderEngine {
     }
 
     deinit {
-        if let ctx = ctx { QJSBridge_freeContext(ctx) }
-        if let rt = rt { QJSBridge_freeRuntime(rt) }
+        // JS_FreeRuntime 内部会自动释放所有关联的 context
+        // 先调用 JS_FreeContext 再调用 JS_FreeRuntime 会导致 double-free，
+        // 破坏 runtime 内部数据结构，在 JS_RunGC 中触发断言失败 (SIGABRT)
+        //
+        // 正确做法：只调用 JS_FreeRuntime，它会自动清理所有 context 和对象
+        if let rt = rt {
+            QJSBridge_freeRuntime(rt)
+        }
+        // 将指针置空，防止意外使用
+        ctx = nil
+        rt = nil
     }
 
     private func setupBridge() {
