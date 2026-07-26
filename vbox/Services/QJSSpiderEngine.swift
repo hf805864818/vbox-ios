@@ -23,11 +23,20 @@ class QJSSpiderEngine {
     }
 
     deinit {
-        // JS_FreeRuntime 内部会自动释放所有关联的 context
-        // 先调用 JS_FreeContext 再调用 JS_FreeRuntime 会导致 double-free，
-        // 破坏 runtime 内部数据结构，在 JS_RunGC 中触发断言失败 (SIGABRT)
+        // QuickJS 的标准清理顺序：
+        // 1. JS_FreeContext(ctx) — 释放 context 及其所有 JS 对象（global_obj 等）
+        //    JS_FreeContext 内部会：
+        //    - 释放 global_obj 和 global_var_obj（级联释放所有属性）
+        //    - 从 runtime 的 context_list 中移除
+        //    - 从 gc_obj_list 中移除
+        // 2. JS_FreeRuntime(rt) — 释放 runtime，内部会运行 JS_RunGC 并
+        //    断言 gc_obj_list 为空（assert(list_empty(&rt->gc_obj_list))）
         //
-        // 正确做法：只调用 JS_FreeRuntime，它会自动清理所有 context 和对象
+        // 注意：必须先释放 context 再释放 runtime，否则 runtime 的 gc_obj_list
+        // 中仍有 context 的对象，导致 JS_FreeRuntime 断言失败
+        if let ctx = ctx {
+            QJSBridge_freeContext(ctx)
+        }
         if let rt = rt {
             QJSBridge_freeRuntime(rt)
         }
