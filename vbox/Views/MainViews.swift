@@ -284,10 +284,8 @@ struct HomeView: View {
             }
         }
         .onChange(of: showSourcePicker) { isShowing in
-            if isShowing && allSources.isEmpty {
-                // 兜底: onAppear 未加载到数据时在此补充加载
-                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
-            }
+            // 数据已在 onAppear 中预加载 (fetchAllSourceDisplayItems 有缓存)
+            // 此处不再重复加载，避免 async/await 编译问题和延迟渲染卡顿
         }
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { showSearch = true }
