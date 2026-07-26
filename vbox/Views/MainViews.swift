@@ -255,7 +255,7 @@ struct HomeView: View {
             // 豆瓣首页始终存活，避免条件创建/销毁导致的卡顿和底栏状态丢失
             doubanHomeContent
                 .zIndex(0)
-                .allowsHitTesting(selectedSource == nil)
+                .allowsHitTesting(selectedSource == nil && !showSourcePicker)
 
             // ★ NavigationView 始终存活，避免 UINavigationController 创建/销毁导致的卡顿
             // 通过 opacity + allowsHitTesting 控制可见性，而非条件创建/销毁
@@ -285,7 +285,13 @@ struct HomeView: View {
         }
         .onChange(of: showSourcePicker) { isShowing in
             if isShowing {
-                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
+                // 🔧 修复: 异步加载源列表，避免主线程同步IO阻塞导致弹窗滑动卡顿
+                Task.detached(priority: .userInitiated) {
+                    let items = SpiderManager.shared.fetchAllSourceDisplayItems()
+                    await MainActor.run {
+                        self.allSources = items
+                    }
+                }
             }
         }
         .onChange(of: settings.searchRequestId) { _ in
@@ -390,6 +396,7 @@ struct HomeView: View {
     private var homeSourceDropdownOverlay: some View {
         Color.black.opacity(0.3)
             .ignoresSafeArea()
+            .contentShape(Rectangle())
             .onTapGesture { showSourcePicker = false }
             .overlay(alignment: .topLeading) {
                 VStack(spacing: 0) {
