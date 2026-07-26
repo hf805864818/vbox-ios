@@ -77,8 +77,9 @@ struct MainTabView: View {
 
 extension View {
     /// 全局边缘侧滑返回（放宽触发区域和距离）
+    /// 使用 highPriorityGesture 避免与 NavigationView 系统手势同时触发
     func edgeSwipeBack(_ action: @escaping () -> Void) -> some View {
-        simultaneousGesture(
+        highPriorityGesture(
             DragGesture(minimumDistance: 12, coordinateSpace: .global)
                 .onEnded { value in
                     let dx = value.translation.width
