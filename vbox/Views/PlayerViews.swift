@@ -779,7 +779,9 @@ struct VideoDetailView: View {
             }
         }
         .onDisappear {
-            // 底栏由 MainViews.onDismiss 统一恢复，此处不处理
+            // 底栏由 HomeView.onChange(of: selectedSource) 统一控制
+            // 当用户从 VideoDetailView 返回 SourceDiscoveryView 时，底栏保持隐藏
+            // 当用户从 SourceDiscoveryView 返回首页时，onDismiss 中的 withAnimation 统一恢复底栏
         }
         .onReceive(cloudDriveSortManager.$order) { _ in
             guard isCloudVideo, !rawCloudLinks.isEmpty else { return }

@@ -256,15 +256,18 @@ struct HomeView: View {
                 .zIndex(0)
                 .allowsHitTesting(selectedSource == nil)
 
-            // 源发现页作为覆盖层，通过 transition 动画进入/退出
+            // 源发现页作为覆盖层，通过 withAnimation 驱动的 transition 动画进入/退出
             if let source = selectedSource {
                 NavigationView {
                     SourceDiscoveryView(
                         source: source,
                         selectedSource: $selectedSource,
                         onDismiss: {
-                            selectedSource = nil
-                            settings.isTabBarHidden = false
+                            // ★ 使用 withAnimation 驱动 overlay 移除动画
+                            // isTabBarHidden 由 onChange(of: selectedSource) 统一控制，此处不重复设置
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                selectedSource = nil
+                            }
                         }
                     )
                     .environmentObject(settings)
@@ -281,7 +284,7 @@ struct HomeView: View {
         }
         .onChange(of: showSourcePicker) { isShowing in
             if isShowing {
-                // 每次打开弹窗时刷新源列表
+                // 每次打开弹窗时刷新源列表（现在有缓存，不会阻塞主线程）
                 allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
             }
         }
@@ -290,7 +293,10 @@ struct HomeView: View {
         }
         // ★ 唯一控制点：底栏显示/隐藏仅由 selectedSource 决定，消除多路径竞争
         .onChange(of: selectedSource) { newValue in
-            settings.isTabBarHidden = newValue != nil
+            // 使用 withAnimation 确保底栏的 transition 动画与 overlay 动画协调
+            withAnimation(.easeInOut(duration: 0.3)) {
+                settings.isTabBarHidden = newValue != nil
+            }
         }
     }
 
