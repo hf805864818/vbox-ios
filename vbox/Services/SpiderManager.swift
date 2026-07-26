@@ -27,8 +27,16 @@ class SpiderManager: ObservableObject {
     @Published var subscribedSites: [String] = []
     @Published var savedURLs: [String] = []
     @Published var loadedSiteCount: Int = 0
-    @Published var allSites: [SiteConfig] = []
+    @Published var allSites: [SiteConfig] = [] {
+        didSet {
+            // allSites 变化时清除缓存，下次调用 fetchAllSourceDisplayItems 时重新计算
+            _cachedSourceDisplayItems = nil
+        }
+    }
     @Published var engineError: String?
+
+    /// 缓存 fetchAllSourceDisplayItems 的结果，避免每次调用都重新计算
+    private var _cachedSourceDisplayItems: [SourceDisplayItem]?
     @Published var customParsers: [ParseConfig] = []  // 用户自定义解析器
     @Published var fallbackEnabled: Bool = true {   // 兜底源开关
         didSet { UserDefaults.standard.set(fallbackEnabled, forKey: "fallback_enabled") }
@@ -266,6 +274,9 @@ class SpiderManager: ObservableObject {
         await loadSitesFromSubscription()
 
         print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(allSites.count)")
+
+        // 确保源列表缓存刷新
+        invalidateSourceDisplayCache()
 
         // 自动扫描短剧源
         await ShortDramaService.shared.scanShortDramaSources(from: allSites)
@@ -921,6 +932,9 @@ globalThis.__JS_SPIDER__ = _spider;
         syncZhanyuanSitesToDatabase()
 
         await loadHomeData()
+
+        // 确保引擎加载完成后缓存失效，下次 fetchAllSourceDisplayItems 时重新计算
+        invalidateSourceDisplayCache()
     }
 
     /// 将内存中的 type=2 站源同步到 SQLite
@@ -3570,7 +3584,10 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 获取所有可用源（网盘、API、JS蜘蛛、站源），统一为 SourceDisplayItem
+    /// 结果会被缓存，allSites 变化时自动失效。调用方可安全地在主线程频繁调用。
     func fetchAllSourceDisplayItems() -> [SourceDisplayItem] {
+        if let cached = _cachedSourceDisplayItems { return cached }
+
         var items: [SourceDisplayItem] = []
 
         // 1. 网盘源（video_sources.json）
@@ -3661,7 +3678,13 @@ globalThis.__JS_SPIDER__ = _spider;
             return a.name.localizedCompare(b.name) == .orderedAscending
         }
 
+        _cachedSourceDisplayItems = items
         return items
+    }
+
+    /// 主动清除源列表缓存（engines 变化时调用）
+    func invalidateSourceDisplayCache() {
+        _cachedSourceDisplayItems = nil
     }
 
     /// 获取单个源的首页数据

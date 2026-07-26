@@ -126,7 +126,8 @@ struct ContentView: View {
         .environmentObject(settings)
         .preferredColorScheme(settings.preferredColorScheme)
         .tint(activeTabColor)
-        .animation(.easeInOut(duration: 0.25), value: settings.isTabBarHidden)
+        // ★ 移除隐式 .animation() 修饰符，避免与 HomeView overlay 的 transition 动画冲突
+        // 底栏动画现在由 withAnimation 显式驱动（HomeView.onChange(of: selectedSource) 和 onDismiss）
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { selectedTab = .home }
         }
@@ -139,7 +140,9 @@ struct ContentView: View {
                 await UpdateManager.shared.checkForUpdate()
                 if UpdateManager.shared.hasUpdate {
                     await MainActor.run {
-                        showUpdateSheet = true
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showUpdateSheet = true
+                        }
                     }
                 }
             }
@@ -154,7 +157,9 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         UpdateManager.shared.isMinimized = false
                     }
-                    showUpdateSheet = true
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showUpdateSheet = true
+                    }
                 })
                 .transition(.scale.combined(with: .opacity))
                 .zIndex(2)
@@ -164,7 +169,9 @@ struct ContentView: View {
             // 下载完成时自动弹出
             if UpdateManager.shared.isMinimized && !UpdateManager.shared.isDownloading {
                 UpdateManager.shared.isMinimized = false
-                showUpdateSheet = true
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showUpdateSheet = true
+                }
             }
         }
     }

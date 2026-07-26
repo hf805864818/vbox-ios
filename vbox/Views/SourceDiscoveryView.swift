@@ -145,7 +145,8 @@ struct SourceDiscoveryView: View {
                 if homeData == nil { Task { await loadData() } }
             }
             .onDisappear {
-                // 底栏状态由 HomeView.onChange(of: selectedSource) 统一控制，此处无需处理
+                // 底栏状态由 HomeView.onChange(of: selectedSource) 统一控制
+                // 通过 withAnimation 协调 overlay 移除和底栏恢复的动画
             }
             .onChange(of: source.id) { _ in
                 // 切换源时重置状态并重新加载
