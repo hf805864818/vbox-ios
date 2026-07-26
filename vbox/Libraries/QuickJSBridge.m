@@ -269,8 +269,11 @@ void QJSBridge_registerCrypto(void* ctx) {
     JS_SetPropertyStr(jsCtx, cryptoObj, "base64", b64Obj);
     
     // 注册到全局
+    // 注意：JS_SetPropertyStr 不增加 ref count，它直接接管值的所有权
+    // 因此 cryptoObj 在 SetPropertyStr 之后不能再被 JS_FreeValue 释放，
+    // 否则 global 对象会持有悬空指针，导致 JS_FreeContext 时触发 use-after-free
     JSValue global = JS_GetGlobalObject(jsCtx);
     JS_SetPropertyStr(jsCtx, global, "crypto", cryptoObj);
     JS_FreeValue(jsCtx, global);
-    JS_FreeValue(jsCtx, cryptoObj);
+    // cryptoObj 已由 global 对象持有，不需要（也不能）额外释放
 }
