@@ -3034,6 +3034,19 @@ class PlayerState: ObservableObject {
         return true
     }
     
+    /// 🔧 修复: 判断URL是否为AVPlayer/CoreMedia支持的标准播放协议
+    /// 自定义协议（如 xk://）返回 false，避免传给 AVPlayer 报 -1002 错误并卡界面
+    private func isStandardPlayScheme(_ urlString: String) -> Bool {
+        let lowerUrl = urlString.lowercased()
+        return lowerUrl.hasPrefix("http://")
+            || lowerUrl.hasPrefix("https://")
+            || lowerUrl.hasPrefix("file://")
+            || lowerUrl.hasPrefix("rtmp://")
+            || lowerUrl.hasPrefix("rtsp://")
+            || lowerUrl.hasPrefix("udp://")
+            || lowerUrl.hasPrefix("rtp://")
+    }
+    
     /// 统一处理 playerContent 返回结果并播放（含 parse:1 二次解析和 header 透传）
     private func playFromPlayerContentResult(_ pr: PlayerContentResult, episodeName: String, spider: SpiderManager, baseHeaders: [String: String]? = nil) async {
         let pu = pr.playUrl ?? pr.url
@@ -3053,8 +3066,19 @@ class PlayerState: ObservableObject {
                 }
             }
             log("[PlayerV2] ⚠️ playerContent 二次解析失败")
+            // 🔧 修复: 二次解析失败后，若原始URL是自定义协议（如 xk://），
+            // 不能当直链传给 AVPlayer（会报 -1002 不支持的URL 并卡界面10秒）
+            if let rawUrl = pu, !isStandardPlayScheme(rawUrl) {
+                log("[PlayerV2] ❌ playerContent 返回自定义协议且解析失败，不传给播放器: \(rawUrl.prefix(60))")
+                await MainActor.run {
+                    self.loadError = "播放地址解析失败，请尝试更换源或清晰度"
+                    self.isLoading = false
+                }
+                return
+            }
         }
-        if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
+        // 🔧 修复: 直链分支也校验协议，自定义协议不传给 AVPlayer
+        if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
             log("[PlayerV2] ✅ playerContent 直链成功: \(pu.prefix(60))")
             await MainActor.run {
                 self.currentTime = 0
@@ -3063,6 +3087,12 @@ class PlayerState: ObservableObject {
                     self.restorePlaybackProgress(for: video)
                     self.loadDanmaku(for: video, fileName: episodeName)
                 }
+            }
+        } else if let pu = pu, !pu.isEmpty {
+            log("[PlayerV2] ❌ playerContent 返回非标准协议，不传给播放器: \(pu.prefix(60))")
+            await MainActor.run {
+                self.loadError = "播放地址格式不支持，请尝试更换源"
+                self.isLoading = false
             }
         }
     }
@@ -3198,11 +3228,21 @@ class PlayerState: ObservableObject {
                     }
                 }
                 log("[PlayerV2] ⚠️ playerContent 二次解析失败，尝试直接使用URL")
-            }
-            if let pu = pu, !pu.isEmpty, let url = createURL(from: pu) {
+                // 🔧 修复: 二次解析失败后，若原始URL是自定义协议（如 xk://），不传给 AVPlayer
+                if let rawUrl = pu, !isStandardPlayScheme(rawUrl) {
+                    log("[PlayerV2] ❌ 备用路径: 自定义协议且解析失败，跳过: \(rawUrl.prefix(60))")
+                    // 跳过此分支，继续尝试后续 nativeDetail 等备选方案
+                } else if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
+                    log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
+                    await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                    return
+                }
+            } else if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
                 log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
                 await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
                 return
+            } else if let pu = pu, !pu.isEmpty {
+                log("[PlayerV2] ❌ 备用路径: playerContent 返回非标准协议，跳过: \(pu.prefix(60))")
             }
         }
 
