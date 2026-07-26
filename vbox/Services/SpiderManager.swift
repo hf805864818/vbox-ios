@@ -3725,21 +3725,17 @@ globalThis.__JS_SPIDER__ = _spider;
     func fetchAllSourceDisplayItemsAsync() async -> [SourceDisplayItem] {
         if let cached = _cachedSourceDisplayItems { return cached }
         // fetchAllSourceDisplayItems 内部有缓存，首次调用会做文件 I/O
-        // 放到 Task 中延后执行，避免阻塞 onAppear 渲染
-        let items = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async { [weak self] in
+        // 用 Task 让出当前执行权，延后到下一个 runloop 执行，避免阻塞 onAppear 渲染
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[SourceDisplayItem], Never>) in
+            Task { @MainActor [weak self] in
                 guard let self = self else {
                     continuation.resume(returning: [])
                     return
                 }
-                // 同步执行（SpiderManager 是 @MainActor，需切回主线程调用）
-                Task { @MainActor in
-                    let result = self.fetchAllSourceDisplayItems()
-                    continuation.resume(returning: result)
-                }
+                let result = self.fetchAllSourceDisplayItems()
+                continuation.resume(returning: result)
             }
         }
-        return items
     }
 
     /// 获取单个源的首页数据
