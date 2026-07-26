@@ -1900,19 +1900,30 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         // 1. 先尝试所有引擎（跳过腾讯，已走原生）
         // 修复：空结果（vodPlayUrl/vodPlayFrom 均为空）继续尝试其他引擎，避免占位符源被前面引擎的空结果拦截
-        for (key, engine) in engines {
-            if key == TencentVideoNativeSpider.siteKey { continue }
-            do {
-                if let item = try engine.callDetailContent(ids: ids).list?.first {
-                    let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
-                    let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
-                    if hasPlayUrl || hasPlayFrom {
-                        print("[SpiderManager] getDetail 成功 [\(key)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                        return item
+        // ★ 关键修复：callDetailContent 是同步函数，底层 QJSBridge_eval 执行 JS 网络请求会阻塞线程
+        // 用 Task.detached 移到后台线程执行，避免阻塞 MainActor 导致 UI 卡死
+        let idsCopy = ids
+        let enginesSnapshot = engines
+        let tencentKey = TencentVideoNativeSpider.siteKey
+        let detailResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
+            for (key, engine) in enginesSnapshot {
+                if key == tencentKey { continue }
+                do {
+                    if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                        let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
+                        let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
+                        if hasPlayUrl || hasPlayFrom {
+                            print("[SpiderManager] getDetail 成功 [\(key)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
+                            return item
+                        }
+                        print("[SpiderManager] getDetail [\(key)] 返回空播放地址，继续尝试: \(item.vodName)")
                     }
-                    print("[SpiderManager] getDetail [\(key)] 返回空播放地址，继续尝试: \(item.vodName)")
-                }
-            } catch { continue }
+                } catch { continue }
+            }
+            return nil
+        }.value
+        if let detailResult {
+            return detailResult
         }
         // 2. 引擎全部失败，回退到原生 API
         print("[SpiderManager] getDetail 引擎全部失败，回退到 nativeDetail")
@@ -1921,21 +1932,29 @@ globalThis.__JS_SPIDER__ = _spider;
 
     func getPlayerContent(vodId: String, flag: String = "play", url: String) async -> PlayerContentResult? {
         // 修复：空结果（url/playUrl 均为空）继续尝试其他引擎，避免剧迷等占位符源被前面引擎的空结果拦截
-        for (key, engine) in engines {
-            if key == TencentVideoNativeSpider.siteKey { continue }
-            do {
-                let result = try engine.callPlayerContent(vodId: vodId, flag: flag, url: url)
-                let urlStr = result.playUrl ?? result.url ?? ""
-                // 有效URL判断：非空，且包含$分隔符、http协议、或相对路径/
-                let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
-                if hasUrl {
-                    print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
-                    return result
-                }
-                print("[SpiderManager] getPlayerContent [\(key)] 返回空地址，继续尝试")
-            } catch { continue }
-        }
-        return nil
+        // ★ 关键修复：callPlayerContent 同步阻塞，移到后台线程避免卡 UI（如播放器加载时）
+        let enginesSnapshot = engines
+        let tencentKey = TencentVideoNativeSpider.siteKey
+        let vodIdCopy = vodId
+        let flagCopy = flag
+        let urlCopy = url
+        return await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
+            for (key, engine) in enginesSnapshot {
+                if key == tencentKey { continue }
+                do {
+                    let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
+                    let urlStr = result.playUrl ?? result.url ?? ""
+                    // 有效URL判断：非空，且包含$分隔符、http协议、或相对路径/
+                    let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
+                    if hasUrl {
+                        print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
+                        return result
+                    }
+                    print("[SpiderManager] getPlayerContent [\(key)] 返回空地址，继续尝试")
+                } catch { continue }
+            }
+            return nil
+        }.value
     }
 
     func getSavedSubscriptionURLs() -> [String] { subManager.configURLs }
