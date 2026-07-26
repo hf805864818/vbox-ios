@@ -286,11 +286,11 @@ struct HomeView: View {
         .onChange(of: showSourcePicker) { isShowing in
             if isShowing {
                 // 🔧 修复: 异步加载源列表，避免主线程同步IO阻塞导致弹窗滑动卡顿
-                Task.detached(priority: .userInitiated) {
+                // SpiderManager 是 @MainActor，用 Task（非 detached）在 MainActor 上调度，
+                // 但放到下一个 runloop 执行，不阻塞当前 onChange
+                Task { @MainActor in
                     let items = SpiderManager.shared.fetchAllSourceDisplayItems()
-                    await MainActor.run {
-                        self.allSources = items
-                    }
+                    self.allSources = items
                 }
             }
         }
