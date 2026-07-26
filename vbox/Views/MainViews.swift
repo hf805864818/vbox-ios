@@ -216,6 +216,8 @@ struct HomeView: View {
     @State private var showSourcePicker = false
     @State private var selectedSource: SourceDisplayItem?
     @State private var allSources: [SourceDisplayItem] = []
+    /// 缓存分组结果，避免每次渲染都重新分组（allSources 变化时重新计算）
+    @State private var homeGroupedSourcesCache: [(key: String, items: [SourceDisplayItem])] = []
     private static var cachedBannerSubjects: [DoubanSubject] = []
     private static var cachedHotMovies: [DoubanSubject] = []
     private static var cachedHotTV: [DoubanSubject] = []
@@ -277,15 +279,35 @@ struct HomeView: View {
             .opacity(selectedSource != nil ? 1 : 0)
             .allowsHitTesting(selectedSource != nil)
             .zIndex(1)
-        }
-        .onAppear {
-            if allSources.isEmpty {
-                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
+
+            // 首页小竖长条选源浮层 — 放在外层 ZStack，与 doubanHomeContent 平级
+            // 避免切换 showSourcePicker 时触发首页 ScrollView/LazyVStack 整体重算
+            if showSourcePicker {
+                homeSourceDropdownOverlay
+                    .zIndex(2)
             }
         }
-        .onChange(of: showSourcePicker) { isShowing in
-            // 数据已在 onAppear 中预加载 (fetchAllSourceDisplayItems 有缓存)
-            // 此处不再重复加载，避免 async/await 编译问题和延迟渲染卡顿
+        .onAppear {
+            // 预加载源列表（异步，不阻塞首屏渲染）
+            if allSources.isEmpty {
+                Task.detached(priority: .utility) {
+                    let items = await SpiderManager.shared.fetchAllSourceDisplayItemsAsync()
+                    await MainActor.run {
+                        if allSources.isEmpty {
+                            allSources = items
+                            // 预计算分组缓存
+                            let grouped = Dictionary(grouping: items) { $0.category.displayName }
+                            let order = ["网盘", "API", "站源", "JS", "论坛"]
+                            homeGroupedSourcesCache = order.compactMap { key in
+                                if let groupItems = grouped[key], !groupItems.isEmpty {
+                                    return (key, groupItems)
+                                }
+                                return nil
+                            }
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { showSearch = true }
@@ -376,11 +398,6 @@ struct HomeView: View {
             WatchHistoryView()
                 .environmentObject(settings)
         }
-
-            // 首页小竖长条选源浮层
-            if showSourcePicker {
-                homeSourceDropdownOverlay
-            }
         } // ZStack
     }
 
@@ -508,15 +525,18 @@ struct HomeView: View {
     }
 
     /// 按分类分组，固定顺序：网盘 → API → 站源 → JS → 论坛
+    /// 使用缓存避免每次渲染都重新分组（allSources 变化时重新计算）
     private var homeGroupedSources: [(key: String, items: [SourceDisplayItem])] {
+        if !homeGroupedSourcesCache.isEmpty { return homeGroupedSourcesCache }
         let grouped = Dictionary(grouping: allSources) { $0.category.displayName }
         let order = ["网盘", "API", "站源", "JS", "论坛"]
-        return order.compactMap { key in
+        let result = order.compactMap { key in
             if let items = grouped[key], !items.isEmpty {
                 return (key, items)
             }
             return nil
         }
+        return result
     }
 
     private var homeDropdownTextColor: Color {
