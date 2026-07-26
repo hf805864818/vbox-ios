@@ -3720,6 +3720,28 @@ globalThis.__JS_SPIDER__ = _spider;
         _cachedSourceDisplayItems = nil
     }
 
+    /// 异步获取所有可用源，将文件 I/O 和数据库查询移出首屏渲染关键路径
+    /// 避免主线程被 watchdog 杀掉（scene-update 10s 超时）
+    func fetchAllSourceDisplayItemsAsync() async -> [SourceDisplayItem] {
+        if let cached = _cachedSourceDisplayItems { return cached }
+        // fetchAllSourceDisplayItems 内部有缓存，首次调用会做文件 I/O
+        // 放到 Task 中延后执行，避免阻塞 onAppear 渲染
+        let items = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                // 同步执行（SpiderManager 是 @MainActor，需切回主线程调用）
+                Task { @MainActor in
+                    let result = self.fetchAllSourceDisplayItems()
+                    continuation.resume(returning: result)
+                }
+            }
+        }
+        return items
+    }
+
     /// 获取单个源的首页数据
     func fetchHomeData(for source: SourceDisplayItem) async -> SourceHomeData? {
         switch source.category {
