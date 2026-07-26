@@ -791,13 +791,10 @@ struct VideoDetailView: View {
             // 保留已展开的数据，只是重新排列
             selectedCloudDrive = cloudDriveGroups.first?.drive
         }
-        .edgeSwipeBack { dismiss() }
         .navigationBarHidden(isFromSourceDiscovery)
         .navigationBarBackButtonHidden(isFromSourceDiscovery)
         .toolbar(isFromSourceDiscovery ? .hidden : .visible, for: .navigationBar)
-        .toolbar(isFromSourceDiscovery ? .hidden : .visible, for: .tabBar)
         .toolbarBackground(isFromSourceDiscovery ? .hidden : .visible, for: .navigationBar)
-        .toolbarBackground(isFromSourceDiscovery ? .hidden : .visible, for: .tabBar)
     }
 
     // MARK: - 背景层
