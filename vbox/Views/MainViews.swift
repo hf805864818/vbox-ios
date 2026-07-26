@@ -284,14 +284,9 @@ struct HomeView: View {
             }
         }
         .onChange(of: showSourcePicker) { isShowing in
-            if isShowing {
-                // 🔧 修复: 异步加载源列表，避免主线程同步IO阻塞导致弹窗滑动卡顿
-                // SpiderManager 是 @MainActor，用 Task（非 detached）在 MainActor 上调度，
-                // 但放到下一个 runloop 执行，不阻塞当前 onChange
-                Task { @MainActor in
-                    let items = SpiderManager.shared.fetchAllSourceDisplayItems()
-                    self.allSources = items
-                }
+            if isShowing && allSources.isEmpty {
+                // 兜底: onAppear 未加载到数据时在此补充加载
+                allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
             }
         }
         .onChange(of: settings.searchRequestId) { _ in
@@ -394,100 +389,103 @@ struct HomeView: View {
     // MARK: - 首页小竖长条选源浮层
 
     private var homeSourceDropdownOverlay: some View {
-        Color.black.opacity(0.3)
-            .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .onTapGesture { showSourcePicker = false }
-            .overlay(alignment: .topLeading) {
-                VStack(spacing: 0) {
-                    // 标题栏
-                    HStack(spacing: 4) {
-                        Text("切换源")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(homeDropdownTextColor)
-                        Spacer()
-                        Text("\(allSources.count)")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color(hex: "E11B48"))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(Color(hex: "E11B48").opacity(0.15))
-                            )
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
+        ZStack(alignment: .topLeading) {
+            // 半透明背景遮罩 — 仅处理点击关闭，不拦截子视图手势
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { showSourcePicker = false }
 
-                    Divider()
-                        .background(homeDropdownDividerColor)
+            // 弹窗主体
+            VStack(spacing: 0) {
+                // 标题栏
+                HStack(spacing: 4) {
+                    Text("切换源")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(homeDropdownTextColor)
+                    Spacer()
+                    Text("\(allSources.count)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(hex: "E11B48"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color(hex: "E11B48").opacity(0.15))
+                        )
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
 
-                    // 源列表（按分类分组）
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(homeGroupedSources, id: \.key) { group in
-                                // 分组标题
-                                HStack(spacing: 4) {
-                                    Text(group.key)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(homeDropdownTextColor)
-                                    Spacer()
-                                    Text("\(group.items.count)")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(Color(hex: "E11B48"))
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1.5)
-                                        .background(
-                                            Capsule()
-                                                .fill(Color(hex: "E11B48").opacity(0.15))
-                                        )
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(homeDropdownSectionHeaderBg)
+                Divider()
+                    .background(homeDropdownDividerColor)
 
-                                ForEach(Array(group.items.enumerated()), id: \.element.id) { idx, item in
-                                    Button(action: {
-                                        selectedSource = item
-                                        showSourcePicker = false
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            if item.id == selectedSource?.id {
-                                                Image(systemName: "checkmark")
-                                                    .font(.system(size: 12, weight: .bold))
-                                                    .foregroundColor(Color(hex: "E11B48"))
-                                                    .frame(width: 16)
-                                            } else {
-                                                Color.clear.frame(width: 16, height: 12)
-                                            }
-                                            Text(item.name)
-                                                .font(.system(size: 14, weight: item.id == selectedSource?.id ? .semibold : .regular))
-                                                .foregroundColor(item.id == selectedSource?.id ? Color(hex: "E11B48") : homeDropdownTextColor)
-                                                .lineLimit(1)
+                // 源列表（按分类分组）
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(homeGroupedSources, id: \.key) { group in
+                            // 分组标题
+                            HStack(spacing: 4) {
+                                Text(group.key)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(homeDropdownTextColor)
+                                Spacer()
+                                Text("\(group.items.count)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(Color(hex: "E11B48"))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color(hex: "E11B48").opacity(0.15))
+                                    )
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(homeDropdownSectionHeaderBg)
+
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { idx, item in
+                                Button(action: {
+                                    selectedSource = item
+                                    showSourcePicker = false
+                                }) {
+                                    HStack(spacing: 8) {
+                                        if item.id == selectedSource?.id {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundColor(Color(hex: "E11B48"))
+                                                .frame(width: 16)
+                                        } else {
+                                            Color.clear.frame(width: 16, height: 12)
                                         }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 10)
-                                        .contentShape(Rectangle())
+                                        Text(item.name)
+                                            .font(.system(size: 14, weight: item.id == selectedSource?.id ? .semibold : .regular))
+                                            .foregroundColor(item.id == selectedSource?.id ? Color(hex: "E11B48") : homeDropdownTextColor)
+                                            .lineLimit(1)
                                     }
-                                    .buttonStyle(.plain)
-                                    if idx < group.items.count - 1 {
-                                        Divider()
-                                            .padding(.leading, 38)
-                                            .background(homeDropdownDividerColor)
-                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                if idx < group.items.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 38)
+                                        .background(homeDropdownDividerColor)
                                 }
                             }
                         }
                     }
                 }
-                .frame(width: UIScreen.main.bounds.width * 0.35)
-                .frame(maxHeight: UIScreen.main.bounds.height * 0.42)
-                .background(homeDropdownBackground)
-                .cornerRadius(12)
-                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                .padding(.top, 52)
-                .padding(.leading, 12)
             }
+            .frame(width: UIScreen.main.bounds.width * 0.35)
+            .frame(maxHeight: UIScreen.main.bounds.height * 0.42)
+            .background(homeDropdownBackground)
+            .cornerRadius(12)
+            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+            .padding(.top, 52)
+            .padding(.leading, 12)
+        }
     }
 
     private var homeDropdownBackground: some View {
