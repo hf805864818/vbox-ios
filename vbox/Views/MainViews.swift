@@ -256,15 +256,14 @@ struct HomeView: View {
                 .zIndex(0)
                 .allowsHitTesting(selectedSource == nil)
 
-            // 源发现页作为覆盖层，通过 withAnimation 驱动的 transition 动画进入/退出
-            if let source = selectedSource {
-                NavigationView {
+            // ★ NavigationView 始终存活，避免 UINavigationController 创建/销毁导致的卡顿
+            // 通过 opacity + allowsHitTesting 控制可见性，而非条件创建/销毁
+            NavigationView {
+                if let source = selectedSource {
                     SourceDiscoveryView(
                         source: source,
                         selectedSource: $selectedSource,
                         onDismiss: {
-                            // ★ 使用 withAnimation 驱动 overlay 移除动画
-                            // isTabBarHidden 由 onChange(of: selectedSource) 统一控制，此处不重复设置
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 selectedSource = nil
                             }
@@ -272,10 +271,11 @@ struct HomeView: View {
                     )
                     .environmentObject(settings)
                 }
-                .navigationViewStyle(.stack)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                .zIndex(1)
             }
+            .navigationViewStyle(.stack)
+            .opacity(selectedSource != nil ? 1 : 0)
+            .allowsHitTesting(selectedSource != nil)
+            .zIndex(1)
         }
         .onAppear {
             if allSources.isEmpty {
@@ -284,16 +284,13 @@ struct HomeView: View {
         }
         .onChange(of: showSourcePicker) { isShowing in
             if isShowing {
-                // 每次打开弹窗时刷新源列表（现在有缓存，不会阻塞主线程）
                 allSources = SpiderManager.shared.fetchAllSourceDisplayItems()
             }
         }
         .onChange(of: settings.searchRequestId) { _ in
             if !settings.searchQuery.isEmpty { showSearch = true }
         }
-        // ★ 唯一控制点：底栏显示/隐藏仅由 selectedSource 决定，消除多路径竞争
         .onChange(of: selectedSource) { newValue in
-            // 使用 withAnimation 确保底栏的 transition 动画与 overlay 动画协调
             withAnimation(.easeInOut(duration: 0.3)) {
                 settings.isTabBarHidden = newValue != nil
             }
