@@ -3071,6 +3071,23 @@ class PlayerState: ObservableObject {
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil) async {
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
 
+        // 🔧 修复: 自定义协议（如 xk://）优先走 playerContent 解析
+        // 避免 xk:// 地址被解析器/WKWebView 处理导致失败或卡死
+        let lowerUrl = urlString.lowercased()
+        let isStandardScheme = lowerUrl.hasPrefix("http://")
+                          || lowerUrl.hasPrefix("https://")
+                          || lowerUrl.hasPrefix("file://")
+                          || lowerUrl.hasPrefix("rtmp://")
+                          || lowerUrl.hasPrefix("rtsp://")
+        if !isStandardScheme && !urlString.isEmpty {
+            log("[PlayerV2] 检测到自定义协议，优先调用 playerContent: \(urlString.prefix(60))")
+            if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
+                await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders)
+                return
+            }
+            log("[PlayerV2] ⚠️ 自定义协议 playerContent 无结果，继续尝试解析器")
+        }
+
         // 检测官方平台URL（需要解析器转直链）
         let officialDomains = ["iqiyi.com", "v.qq.com", "youku.com", "mgtv.com", "v.youku.com", "www.mgtv.com", "www.iqiyi.com"]
         let isOfficialPlatform = officialDomains.contains { urlString.contains($0) }

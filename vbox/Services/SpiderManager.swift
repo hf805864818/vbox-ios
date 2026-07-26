@@ -3017,6 +3017,20 @@ globalThis.__JS_SPIDER__ = _spider;
 
 // 解析器体系 - 将HTML播放页解析为视频直链
     func parsePlayUrl(from playPageUrl: String) async -> String? {
+        // 🔧 修复: 自定义协议（如 xk://）不经过解析器，直接返回空
+        // 避免 xk:// 地址被 extractDirectPlayURL/WKWebView 处理导致失败或卡死
+        // 自定义协议应由上层调用 getPlayerContent 走 playerContent 解析
+        let lowerUrl = playPageUrl.lowercased()
+        let isStandardScheme = lowerUrl.hasPrefix("http://")
+                          || lowerUrl.hasPrefix("https://")
+                          || lowerUrl.hasPrefix("file://")
+                          || lowerUrl.hasPrefix("rtmp://")
+                          || lowerUrl.hasPrefix("rtsp://")
+        if !isStandardScheme && !playPageUrl.isEmpty {
+            print("[SpiderManager] parsePlayUrl 检测到自定义协议，跳过解析: \(playPageUrl.prefix(60))")
+            return nil
+        }
+
         // 0. 【新增】兼容 TVBox 特殊播放格式前缀
         var actualUrl = playPageUrl
         if playPageUrl.hasPrefix("parse://") || playPageUrl.hasPrefix("json://") {
