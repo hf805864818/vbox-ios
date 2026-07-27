@@ -257,6 +257,22 @@ final class RemoteSourceConfigManager: ObservableObject {
         return try? encoder.encode(cloudSources)
     }
 
+    nonisolated static func cachedCloudSitesDataForBackground() -> Data? {
+        let fileManager = FileManager.default
+        guard let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+
+        let allSourcesURL = docs
+            .appendingPathComponent("remote_sources", isDirectory: true)
+            .appendingPathComponent("all_sources.json")
+
+        guard fileManager.fileExists(atPath: allSourcesURL.path),
+              let allSourcesData = try? Data(contentsOf: allSourcesURL),
+              let allSources = try? JSONDecoder().decode(AllSourcesContainer.self, from: allSourcesData),
+              let cloudSources = allSources.cloudSources else { return nil }
+
+        return try? JSONEncoder().encode(cloudSources)
+    }
+
     func cachedParsers() -> [ParseConfig] {
         guard let allSources = cachedAllSources(),
               let parsers = allSources.parsers else { return [] }

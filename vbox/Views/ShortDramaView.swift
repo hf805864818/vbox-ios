@@ -121,21 +121,13 @@ struct ShortDramaView: View {
                 ShortDramaDetailView(drama: drama)
             }
             .onAppear {
-                if dramaService.shortDramaSources.isEmpty {
-                    Task {
-                        await dramaService.scanShortDramaSources(from: SpiderManager.shared.allSites)
-                        await dramaService.fetchDramas()
-                    }
-                } else if dramaService.dramas.isEmpty {
-                    Task { await dramaService.fetchDramas() }
+                Task {
+                    await dramaService.loadInitialIfNeeded(from: SpiderManager.shared.allSites)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .spiderSitesDidUpdate)) { _ in
                 Task {
-                    await dramaService.scanShortDramaSources(from: SpiderManager.shared.allSites)
-                    if dramaService.dramas.isEmpty {
-                        await dramaService.fetchDramas()
-                    }
+                    await dramaService.loadInitialIfNeeded(from: SpiderManager.shared.allSites, forceRescan: true)
                 }
             }
         }
