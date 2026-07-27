@@ -150,8 +150,7 @@ final class RemoteSourceConfigManager: ObservableObject {
                 throw RemoteSourceError.invalidURL(manifest.files.allSources)
             }
             let allSourcesData = try await fetchData(from: allSourcesURL)
-            // 校验 allSources 结构
-            _ = try decoder.decode(AllSourcesContainer.self, from: allSourcesData)
+            let allSources = try decoder.decode(AllSourcesContainer.self, from: allSourcesData)
 
             // 3. 写入缓存
             try ensureCacheDirectory()
@@ -159,7 +158,6 @@ final class RemoteSourceConfigManager: ObservableObject {
             try allSourcesData.write(to: url(for: .allSources), options: .atomic)
 
             // 4. 下载并缓存 JS 蜘蛛引擎文件
-            let allSources = try decoder.decode(AllSourcesContainer.self, from: allSourcesData)
             let spiderSites = allSources.spiderSources?.sites ?? []
             if !spiderSites.isEmpty, let baseURL = URL(string: manifest.files.allSources)?.deletingLastPathComponent().absoluteString {
                 await downloadAndCacheSpiderJS(baseURL: baseURL, sites: spiderSites)
@@ -407,6 +405,8 @@ final class RemoteSourceConfigManager: ObservableObject {
 
         guard !urlsToDownload.isEmpty else {
             print("[RemoteSource] 没有需要缓存的 JS 蜘蛛引擎")
+            // 清理所有旧缓存（配置中已没有 JS 蜘蛛站点）
+            cleanupExpiredJSCache(validKeys: [])
             return
         }
 
