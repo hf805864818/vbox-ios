@@ -289,24 +289,27 @@ struct HomeView: View {
         }
         .onAppear {
             // 预加载源列表（异步，不阻塞首屏渲染）
-            // ★ 先等待 SpiderManager 初始化完成，避免获取到不完整的源列表
+            // ★ 不再等待 initialize 完成，先显示已有数据，后台初始化完成后再刷新
             if allSources.isEmpty {
                 Task.detached(priority: .utility) {
-                    await SpiderManager.shared.initialize()
+                    // 立即尝试获取当前可用的源（可能不完整但不为空）
                     let items = await SpiderManager.shared.fetchAllSourceDisplayItemsAsync()
                     await MainActor.run {
                         if allSources.isEmpty {
-                            allSources = items
-                            // 预计算分组缓存
-                            let grouped = Dictionary(grouping: items) { $0.category.displayName }
-                            let order = ["网盘", "API", "站源", "JS", "论坛"]
-                            homeGroupedSourcesCache = order.compactMap { key in
-                                if let groupItems = grouped[key], !groupItems.isEmpty {
-                                    return (key, groupItems)
-                                }
-                                return nil
-                            }
+                            updateAllSources(items)
                         }
+                    }
+                    // 后台等待初始化完成，sourceListReady 变化时通过 onChange 刷新
+                    await SpiderManager.shared.initialize()
+                }
+            }
+        }
+        .onChange(of: SpiderManager.shared.sourceListReady) { ready in
+            if ready {
+                Task {
+                    let items = await SpiderManager.shared.fetchAllSourceDisplayItemsAsync()
+                    await MainActor.run {
+                        updateAllSources(items)
                     }
                 }
             }
@@ -539,6 +542,19 @@ struct HomeView: View {
             return nil
         }
         return result
+    }
+
+    /// 统一更新 allSources 和分组缓存
+    private func updateAllSources(_ items: [SourceDisplayItem]) {
+        allSources = items
+        let grouped = Dictionary(grouping: items) { $0.category.displayName }
+        let order = ["网盘", "API", "站源", "JS", "论坛"]
+        homeGroupedSourcesCache = order.compactMap { key in
+            if let groupItems = grouped[key], !groupItems.isEmpty {
+                return (key, groupItems)
+            }
+            return nil
+        }
     }
 
     private var homeDropdownTextColor: Color {

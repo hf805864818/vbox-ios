@@ -34,6 +34,7 @@ class SpiderManager: ObservableObject {
         }
     }
     @Published var engineError: String?
+    @Published var sourceListReady: Bool = false
 
     /// 缓存 fetchAllSourceDisplayItems 的结果，避免每次调用都重新计算
     private var _cachedSourceDisplayItems: [SourceDisplayItem]?
@@ -269,6 +270,7 @@ class SpiderManager: ObservableObject {
         // 创建初始化任务，让后续调用者可以等待
         initializationTask = Task { @MainActor in
             isInitialized = true
+            sourceListReady = false
 
             await RemoteSourceConfigManager.shared.syncIfNeeded()
 
@@ -604,6 +606,7 @@ globalThis.__JS_SPIDER__ = _spider;
             // 一次性赋值，避免中间状态触发缓存失效
             self.allSites = allSitesBuilder
             loadedSiteCount = allSitesBuilder.count
+            sourceListReady = true
 
             // 加载引擎
             await loadBuiltinEngineIfNeeded()
@@ -910,6 +913,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // 一次性赋值 allSites，避免中间状态触发多次 didSet 缓存失效
         self.allSites = allSitesBuilder
         loadedSiteCount = allSitesBuilder.count
+        sourceListReady = true
 
         // 将当前 allSites 中的 type=2 站源强制同步到 SQLite
         syncZhanyuanSitesToDatabase()
@@ -1810,26 +1814,56 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
 
-            // 3. QuickJS 蜘蛛
+            // 3. QuickJS 蜘蛛 — 并发 TaskGroup，限流 10
             group.addTask {
-                // 构建引擎 key → 站点名称 映射（侧边栏分组用站点名，非蜘蛛返回的 vod_remarks）
                 let siteNameMap = Dictionary(uniqueKeysWithValues: spiderAllSites.compactMap { site in
                     engines.keys.contains(site.key) ? (site.key, site.name) : nil
                 })
+                let engineEntries = Array(engines)
+                guard !engineEntries.isEmpty else { return }
 
-                for (key, engine) in engines {
-                    do {
-                        if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
-                            var tagged = items
-                            let displayName = siteNameMap[key] ?? key
-                            for i in 0..<tagged.count {
-                                tagged[i].vodRemarks = displayName
+                await withTaskGroup(of: (key: String, items: [VodItem]?, error: String?).self) { jsGroup in
+                    var running = 0
+                    let maxConcurrent = 10
+
+                    for (key, engine) in engineEntries {
+                        if running >= maxConcurrent {
+                            if let r = await jsGroup.next() {
+                                if let items = r.items, !items.isEmpty {
+                                    var tagged = items
+                                    let name = siteNameMap[r.key] ?? r.key
+                                    for i in 0..<tagged.count { tagged[i].vodRemarks = name }
+                                    log("✅ QuickJS[\(r.key)] +\(tagged.count)条")
+                                    onBatch(tagged)
+                                } else if let err = r.error {
+                                    log("❌ QuickJS[\(r.key)] \(err)")
+                                }
+                                running -= 1
                             }
-                            log("✅ QuickJS[\(key)] +\(tagged.count)条")
-                            onBatch(tagged)
                         }
-                    } catch {
-                        log("❌ QuickJS[\(key)] \(error.localizedDescription.prefix(30))")
+                        running += 1
+                        jsGroup.addTask {
+                            do {
+                                if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
+                                    return (key: key, items: items, error: nil)
+                                }
+                                return (key: key, items: nil, error: nil)
+                            } catch {
+                                return (key: key, items: nil, error: error.localizedDescription)
+                            }
+                        }
+                    }
+
+                    for await r in jsGroup {
+                        if let items = r.items, !items.isEmpty {
+                            var tagged = items
+                            let name = siteNameMap[r.key] ?? r.key
+                            for i in 0..<tagged.count { tagged[i].vodRemarks = name }
+                            log("✅ QuickJS[\(r.key)] +\(tagged.count)条")
+                            onBatch(tagged)
+                        } else if let err = r.error {
+                            log("❌ QuickJS[\(r.key)] \(err)")
+                        }
                     }
                 }
             }
