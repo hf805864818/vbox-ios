@@ -31,73 +31,83 @@ class ShortDramaService: ObservableObject {
     @Published var selectedSourceId: String?  // nil = 全部源
     
     private let dramaKeywords = ["短剧", "剧场", "网剧", "微短剧", "爽文短剧", "擦边短剧", "短剧大全"]
+    private var isInitialLoading = false
     
     private init() {}
     
     // MARK: - 扫描所有 VOD 源中的短剧分类
     
+    func loadInitialIfNeeded(from sites: [SiteConfig], forceRescan: Bool = false) async {
+        guard !isInitialLoading else { return }
+        if !forceRescan, !shortDramaSources.isEmpty, !dramas.isEmpty { return }
+
+        isInitialLoading = true
+        defer { isInitialLoading = false }
+
+        if forceRescan {
+            currentPage = 1
+            hasMore = true
+            dramas = []
+        }
+
+        if forceRescan || shortDramaSources.isEmpty {
+            await scanShortDramaSources(from: sites)
+        }
+
+        if forceRescan || dramas.isEmpty {
+            await fetchDramas(refresh: true)
+        }
+    }
+
     func scanShortDramaSources(from sites: [SiteConfig]) async {
-        var sources: [ShortDramaSource] = []
-        var seen = Set<String>()
+        shortDramaSources = []
+        var seenSourceIds = Set<String>()
 
         // 收集所有 VOD API 站点
         var checkSites: [(name: String, api: String)] = []
+        var seenAPIs = Set<String>()
 
         for site in sites {
             guard let api = site.api, !api.isEmpty else { continue }
             if api.contains("provide/vod") || api.contains("api.php") {
+                guard !seenAPIs.contains(api) else { continue }
+                seenAPIs.insert(api)
                 checkSites.append((site.name, api))
             }
         }
 
         // 加上内置兜底源（受 bundleSourcesEnabled 开关控制）
         for fallback in SpiderManager.shared.allFallbackSites {
-            if !checkSites.contains(where: { $0.api == fallback.api }) {
-                checkSites.append(fallback)
-            }
+            guard !seenAPIs.contains(fallback.api) else { continue }
+            seenAPIs.insert(fallback.api)
+            checkSites.append(fallback)
         }
 
-        for site in checkSites {
-            guard !seen.contains(site.api) else { continue }
-            seen.insert(site.api)
+        let keywords = dramaKeywords
+        let maxConcurrent = 12
 
-            let baseAPI = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
-            let listUrl = "\(baseAPI)?ac=list&pg=1"
+        isLoading = true
+        defer { isLoading = false }
 
-            guard let url = URL(string: listUrl) else { continue }
+        await withTaskGroup(of: [ShortDramaSource].self) { group in
+            var running = 0
 
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let classes = json["class"] as? [[String: Any]] else { continue }
-
-                for cls in classes {
-                    let name = cls["type_name"] as? String ?? ""
-                    let typeId: String
-                    if let idStr = cls["type_id"] as? String {
-                        typeId = idStr
-                    } else if let idInt = cls["type_id"] as? Int {
-                        typeId = "\(idInt)"
-                    } else {
-                        continue
+            for site in checkSites {
+                if running >= maxConcurrent {
+                    if let batch = await group.next() {
+                        appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
                     }
-
-                    guard dramaKeywords.contains(where: { name.contains($0) }) else { continue }
-
-                    let sourceId = "\(site.name)_\(typeId)"
-                    sources.append(ShortDramaSource(
-                        id: sourceId,
-                        name: site.name,
-                        api: site.api,
-                        categoryId: typeId,
-                        categoryName: name,
-                        totalCount: json["total"] as? Int ?? 0,
-                        sourceType: .api,
-                        engineKey: nil
-                    ))
+                    running -= 1
                 }
-            } catch {
-                print("[ShortDrama] 扫描失败 \(site.name): \(error.localizedDescription)")
+
+                running += 1
+                group.addTask {
+                    await Self.scanAPISource(site: site, dramaKeywords: keywords)
+                }
+            }
+
+            for await batch in group {
+                appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
             }
         }
 
@@ -111,18 +121,19 @@ class ShortDramaService: ObservableObject {
             }
 
             let sourceId = "js_\(site.name)_shortdrama"
-            guard !seen.contains(sourceId) else { continue }
-            seen.insert(sourceId)
+            guard !seenSourceIds.contains(sourceId) else { continue }
+            seenSourceIds.insert(sourceId)
 
             do {
                 let result = try engine.callHomeContent()
                 let categories = result.class ?? []
+                var batch: [ShortDramaSource] = []
 
                 for cat in categories {
                     let catName = cat.typeName
                     guard dramaKeywords.contains(where: { catName.contains($0) }) else { continue }
 
-                    sources.append(ShortDramaSource(
+                    batch.append(ShortDramaSource(
                         id: "js_\(site.name)_\(cat.typeId)",
                         name: site.name,
                         api: site.api ?? "",
@@ -134,27 +145,87 @@ class ShortDramaService: ObservableObject {
                     ))
                     print("[ShortDrama] JS蜘蛛源发现短剧分类: \(site.name) → \(catName)(ID=\(cat.typeId))")
                 }
+                appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
             } catch {
                 print("[ShortDrama] JS蜘蛛扫描失败 \(site.name): \(error.localizedDescription)")
             }
         }
 
-        sources.sort { $0.name < $1.name }
-        self.shortDramaSources = sources
-
-        if !sources.isEmpty {
-            print("[ShortDrama] ✅ 识别到 \(sources.count) 个短剧源:")
-            for s in sources {
+        if !shortDramaSources.isEmpty {
+            print("[ShortDrama] ✅ 识别到 \(shortDramaSources.count) 个短剧源:")
+            for s in shortDramaSources {
                 let typeTag = s.sourceType == .jsSpider ? "[JS]" : "[API]"
                 print("  - \(typeTag) \(s.name): \(s.categoryName)(ID=\(s.categoryId)) \(s.totalCount)部")
             }
+        }
+    }
+
+    private func appendShortDramaSources(_ batch: [ShortDramaSource], seenSourceIds: inout Set<String>) {
+        guard !batch.isEmpty else { return }
+
+        var newSources: [ShortDramaSource] = []
+        for source in batch {
+            guard !seenSourceIds.contains(source.id) else { continue }
+            seenSourceIds.insert(source.id)
+            newSources.append(source)
+        }
+        guard !newSources.isEmpty else { return }
+
+        shortDramaSources.append(contentsOf: newSources)
+        shortDramaSources.sort { $0.name < $1.name }
+    }
+
+    private nonisolated static func scanAPISource(
+        site: (name: String, api: String),
+        dramaKeywords: [String]
+    ) async -> [ShortDramaSource] {
+        let baseAPI = site.api.hasSuffix("/") ? String(site.api.dropLast()) : site.api
+        let listUrl = "\(baseAPI)?ac=list&pg=1"
+
+        guard let url = URL(string: listUrl) else { return [] }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let classes = json["class"] as? [[String: Any]] else { return [] }
+
+            var sources: [ShortDramaSource] = []
+            for cls in classes {
+                let name = cls["type_name"] as? String ?? ""
+                let typeId: String
+                if let idStr = cls["type_id"] as? String {
+                    typeId = idStr
+                } else if let idInt = cls["type_id"] as? Int {
+                    typeId = "\(idInt)"
+                } else {
+                    continue
+                }
+
+                guard dramaKeywords.contains(where: { name.contains($0) }) else { continue }
+
+                sources.append(ShortDramaSource(
+                    id: "\(site.name)_\(typeId)",
+                    name: site.name,
+                    api: site.api,
+                    categoryId: typeId,
+                    categoryName: name,
+                    totalCount: json["total"] as? Int ?? 0,
+                    sourceType: .api,
+                    engineKey: nil
+                ))
+            }
+            return sources
+        } catch {
+            print("[ShortDrama] 扫描失败 \(site.name): \(error.localizedDescription)")
+            return []
         }
     }
     
     // MARK: - 获取短剧列表（聚合所有选中源）
     
     func fetchDramas(page: Int = 1, refresh: Bool = false) async {
-        if refresh {
+        let shouldReset = refresh || page <= 1
+        if shouldReset {
             currentPage = 1
             hasMore = true
             dramas = []
@@ -163,7 +234,6 @@ class ShortDramaService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        var allItems: [VodItem] = []
         let targets: [ShortDramaSource]
         
         if let sourceId = selectedSourceId {
@@ -171,7 +241,15 @@ class ShortDramaService: ObservableObject {
         } else {
             targets = shortDramaSources
         }
-        
+
+        guard !targets.isEmpty else {
+            hasMore = false
+            return
+        }
+
+        var seen = Set(dramas.map { $0.vodName })
+        var receivedCount = 0
+
         await withTaskGroup(of: [VodItem].self) { group in
             for source in targets {
                 group.addTask {
@@ -180,24 +258,31 @@ class ShortDramaService: ObservableObject {
             }
             
             for await items in group {
-                allItems.append(contentsOf: items)
+                receivedCount += items.count
+                appendDramaItems(items, seenNames: &seen)
             }
         }
         
-        // 去重（按名称去重）
-        var seen = Set<String>()
-        dramas = allItems.filter { item in
-            let key = item.vodName
-            if seen.contains(key) { return false }
-            seen.insert(key)
-            return true
-        }
-        
-        hasMore = !dramas.isEmpty && dramas.count >= targets.count * 20
+        hasMore = receivedCount >= targets.count * 20
         currentPage = page
         
         // 拉取缺失的封面图
         fetchMissingCovers()
+    }
+
+    private func appendDramaItems(_ items: [VodItem], seenNames: inout Set<String>) {
+        guard !items.isEmpty else { return }
+
+        var newItems: [VodItem] = []
+        for item in items {
+            let key = item.vodName
+            guard !seenNames.contains(key) else { continue }
+            seenNames.insert(key)
+            newItems.append(item)
+        }
+        guard !newItems.isEmpty else { return }
+
+        dramas.append(contentsOf: newItems)
     }
     
     // MARK: - 封面图补全

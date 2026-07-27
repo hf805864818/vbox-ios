@@ -290,14 +290,6 @@ class SpiderManager: ObservableObject {
 
             // 确保源列表缓存刷新
             invalidateSourceDisplayCache()
-
-            // 自动扫描短剧源
-            await ShortDramaService.shared.scanShortDramaSources(from: allSites)
-            print("[SpiderManager] 短剧源扫描完成: \(ShortDramaService.shared.shortDramaSources.count) 个")
-            // 预加载短剧列表
-            if !ShortDramaService.shared.shortDramaSources.isEmpty {
-                await ShortDramaService.shared.fetchDramas()
-            }
         }
 
         await initializationTask!.value
@@ -3742,22 +3734,182 @@ globalThis.__JS_SPIDER__ = _spider;
         _cachedSourceDisplayItems = nil
     }
 
+    private nonisolated static func extractRefererForDisplay(from api: String?) -> String? {
+        guard let api = api, let url = URL(string: api), let host = url.host else { return nil }
+        let scheme = url.scheme ?? "https"
+        return "\(scheme)://\(host)/"
+    }
+
+    private nonisolated static func loadCloudSitesForDisplayOffMain(remoteData: Data?, bundleSourcesEnabled: Bool) -> [CloudSiteConfig] {
+        let decoder = JSONDecoder()
+        let fileManager = FileManager.default
+
+        if let remoteData = remoteData {
+            do {
+                let wrapper = try decoder.decode(CloudSitesWrapper.self, from: remoteData)
+                print("[SpiderManager] ✅ 后台从远程默认源缓存加载网盘源，共 \(wrapper.cloudSites.count) 个站点")
+                return wrapper.cloudSites
+            } catch {
+                print("[SpiderManager] ⚠️ 后台远程网盘源缓存解析失败: \(error.localizedDescription)")
+            }
+        }
+
+        if let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let externalPath = documentsPath.appendingPathComponent("video_sources.json")
+            if fileManager.fileExists(atPath: externalPath.path) {
+                do {
+                    let data = try Data(contentsOf: externalPath)
+                    let wrapper = try decoder.decode(CloudSitesWrapper.self, from: data)
+                    print("[SpiderManager] ✅ 后台从外部加载站点配置，共 \(wrapper.cloudSites.count) 个站点")
+                    return wrapper.cloudSites
+                } catch {
+                    print("[SpiderManager] ⚠️ 后台外部JSON加载失败: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        guard bundleSourcesEnabled else {
+            print("[SpiderManager] Bundle 内置源已关闭，后台跳过 video_sources.json")
+            return []
+        }
+
+        guard let bundlePath = Bundle.main.path(forResource: "video_sources", ofType: "json") else {
+            print("[SpiderManager] ❌ 后台找不到默认 video_sources.json 文件")
+            return []
+        }
+
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: bundlePath))
+            let wrapper = try decoder.decode(CloudSitesWrapper.self, from: data)
+            print("[SpiderManager] ✅ 后台从Bundle加载站点配置，共 \(wrapper.cloudSites.count) 个站点")
+            return wrapper.cloudSites
+        } catch {
+            print("[SpiderManager] ❌ 后台 JSON 解析失败: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private nonisolated static func buildSourceDisplayItemsOffMain(
+        cloudSites: [CloudSiteConfig],
+        allSites: [SiteConfig],
+        engineKeys: [String],
+        zhanyuanSites: [ZhanyuanSite]
+    ) -> [SourceDisplayItem] {
+        var items: [SourceDisplayItem] = []
+
+        for site in cloudSites {
+            let cat: SourceCategory
+            switch site.type {
+            case .cms: cat = .cloudCMS
+            case .forum: cat = .cloudForum
+            case .spa: cat = .cloudSPA
+            case .wordpress: cat = .cloudCMS
+            case .dedecms: cat = .cloudCMS
+            }
+            let api = site.type == .cms ? "\(site.detailBase)/api.php/provide/vod" : nil
+            items.append(SourceDisplayItem(
+                id: "cloud_\(site.name)",
+                name: site.name,
+                category: cat,
+                supportsHome: cat.supportsHome,
+                api: api,
+                searchUrl: nil,
+                engineKey: nil,
+                referer: extractRefererForDisplay(from: api),
+                siteKey: site.name
+            ))
+        }
+
+        let apiSites = allSites.filter { $0.type == 0 || $0.type == 1 }
+        for site in apiSites {
+            let key = site.key
+            if items.contains(where: { $0.id == "api_\(key)" }) { continue }
+            items.append(SourceDisplayItem(
+                id: "api_\(key)",
+                name: site.name,
+                category: .api,
+                supportsHome: true,
+                api: site.api,
+                searchUrl: nil,
+                engineKey: nil,
+                referer: extractRefererForDisplay(from: site.api),
+                siteKey: key
+            ))
+        }
+
+        for key in engineKeys {
+            if items.contains(where: { $0.id == "js_\(key)" }) { continue }
+            let siteConfig = allSites.first(where: { $0.key == key })
+            items.append(SourceDisplayItem(
+                id: "js_\(key)",
+                name: siteConfig?.name ?? key,
+                category: .jsSpider,
+                supportsHome: true,
+                api: nil,
+                searchUrl: nil,
+                engineKey: key,
+                referer: nil,
+                siteKey: key
+            ))
+        }
+
+        for site in zhanyuanSites {
+            let id = "zhanyuan_\(site.name)"
+            if items.contains(where: { $0.id == id }) { continue }
+            let baseURL = site.searchUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let api = "\(baseURL)/api.php/provide/vod"
+            items.append(SourceDisplayItem(
+                id: id,
+                name: site.name,
+                category: .zhanyuan,
+                supportsHome: true,
+                api: api,
+                searchUrl: site.searchUrl,
+                engineKey: nil,
+                referer: extractRefererForDisplay(from: api),
+                siteKey: site.name
+            ))
+        }
+
+        items.sort { a, b in
+            if a.category.sortOrder != b.category.sortOrder {
+                return a.category.sortOrder < b.category.sortOrder
+            }
+            return a.name.localizedCompare(b.name) == .orderedAscending
+        }
+
+        return items
+    }
+
     /// 异步获取所有可用源，将文件 I/O 和数据库查询移出首屏渲染关键路径
     /// 避免主线程被 watchdog 杀掉（scene-update 10s 超时）
     func fetchAllSourceDisplayItemsAsync() async -> [SourceDisplayItem] {
         if let cached = _cachedSourceDisplayItems { return cached }
-        // fetchAllSourceDisplayItems 内部有缓存，首次调用会做文件 I/O
-        // 用 Task 让出当前执行权，延后到下一个 runloop 执行，避免阻塞 onAppear 渲染
-        return await withCheckedContinuation { (continuation: CheckedContinuation<[SourceDisplayItem], Never>) in
-            Task { @MainActor [weak self] in
-                guard let self = self else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                let result = self.fetchAllSourceDisplayItems()
-                continuation.resume(returning: result)
+
+        let allSitesSnapshot = allSites
+        let engineKeysSnapshot = Array(engines.keys)
+        let bundleSourcesEnabled = UserDefaults.standard.object(forKey: RemoteSourceConfigKeys.bundleSourcesEnabled) as? Bool ?? false
+
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<[SourceDisplayItem], Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let remoteCloudSitesData = RemoteSourceConfigManager.cachedCloudSitesDataForBackground()
+                let cloudSites = Self.loadCloudSitesForDisplayOffMain(
+                    remoteData: remoteCloudSitesData,
+                    bundleSourcesEnabled: bundleSourcesEnabled
+                )
+                let zhanyuanSites = DatabaseManager.shared.queryAllZhanyuanSites()
+                let items = Self.buildSourceDisplayItemsOffMain(
+                    cloudSites: cloudSites,
+                    allSites: allSitesSnapshot,
+                    engineKeys: engineKeysSnapshot,
+                    zhanyuanSites: zhanyuanSites
+                )
+                continuation.resume(returning: items)
             }
         }
+
+        _cachedSourceDisplayItems = result
+        return result
     }
 
     /// 获取单个源的首页数据
