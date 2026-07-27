@@ -158,6 +158,13 @@ final class RemoteSourceConfigManager: ObservableObject {
             try manifestData.write(to: url(for: .manifest), options: .atomic)
             try allSourcesData.write(to: url(for: .allSources), options: .atomic)
 
+            // 4. 下载并缓存 JS 蜘蛛引擎文件
+            let allSources = try decoder.decode(AllSourcesContainer.self, from: allSourcesData)
+            let spiderSites = allSources.spiderSources?.sites ?? []
+            if !spiderSites.isEmpty, let baseURL = URL(string: manifest.files.allSources)?.deletingLastPathComponent().absoluteString {
+                await downloadAndCacheSpiderJS(baseURL: baseURL, sites: spiderSites)
+            }
+
             updateSuccess(version: manifest.configVersion)
             print("[RemoteSource] 同步完成 version=\(manifest.configVersion)")
         } catch {
@@ -336,6 +343,11 @@ final class RemoteSourceConfigManager: ObservableObject {
         return docs.appendingPathComponent("remote_sources", isDirectory: true)
     }
 
+    /// JS 蜘蛛引擎缓存目录
+    var jsCacheDirectory: URL {
+        cacheDirectory.appendingPathComponent("js_cache", isDirectory: true)
+    }
+
     private func url(for file: CacheFile) -> URL {
         cacheDirectory.appendingPathComponent(file.rawValue)
     }
@@ -343,6 +355,137 @@ final class RemoteSourceConfigManager: ObservableObject {
     private func ensureCacheDirectory() throws {
         if !fileManager.fileExists(atPath: cacheDirectory.path) {
             try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        }
+        if !fileManager.fileExists(atPath: jsCacheDirectory.path) {
+            try fileManager.createDirectory(at: jsCacheDirectory, withIntermediateDirectories: true)
+        }
+    }
+
+    // MARK: - JS 蜘蛛引擎缓存
+
+    /// 下载并缓存所有 JS 蜘蛛引擎文件
+    private func downloadAndCacheSpiderJS(baseURL: String, sites: [SiteConfig]) async {
+        print("[RemoteSource] 开始缓存 JS 蜘蛛引擎，站点数: \(sites.count)")
+
+        // 收集需要下载的 URL
+        var urlsToDownload: [(key: String, url: String, isExt: Bool)] = []
+
+        for site in sites {
+            guard let api = site.api, !api.isEmpty else { continue }
+            let key = site.key.isEmpty ? site.name : site.key
+
+            // 解析 JS 文件 URL
+            let resolvedURL: String
+            if api.hasPrefix("./") || (!api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js")) {
+                let cleanPath = api.hasPrefix("./") ? String(api.dropFirst(2)) : api
+                if let base = URL(string: baseURL) {
+                    resolvedURL = base.appendingPathComponent(cleanPath).standardized.absoluteString
+                } else {
+                    continue
+                }
+            } else if api.hasPrefix("http://") || api.hasPrefix("https://") {
+                resolvedURL = api
+            } else {
+                continue
+            }
+            urlsToDownload.append((key: key, url: resolvedURL, isExt: false))
+
+            // 如果 ext 是 URL，也缓存
+            if let ext = site.ext, !ext.isEmpty {
+                let extTrimmed = ext.trimmingCharacters(in: .whitespacesAndNewlines)
+                if extTrimmed.hasPrefix("http://") || extTrimmed.hasPrefix("https://") {
+                    urlsToDownload.append((key: "\(key)_ext", url: extTrimmed, isExt: true))
+                } else if extTrimmed.hasPrefix("./") || extTrimmed.hasSuffix(".js") {
+                    let cleanExtPath = extTrimmed.hasPrefix("./") ? String(extTrimmed.dropFirst(2)) : extTrimmed
+                    if let base = URL(string: baseURL) {
+                        let extFullURL = base.appendingPathComponent(cleanExtPath).standardized.absoluteString
+                        urlsToDownload.append((key: "\(key)_ext", url: extFullURL, isExt: true))
+                    }
+                }
+            }
+        }
+
+        guard !urlsToDownload.isEmpty else {
+            print("[RemoteSource] 没有需要缓存的 JS 蜘蛛引擎")
+            return
+        }
+
+        // 记录当前缓存的文件，用于后续清理过期文件
+        var cachedKeys = Set<String>()
+
+        // 使用 TaskGroup 并发下载
+        await withTaskGroup(of: (key: String, success: Bool).self) { group in
+            for item in urlsToDownload {
+                group.addTask {
+                    let success = await self.downloadJSFile(key: item.key, urlString: item.url)
+                    return (key: item.key, success: success)
+                }
+            }
+
+            for await result in group {
+                if result.success {
+                    cachedKeys.insert(result.key)
+                }
+            }
+        }
+
+        // 清理过期缓存（不在当前配置中的文件）
+        cleanupExpiredJSCache(validKeys: cachedKeys)
+
+        print("[RemoteSource] JS 蜘蛛引擎缓存完成，有效缓存: \(cachedKeys.count) 个")
+    }
+
+    /// 下载单个 JS 文件到缓存目录
+    private func downloadJSFile(key: String, urlString: String) async -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        let fileURL = jsCacheDirectory.appendingPathComponent("\(key).js")
+
+        do {
+            let data = try await fetchData(from: url)
+            guard let jsCode = String(data: data, encoding: .utf8),
+                  jsCode.count > 50,
+                  (jsCode.contains("function ") || jsCode.contains("var ") || jsCode.contains("let ") || jsCode.contains("const ")) else {
+                print("[RemoteSource] ⚠️ JS 文件内容无效: \(key)")
+                return false
+            }
+            try data.write(to: fileURL, options: .atomic)
+            print("[RemoteSource] ✅ JS 缓存成功: \(key) (\(data.count) bytes)")
+            return true
+        } catch {
+            print("[RemoteSource] ❌ JS 缓存失败: \(key) - \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 获取缓存的 JS 文件路径（如果存在）
+    func cachedSpiderJSPath(forKey key: String) -> URL? {
+        let fileURL = jsCacheDirectory.appendingPathComponent("\(key).js")
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return fileURL
+    }
+
+    /// 读取缓存的 JS 文件内容
+    func cachedSpiderJSContent(forKey key: String) -> String? {
+        guard let fileURL = cachedSpiderJSPath(forKey: key),
+              let data = try? Data(contentsOf: fileURL),
+              let jsCode = String(data: data, encoding: .utf8),
+              jsCode.count > 50 else { return nil }
+        return jsCode
+    }
+
+    /// 清理过期的 JS 缓存文件
+    private func cleanupExpiredJSCache(validKeys: Set<String>) {
+        do {
+            let files = try fileManager.contentsOfDirectory(at: jsCacheDirectory, includingPropertiesForKeys: nil)
+            for file in files where file.pathExtension == "js" {
+                let fileName = file.deletingPathExtension().lastPathComponent
+                if !validKeys.contains(fileName) {
+                    try fileManager.removeItem(at: file)
+                    print("[RemoteSource] 🗑️ 清理过期 JS 缓存: \(fileName)")
+                }
+            }
+        } catch {
+            print("[RemoteSource] 清理过期 JS 缓存失败: \(error.localizedDescription)")
         }
     }
 

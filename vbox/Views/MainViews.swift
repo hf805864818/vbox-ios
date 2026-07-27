@@ -289,8 +289,10 @@ struct HomeView: View {
         }
         .onAppear {
             // 预加载源列表（异步，不阻塞首屏渲染）
+            // ★ 先等待 SpiderManager 初始化完成，避免获取到不完整的源列表
             if allSources.isEmpty {
                 Task.detached(priority: .utility) {
+                    await SpiderManager.shared.initialize()
                     let items = await SpiderManager.shared.fetchAllSourceDisplayItemsAsync()
                     await MainActor.run {
                         if allSources.isEmpty {
