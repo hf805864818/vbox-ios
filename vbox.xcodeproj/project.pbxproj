@@ -106,7 +106,6 @@
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
-		A1F0C0010000000000000001 /* SpiderEngineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000001 /* SpiderEngineFactory.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
 		A10020 /* js in Resources */ = {isa = PBXBuildFile; fileRef = B10030 /* js */; };
@@ -183,6 +182,7 @@
 		A12033 /* SangeCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12033 /* SangeCategoryView.swift */; };
 		A12034 /* SangeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12034 /* SangeListView.swift */; };
 		A12035 /* SecureCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12035 /* SecureCredentialStore.swift */; };
+		A1F0C0010000000000000001 /* SpiderEngineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000001 /* SpiderEngineFactory.swift */; };
 		A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */; };
 		A30119DB4C897CB1D123FAF3 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 807222ECDB74BD55495F6395 /* libz.tbd */; };
 		A477C1043BC04B0A93AFB2BF /* FourHVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */; };
@@ -377,7 +377,6 @@
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
-		B1F0C0010000000000000001 /* SpiderEngineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineFactory.swift; sourceTree = "<group>"; };
 		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
 		B10022 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
@@ -457,6 +456,7 @@
 		B12034 /* SangeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeListView.swift; sourceTree = "<group>"; };
 		B12035 /* SecureCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureCredentialStore.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
+		B1F0C0010000000000000001 /* SpiderEngineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineFactory.swift; sourceTree = "<group>"; };
 		B2C3D4E5F6789ABCDEF01234 /* JiujiuHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JiujiuHomeView.swift; sourceTree = "<group>"; };
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
