@@ -2532,8 +2532,7 @@ class PlayerState: ObservableObject {
                         }
                     }
                     Task { @MainActor in
-                        self.loadError = "网盘播放失败: \(errorDesc)"
-                        self.isLoading = false
+                        self.failPlayback("网盘播放失败: \(errorDesc)")
                     }
                 case .unknown:
                     self.log("[PlayerV2] 网盘 PlayerItem 状态未知")
@@ -2556,6 +2555,10 @@ class PlayerState: ObservableObject {
                     } else if isQuarkLocalProxy && self.isQuarkConnectionLost(error: error as NSError, errorDesc: error.localizedDescription, underlyingDesc: "") {
                         self.log("[Quark] ⚠️ 夸克播放中断疑似连接丢失，准备切换 m3u8 兜底")
                         self.switchToQuarkFallback(reason: "原画播放中断")
+                    } else {
+                        Task { @MainActor in
+                            self.failPlayback("网盘播放失败: \(error.localizedDescription)")
+                        }
                     }
                 }
             }
@@ -2875,8 +2878,10 @@ class PlayerState: ObservableObject {
     
     func retry(video: VodItem) {
         currentTask?.cancel()
+        stopPlaybackForFailure()
         loadError = nil
         isLoading = true
+        isPlaying = false
         setupPlayer(video: video)
     }
     
@@ -3678,6 +3683,8 @@ class PlayerState: ObservableObject {
                 switch status {
                 case .readyToPlay:
                     self.log("[PlayerV2] PlayerItem 准备就绪")
+                    self.isLoading = false
+                    self.loadError = nil
                     if self.currentTime > 10 {
                         let resume = self.currentTime
                         self.log("[Progress] 自动跳转到上次进度：\(self.formatDuration(resume))")
@@ -3703,9 +3710,7 @@ class PlayerState: ObservableObject {
                     let errMsg = errorDesc.contains("不能") || errorDesc.contains("format") || errorDesc.contains("Invalid") 
                         ? "播放地址格式不支持" : "播放地址加载失败: \(errorDesc)"
                     Task { @MainActor in
-                        self.loadError = errMsg
-                        self.isLoading = false
-                        self.player = nil
+                        self.failPlayback(errMsg)
                     }
                 case .unknown:
                     self.log("[PlayerV2] PlayerItem 状态未知")
@@ -3721,9 +3726,7 @@ class PlayerState: ObservableObject {
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
                     self?.log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
                     Task { @MainActor in
-                        self?.loadError = "播放失败: \(error.localizedDescription)"
-                        self?.isLoading = false
-                        self?.player = nil
+                        self?.failPlayback("播放失败: \(error.localizedDescription)")
                     }
                 }
             }
@@ -3738,7 +3741,8 @@ class PlayerState: ObservableObject {
         
         self.player = p
         self.isPlaying = true
-        self.isLoading = false
+        self.isLoading = true
+        self.loadingMessage = "正在缓冲首帧..."
         
         // 10秒超时保护：如果PlayerItem一直没就绪，显示错误
         let timeoutTask = Task { [weak self] in
@@ -3746,13 +3750,12 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             if await MainActor.run { self.player != nil && self.loadError == nil } {
                 let status = await MainActor.run { p.currentItem?.status }
-                let isActuallyPlaying = await MainActor.run { p.rate > 0 || self.isPlaying }
+                let isActuallyPlaying = await MainActor.run { p.rate > 0 || p.timeControlStatus == .playing }
                 // 如果视频已经在播放或已就绪，不触发超时
                 if status != .readyToPlay && !isActuallyPlaying {
                     await MainActor.run {
                         self.log("[PlayerV2] ⏱️ 播放地址加载超时")
-                        self.loadError = "播放地址加载超时，请检查网络或更换资源"
-                        self.isLoading = false
+                        self.failPlayback("播放地址加载超时，请检查网络或更换资源")
                     }
                 }
             }
@@ -3794,6 +3797,40 @@ class PlayerState: ObservableObject {
         statusObserver = nil
         failureObserver = nil
         endObserver = nil
+    }
+
+    func stopPlaybackForFailure() {
+        quarkFallbackTimeoutTask?.cancel()
+        quarkFallbackTimeoutTask = nil
+        cleanupObservers()
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player = nil
+        compatibilityURL = nil
+        compatibilityHeaders = [:]
+        isPlaying = false
+        isSeeking = false
+        showControls = true
+        showSettings = false
+        showEpisodePicker = false
+        showQualityPicker = false
+        showDanmakuSettings = false
+        showEnginePicker = false
+        showDanmakuInput = false
+        NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
+        NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
+    }
+
+    func failPlayback(_ message: String) {
+        stopPlaybackForFailure()
+        loadError = message
+        isLoading = false
+        loadingMessage = "播放失败"
+        log("[PlayerV2] 已进入失败态并释放播放器: \(message)")
     }
 }
 
@@ -3872,7 +3909,7 @@ struct PlayerContainerView: View {
                         onTimeUpdate: { time in playerState.currentTime = time },
                         onDurationChange: { dur in playerState.duration = dur },
                         onBufferUpdate: { _ in },
-                        onError: { msg in playerState.loadError = msg },
+                        onError: { msg in playerState.failPlayback(msg) },
                         onReady: { playerState.isLoading = false },
                         onSeekDone: { playerState.isSeeking = false }
                     )
@@ -5392,7 +5429,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 playerState.isPlaying = state.isPlaying
                 if let error = state.errorMessage {
                     self.cancelInitTimeout()
-                    playerState.loadError = error
+                    playerState.failPlayback(error)
                 }
                 if !state.isBuffering && state.currentTime > 0 {
                     self.cancelInitTimeout()
@@ -5466,8 +5503,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self, !self.isStopped else { return }
                 self.playerState?.log("[MPV-MoltenVK] 初始化超时(\(Int(Self.initTimeoutSeconds))s)，停止等待")
-                self.playerState?.loadError = "MPV-MoltenVK 初始化超时，请尝试切换到 VLC 或系统内核"
-                self.playerState?.isLoading = false
+                self.playerState?.failPlayback("MPV-MoltenVK 初始化超时，请尝试切换到 VLC 或系统内核")
                 self.core.stop()
             }
             initTimeoutWorkItem = workItem
