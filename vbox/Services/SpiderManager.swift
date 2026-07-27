@@ -299,6 +299,7 @@ class SpiderManager: ObservableObject {
         }
 
         await initializationTask!.value
+        initializationTask = nil
     }
 
     /// 加载内置 QuickJS 蜘蛛引擎
@@ -1102,9 +1103,14 @@ globalThis.__JS_SPIDER__ = _spider;
             try await loadSpiderEngine(jsCode: finalJSCode, key: key)
 
             // 3. 加载 ext 字段（优先本地缓存）
+            // ext 加载失败不应影响主框架的成功状态
             if let ext = site.ext, !ext.isEmpty {
                 let extTrimmed = ext.trimmingCharacters(in: .whitespacesAndNewlines)
-                try await loadSpiderExt(site: site, key: key, ext: extTrimmed, baseURL: baseURL)
+                do {
+                    try await loadSpiderExt(site: site, key: key, ext: extTrimmed, baseURL: baseURL)
+                } catch {
+                    print("[SpiderManager] ⚠️ 远程蜘蛛 ext 加载失败（不影响主框架）: \(site.name) - \(error.localizedDescription)")
+                }
             }
 
             print("[SpiderManager] ✅ 远程蜘蛛加载成功: \(site.name) (\(key))")
