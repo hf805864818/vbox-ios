@@ -106,6 +106,7 @@
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
+		A1F0C0010000000000000001 /* SpiderEngineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000001 /* SpiderEngineFactory.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
 		A10019 /* UpdateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* UpdateSheet.swift */; };
 		A10020 /* js in Resources */ = {isa = PBXBuildFile; fileRef = B10030 /* js */; };
@@ -376,6 +377,7 @@
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
+		B1F0C0010000000000000001 /* SpiderEngineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineFactory.swift; sourceTree = "<group>"; };
 		B10020 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		B10021 /* UpdateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSheet.swift; sourceTree = "<group>"; };
 		B10022 /* PlayerSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSubViews.swift; sourceTree = "<group>"; };
@@ -682,6 +684,7 @@
 				B10020 /* UpdateManager.swift */,
 				B10011 /* QJSSpiderEngine.swift */,
 				B10019 /* SpiderManager.swift */,
+				B1F0C0010000000000000001 /* SpiderEngineFactory.swift */,
 				CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */,
 				CAFE00000000000000000005 /* FeedbackService.swift */,
 				B10015 /* SubscriptionManager.swift */,
@@ -988,6 +991,7 @@
 				A10014 /* CloudDriveManager.swift in Sources */,
 				C1A000000000000000000003 /* CloudDriveSortManager.swift in Sources */,
 				A10017 /* SpiderManager.swift in Sources */,
+				A1F0C0010000000000000001 /* SpiderEngineFactory.swift in Sources */,
 				CAFE00000000000000000002 /* RemoteSourceConfigManager.swift in Sources */,
 				CAFE00000000000000000006 /* FeedbackService.swift in Sources */,
 				CAFE00000000000000000004 /* RemoteSourceStatusBar.swift in Sources */,

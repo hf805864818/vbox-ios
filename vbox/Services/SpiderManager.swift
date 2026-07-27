@@ -866,28 +866,29 @@ globalThis.__JS_SPIDER__ = _spider;
             var zhanLoaded = false
             for engineType in [SpiderEngineType.javaScriptCore, .quickJS] {
                 do {
-                    let engine: SpiderEngineProtocol = engineType == .javaScriptCore ? JSSpiderEngine() : QJSSpiderEngine()
-                    engine.onLog = { msg in print("[Zhanyuan|\(key)|\(engineType.displayName)] \(msg)") }
-                    try await injectSpiderLibraries(engine: engine)
-                    try engine.loadScript(zhanJS)
-                    if engine.isSpiderReady {
-                        engines[key] = engine
-                        engineTypes[key] = engineType
-                        if !subscribedSites.contains(key) { subscribedSites.append(key) }
-                        jsSpiderLoaded += 1
-                        print("[SpiderManager] ✅ zhanyuan 就绪 [\(engineType.displayName)]: \(site.name)")
-                        zhanLoaded = true
-                        break
-                    } else {
-                        try engine.registerSpider()
-                        engines[key] = engine
-                        engineTypes[key] = engineType
-                        if !subscribedSites.contains(key) { subscribedSites.append(key) }
-                        jsSpiderLoaded += 1
-                        print("[SpiderManager] ✅ zhanyuan 注册成功 [\(engineType.displayName)]: \(site.name)")
-                        zhanLoaded = true
-                        break
+                    let engine = try await Self.buildSpiderEngineOffMain(
+                        jsCode: zhanJS,
+                        extCode: nil,
+                        engineType: engineType,
+                        key: key
+                    )
+
+                    engine.onLog = { [weak self] msg in
+                        print("[Zhanyuan|\(key)|\(engineType.displayName)] \(msg)")
+                        if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
+                            Task { @MainActor [weak self] in
+                                self?.engineError = msg
+                            }
+                        }
                     }
+
+                    engines[key] = engine
+                    engineTypes[key] = engineType
+                    if !subscribedSites.contains(key) { subscribedSites.append(key) }
+                    jsSpiderLoaded += 1
+                    print("[SpiderManager] ✅ zhanyuan 就绪 [\(engineType.displayName)]: \(site.name)")
+                    zhanLoaded = true
+                    break
                 } catch {
                     print("[SpiderManager] ⚠️ zhanyuan \(engineType.displayName) 失败: \(site.name): \(error)")
                 }
@@ -1211,94 +1212,51 @@ globalThis.__JS_SPIDER__ = _spider;
         throw JSError(message: err)
     }
     
-    /// 使用指定引擎类型加载蜘蛛
+    /// 使用指定引擎类型加载蜘蛛 — 重活在后台线程执行
     private func loadSpiderEngineWithType(jsCode: String, key: String, engineType: SpiderEngineType) async throws -> SpiderEngineProtocol {
-        let engine: SpiderEngineProtocol
-        switch engineType {
-        case .javaScriptCore:
-            engine = JSSpiderEngine()
-        case .quickJS:
-            engine = QJSSpiderEngine()
-        }
+        // 把引擎创建和预热放到后台线程，避免阻塞主线程 UI
+        let engine = try await Self.buildSpiderEngineOffMain(
+            jsCode: jsCode,
+            extCode: nil,
+            engineType: engineType,
+            key: key
+        )
         
-        engine.onLog = { msg in
+        // 回到主线程设置 UI 相关的日志回调
+        engine.onLog = { [weak self] msg in
             print("[SpiderEngine|\(key)|\(engineType.displayName)] \(msg)")
             if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
-                Task { @MainActor in self.engineError = msg }
+                Task { @MainActor [weak self] in
+                    self?.engineError = msg
+                }
             }
         }
         
-        // 注入 TVBox 标准模板库
-        try await injectSpiderLibraries(engine: engine)
-        try engine.loadScript(jsCode)
-        
-        // 尝试注册
-        if engine.isSpiderReady {
-            return engine
-        } else {
-            try engine.registerSpider()
-            return engine
-        }
+        return engine
     }
 
-    /// 注入 TVBox 标准 JS 库（模板引擎、网络桥接等）
-    private func injectSpiderLibraries(engine: SpiderEngineProtocol) async throws {
-        // 0. 浏览器兼容 polyfill（atob/btoa - QuickJS/JSC 没有这些）
-        try engine.loadLibrary("""
-        if (typeof atob === 'undefined') {
-            atob = function(base64) {
-                var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-                var result = '';
-                var buffer = 0, bits = 0;
-                for (var i = 0; i < base64.length; i++) {
-                    var c = chars.indexOf(base64[i]);
-                    if (c === -1) continue;
-                    buffer = (buffer << 6) | c;
-                    bits += 6;
-                    if (bits >= 8) {
-                        bits -= 8;
-                        result += String.fromCharCode((buffer >> bits) & 0xFF);
-                    }
+    /// 将 JS 引擎创建和预热明确放到后台队列，避免 MainActor 执行重计算。
+    private nonisolated static func buildSpiderEngineOffMain(
+        jsCode: String,
+        extCode: String?,
+        engineType: SpiderEngineType,
+        key: String
+    ) async throws -> SpiderEngineProtocol {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let engine = try SpiderEngineFactory.buildEngine(
+                        jsCode: jsCode,
+                        extCode: extCode,
+                        engineType: engineType,
+                        key: key
+                    )
+                    continuation.resume(returning: engine)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
-                return result;
-            };
+            }
         }
-        """)
-        // 1. net.js — 同步/异步 HTTP 请求封装
-        try engine.loadLibrary("""
-        let req = (url, options) => http(url, Object.assign({ async: false }, options));
-        """)
-        // 2. 加载 cheerio (HTML 解析器)
-        if let cheerioPath = Bundle.main.path(forResource: "cheerio.min", ofType: "js"),
-           let cheerioJs = try? String(contentsOfFile: cheerioPath, encoding: .utf8) {
-            try engine.loadLibrary(cheerioJs)
-            print("[SpiderManager] ✅ cheerio 已注入")
-        }
-        // 3. 加载 utils.js (TVBox 标准工具库)
-        if let utilsPath = Bundle.main.path(forResource: "utils", ofType: "js", inDirectory: "js/lib"),
-           let utilsJs = try? String(contentsOfFile: utilsPath, encoding: .utf8) {
-            try engine.loadLibrary(utilsJs)
-            print("[SpiderManager] ✅ utils.js 已注入")
-        }
-        // 4. 加载 similarity.js (相似度匹配库)
-        if let simPath = Bundle.main.path(forResource: "similarity", ofType: "js", inDirectory: "js/lib"),
-           let simJs = try? String(contentsOfFile: simPath, encoding: .utf8) {
-            try engine.loadLibrary(simJs)
-            print("[SpiderManager] ✅ similarity.js 已注入")
-        }
-        // 5. 模板引擎
-        if let tmplPath = Bundle.main.path(forResource: "模板", ofType: "js"),
-           let tmplJs = try? String(contentsOfFile: tmplPath, encoding: .utf8) {
-            try engine.loadLibrary(tmplJs)
-            print("[SpiderManager] ✅ 模板引擎已注入")
-        }
-        // 6. zhanyuan 蜘蛛引擎 (HTML 站源)
-        if let zhanPath = Bundle.main.path(forResource: "zhanyuan_spider", ofType: "js"),
-           let zhanJs = try? String(contentsOfFile: zhanPath, encoding: .utf8) {
-            try engine.loadLibrary(zhanJs)
-            print("[SpiderManager] ✅ zhanyuan 蜘蛛引擎已注入")
-        }
-        print("[SpiderManager] ✅ JS 库注入完成")
     }
 
     private func downloadRawData(url: String) async throws -> Data {
@@ -1313,23 +1271,29 @@ globalThis.__JS_SPIDER__ = _spider;
         // 尝试 JSC，失败回退到 QuickJS
         for engineType in [SpiderEngineType.javaScriptCore, .quickJS] {
             do {
-                let engine: SpiderEngineProtocol = engineType == .javaScriptCore ? JSSpiderEngine() : QJSSpiderEngine()
-                try await injectSpiderLibraries(engine: engine)
-                try await engine.loadScriptFromURL(jsURL)
-                if engine.isSpiderReady {
-                    engines[site.key] = engine
-                    engineTypes[site.key] = engineType
-                    if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
-                    print("[SpiderManager] ✅ ext站点 [\(engineType.displayName)]: \(site.name)")
-                    return
-                } else {
-                    try engine.registerSpider()
-                    engines[site.key] = engine
-                    engineTypes[site.key] = engineType
-                    if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
-                    print("[SpiderManager] ✅ ext站点(注册) [\(engineType.displayName)]: \(site.name)")
-                    return
+                // 先下载脚本，再在后台创建引擎
+                let script = try await downloadScript(url: jsURL)
+                let engine = try await Self.buildSpiderEngineOffMain(
+                    jsCode: script,
+                    extCode: nil,
+                    engineType: engineType,
+                    key: site.key
+                )
+
+                engine.onLog = { [weak self] msg in
+                    print("[SpiderEngine|\(site.key)|\(engineType.displayName)] \(msg)")
+                    if msg.contains("❌") || msg.contains("异常") || msg.contains("失败") {
+                        Task { @MainActor [weak self] in
+                            self?.engineError = msg
+                        }
+                    }
                 }
+
+                engines[site.key] = engine
+                engineTypes[site.key] = engineType
+                if !subscribedSites.contains(site.key) { subscribedSites.append(site.key) }
+                print("[SpiderManager] ✅ ext站点 [\(engineType.displayName)]: \(site.name)")
+                return
             } catch {
                 print("[SpiderManager] ⚠️ ext站点 \(engineType.displayName) 失败: \(site.name): \(error)")
             }
