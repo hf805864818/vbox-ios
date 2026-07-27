@@ -63,6 +63,8 @@ class SpiderManager: ObservableObject {
     /// 记录每个引擎使用的类型（用于诊断显示）
     private var engineTypes: [String: SpiderEngineType] = [:]
     private var cloudPlayCache: [String: (links: [(url: String, name: String)], siteName: String, expiresAt: Date)] = [:]
+    /// 初始化任务句柄，确保多次调用 initialize() 时等待首次初始化完成
+    private var initializationTask: Task<Void, Never>?
     
     /// 获取指定 key 的引擎类型
     func engineType(forKey key: String) -> SpiderEngineType? {
@@ -256,35 +258,47 @@ class SpiderManager: ObservableObject {
     }
 
     func initialize() async {
-        guard !isInitialized else { return }
-        isInitialized = true
+        // 如果已经有初始化任务在进行中，等待它完成
+        if let existingTask = initializationTask {
+            await existingTask.value
+            return
+        }
+        // 如果已经完成初始化，直接返回
+        if isInitialized { return }
 
-        await RemoteSourceConfigManager.shared.syncIfNeeded()
+        // 创建初始化任务，让后续调用者可以等待
+        initializationTask = Task { @MainActor in
+            isInitialized = true
 
-        // 尝试加载 QuickJS 内置蜘蛛
-        await loadBuiltinEngineIfNeeded()
+            await RemoteSourceConfigManager.shared.syncIfNeeded()
 
-        // 加载激活的订阅源
-        if let activeURL = subManager.activeURL {
-            print("[SpiderManager] 加载激活的订阅源: \(activeURL)")
-            await subManager.loadConfig(from: activeURL)
+            // 尝试加载 QuickJS 内置蜘蛛
+            await loadBuiltinEngineIfNeeded()
+
+            // 加载激活的订阅源
+            if let activeURL = subManager.activeURL {
+                print("[SpiderManager] 加载激活的订阅源: \(activeURL)")
+                await subManager.loadConfig(from: activeURL)
+            }
+
+            // 无论是否有订阅源，都加载站点配置（内置站点作为兜底）
+            await loadSitesFromSubscription()
+
+            print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(allSites.count)")
+
+            // 确保源列表缓存刷新
+            invalidateSourceDisplayCache()
+
+            // 自动扫描短剧源
+            await ShortDramaService.shared.scanShortDramaSources(from: allSites)
+            print("[SpiderManager] 短剧源扫描完成: \(ShortDramaService.shared.shortDramaSources.count) 个")
+            // 预加载短剧列表
+            if !ShortDramaService.shared.shortDramaSources.isEmpty {
+                await ShortDramaService.shared.fetchDramas()
+            }
         }
 
-        // 无论是否有订阅源，都加载站点配置（内置站点作为兜底）
-        await loadSitesFromSubscription()
-
-        print("[SpiderManager] 初始化完成，引擎数: \(engines.count), 站点数: \(allSites.count)")
-
-        // 确保源列表缓存刷新
-        invalidateSourceDisplayCache()
-
-        // 自动扫描短剧源
-        await ShortDramaService.shared.scanShortDramaSources(from: allSites)
-        print("[SpiderManager] 短剧源扫描完成: \(ShortDramaService.shared.shortDramaSources.count) 个")
-        // 预加载短剧列表
-        if !ShortDramaService.shared.shortDramaSources.isEmpty {
-            await ShortDramaService.shared.fetchDramas()
-        }
+        await initializationTask!.value
     }
 
     /// 加载内置 QuickJS 蜘蛛引擎
