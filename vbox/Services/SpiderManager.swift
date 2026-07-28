@@ -1325,6 +1325,9 @@ globalThis.__JS_SPIDER__ = _spider;
                     }
 
                     if let list = result.list, !list.isEmpty {
+                        for var item in list {
+                            item.engineKey = key
+                        }
                         videos.append(contentsOf: list)
                         print("[SpiderManager] ✅ 首页[\(key)]: \(list.count)视频")
                         if videos.count >= 20 {
@@ -1416,6 +1419,7 @@ globalThis.__JS_SPIDER__ = _spider;
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
+                        item.engineKey = key
                         // 智能去重：按 vodName+画质 分组，合并来源（已关闭，保留所有搜索结果）
                         // smartMerge(item: item, into: &allResults)
                         allResults.append(item)
@@ -1469,6 +1473,7 @@ globalThis.__JS_SPIDER__ = _spider;
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
+                        item.engineKey = key
                         results.append(item)
                     }
                     print("[SpiderManager] 分类[\(categoryTypeId)]引擎[\(key)]: \(list.count)条")
@@ -1675,7 +1680,8 @@ globalThis.__JS_SPIDER__ = _spider;
             do {
                 print("[SpiderManager] jsSpiderCategory[\(source.name)] 请求分类: tid=\(categoryTypeId), pg=\(page)")
                 let result = try engine.callCategoryContent(tid: categoryTypeId, pg: page, extend: "{}")
-                let list = result.list ?? []
+                var list = result.list ?? []
+                for i in 0..<list.count { list[i].engineKey = key }
                 print("[SpiderManager] jsSpiderCategory[\(source.name)] 返回 \(list.count) 条数据")
                 return list
             } catch {
@@ -1801,7 +1807,9 @@ globalThis.__JS_SPIDER__ = _spider;
                         jsGroup.addTask {
                             do {
                                 if let items = try engine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
-                                    return (key: key, items: items, error: nil)
+                                    var taggedItems = items
+                                    for i in 0..<taggedItems.count { taggedItems[i].engineKey = key }
+                                    return (key: key, items: taggedItems, error: nil)
                                 }
                                 return (key: key, items: nil, error: nil)
                             } catch {
@@ -1814,7 +1822,10 @@ globalThis.__JS_SPIDER__ = _spider;
                         if let items = r.items, !items.isEmpty {
                             var tagged = items
                             let name = siteNameMap[r.key] ?? r.key
-                            for i in 0..<tagged.count { tagged[i].vodRemarks = name }
+                            for i in 0..<tagged.count {
+                                tagged[i].vodRemarks = name
+                                tagged[i].engineKey = r.key
+                            }
                             log("✅ QuickJS[\(r.key)] +\(tagged.count)条")
                             onBatch(tagged)
                         } else if let err = r.error {
@@ -1877,7 +1888,7 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 通过引擎获取详情，失败时回退到原生 API 详情
-    func getDetail(ids: String, name: String? = nil) async -> VodItem? {
+    func getDetail(ids: String, name: String? = nil, engineKey: String? = nil) async -> VodItem? {
         // 0. 如果 ids 是 HTTP URL，判断是 zhanyuan 站源还是网盘
         if ids.hasPrefix("http://") || ids.hasPrefix("https://") {
             // 0.1 检查是否匹配 zhanyuan 站点域名
@@ -1912,16 +1923,40 @@ globalThis.__JS_SPIDER__ = _spider;
                 return txItem
             }
         }
-        // 1. 先尝试所有引擎（跳过腾讯，已走原生）
+        let tencentKey = TencentVideoNativeSpider.siteKey
+        
+        // 1. 优先使用 engineKey 精确匹配的引擎
+        if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
+            let idsCopy = ids
+            let detailResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
+                do {
+                    if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                        let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
+                        let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
+                        if hasPlayUrl || hasPlayFrom {
+                            print("[SpiderManager] getDetail 精确匹配成功 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
+                            return item
+                        }
+                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空地址，继续回退遍历")
+                    }
+                } catch { }
+                return nil
+            }.value
+            if let detailResult {
+                return detailResult
+            }
+        }
+        
+        // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
         // 修复：空结果（vodPlayUrl/vodPlayFrom 均为空）继续尝试其他引擎，避免占位符源被前面引擎的空结果拦截
         // ★ 关键修复：callDetailContent 是同步函数，底层 QJSBridge_eval 执行 JS 网络请求会阻塞线程
         // 用 Task.detached 移到后台线程执行，避免阻塞 MainActor 导致 UI 卡死
         let idsCopy = ids
         let enginesSnapshot = engines
-        let tencentKey = TencentVideoNativeSpider.siteKey
-        let detailResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
+        let fallbackResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
             for (key, engine) in enginesSnapshot {
                 if key == tencentKey { continue }
+                if key == engineKey { continue }  // 避免重复尝试
                 do {
                     if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
                         let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
@@ -1936,25 +1971,49 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             return nil
         }.value
-        if let detailResult {
-            return detailResult
+        if let fallbackResult {
+            return fallbackResult
         }
-        // 2. 引擎全部失败，回退到原生 API
+        // 3. 引擎全部失败，回退到原生 API
         print("[SpiderManager] getDetail 引擎全部失败，回退到 nativeDetail")
         return await nativeDetail(ids: ids, name: name)
     }
 
-    func getPlayerContent(vodId: String, flag: String = "play", url: String) async -> PlayerContentResult? {
+    func getPlayerContent(vodId: String, flag: String = "play", url: String, engineKey: String? = nil) async -> PlayerContentResult? {
+        let tencentKey = TencentVideoNativeSpider.siteKey
+        
+        // 1. 优先使用 engineKey 精确匹配的引擎
+        if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
+            let vodIdCopy = vodId
+            let flagCopy = flag
+            let urlCopy = url
+            let result = await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
+                do {
+                    let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
+                    let urlStr = result.playUrl ?? result.url ?? ""
+                    let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
+                    if hasUrl {
+                        print("[SpiderManager] getPlayerContent 精确匹配成功 [\(engineKey)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
+                        return result
+                    }
+                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 返回空地址，继续回退遍历")
+                } catch { }
+                return nil
+            }.value
+            if let result { return result }
+        }
+        
+        // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
         // 修复：空结果（url/playUrl 均为空）继续尝试其他引擎，避免剧迷等占位符源被前面引擎的空结果拦截
         // ★ 关键修复：callPlayerContent 同步阻塞，移到后台线程避免卡 UI（如播放器加载时）
         let enginesSnapshot = engines
-        let tencentKey = TencentVideoNativeSpider.siteKey
         let vodIdCopy = vodId
         let flagCopy = flag
         let urlCopy = url
         return await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
             for (key, engine) in enginesSnapshot {
                 if key == tencentKey { continue }
+                if key == engineKey { continue }  // 避免重复尝试
                 do {
                     let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
                     let urlStr = result.playUrl ?? result.url ?? ""
@@ -4300,7 +4359,8 @@ globalThis.__JS_SPIDER__ = _spider;
         do {
             let result = try engine.callHomeContent()
             let categories = result.class ?? []
-            let list = result.list ?? []
+            var list = result.list ?? []
+            for i in 0..<list.count { list[i].engineKey = key }
 
             // 允许 list 为空：分类列表仍然可用，用户可切换分类浏览
             return SourceHomeData(
