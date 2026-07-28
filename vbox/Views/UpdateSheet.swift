@@ -92,7 +92,7 @@ struct UpdateSheet: View {
         ZStack {
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
-                .onTapGesture { close() }
+                .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 // 顶部关闭按钮（下载中追加缩小按钮）
@@ -304,7 +304,9 @@ struct FloatingDownloadBubble: View {
     private func snapToEdgeY(currentY: CGFloat) -> CGFloat {
         let topEdge = bubbleSize / 2 + 60
         let bottomEdge = screenHeight - bubbleSize / 2 - 60
-        return currentY - defaultPosition.y
+        return currentY > screenHeight / 2
+            ? bottomEdge - defaultPosition.y
+            : topEdge - defaultPosition.y
     }
 
     var body: some View {
