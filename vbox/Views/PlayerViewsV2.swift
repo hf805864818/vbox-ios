@@ -2931,7 +2931,7 @@ class PlayerState: ObservableObject {
         Task { [weak self] in
             guard let self = self else { return }
             log("[PlayerV2] 步骤1: 后台获取详情...")
-            if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName),
+            if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey),
                let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
                 log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
                 // 后台详情返回后也更新集数列表
@@ -3096,7 +3096,7 @@ class PlayerState: ObservableObject {
                           || lowerUrl.hasPrefix("rtsp://")
         if !isStandardScheme && !urlString.isEmpty {
             log("[PlayerV2] 检测到自定义协议，优先调用 playerContent: \(urlString.prefix(60))")
-            if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
+            if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
                 await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders)
                 return
             }
@@ -3191,7 +3191,7 @@ class PlayerState: ObservableObject {
         }
 
         // 3. 尝试 QuickJS playerContent
-        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString) {
+        if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
             let pu = pr.playUrl ?? pr.url
             // 合并 JS 蜘蛛返回的 header（如剧迷需要 Referer/UA），不覆盖已有自定义头
             var mergedHeaders = customHeaders ?? [:]
@@ -3490,7 +3490,7 @@ class PlayerState: ObservableObject {
                     // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
                     log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
                     guard let video = self.currentVideo else { return }
-                    if let pr = await SpiderManager.shared.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url) {
+                    if let pr = await SpiderManager.shared.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url, engineKey: video.engineKey) {
                         await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: SpiderManager.shared)
                     } else {
                         log("[PlayerV2] ⚠️ 切集 playerContent 无结果")

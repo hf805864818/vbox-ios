@@ -365,6 +365,7 @@ class ShortDramaService: ObservableObject {
                     if vod.vodRemarks == nil || vod.vodRemarks?.isEmpty == true {
                         vod.vodRemarks = "\(source.name)"
                     }
+                    vod.engineKey = engineKey
                     return vod
                 }
             } catch {

@@ -244,7 +244,7 @@ struct VideoDetailView: View {
         guard !hasLoadedDetail, !isLoadingDetail else { return }
         isLoadingDetail = true
         Task {
-            let detail = await SpiderManager.shared.getDetail(ids: video.vodId, name: video.vodName)
+            let detail = await SpiderManager.shared.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey)
             await MainActor.run {
                 hasLoadedDetail = true
                 // 详情API通常返回更完整的playUrl，优先使用

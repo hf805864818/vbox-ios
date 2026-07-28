@@ -156,11 +156,13 @@ struct VodItem: Codable, Identifiable {
     let vodPlayFrom: String?
     var vodPlayUrl: String?
     let customHeaders: [String: String]?
+    /// 追踪数据来源引擎的 key，用于精确匹配详情和播放地址
+    var engineKey: String?
 
     init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
          vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,
          vodActor: String? = nil, vodContent: String? = nil, vodPlayFrom: String? = nil,
-         vodPlayUrl: String? = nil, customHeaders: [String: String]? = nil) {
+         vodPlayUrl: String? = nil, customHeaders: [String: String]? = nil, engineKey: String? = nil) {
         self.vodId = vodId
         self.vodName = vodName
         self.vodPic = vodPic
@@ -173,6 +175,7 @@ struct VodItem: Codable, Identifiable {
         self.vodPlayFrom = vodPlayFrom
         self.vodPlayUrl = vodPlayUrl
         self.customHeaders = customHeaders
+        self.engineKey = engineKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -188,6 +191,7 @@ struct VodItem: Codable, Identifiable {
         case vodPlayFrom = "vod_play_from"
         case vodPlayUrl = "vod_play_url"
         case customHeaders
+        case engineKey
     }
 }
 
