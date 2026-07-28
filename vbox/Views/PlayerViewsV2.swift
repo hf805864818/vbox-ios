@@ -1534,14 +1534,12 @@ class PlayerState: ObservableObject {
             }
             log("[Baidu] ❌ 第\(episodeNo)集：\(specificMsg)")
             await MainActor.run {
-                loadError = specificMsg
-                isLoading = false
+                self.failPlayback(specificMsg)
             }
         } catch {
             log("[Baidu] ❌ 第\(episodeNo)集：\(error.localizedDescription)")
             await MainActor.run {
-                loadError = "百度播放失败: \(error.localizedDescription)"
-                isLoading = false
+                self.failPlayback("百度播放失败: \(error.localizedDescription)")
             }
         }
     }
@@ -1967,8 +1965,7 @@ class PlayerState: ObservableObject {
                     }
                     
                     await MainActor.run {
-                        loadError = "网盘资源播放失败：请检查网盘Token配置"
-                        isLoading = false
+                        self.failPlayback("网盘资源播放失败：请检查网盘Token配置")
                     }
                     return
                 }
@@ -2010,8 +2007,7 @@ class PlayerState: ObservableObject {
         }
         
         await MainActor.run {
-            loadError = "网盘资源解析失败：未找到可播放链接"
-            isLoading = false
+            self.failPlayback("网盘资源解析失败：未找到可播放链接")
         }
     }
     
@@ -2055,8 +2051,7 @@ class PlayerState: ObservableObject {
         let tokens = CloudDriveManager.shared.tokens(for: driveType)
         guard !tokens.isEmpty else {
             await MainActor.run {
-                loadError = "未配置\(driveType.displayName) Token"
-                isLoading = false
+                self.failPlayback("未配置\(driveType.displayName) Token")
             }
             return
         }
@@ -2065,8 +2060,7 @@ class PlayerState: ObservableObject {
         if driveType == .baidu {
             guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
                 await MainActor.run {
-                    loadError = "缺少百度 Web Cookie：需要 BDUSS/STOKEN，PCS Cookie 不能替代"
-                    isLoading = false
+                    self.failPlayback("缺少百度 Web Cookie：需要 BDUSS/STOKEN，PCS Cookie 不能替代")
                 }
                 return
             }
@@ -2090,8 +2084,7 @@ class PlayerState: ObservableObject {
                 }
                 guard !files.isEmpty else {
                     await MainActor.run {
-                        loadError = "百度文件列表为空"
-                        isLoading = false
+                        self.failPlayback("百度文件列表为空")
                     }
                     return
                 }
@@ -2119,11 +2112,11 @@ class PlayerState: ObservableObject {
                 default: specificMsg = error.localizedDescription
                 }
                 log("[Baidu] ❌ ①出错: \(specificMsg)")
-                await MainActor.run { loadError = specificMsg; isLoading = false }
+                await MainActor.run { self.failPlayback(specificMsg) }
                 return
             } catch {
                 log("[Baidu] ❌ ①出错: \(error.localizedDescription)")
-                await MainActor.run { loadError = "百度解析失败: \(error.localizedDescription)"; isLoading = false }
+                await MainActor.run { self.failPlayback("百度解析失败: \(error.localizedDescription)") }
                 return
             }
         }
@@ -2132,8 +2125,7 @@ class PlayerState: ObservableObject {
         if driveType == .quark {
             guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
                 await MainActor.run {
-                    loadError = "未配置夸克网盘 Cookie"
-                    isLoading = false
+                    self.failPlayback("未配置夸克网盘 Cookie")
                 }
                 return
             }
@@ -2158,8 +2150,7 @@ class PlayerState: ObservableObject {
                 
                 guard !files.isEmpty else {
                     await MainActor.run {
-                        loadError = "夸克文件列表为空"
-                        isLoading = false
+                        self.failPlayback("夸克文件列表为空")
                     }
                     return
                 }
@@ -2180,7 +2171,7 @@ class PlayerState: ObservableObject {
                     let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
                     await playResolvedDriveVideo(result)
                 } catch {
-                    await MainActor.run { loadError = "夸克解析失败: \(error.localizedDescription)"; isLoading = false }
+                    await MainActor.run { self.failPlayback("夸克解析失败: \(error.localizedDescription)") }
                 }
                 return
             }
@@ -2190,8 +2181,7 @@ class PlayerState: ObservableObject {
         if driveType == .uc {
             guard let token = tokens.first else {
                 await MainActor.run {
-                    loadError = "未配置UC网盘 Cookie"
-                    isLoading = false
+                    self.failPlayback("未配置UC网盘 Cookie")
                 }
                 return
             }
@@ -2241,10 +2231,10 @@ class PlayerState: ObservableObject {
                 case .notImplemented: msg = "暂不支持"
                 }
                 log("[PlayerV2] ❌ UC网盘 播放失败: \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                await MainActor.run { self.failPlayback(msg) }
             } catch {
                 log("[PlayerV2] ❌ UC网盘 解析异常: \(error.localizedDescription)")
-                await MainActor.run { loadError = "UC解析异常: \(error.localizedDescription)"; isLoading = false }
+                await MainActor.run { self.failPlayback("UC解析异常: \(error.localizedDescription)") }
             }
             return
         }
@@ -2264,15 +2254,13 @@ class PlayerState: ObservableObject {
             }
             log("[PlayerV2] ❌ \(driveType.displayName) 播放失败: \(msg)")
             await MainActor.run {
-                loadError = msg
-                isLoading = false
+                self.failPlayback(msg)
             }
         } catch {
             let msg = "解析异常: \(error.localizedDescription)"
             log("[PlayerV2] ❌ \(driveType.displayName) \(msg)")
             await MainActor.run {
-                loadError = msg
-                isLoading = false
+                self.failPlayback(msg)
             }
         }
     }
@@ -2291,8 +2279,7 @@ class PlayerState: ObservableObject {
             } else {
                 log("[PlayerV2] ❌ 百度本地代理创建失败，iBox-style 路线不回退直连")
                 await MainActor.run {
-                    loadError = "百度本地代理创建失败"
-                    isLoading = false
+                    self.failPlayback("百度本地代理创建失败")
                 }
                 return
             }
@@ -2339,8 +2326,7 @@ class PlayerState: ObservableObject {
 
         guard let urlObj = createURL(from: finalURLString) else {
             await MainActor.run {
-                loadError = "播放地址格式错误"
-                isLoading = false
+                self.failPlayback("播放地址格式错误")
             }
             return
         }
@@ -2525,8 +2511,7 @@ class PlayerState: ObservableObject {
                             if self.switchToQuarkFallback(reason: "系统内核不支持原画格式") { return }
                         } else {
                             Task { @MainActor in
-                                self.loadError = "当前资源格式/编码不受系统播放器支持，建议使用兼容内核"
-                                self.isLoading = false
+                                self.failPlayback("当前资源格式/编码不受系统播放器支持，建议使用兼容内核")
                             }
                             return
                         }
@@ -2797,8 +2782,7 @@ class PlayerState: ObservableObject {
             if seconds > 2, size.width <= 1 || size.height <= 1 {
                 if isQuarkLocalProxy {
                     self.log("[PlayerV2] ⚠️ 夸克视频有播放进度但无画面，疑似文件已被和谐或转码失败")
-                    self.loadError = "该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源"
-                    self.isLoading = false
+                    self.failPlayback("该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
                 } else {
                     self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
                     self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
@@ -2836,8 +2820,7 @@ class PlayerState: ObservableObject {
         guard baiduStreamRetryCount < 1 else {
             log("[Baidu] ❌ 百度PCS流403重试后仍失败，请更新PCS Cookie或重新扫码登录")
             Task { @MainActor in
-                self.loadError = "百度PCS返回403：请更新PCS Cookie或重新扫码登录"
-                self.isLoading = false
+                self.failPlayback("百度PCS返回403：请更新PCS Cookie或重新扫码登录")
             }
             return
         }
@@ -2984,8 +2967,7 @@ class PlayerState: ObservableObject {
         guard let finalPlayUrl = playUrl, !finalPlayUrl.isEmpty else {
             log("[PlayerV2] 错误: 没有可用的播放地址")
             await MainActor.run {
-                loadError = "服务器未返回播放地址（详情页无视频源），请尝试其他资源或站点"
-                isLoading = false
+                self.failPlayback("服务器未返回播放地址（详情页无视频源），请尝试其他资源或站点")
             }
             return
         }
@@ -3076,8 +3058,7 @@ class PlayerState: ObservableObject {
             if let rawUrl = pu, !isStandardPlayScheme(rawUrl) {
                 log("[PlayerV2] ❌ playerContent 返回自定义协议且解析失败，不传给播放器: \(rawUrl.prefix(60))")
                 await MainActor.run {
-                    self.loadError = "播放地址解析失败，请尝试更换源或清晰度"
-                    self.isLoading = false
+                    self.failPlayback("播放地址解析失败，请尝试更换源或清晰度")
                 }
                 return
             }
@@ -3096,8 +3077,7 @@ class PlayerState: ObservableObject {
         } else if let pu = pu, !pu.isEmpty {
             log("[PlayerV2] ❌ playerContent 返回非标准协议，不传给播放器: \(pu.prefix(60))")
             await MainActor.run {
-                self.loadError = "播放地址格式不支持，请尝试更换源"
-                self.isLoading = false
+                self.failPlayback("播放地址格式不支持，请尝试更换源")
             }
         }
     }
@@ -3283,7 +3263,7 @@ class PlayerState: ObservableObject {
             if tokens.isEmpty {
                 let msg = "未配置\(driveType.displayName) Token，请到 设置→网盘播放 中添加"
                 log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                await MainActor.run { self.failPlayback(msg) }
                 return
             }
             do {
@@ -3297,7 +3277,7 @@ class PlayerState: ObservableObject {
                 } else {
                     let msg = "\(driveType.displayName) 返回的播放地址无效: \(result.url.prefix(50))"
                     log("[PlayerV2] ❌ \(msg)")
-                    await MainActor.run { loadError = msg; isLoading = false }
+                    await MainActor.run { self.failPlayback(msg) }
                     return
                 }
             } catch let error as DriveError {
@@ -3311,12 +3291,12 @@ class PlayerState: ObservableObject {
                 case .notImplemented: msg = "\(driveType.displayName) 暂不支持"
                 }
                 log("[PlayerV2] ❌ DriveError: \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                await MainActor.run { self.failPlayback(msg) }
                 return
             } catch {
                 let msg = "\(driveType.displayName) 解析异常: \(error.localizedDescription)"
                 log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { loadError = msg; isLoading = false }
+                await MainActor.run { self.failPlayback(msg) }
                 return
             }
         } else {
@@ -3326,11 +3306,7 @@ class PlayerState: ObservableObject {
         // 所有方式失败
         log("[PlayerV2] ❌ 所有方式都失败")
         await MainActor.run {
-            cleanupObservers(); player?.pause()
-            if let observer = timeObserver { player?.removeTimeObserver(observer); timeObserver = nil }
-            player = nil
-            loadError = "无法获取可用播放地址，请检查网络或更换其他资源"
-            isLoading = false
+            self.failPlayback("无法获取可用播放地址，请检查网络或更换其他资源")
         }
     }
     
@@ -3560,8 +3536,7 @@ class PlayerState: ObservableObject {
         } catch {
             log("[Quark] 切集失败: \(error.localizedDescription)")
             await MainActor.run {
-                loadError = "夸克切集失败: \(error.localizedDescription)"
-                isLoading = false
+                self.failPlayback("夸克切集失败: \(error.localizedDescription)")
             }
         }
     }
@@ -3575,7 +3550,7 @@ class PlayerState: ObservableObject {
         await MainActor.run { isLoading = true }
         
         guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
-            await MainActor.run { loadError = "未配置UC网盘 Token"; isLoading = false }
+            await MainActor.run { self.failPlayback("未配置UC网盘 Token") }
             return
         }
         
@@ -3593,8 +3568,7 @@ class PlayerState: ObservableObject {
         } catch {
             log("[UC] 切集失败: \(error.localizedDescription)")
             await MainActor.run {
-                loadError = "UC切集失败: \(error.localizedDescription)"
-                isLoading = false
+                self.failPlayback("UC切集失败: \(error.localizedDescription)")
             }
         }
     }
