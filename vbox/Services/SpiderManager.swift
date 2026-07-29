@@ -1926,42 +1926,34 @@ globalThis.__JS_SPIDER__ = _spider;
         let tencentKey = TencentVideoNativeSpider.siteKey
         
         // 1. 优先使用 engineKey 精确匹配的引擎
-        // ★ 关键修复：当 engineKey 指定时，只要引擎返回了结果就信任它，不再回退到其他引擎
-        // 之前的逻辑会因为 vodPlayUrl/vodPlayFrom 格式检查不通过而回退，导致不同蜘蛛的详情落到同一个引擎
+        // ★ engineKey 指定时，只信任自己的引擎，不跨引擎回退。每个平台各自管各自的资源。
         if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
             let idsCopy = ids
-            let detailResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
+            let result = await Task.detached(priority: .userInitiated) { () -> VodItem? in
                 do {
                     if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
-                        let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
-                        let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
-                        if hasPlayUrl || hasPlayFrom {
-                            print("[SpiderManager] getDetail 精确匹配成功 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                        } else {
-                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 格式检查未通过，但仍信任此引擎结果: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil") playFrom=\(item.vodPlayFrom?.prefix(40) ?? "nil")")
-                        }
+                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
                         return item
                     }
+                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空结果")
                 } catch {
-                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)，回退遍历")
+                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
                 }
                 return nil
             }.value
-            if let detailResult {
-                return detailResult
-            }
+            if let result { return result }
+            // engineKey 指定的引擎失败，不兜底到其他引擎，直接返回 nil
+            print("[SpiderManager] getDetail [\(engineKey)] 失败，不跨引擎回退")
+            return nil
         }
         
-        // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
-        // 仅在 engineKey 未指定，或精确匹配引擎抛异常时才进入此回退
-        // ★ 关键修复：callDetailContent 是同步函数，底层 QJSBridge_eval 执行 JS 网络请求会阻塞线程
-        // 用 Task.detached 移到后台线程执行，避免阻塞 MainActor 导致 UI 卡死
+        // 2. engineKey 未指定时，遍历所有引擎（跳过腾讯）
+        // ★ callDetailContent 是同步函数，用 Task.detached 移到后台线程避免阻塞 UI
         let idsCopy = ids
         let enginesSnapshot = engines
         let fallbackResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
             for (key, engine) in enginesSnapshot {
                 if key == tencentKey { continue }
-                if key == engineKey { continue }  // 避免重复尝试
                 do {
                     if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
                         let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
@@ -1976,9 +1968,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             return nil
         }.value
-        if let fallbackResult {
-            return fallbackResult
-        }
+        if let fallbackResult { return fallbackResult }
         // 3. 引擎全部失败，回退到原生 API
         print("[SpiderManager] getDetail 引擎全部失败，回退到 nativeDetail")
         return await nativeDetail(ids: ids, name: name)
@@ -1988,7 +1978,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let tencentKey = TencentVideoNativeSpider.siteKey
         
         // 1. 优先使用 engineKey 精确匹配的引擎
-        // ★ 关键修复：当 engineKey 指定时，只要引擎返回了结果就信任它，不再回退到其他引擎
+        // ★ engineKey 指定时，只信任自己的引擎，不跨引擎回退。每个平台各自管各自的资源。
         if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
             let vodIdCopy = vodId
             let flagCopy = flag
@@ -1997,24 +1987,21 @@ globalThis.__JS_SPIDER__ = _spider;
                 do {
                     let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
                     let urlStr = result.playUrl ?? result.url ?? ""
-                    let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
-                    if hasUrl {
-                        print("[SpiderManager] getPlayerContent 精确匹配成功 [\(engineKey)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
-                    } else {
-                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 格式检查未通过，但仍信任此引擎结果: url=\(urlStr.prefix(60))")
-                    }
+                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
                     return result
                 } catch {
-                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)，回退遍历")
+                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
                 }
                 return nil
             }.value
             if let result { return result }
+            // engineKey 指定的引擎失败，不兜底到其他引擎，直接返回 nil
+            print("[SpiderManager] getPlayerContent [\(engineKey)] 失败，不跨引擎回退")
+            return nil
         }
         
-        // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
-        // 仅在 engineKey 未指定，或精确匹配引擎抛异常时才进入此回退
-        // ★ 关键修复：callPlayerContent 同步阻塞，移到后台线程避免卡 UI（如播放器加载时）
+        // 2. engineKey 未指定时，遍历所有引擎（跳过腾讯）
+        // ★ callPlayerContent 同步阻塞，移到后台线程避免卡 UI
         let enginesSnapshot = engines
         let vodIdCopy = vodId
         let flagCopy = flag
@@ -2022,11 +2009,9 @@ globalThis.__JS_SPIDER__ = _spider;
         return await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
             for (key, engine) in enginesSnapshot {
                 if key == tencentKey { continue }
-                if key == engineKey { continue }  // 避免重复尝试
                 do {
                     let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
                     let urlStr = result.playUrl ?? result.url ?? ""
-                    // 有效URL判断：非空，且包含$分隔符、http协议、或相对路径/
                     let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
                     if hasUrl {
                         print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
