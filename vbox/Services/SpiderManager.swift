@@ -1925,25 +1925,26 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         let tencentKey = TencentVideoNativeSpider.siteKey
         
-        // 1. 优先使用 engineKey 精确匹配的引擎
-        // ★ engineKey 指定时，只信任自己的引擎，不跨引擎回退。每个平台各自管各自的资源。
-        if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
-            let idsCopy = ids
-            let result = await Task.detached(priority: .userInitiated) { () -> VodItem? in
-                do {
-                    if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
-                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                        return item
+        // 1. engineKey 指定时，严格只用该引擎，不跨引擎回退
+        if let engineKey = engineKey {
+            if engineKey != tencentKey, let engine = engines[engineKey] {
+                let idsCopy = ids
+                let result = await Task.detached(priority: .userInitiated) { () -> VodItem? in
+                    do {
+                        if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
+                            return item
+                        }
+                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空结果")
+                    } catch {
+                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
                     }
-                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空结果")
-                } catch {
-                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
-                }
-                return nil
-            }.value
-            if let result { return result }
-            // engineKey 指定的引擎失败，不兜底到其他引擎，直接返回 nil
-            print("[SpiderManager] getDetail [\(engineKey)] 失败，不跨引擎回退")
+                    return nil
+                }.value
+                if let result { return result }
+            }
+            // engineKey 指定的引擎失败或不可用，不兜底到其他引擎，直接返回 nil
+            print("[SpiderManager] getDetail [\(engineKey)] 不跨引擎回退")
             return nil
         }
         
@@ -1977,26 +1978,27 @@ globalThis.__JS_SPIDER__ = _spider;
     func getPlayerContent(vodId: String, flag: String = "play", url: String, engineKey: String? = nil) async -> PlayerContentResult? {
         let tencentKey = TencentVideoNativeSpider.siteKey
         
-        // 1. 优先使用 engineKey 精确匹配的引擎
-        // ★ engineKey 指定时，只信任自己的引擎，不跨引擎回退。每个平台各自管各自的资源。
-        if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
-            let vodIdCopy = vodId
-            let flagCopy = flag
-            let urlCopy = url
-            let result = await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
-                do {
-                    let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
-                    let urlStr = result.playUrl ?? result.url ?? ""
-                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
-                    return result
-                } catch {
-                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
-                }
-                return nil
-            }.value
-            if let result { return result }
-            // engineKey 指定的引擎失败，不兜底到其他引擎，直接返回 nil
-            print("[SpiderManager] getPlayerContent [\(engineKey)] 失败，不跨引擎回退")
+        // 1. engineKey 指定时，严格只用该引擎，不跨引擎回退
+        if let engineKey = engineKey {
+            if engineKey != tencentKey, let engine = engines[engineKey] {
+                let vodIdCopy = vodId
+                let flagCopy = flag
+                let urlCopy = url
+                let result = await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
+                    do {
+                        let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
+                        let urlStr = result.playUrl ?? result.url ?? ""
+                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
+                        return result
+                    } catch {
+                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
+                    }
+                    return nil
+                }.value
+                if let result { return result }
+            }
+            // engineKey 指定的引擎失败或不可用，不兜底到其他引擎，直接返回 nil
+            print("[SpiderManager] getPlayerContent [\(engineKey)] 不跨引擎回退")
             return nil
         }
         
