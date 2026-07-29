@@ -1926,6 +1926,8 @@ globalThis.__JS_SPIDER__ = _spider;
         let tencentKey = TencentVideoNativeSpider.siteKey
         
         // 1. 优先使用 engineKey 精确匹配的引擎
+        // ★ 关键修复：当 engineKey 指定时，只要引擎返回了结果就信任它，不再回退到其他引擎
+        // 之前的逻辑会因为 vodPlayUrl/vodPlayFrom 格式检查不通过而回退，导致不同蜘蛛的详情落到同一个引擎
         if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
             let idsCopy = ids
             let detailResult = await Task.detached(priority: .userInitiated) { () -> VodItem? in
@@ -1935,11 +1937,14 @@ globalThis.__JS_SPIDER__ = _spider;
                         let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
                         if hasPlayUrl || hasPlayFrom {
                             print("[SpiderManager] getDetail 精确匹配成功 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                            return item
+                        } else {
+                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 格式检查未通过，但仍信任此引擎结果: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil") playFrom=\(item.vodPlayFrom?.prefix(40) ?? "nil")")
                         }
-                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空地址，继续回退遍历")
+                        return item
                     }
-                } catch { }
+                } catch {
+                    print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)，回退遍历")
+                }
                 return nil
             }.value
             if let detailResult {
@@ -1948,7 +1953,7 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         
         // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
-        // 修复：空结果（vodPlayUrl/vodPlayFrom 均为空）继续尝试其他引擎，避免占位符源被前面引擎的空结果拦截
+        // 仅在 engineKey 未指定，或精确匹配引擎抛异常时才进入此回退
         // ★ 关键修复：callDetailContent 是同步函数，底层 QJSBridge_eval 执行 JS 网络请求会阻塞线程
         // 用 Task.detached 移到后台线程执行，避免阻塞 MainActor 导致 UI 卡死
         let idsCopy = ids
@@ -1983,6 +1988,7 @@ globalThis.__JS_SPIDER__ = _spider;
         let tencentKey = TencentVideoNativeSpider.siteKey
         
         // 1. 优先使用 engineKey 精确匹配的引擎
+        // ★ 关键修复：当 engineKey 指定时，只要引擎返回了结果就信任它，不再回退到其他引擎
         if let engineKey = engineKey, let engine = engines[engineKey], engineKey != tencentKey {
             let vodIdCopy = vodId
             let flagCopy = flag
@@ -1994,17 +2000,20 @@ globalThis.__JS_SPIDER__ = _spider;
                     let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
                     if hasUrl {
                         print("[SpiderManager] getPlayerContent 精确匹配成功 [\(engineKey)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
-                        return result
+                    } else {
+                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 格式检查未通过，但仍信任此引擎结果: url=\(urlStr.prefix(60))")
                     }
-                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 返回空地址，继续回退遍历")
-                } catch { }
+                    return result
+                } catch {
+                    print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)，回退遍历")
+                }
                 return nil
             }.value
             if let result { return result }
         }
         
         // 2. 回退：遍历所有引擎（跳过腾讯和已精确匹配过的引擎）
-        // 修复：空结果（url/playUrl 均为空）继续尝试其他引擎，避免剧迷等占位符源被前面引擎的空结果拦截
+        // 仅在 engineKey 未指定，或精确匹配引擎抛异常时才进入此回退
         // ★ 关键修复：callPlayerContent 同步阻塞，移到后台线程避免卡 UI（如播放器加载时）
         let enginesSnapshot = engines
         let vodIdCopy = vodId
