@@ -1065,11 +1065,12 @@ extension DoubanService {
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
     }
 
-    /// 拉取豆瓣横版海报（用于 Banner 横版大图）
-    /// 优先从海报接口(type=R)获取官方横版海报，其次壁纸(type=W)，最后剧照(type=S)
+    /// 拉取豆瓣横版海报（用于 Banner 横版大图，作为 TMDB 的备选方案）
+    /// 仅尝试壁纸(type=W)和海报(type=R)，跳过剧照(type=S)以避免显示随机截图
     func fetchBackdropURL(subjectId: String) async -> String? {
-        // 依次尝试 type=R(海报) → type=W(壁纸) → type=S(剧照)，筛选 w > h 的横版图
-        for photoType in ["R", "W", "S"] {
+        // 依次尝试 type=W(壁纸，最可能是横版) → type=R(海报)，筛选 w > h 的横版图
+        // 跳过 type=S(剧照)，因为剧照是随机截图，视觉效果差
+        for photoType in ["W", "R"] {
             let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=30")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1096,7 +1097,7 @@ extension DoubanService {
             }
         }
 
-        print("[DoubanService] fetchBackdropURL 未找到横版剧照，subjectId=\(subjectId)")
+        print("[DoubanService] fetchBackdropURL 未找到横版海报，subjectId=\(subjectId)")
         return nil
     }
 }
