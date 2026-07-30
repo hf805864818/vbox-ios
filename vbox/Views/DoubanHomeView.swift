@@ -10,7 +10,7 @@ struct DoubanHomeView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var isLoading = true
     // Banner 轮播
-    @State private var bannerSubjects: [DoubanSubject] = []
+    @State private var bannerItems: [BannerItem] = []
     // 电影类
     @State private var showingMovies: [DoubanSubject] = []       // 影院热映
     @State private var latestMovies: [DoubanSubject] = []        // 最新电影
@@ -38,8 +38,8 @@ struct DoubanHomeView: View {
                     }
                 } else {
                     // 1. Banner 轮播
-                    if !bannerSubjects.isEmpty {
-                        BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
+                    if !bannerItems.isEmpty {
+                        BannerCarousel(items: bannerItems, currentIndex: $currentIndex, settings: settings)
                     }
                     CategoryTilesView(settings: settings)
                     // 2. 影院热映
@@ -109,9 +109,9 @@ struct DoubanHomeView: View {
         .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
         .onAppear { Task { await loadData() } }
         .onReceive(timer) { _ in
-            guard !bannerSubjects.isEmpty else { return }
+            guard !bannerItems.isEmpty else { return }
             withAnimation(.easeInOut(duration: 0.5)) {
-                currentIndex = (currentIndex + 1) % min(10, bannerSubjects.count)
+                currentIndex = (currentIndex + 1) % min(8, bannerItems.count)
             }
         }
     }
@@ -138,7 +138,7 @@ struct DoubanHomeView: View {
             // 综艺类
             async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
 
-            bannerSubjects = await banner
+            bannerItems = await banner.map { BannerItem(from: $0) }
             showingMovies = await showing
             latestMovies = await latest
             hotMovies = await movies
@@ -166,33 +166,33 @@ struct DoubanHomeView: View {
     }
 }
 
-// MARK: - Banner轮播
+// MARK: - Banner轮播（横版海报版）
 struct BannerCarousel: View {
-    let subjects: [DoubanSubject]
+    let items: [BannerItem]
     @Binding var currentIndex: Int
     let settings: AppSettings
     @State private var dragOffset: CGFloat = 0
     @State private var autoPlayTimer: Timer?
-    
+
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                let cardWidth = geo.size.width * 0.75
+                let cardWidth = geo.size.width * 0.88
                 let cardHeight: CGFloat = 200
                 let spacing: CGFloat = 12
-                let sideScale: CGFloat = 0.85
+                let sideScale: CGFloat = 0.88
                 let sideOpacity: CGFloat = 0.5
-                
+
                 ZStack {
-                    ForEach(0..<min(10, subjects.count), id: \.self) { index in
+                    ForEach(0..<min(8, items.count), id: \.self) { index in
                         let offset = CGFloat(index - currentIndex)
                         let isCurrent = index == currentIndex
                         let scale = isCurrent ? 1.0 : sideScale
                         let opacity = isCurrent ? 1.0 : sideOpacity
                         let xOffset = offset * (cardWidth + spacing) + dragOffset
                         let zIndex = isCurrent ? 1.0 : 0.0
-                        
-                        BannerCard3D(subject: subjects[index], settings: settings, cardWidth: cardWidth, cardHeight: cardHeight)
+
+                        BannerCard3D(item: items[index], settings: settings, cardWidth: cardWidth, cardHeight: cardHeight)
                             .scaleEffect(scale)
                             .opacity(opacity)
                             .offset(x: xOffset)
@@ -203,8 +203,12 @@ struct BannerCarousel: View {
                 }
                 .frame(width: geo.size.width, height: cardHeight)
                 .contentShape(Rectangle())
-                .onAppear { startAutoPlay() }
+                .onAppear {
+                    startAutoPlay()
+                    triggerPreload()
+                }
                 .onDisappear { stopAutoPlay() }
+                .onChange(of: currentIndex) { _ in triggerPreload() }
                 .gesture(
                     DragGesture()
                         .onChanged { value in
@@ -215,7 +219,7 @@ struct BannerCarousel: View {
                             let threshold: CGFloat = 50
                             if value.translation.width < -threshold {
                                 withAnimation(.easeOut(duration: 0.35)) {
-                                    currentIndex = min(currentIndex + 1, min(10, subjects.count) - 1)
+                                    currentIndex = min(currentIndex + 1, min(8, items.count) - 1)
                                 }
                             } else if value.translation.width > threshold {
                                 withAnimation(.easeOut(duration: 0.35)) {
@@ -228,9 +232,9 @@ struct BannerCarousel: View {
                 )
             }
             .frame(height: 200)
-            
+
             HStack(spacing: 8) {
-                ForEach(0..<min(10, subjects.count), id: \.self) { index in
+                ForEach(0..<min(8, items.count), id: \.self) { index in
                     Circle()
                         .fill(currentIndex == index ? Color(hex: "E11D48") : Color.gray.opacity(0.3))
                         .frame(width: currentIndex == index ? 8 : 6, height: currentIndex == index ? 8 : 6)
@@ -239,12 +243,19 @@ struct BannerCarousel: View {
             .padding(.vertical, 8)
         }
     }
-    
+
+    /// 预缓存当前项 + 后续 2 项的横版海报
+    private func triggerPreload() {
+        let urls = items.compactMap { $0.backdropURL }
+        guard !urls.isEmpty else { return }
+        ImagePreloader.shared.preloadBatch(urls: urls, currentIndex: currentIndex, lookahead: 2)
+    }
+
     private func startAutoPlay() {
         stopAutoPlay()
-        autoPlayTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+        autoPlayTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { _ in
             withAnimation(.easeOut(duration: 0.35)) {
-                if currentIndex < min(10, subjects.count) - 1 {
+                if currentIndex < min(8, items.count) - 1 {
                     currentIndex += 1
                 } else {
                     currentIndex = 0
@@ -252,94 +263,51 @@ struct BannerCarousel: View {
             }
         }
     }
-    
+
     private func stopAutoPlay() {
         autoPlayTimer?.invalidate()
         autoPlayTimer = nil
     }
 }
 
-// MARK: - Banner卡片(3D轮播版)
+// MARK: - Banner卡片（横版海报版）
 struct BannerCard3D: View {
-    let subject: DoubanSubject
+    let item: BannerItem
     let settings: AppSettings
     let cardWidth: CGFloat
     let cardHeight: CGFloat
-    
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // 封面图
-            if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    case .failure(let error):
-                        // 加载失败显示占位图
-                        ZStack {
-                            Rectangle().fill(Color.gray.opacity(0.2))
-                            VStack(spacing: 8) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.gray)
-                                Text("加载失败")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    case .empty:
-                        // 加载中
-                        ZStack {
-                            Rectangle().fill(Color.gray.opacity(0.1))
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(.gray)
-                        }
-                    @unknown default:
-                        Rectangle().fill(Color.gray.opacity(0.1))
-                    }
-                }
-            } else {
-                // 没有URL时显示占位图
-                ZStack {
-                    Rectangle().fill(Color.gray.opacity(0.15))
-                    VStack(spacing: 8) {
-                        Image(systemName: "photo")
-                            .font(.system(size: 40))
-                            .foregroundColor(.gray)
-                        Text("暂无封面")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                }
-            }
-            
+            // 图片层：优先横版海报，回退竖版封面
+            imageLayer
+
+            // 底部渐变遮罩
             LinearGradient(
-                colors: [Color.black.opacity(0), Color.black.opacity(0.5), Color.black.opacity(0.85)],
+                colors: [Color.black.opacity(0), Color.black.opacity(0.4), Color.black.opacity(0.8)],
                 startPoint: .top, endPoint: .bottom
             )
-            
+
+            // 标题信息
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(subject.title)
+                    Text(item.title)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     Spacer()
-                    if subject.ratingValue > 0 {
+                    if item.ratingValue > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "star.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(.yellow)
-                            Text(String(format: "%.1f", subject.ratingValue))
+                            Text(String(format: "%.1f", item.ratingValue))
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.yellow)
                         }
                     }
                 }
-                if let year = subject.year {
+                if let year = item.year, !year.isEmpty {
                     Text(year)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.8))
@@ -351,7 +319,59 @@ struct BannerCard3D: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
         .onTapGesture {
-            settings.triggerSearch(subject.title)
+            settings.triggerSearch(item.title)
+        }
+    }
+
+    @ViewBuilder
+    private var imageLayer: some View {
+        let imageURL = item.backdropURL ?? item.coverURL
+        if let imageURL, !imageURL.isEmpty {
+            // 优先使用预缓存的 UIImage（瞬时显示）
+            if let cached = ImagePreloader.shared.cachedImage(for: imageURL) {
+                Image(uiImage: cached)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                // 回退到 AsyncImage（首次加载或预缓存未命中时）
+                AsyncImage(url: DoubanImageProxyServer.shared.proxiedURL(for: imageURL)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        placeholderView(text: "加载失败")
+                    case .empty:
+                        ZStack {
+                            Rectangle().fill(Color.gray.opacity(0.1))
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(.gray)
+                        }
+                    @unknown default:
+                        placeholderView(text: nil)
+                    }
+                }
+            }
+        } else {
+            placeholderView(text: "暂无封面")
+        }
+    }
+
+    private func placeholderView(text: String?) -> some View {
+        ZStack {
+            Rectangle().fill(Color.gray.opacity(0.15))
+            VStack(spacing: 8) {
+                Image(systemName: "photo")
+                    .font(.system(size: 40))
+                    .foregroundColor(.gray)
+                if let text {
+                    Text(text)
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+            }
         }
     }
 }

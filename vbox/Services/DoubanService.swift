@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - Douban Models
 struct DoubanSubject: Codable, Identifiable {
@@ -72,6 +73,83 @@ struct DoubanSubject: Codable, Identifiable {
             photos_gadget: photos_gadget,
             cover: cover
         )
+    }
+}
+
+// MARK: - Banner 数据模型（横版海报）
+struct BannerItem: Identifiable {
+    let id: String
+    let title: String
+    let ratingValue: Double
+    let year: String?
+    let genres: String?
+    let backdropURL: String?   // 横版剧照/海报 URL
+    let coverURL: String?      // 竖版封面 URL（备用回退）
+
+    /// 从 DoubanSubject 构造（backdropURL 初始为 nil，后续异步填充）
+    init(from subject: DoubanSubject) {
+        self.id = subject.id
+        self.title = subject.title
+        self.ratingValue = subject.ratingValue
+        self.year = subject.year
+        self.genres = subject.genreText
+        self.backdropURL = nil
+        self.coverURL = subject.coverImageURL
+    }
+
+    /// 更新横版海报 URL
+    func withBackdropURL(_ url: String?) -> BannerItem {
+        return BannerItem(
+            id: id, title: title, ratingValue: ratingValue,
+            year: year, genres: genres,
+            backdropURL: url ?? backdropURL, coverURL: coverURL
+        )
+    }
+}
+
+// MARK: - 图片预缓存器（NSCache + 后台预加载）
+final class ImagePreloader {
+    static let shared = ImagePreloader()
+    private let cache = NSCache<NSString, UIImage>()
+    private let session: URLSession
+
+    private init() {
+        cache.countLimit = 30
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForResource = 20
+        session = URLSession(configuration: config)
+    }
+
+    /// 同步获取已缓存的图片（主线程安全）
+    func cachedImage(for urlString: String) -> UIImage? {
+        return cache.object(forKey: urlString as NSString)
+    }
+
+    /// 后台预加载图片到缓存（不阻塞主线程）
+    func preload(_ urlString: String) {
+        guard cachedImage(for: urlString) == nil,
+              let url = DoubanImageProxyServer.shared.proxiedURL(for: urlString) else { return }
+        Task.detached(priority: .background) { [weak self] in
+            guard let self else { return }
+            if let (data, _) = try? await self.session.data(from: url),
+               let image = UIImage(data: data) {
+                self.cache.setObject(image, forKey: urlString as NSString)
+            }
+        }
+    }
+
+    /// 优先加载当前项 + 预缓存后续 N 项
+    func preloadBatch(urls: [String], currentIndex: Int, lookahead: Int = 2) {
+        guard !urls.isEmpty else { return }
+        // 当前项优先
+        let currentIdx = ((currentIndex % urls.count) + urls.count) % urls.count
+        if !urls[currentIdx].isEmpty { preload(urls[currentIdx]) }
+        // 后续 lookahead 项
+        for i in 1...lookahead {
+            let idx = ((currentIdx + i) % urls.count + urls.count) % urls.count
+            if !urls[idx].isEmpty { preload(urls[idx]) }
+        }
     }
 }
 
@@ -973,5 +1051,40 @@ extension DoubanService {
             .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
         print("[DoubanService] fetchWallpaperURL 成功: 竖版 \(rawURL)")
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
+    }
+
+    /// 拉取豆瓣横版剧照/海报（用于 Banner 横版大图）
+    /// 优先从剧照接口(type=S)获取横版图，退而求其次用壁纸接口(type=W)
+    func fetchBackdropURL(subjectId: String) async -> String? {
+        // 依次尝试 type=S(剧照) → type=W(壁纸)，筛选 w > h 的横版图
+        for photoType in ["S", "W"] {
+            let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=30")!
+            guard let (data, _) = try? await session.data(from: url),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let photos = json["photos"] as? [[String: Any]] else {
+                continue
+            }
+
+            for photo in photos {
+                guard let image = photo["image"] as? [String: Any],
+                      let large = image["large"] as? [String: Any],
+                      let rawURL = large["url"] as? String,
+                      let w = large["width"] as? Int,
+                      let h = large["height"] as? Int,
+                      w > h else { continue }
+
+                var components = URLComponents(string: rawURL)
+                components?.query = nil
+                let cleanURL = components?.string ?? rawURL
+                let finalURL = cleanURL
+                    .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
+                    .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+                print("[DoubanService] fetchBackdropURL 成功: 横版 type=\(photoType) \(finalURL)")
+                return DoubanImageProxyServer.shared.markedURLString(for: finalURL)
+            }
+        }
+
+        print("[DoubanService] fetchBackdropURL 未找到横版剧照，subjectId=\(subjectId)")
+        return nil
     }
 }
