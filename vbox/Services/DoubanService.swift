@@ -1066,10 +1066,10 @@ extension DoubanService {
     }
 
     /// 拉取豆瓣横版海报（用于 Banner 横版大图）
-    /// 优先从壁纸接口(type=W)获取官方横版宣传图，退而求其次用剧照接口(type=S)
+    /// 优先从海报接口(type=R)获取官方横版海报，其次壁纸(type=W)，最后剧照(type=S)
     func fetchBackdropURL(subjectId: String) async -> String? {
-        // 依次尝试 type=W(壁纸/官方宣传图) → type=S(剧照)，筛选 w > h 的横版图
-        for photoType in ["W", "S"] {
+        // 依次尝试 type=R(海报) → type=W(壁纸) → type=S(剧照)，筛选 w > h 的横版图
+        for photoType in ["R", "W", "S"] {
             let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=30")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

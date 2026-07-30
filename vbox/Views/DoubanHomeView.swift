@@ -276,6 +276,7 @@ struct BannerCard3D: View {
     let settings: AppSettings
     let cardWidth: CGFloat
     let cardHeight: CGFloat
+    @State private var retryCount: Int = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -340,6 +341,7 @@ struct BannerCard3D: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 // 回退到 AsyncImage（首次加载或预缓存未命中时）
+                // .id(retryCount) 确保失败重试时强制重新加载
                 AsyncImage(url: DoubanImageProxyServer.shared.proxiedURL(for: imageURL)) { phase in
                     switch phase {
                     case .success(let image):
@@ -347,7 +349,15 @@ struct BannerCard3D: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     case .failure:
-                        placeholderView(text: "加载失败")
+                        // 加载失败时自动重试（最多 3 次），解决代理服务器未就绪导致的首次加载失败
+                        placeholderView(text: nil)
+                            .onAppear {
+                                if retryCount < 3 {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        retryCount += 1
+                                    }
+                                }
+                            }
                     case .empty:
                         ZStack {
                             Rectangle().fill(Color.gray.opacity(0.1))
@@ -359,6 +369,7 @@ struct BannerCard3D: View {
                         placeholderView(text: nil)
                     }
                 }
+                .id(retryCount)
             }
         } else {
             placeholderView(text: "暂无封面")
