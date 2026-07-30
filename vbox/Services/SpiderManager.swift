@@ -4018,6 +4018,7 @@ globalThis.__JS_SPIDER__ = _spider;
             case .spa: cat = .cloudSPA
             case .wordpress: cat = .cloudCMS
             case .dedecms: cat = .cloudCMS
+            case .binhd: cat = .cloudCMS
             }
             let api = site.type == .cms ? "\(site.detailBase)/api.php/provide/vod" : nil
             items.append(SourceDisplayItem(
@@ -4176,6 +4177,7 @@ globalThis.__JS_SPIDER__ = _spider;
             case .spa: cat = .cloudSPA
             case .wordpress: cat = .cloudCMS
             case .dedecms: cat = .cloudCMS
+            case .binhd: cat = .cloudCMS
             }
             let api = site.type == .cms ? "\(site.detailBase)/api.php/provide/vod" : nil
             items.append(SourceDisplayItem(
