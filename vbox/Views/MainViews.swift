@@ -272,6 +272,7 @@ struct HomeView: View {
                             }
                         }
                     )
+                    .id(source.id)
                     .environmentObject(settings)
                 }
             }
