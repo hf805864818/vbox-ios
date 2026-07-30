@@ -288,32 +288,12 @@ struct BannerCard3D: View {
                 startPoint: .top, endPoint: .bottom
             )
 
-            // 标题信息
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(item.title)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                    Spacer()
-                    if item.ratingValue > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.yellow)
-                            Text(String(format: "%.1f", item.ratingValue))
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.yellow)
-                        }
-                    }
-                }
-                if let year = item.year, !year.isEmpty {
-                    Text(year)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.8))
-                }
-            }
-            .padding(12)
+            // 标题：仅左下角显示资源名称
+            Text(item.title)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .padding(12)
         }
         .frame(width: cardWidth, height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 12))
