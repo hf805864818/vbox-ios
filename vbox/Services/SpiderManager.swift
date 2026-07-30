@@ -2511,9 +2511,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 从 WordPress 搜索结果中提取条目
     /// WordPress 文章链接格式: /12345.html 或 /2026/0522/12345.html
+    /// 同时兼容完整URL格式: https://www.319312.com/12345.html
     private func extractWordPressSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
-        // 匹配 WordPress 文章详情页链接: href="/{数字}.html" 或 href="/{年/月/日}/{数字}.html"
-        let pattern = #"<a[^>]*href="((?:/[\d]{4}/[\d]{2}/[\d]{2}/)?(\d+)\.html)"[^>]*>(.+?)</a>"#
+        // 匹配 WordPress 文章详情页链接，支持相对路径和完整URL两种格式
+        // 相对路径: href="/12345.html" 或 href="/2026/05/22/12345.html"
+        // 完整URL: href="https://www.example.com/12345.html"
+        let pattern = #"<a[^>]*href="((?:https?://[^/]+)?/(?:[\d]{4}/[\d]{2}/[\d]{2}/)?(\d+)\.html)"[^>]*>(.+?)</a>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
         let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
@@ -2540,16 +2543,31 @@ globalThis.__JS_SPIDER__ = _spider;
             let linkLower = detailPath.lowercased()
             if linkLower.contains("/page/") || linkLower.contains("/wp-") || linkLower.contains("/author/") || linkLower.contains("/tag/") { continue }
 
-            let detailURL = site.detailBase + detailPath
+            // 详情URL拼接：完整URL直接使用，相对路径拼接detailBase
+            let detailURL = detailPath.hasPrefix("http") ? detailPath : site.detailBase + detailPath
             if seen.contains(detailURL) { continue }
             seen.insert(detailURL)
 
-            // 提取缩略图
+            // 提取缩略图：优先从当前匹配项附近查找
             var pic = ""
-            if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)"#),
-               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let pRange = Range(picMatch.range(at: 1), in: html) {
-                pic = String(html[pRange])
+            // 先尝试从当前a标签内的img提取
+            let imgPattern = #"<img[^>]+(?:data-original|data-src|src)="([^"]+)""#
+            if let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) {
+                let searchStart = match.range.location
+                let searchEnd = min(searchStart + 500, html.count)
+                let searchRange = NSRange(location: searchStart, length: searchEnd - searchStart)
+                if let imgMatch = imgRegex.firstMatch(in: html, range: searchRange),
+                   let pRange = Range(imgMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
+            }
+            // 兜底：从全页找第一张图
+            if pic.isEmpty {
+                if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)""#),
+                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let pRange = Range(picMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
             }
 
             items.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name))
@@ -2594,9 +2612,11 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 从 DedeCMS 搜索结果中提取条目
     /// DedeCMS 详情页链接格式: /movie/2026/0522/12345.html 或 /dianshiju/2026/0416/12345.html
+    /// 同时兼容月日合并格式: /zongyi/2022/0808/28365.html
     private func extractDedeCMSSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
-        // 匹配 DedeCMS 详情页: href="/{分类}/{年/月/日}/{aid}.html"
-        let pattern = #"<a[^>]*href="((?:/[a-z]+/)?\d{4}/\d{2}/\d{2}/(\d+)\.html)"[^>]*>(.+?)</a>"#
+        // 匹配 DedeCMS 详情页: href="/{分类}/{年}/{月日或月/日}/{aid}.html"
+        // 日期支持两种格式: YYYY/MM/DD/ 和 YYYY/MMDD/
+        let pattern = #"<a[^>]*href="(/(?:[a-z]+/)?\d{4}/(?:\d{2}/\d{2}/|\d{4}/)(\d+)\.html)"[^>]*>(.+?)</a>"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
         let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
@@ -2622,11 +2642,25 @@ globalThis.__JS_SPIDER__ = _spider;
             if seen.contains(detailURL) { continue }
             seen.insert(detailURL)
 
+            // 提取缩略图：优先从当前匹配项附近查找
             var pic = ""
-            if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)"#),
-               let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-               let pRange = Range(picMatch.range(at: 1), in: html) {
-                pic = String(html[pRange])
+            let imgPattern = #"<img[^>]+(?:data-original|data-src|src)="([^"]+)""#
+            if let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) {
+                let searchStart = match.range.location
+                let searchEnd = min(searchStart + 500, html.count)
+                let searchRange = NSRange(location: searchStart, length: searchEnd - searchStart)
+                if let imgMatch = imgRegex.firstMatch(in: html, range: searchRange),
+                   let pRange = Range(imgMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
+            }
+            // 兜底：从全页找第一张图
+            if pic.isEmpty {
+                if let picRegex = try? NSRegularExpression(pattern: #"<img[^>]+src="([^"]+)""#),
+                   let picMatch = picRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let pRange = Range(picMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
             }
 
             items.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name))
