@@ -4440,6 +4440,8 @@ globalThis.__JS_SPIDER__ = _spider;
             #"href="(/index\.php/vod/type/id/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
             // AppleCMS 变体：/vodtype/1.html
             #"href="(/vodtype/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
+            // AppleCMS 变体：/vodtype/1/ 结尾斜杠格式
+            #"href="(/vodtype/(\d+)/?)"[^>]*>([^<]+)</a>"#,
             // 通用模板：/type/1.html
             #"href="(/type/(\d+)\.html)"[^>]*>([^<]+)</a>"#,
             // AppleCMS 变体：/index.php/vod/show/id/1.html
@@ -4458,6 +4460,10 @@ globalThis.__JS_SPIDER__ = _spider;
             #"href="(/vodshow/(\d+)/?)"[^>]*>([^<]+)</a>"#,
             // 非 AppleCMS：/vod/type/id/1 无 .html 后缀
             #"href="(/vod/type/id/(\d+))"[^>]*>([^<]+)</a>"#,
+            // title 属性方式：href="/vodtype/1/" title="电影"
+            #"href="(/vodtype/(\d+)/?)"[^>]*title="([^"]{1,10})""#,
+            // title 属性方式：href="/vodshow/1/" title="电影"
+            #"href="(/vodshow/(\d+)/?)"[^>]*title="([^"]{1,10})""#,
         ]
         for pattern in catPatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
@@ -4482,10 +4488,14 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 2. 提取视频条目：匹配详情链接 + 图片 + 标题
         let videoPatterns = [
-            // 标准模板：封面图 + 标题 + 链接
+            // 标准模板：封面图 + 标题 + 链接（.html 后缀）
             #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*data-original="([^"]*)"[^>]*>.*?</a>"#,
             #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*data-src="([^"]*)"[^>]*>.*?</a>"#,
             #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*>.*?</a>"#,
+            // 变体模板：无 .html 后缀（如 /voddetail/123/）
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)/?)[^"]*"[^>]*>.*?<img[^>]*data-original="([^"]*)"[^>]*>.*?</a>"#,
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)/?)[^"]*"[^>]*>.*?<img[^>]*data-src="([^"]*)"[^>]*>.*?</a>"#,
+            #"<a\s+href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)/?)[^"]*"[^>]*>.*?<img[^>]*src="([^"]*)"[^>]*>.*?</a>"#,
         ]
 
         for pattern in videoPatterns {
@@ -4531,7 +4541,11 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 3. 如果上面没匹配到（某些模板结构不同），用更宽松的匹配
         if videos.isEmpty {
-            let loosePattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*""#
+            let loosePatterns = [
+                #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*""#,
+                #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)/?)[^"]*""#,
+            ]
+            for loosePattern in loosePatterns {
             if let regex = try? NSRegularExpression(pattern: loosePattern, options: []) {
                 let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
                 for match in matches {
@@ -4556,6 +4570,8 @@ globalThis.__JS_SPIDER__ = _spider;
                     )
                     videos.append(item)
                 }
+            }
+            if !videos.isEmpty { break }
             }
         }
 
