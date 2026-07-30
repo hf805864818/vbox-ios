@@ -687,12 +687,27 @@ struct HomeView: View {
     }
 
     /// 逐条获取横版海报 URL 并更新 BannerItem，同时预缓存图片
+    /// 优先使用 TMDB backdrops（稳定的 16:9 横版图），其次回退豆瓣照片 API
     @MainActor
     private func fetchBackdropURLs() async {
+        let useTMDB = settings.enableTMDB
+
         for index in bannerItems.indices {
-            let backdropURL = await doubanService.fetchBackdropURL(subjectId: bannerItems[index].id)
+            let item = bannerItems[index]
+            var backdropURL: String? = nil
+
+            // ① 优先 TMDB：搜索影片 → 获取横版背景图
+            if useTMDB {
+                backdropURL = await fetchTMDBBackdrop(title: item.title, year: item.year)
+            }
+
+            // ② 回退豆瓣照片 API
+            if backdropURL == nil {
+                backdropURL = await doubanService.fetchBackdropURL(subjectId: item.id)
+            }
+
             if let backdropURL {
-                bannerItems[index] = bannerItems[index].withBackdropURL(backdropURL)
+                bannerItems[index] = item.withBackdropURL(backdropURL)
                 Self.cachedBannerItems = bannerItems
                 // 前 3 张预缓存到内存
                 if index < 3 {
@@ -700,6 +715,27 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    /// 通过 TMDB 搜索影片并获取横版背景图 URL
+    private func fetchTMDBBackdrop(title: String, year: String?) async -> String? {
+        guard let searchResult = await TMDBService.shared.searchMovie(name: title, year: year) else {
+            print("[Banner] TMDB 搜索无结果: \(title)")
+            return nil
+        }
+
+        let mediaType = searchResult.mediaType == "tv" ? "tv" : "movie"
+        guard let images = await TMDBService.shared.fetchImages(id: searchResult.id, mediaType: mediaType),
+              let backdrop = images.bestBackdrop else {
+            print("[Banner] TMDB 无横版背景图: \(title)")
+            return nil
+        }
+
+        // 使用 w1280 尺寸（适合 Banner 卡片宽度，画质与加载速度平衡），通过本地代理转发
+        let rawURL = backdrop.w1280URL
+        let markedURL = DoubanImageProxyServer.shared.markedURLString(for: rawURL) ?? rawURL
+        print("[Banner] TMDB 横版背景图获取成功: \(title) → \(markedURL)")
+        return markedURL
     }
 
     private func fetchSafely(_ operation: @escaping () async throws -> [DoubanSubject]) async -> [DoubanSubject] {

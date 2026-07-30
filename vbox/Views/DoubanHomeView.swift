@@ -279,24 +279,27 @@ struct BannerCard3D: View {
     @State private var retryCount: Int = 0
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // 图片层：优先横版海报，回退竖版封面
+        ZStack(alignment: .bottomLeading) {
+            // 图片层：固定 frame 确保布局一致，不随图片加载状态漂移
             imageLayer
+                .frame(width: cardWidth, height: cardHeight)
+                .clipped()
 
             // 底部渐变遮罩
             LinearGradient(
                 colors: [Color.black.opacity(0), Color.black.opacity(0.4), Color.black.opacity(0.8)],
                 startPoint: .top, endPoint: .bottom
             )
-            .frame(maxHeight: .infinity, alignment: .bottom)
+            .frame(width: cardWidth, height: cardHeight)
 
-            // 左下角标题
+            // 左下角标题：固定 padding，始终位于卡片左下角
             Text(item.title)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .lineLimit(1)
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, 12)
+                .padding(.bottom, 12)
+                .padding(.trailing, 12)
         }
         .frame(width: cardWidth, height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 12))
