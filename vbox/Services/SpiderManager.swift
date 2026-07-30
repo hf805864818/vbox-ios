@@ -2213,6 +2213,7 @@ globalThis.__JS_SPIDER__ = _spider;
         case spa
         case wordpress
         case dedecms
+        case binhd
     }
 
     struct CloudSiteConfig: Codable {
@@ -2274,6 +2275,8 @@ globalThis.__JS_SPIDER__ = _spider;
             return await searchOneWordPressSite(keyword: keyword, site: site, onLog: onLog)
         case .dedecms:
             return await searchOneDedeCMSSite(keyword: keyword, site: site, onLog: onLog)
+        case .binhd:
+            return await searchOneBinhdSite(keyword: keyword, site: site, onLog: onLog)
         }
     }
 
@@ -2877,7 +2880,84 @@ globalThis.__JS_SPIDER__ = _spider;
         }
     }
 
-    /// 网盘资源详情解析（从详情页 HTML 中提取所有网盘链接+标题）
+    // MARK: - binhd 型站点搜索（HTML 页面解析 + 详情页复制链接 API）
+
+    /// binhd.com（原奕搜资源/ysso.cc）搜索
+    /// 网站已从 JSON API 迁移为 Django HTML 站，搜索结果为服务端渲染的 HTML 页面
+    /// 部分资源支持匿名下载（无需登录），通过 POST /resources/{slug}/links/{id}/copy/ 获取网盘链接
+    private func searchOneBinhdSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
+        let log = onLog ?? { _ in }
+        let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        log("☁️ \(site.name) 请求中...")
+
+        guard let url = URL(string: site.searchurl + encodedKW) else { return [] }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 10
+            req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+            req.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+            let (data, response) = try await URLSession.shared.data(for: req)
+
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode != 200 {
+                log("☁️ \(site.name) HTTP \(httpResp.statusCode)")
+                return []
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            return extractBinhdSearchItems(from: html, site: site)
+        } catch {
+            log("☁️ ❌ \(site.name) 失败: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// 从 binhd.com 搜索结果 HTML 中提取条目
+    /// HTML 结构: <article class="resource-card"><h2><a href="/resources/{slug}/">标题</a></h2>...
+    private func extractBinhdSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
+        // 匹配资源卡片中的标题链接: <h2><a href="/resources/{slug}/">标题</a></h2>
+        let pattern = #"<h2[^>]*>\s*<a[^>]*href="(/resources/[^"]+)"[^>]*>(.+?)</a>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+        var items: [VodItem] = []
+        var seen = Set<String>()
+
+        for match in matches {
+            guard match.numberOfRanges >= 3 else { continue }
+            let hrefRange = match.range(at: 1)
+            let nameRange = match.range(at: 2)
+            guard hrefRange.location != NSNotFound, nameRange.location != NSNotFound,
+                  let hRange = Range(hrefRange, in: html),
+                  let nRange = Range(nameRange, in: html) else { continue }
+
+            let detailPath = String(html[hRange])
+            // 去掉 HTML 标签（如 <mark class="search-highlight">）
+            let title = String(html[nRange])
+                .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let detailURL = detailPath.hasPrefix("http") ? detailPath : site.detailBase + detailPath
+            if seen.contains(detailURL) || title.isEmpty { continue }
+            seen.insert(detailURL)
+
+            // 提取缩略图：从当前匹配项附近查找
+            var pic = ""
+            let imgPattern = #"<img[^>]+src="([^"]+)"[^>]*alt="[^"]*封面""#
+            if let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) {
+                let searchStart = match.range.location
+                let searchEnd = min(searchStart + 500, html.count)
+                let searchRange = NSRange(location: searchStart, length: searchEnd - searchStart)
+                if let imgMatch = imgRegex.firstMatch(in: html, range: searchRange),
+                   let pRange = Range(imgMatch.range(at: 1), in: html) {
+                    pic = String(html[pRange])
+                }
+            }
+
+            items.append(VodItem(vodId: detailURL, vodName: title, vodPic: pic, vodRemarks: "☁️" + site.name))
+        }
+
+        return items
+    }
     func resolveCloudPlay(from detailURL: String) async -> (links: [(url: String, name: String)], siteName: String)? {
         print("[SpiderManager] resolveCloudPlay: \(detailURL)")
         if let cached = cloudPlayCache[detailURL], cached.expiresAt > Date(), !cached.links.isEmpty {
@@ -2890,6 +2970,13 @@ globalThis.__JS_SPIDER__ = _spider;
             let driveName = cloudDriveName(for: detailURL)
             let result = (links: [(url: detailURL, name: driveName)], siteName: "云盘直链")
             cacheCloudPlay(result, for: detailURL)
+            return result
+        }
+
+        // binhd.com 特殊处理：通过复制链接 API 获取网盘地址
+        if detailURL.contains("binhd.com") {
+            let result = await resolveBinhdCloudPlay(from: detailURL)
+            if let result { cacheCloudPlay(result, for: detailURL) }
             return result
         }
 
@@ -2918,6 +3005,155 @@ globalThis.__JS_SPIDER__ = _spider;
             return result
         } catch {
             print("[SpiderManager] resolveCloudPlay 失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// binhd.com 详情页解析：通过复制链接 API 获取网盘地址
+    /// 流程：1. 获取详情页 HTML → 2. 提取非隐藏的下载卡片 → 3. POST copy API 获取真实链接
+    private func resolveBinhdCloudPlay(from detailURL: String) async -> (links: [(url: String, name: String)], siteName: String)? {
+        print("[SpiderManager] resolveBinhdCloudPlay: \(detailURL)")
+        guard let url = URL(string: detailURL) else { return nil }
+
+        // 1. 获取详情页 HTML（同时获取 CSRF cookie）
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        req.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+        req.setValue("text/html", forHTTPHeaderField: "Accept")
+
+        var csrfToken = ""
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode != 200 {
+                print("[SpiderManager] resolveBinhdCloudPlay HTTP \(httpResp.statusCode)")
+                return nil
+            }
+
+            // 从 Set-Cookie 提取 csrftoken
+            if let httpResp = response as? HTTPURLResponse {
+                let headerFields = httpResp.allHeaderFields as? [String: String] ?? [:]
+                for cookie in HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url) {
+                    if cookie.name == "csrftoken" {
+                        csrfToken = cookie.value
+                        break
+                    }
+                }
+            }
+
+            guard let html = String(data: data, encoding: .utf8) else { return nil }
+
+            // 提取站点名称
+            var siteName = "云集"
+            if let titleRegex = try? NSRegularExpression(pattern: #"<title>([^<]+)</title>"#),
+               let m = titleRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let r = Range(m.range(at: 1), in: html) {
+                let fullTitle = String(html[r])
+                siteName = fullTitle.replacingOccurrences(of: " - 云集.*$", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if siteName.isEmpty { siteName = "云集" }
+            }
+
+            // 如果 CSRF token 未从 cookie 获取到，从 HTML 表单提取
+            if csrfToken.isEmpty {
+                if let tokenRegex = try? NSRegularExpression(pattern: #"csrfmiddlewaretoken[^>]*value="([^"]+)""#),
+                   let m = tokenRegex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                   let r = Range(m.range(at: 1), in: html) {
+                    csrfToken = String(html[r])
+                }
+            }
+
+            // 2. 提取非隐藏的下载卡片中的复制链接 URL
+            // 卡片结构：<article class="resource-download-card resource-download-card--xunlei">
+            //   <span class="resource-download-card__provider">迅雷网盘</span>
+            //   <button data-resource-copy-url="/resources/{slug}/links/{id}/copy/">一键复制</button>
+            // 隐藏卡片有 --hidden 类且无 data-resource-copy-url
+            let cardPattern = #"<article class="resource-download-card[^"]*">(.*?)</article>"#
+            guard let cardRegex = try? NSRegularExpression(pattern: cardPattern, options: [.dotMatchesLineSeparators]) else { return nil }
+            let cardMatches = cardRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+
+            var links: [(url: String, name: String)] = []
+
+            for cardMatch in cardMatches {
+                guard let cardRange = Range(cardMatch.range, in: html) else { continue }
+                let cardHTML = String(html[cardRange])
+
+                // 跳过隐藏卡片（需要登录）
+                if cardHTML.contains("resource-download-card--hidden") || cardHTML.contains("登录后可见") { continue }
+
+                // 提取复制 URL
+                guard let copyRegex = try? NSRegularExpression(pattern: #"data-resource-copy-url="([^"]+)""#),
+                      let copyMatch = copyRegex.firstMatch(in: cardHTML, range: NSRange(cardHTML.startIndex..., in: cardHTML)),
+                      let copyRange = Range(copyMatch.range(at: 1), in: cardHTML) else { continue }
+
+                let copyPath = String(cardHTML[copyRange])
+                let copyURL = copyPath.hasPrefix("http") ? copyPath : "https://binhd.com" + copyPath
+
+                // 提取网盘类型名称
+                var providerName = "网盘链接"
+                if let provRegex = try? NSRegularExpression(pattern: #"resource-download-card__provider">([^<]+)<"#),
+                   let provMatch = provRegex.firstMatch(in: cardHTML, range: NSRange(cardHTML.startIndex..., in: cardHTML)),
+                   let provRange = Range(provMatch.range(at: 1), in: cardHTML) {
+                    providerName = String(cardHTML[provRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+
+                // 3. POST copy API 获取真实链接
+                guard let copyApiURL = URL(string: copyURL) else { continue }
+                var copyReq = URLRequest(url: copyApiURL)
+                copyReq.httpMethod = "POST"
+                copyReq.timeoutInterval = 10
+                copyReq.setValue(cloudPcUA, forHTTPHeaderField: "User-Agent")
+                copyReq.setValue("application/json", forHTTPHeaderField: "Accept")
+                copyReq.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+                copyReq.setValue(detailURL, forHTTPHeaderField: "Referer")
+                if !csrfToken.isEmpty {
+                    copyReq.setValue(csrfToken, forHTTPHeaderField: "X-CSRFToken")
+                }
+                copyReq.setValue("csrftoken=\(csrfToken)", forHTTPHeaderField: "Cookie")
+
+                do {
+                    let (copyData, copyResp) = try await URLSession.shared.data(for: copyReq)
+                    guard let httpResp = copyResp as? HTTPURLResponse, httpResp.statusCode == 200 else { continue }
+
+                    if let json = try? JSONSerialization.jsonObject(with: copyData) as? [String: Any],
+                       let copyText = json["copy_text"] as? String {
+                        // 从 copy_text 中提取网盘链接
+                        // 格式: "链接：https://pan.xunlei.com/s/XXXX?pwd=XXXX\n提取码：XXXX"
+                        let panPatterns: [(String, String)] = [
+                            (#"https?://pan\.quark\.cn/s/[^\s\"<>']+"#, "夸克网盘"),
+                            (#"https?://pan\.baidu\.com/s/[^\s\"<>']+"#, "百度网盘"),
+                            (#"https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']+"#, "阿里云盘"),
+                            (#"https?://pan\.xunlei\.com/s/[^\s\"<>']+"#, "迅雷网盘"),
+                            (#"https?://115cdn\.com/s/[^\s\"<>']+"#, "115网盘"),
+                            (#"https?://(?:drive|pan)\.uc\.cn/s/[^\s\"<>']+"#, "UC网盘"),
+                            (#"https?://yun\.139\.com/[^\s\"<>']+"#, "天翼云盘"),
+                            (#"https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+"#, "123云盘"),
+                        ]
+
+                        for (pattern, driveName) in panPatterns {
+                            if let linkRegex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                               let linkMatch = linkRegex.firstMatch(in: copyText, range: NSRange(copyText.startIndex..., in: copyText)),
+                               let linkRange = Range(linkMatch.range, in: copyText) {
+                                let panLink = String(copyText[linkRange])
+                                links.append((url: panLink, name: providerName.isEmpty ? driveName : providerName))
+                                break
+                            }
+                        }
+                    }
+                } catch {
+                    print("[SpiderManager] resolveBinhdCloudPlay copy 失败: \(error.localizedDescription)")
+                }
+            }
+
+            if links.isEmpty {
+                print("[SpiderManager] resolveBinhdCloudPlay 未找到可用的网盘链接（可能需要登录）")
+                return nil
+            }
+
+            print("[SpiderManager] resolveBinhdCloudPlay 成功: \(links.count) 条链接")
+            return (links: links, siteName: siteName)
+
+        } catch {
+            print("[SpiderManager] resolveBinhdCloudPlay 失败: \(error.localizedDescription)")
             return nil
         }
     }

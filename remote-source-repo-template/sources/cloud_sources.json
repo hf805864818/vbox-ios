@@ -17,6 +17,15 @@
       "titleField": "note",
       "urlField": "url",
       "enabled": true
+    },
+    {
+      "name": "奕搜资源",
+      "type": "binhd",
+      "searchurl": "https://binhd.com/resources/?q=",
+      "detailBase": "https://binhd.com",
+      "enabled": true,
+      "priority": 1015,
+      "group": "cloud"
     }
   ]
 }
