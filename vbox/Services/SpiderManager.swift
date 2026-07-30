@@ -4605,46 +4605,75 @@ globalThis.__JS_SPIDER__ = _spider;
         return (videos, categories)
     }
 
-    /// 从 HTML 中链接匹配位置附近提取标题文本
+    /// 从 HTML 中提取标题文本（同源提取：标题与封面来自同一个 <a>...</a> 块）
+    ///
+    /// 修复说明：原实现在 matchRange ±500 字符窗口内用 firstMatch 取第一个 title/alt，
+    /// 当相邻卡片间距小于 500 字符时窗口会跨越多张卡片，导致标题漂移到相邻卡片，
+    /// 表现为封面图与资源标题不一致（尤其首页前部紧凑的推荐位区块）。
+    ///
+    /// 现改为：① 优先在当前块内提取（同源最可靠）；② 块内没有时只在块"之后"小范围查找
+    /// （推荐位标题常在 <a> 外部的 <p class="title">），且不往前扩、截断到下一个详情链接前，
+    /// 确保标题始终属于当前卡片。
     private func extractTitleNearLink(html: String, matchRange: NSRange) -> String {
-        // 策略 1：链接的 title 属性
-        let aTagPattern = #"<a[^>]*title="([^"]{2,80})""#
-        let searchStart = max(0, matchRange.location - 500)
-        let searchEnd = min(html.count, matchRange.location + matchRange.length + 500)
-        guard let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
-              let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) else { return "" }
-        let ctx = String(html[sIdx..<eIdx])
+        let blockStart = matchRange.location
+        let blockEnd = matchRange.location + matchRange.length
 
-        if let ar = try? NSRegularExpression(pattern: aTagPattern, options: [.caseInsensitive]),
-           let am = ar.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
-           let aRange = Range(am.range(at: 1), in: ctx) {
-            let t = String(ctx[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.count > 2 { return t }
-        }
+        // 策略 1：当前 <a>...</a> 块内的 <a title> 与 <img alt>（同源，最可靠）
+        if let bIdx = html.index(html.startIndex, offsetBy: blockStart, limitedBy: html.endIndex),
+           let eIdx = html.index(html.startIndex, offsetBy: min(html.count, blockEnd), limitedBy: html.endIndex) {
+            let block = String(html[bIdx..<eIdx])
 
-        // 策略 2：附近的 <img> alt 属性
-        let altPatterns = [
-            #"<img[^>]+alt="([^"]{2,80})""#,
-            #"<h[2-4][^>]*>([^<]{2,80})</h[2-4]>"#,
-            #"<span[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</span>"#,
-            #"<div[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</div>"#,
-            #"<p[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</p>"#,
-        ]
-        for ap in altPatterns {
-            if let ar = try? NSRegularExpression(pattern: ap, options: [.caseInsensitive]),
-               let am = ar.firstMatch(in: ctx, range: NSRange(ctx.startIndex..., in: ctx)),
-               let arr = Range(am.range(at: 1), in: ctx) {
-                let t = String(ctx[arr]).trimmingCharacters(in: .whitespacesAndNewlines)
+            // <a title="...">
+            let aTitlePattern = #"<a[^>]*title="([^"]{2,80})""#
+            if let ar = try? NSRegularExpression(pattern: aTitlePattern, options: [.caseInsensitive]),
+               let am = ar.firstMatch(in: block, range: NSRange(block.startIndex..., in: block)),
+               let aRange = Range(am.range(at: 1), in: block) {
+                let t = String(block[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if t.count > 2 { return t }
+            }
+
+            // <img alt="...">
+            let imgAltPattern = #"<img[^>]+alt="([^"]{2,80})""#
+            if let ar = try? NSRegularExpression(pattern: imgAltPattern, options: [.caseInsensitive]),
+               let am = ar.firstMatch(in: block, range: NSRange(block.startIndex..., in: block)),
+               let aRange = Range(am.range(at: 1), in: block) {
+                let t = String(block[aRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if t.count > 2 && !t.contains("更新到") && !t.contains("更新至") { return t }
             }
         }
 
-        // 策略 3：链接标签 innerHTML
+        // 策略 2：块内没有时，只在块"之后"小范围查找标题
+        // 关键：不往前扩（往前扩会漂移到上一个卡片），并截断到下一个详情链接前
+        let afterStart = blockEnd
+        let afterEnd = min(html.count, afterStart + 300)
+        if let sIdx = html.index(html.startIndex, offsetBy: afterStart, limitedBy: html.endIndex),
+           let eIdx = html.index(html.startIndex, offsetBy: afterEnd, limitedBy: html.endIndex) {
+            var after = String(html[sIdx..<eIdx])
+            // 截断到下一个详情链接前，避免越过到下一卡片
+            if let nextRange = after.range(of: #"/vod/detail/id/|/voddetail/|/detail/|/vod/"#, options: .regularExpression) {
+                after = String(after[..<nextRange.lowerBound])
+            }
+            let afterPatterns = [
+                #"<h[2-4][^>]*>([^<]{2,80})</h[2-4]>"#,
+                #"<span[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</span>"#,
+                #"<div[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</div>"#,
+                #"<p[^>]*class="[^"]*title[^"]*"[^>]*>([^<]{2,80})</p>"#,
+            ]
+            for ap in afterPatterns {
+                if let ar = try? NSRegularExpression(pattern: ap, options: [.caseInsensitive]),
+                   let am = ar.firstMatch(in: after, range: NSRange(after.startIndex..., in: after)),
+                   let arr = Range(am.range(at: 1), in: after) {
+                    let t = String(after[arr]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if t.count > 2 && !t.contains("更新到") && !t.contains("更新至") { return t }
+                }
+            }
+        }
+
+        // 策略 3：链接标签 innerHTML（范围从块开始到块后 300，不含块前）
         let innerPattern = #"<a[^>]*href="[^"]*"([^>]*)>([^<]{2,80})</a>"#
         if let ir = try? NSRegularExpression(pattern: innerPattern, options: [.dotMatchesLineSeparators]) {
-            // 在 match 位置附近的更精确范围
-            let tightStart = max(0, matchRange.location)
-            let tightEnd = min(html.count, matchRange.location + matchRange.length + 300)
+            let tightStart = blockStart
+            let tightEnd = min(html.count, blockEnd + 300)
             if let tsIdx = html.index(html.startIndex, offsetBy: tightStart, limitedBy: html.endIndex),
                let teIdx = html.index(html.startIndex, offsetBy: tightEnd, limitedBy: html.endIndex) {
                 let tight = String(html[tsIdx..<teIdx])
@@ -4663,10 +4692,11 @@ globalThis.__JS_SPIDER__ = _spider;
         return "未知标题"
     }
 
-    /// 从 HTML 中链接匹配位置附近提取年份和地区
-    /// 例如从 "2024 / 大陆 / 动作" 或 "2024-大陆" 中提取
+    /// 从 HTML 中提取年份和地区（同源提取：只在当前块及块之后小范围查找，不往前扩）
+    /// 修复说明：原实现 searchStart = matchRange.location - 300，往前扩会漂移到上一个卡片的年份信息。
     private func extractYearAndAreaNearLink(html: String, matchRange: NSRange) -> (year: String?, area: String?) {
-        let searchStart = max(0, matchRange.location - 300)
+        // 不往前扩：从当前块开始，到块后 300 字符（年份/地区信息通常在标题附近）
+        let searchStart = matchRange.location
         let searchEnd = min(html.count, matchRange.location + matchRange.length + 300)
         guard let sIdx = html.index(html.startIndex, offsetBy: searchStart, limitedBy: html.endIndex),
               let eIdx = html.index(html.startIndex, offsetBy: searchEnd, limitedBy: html.endIndex) else { return (nil, nil) }
