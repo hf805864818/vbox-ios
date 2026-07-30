@@ -1065,11 +1065,11 @@ extension DoubanService {
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
     }
 
-    /// 拉取豆瓣横版剧照/海报（用于 Banner 横版大图）
-    /// 优先从剧照接口(type=S)获取横版图，退而求其次用壁纸接口(type=W)
+    /// 拉取豆瓣横版海报（用于 Banner 横版大图）
+    /// 优先从壁纸接口(type=W)获取官方横版宣传图，退而求其次用剧照接口(type=S)
     func fetchBackdropURL(subjectId: String) async -> String? {
-        // 依次尝试 type=S(剧照) → type=W(壁纸)，筛选 w > h 的横版图
-        for photoType in ["S", "W"] {
+        // 依次尝试 type=W(壁纸/官方宣传图) → type=S(剧照)，筛选 w > h 的横版图
+        for photoType in ["W", "S"] {
             let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=30")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
