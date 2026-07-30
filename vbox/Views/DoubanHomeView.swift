@@ -10,16 +10,16 @@ struct DoubanHomeView: View {
     @State private var bannerSubjects: [DoubanSubject] = []
     // 电影类
     @State private var showingMovies: [DoubanSubject] = []       // 影院热映
-    @State private var comingSoon: [DoubanSubject] = []          // 即将上映
+    @State private var latestMovies: [DoubanSubject] = []        // 最新电影
     @State private var hotMovies: [DoubanSubject] = []           // 热门电影
     @State private var movieWeekly: [DoubanSubject] = []         // 一周口碑榜
-    @State private var usBox: [DoubanSubject] = []               // 北美票房
-    @State private var newMovies: [DoubanSubject] = []           // 新片榜
     @State private var top250: [DoubanSubject] = []              // TOP250
     // 剧集类
     @State private var hotTV: [DoubanSubject] = []               // 热门剧集
     @State private var chiTV: [DoubanSubject] = []               // 华语口碑剧集
     @State private var americanTV: [DoubanSubject] = []          // 值得看的英美剧
+    @State private var koreanTV: [DoubanSubject] = []            // 热门韩剧
+    @State private var japaneseTV: [DoubanSubject] = []          // 热门日剧
     @State private var hotAnimation: [DoubanSubject] = []        // 热门动漫
     // 综艺类
     @State private var hotVariety: [DoubanSubject] = []          // 热门综艺
@@ -44,10 +44,10 @@ struct DoubanHomeView: View {
                         SectionHeader(title: "影院热映", icon: "film.fill")
                         HorizontalSubjectRow(subjects: showingMovies, settings: settings)
                     }
-                    // 3. 即将上映
-                    if !comingSoon.isEmpty {
-                        SectionHeader(title: "即将上映", icon: "calendar")
-                        HorizontalSubjectRow(subjects: comingSoon, settings: settings)
+                    // 3. 最新电影
+                    if !latestMovies.isEmpty {
+                        SectionHeader(title: "最新电影", icon: "calendar")
+                        HorizontalSubjectRow(subjects: latestMovies, settings: settings)
                     }
                     // 4. 热门电影
                     if !hotMovies.isEmpty {
@@ -59,35 +59,35 @@ struct DoubanHomeView: View {
                         SectionHeader(title: "一周口碑榜", icon: "star.fill")
                         HorizontalSubjectRow(subjects: movieWeekly, settings: settings)
                     }
-                    // 6. 北美票房
-                    if !usBox.isEmpty {
-                        SectionHeader(title: "北美票房", icon: "dollarsign.circle.fill")
-                        HorizontalSubjectRow(subjects: usBox, settings: settings)
-                    }
-                    // 7. 新片榜
-                    if !newMovies.isEmpty {
-                        SectionHeader(title: "新片榜", icon: "sparkles")
-                        HorizontalSubjectRow(subjects: newMovies, settings: settings)
-                    }
-                    // 8. TOP250
+                    // 6. TOP250
                     if !top250.isEmpty {
                         SectionHeader(title: "TOP250", icon: "crown.fill")
                         HorizontalSubjectRow(subjects: top250, settings: settings)
                     }
-                    // 9. 热门剧集
+                    // 7. 热门剧集
                     if !hotTV.isEmpty {
                         SectionHeader(title: "热门剧集", icon: "tv.fill")
                         HorizontalSubjectRow(subjects: hotTV, settings: settings)
                     }
-                    // 10. 华语口碑剧集
+                    // 8. 华语口碑剧集
                     if !chiTV.isEmpty {
                         SectionHeader(title: "华语口碑剧集", icon: "flag.fill")
                         HorizontalSubjectRow(subjects: chiTV, settings: settings)
                     }
-                    // 11. 值得看的英美剧
+                    // 9. 值得看的英美剧
                     if !americanTV.isEmpty {
                         SectionHeader(title: "值得看的英美剧", icon: "globe")
                         HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                    }
+                    // 10. 热门韩剧
+                    if !koreanTV.isEmpty {
+                        SectionHeader(title: "热门韩剧", icon: "heart.fill")
+                        HorizontalSubjectRow(subjects: koreanTV, settings: settings)
+                    }
+                    // 11. 热门日剧
+                    if !japaneseTV.isEmpty {
+                        SectionHeader(title: "热门日剧", icon: "leaf.fill")
+                        HorizontalSubjectRow(subjects: japaneseTV, settings: settings)
                     }
                     // 12. 热门动漫
                     if !hotAnimation.isEmpty {
@@ -121,31 +121,31 @@ struct DoubanHomeView: View {
             async let banner = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
             // 电影类
             async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
-            async let coming = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
+            async let latest = fetchSafely { try await doubanService.fetchLatestMovies(start: 0, count: 10) }
             async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
             async let weekly = fetchSafely { try await doubanService.fetchMovieWeekly(start: 0, count: 10) }
-            async let usbox = fetchSafely { try await doubanService.fetchUsBox(start: 0, count: 10) }
-            async let newMov = fetchSafely { try await doubanService.fetchNewMovies(start: 0, count: 10) }
             async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
             // 剧集类
             async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
             async let chi = fetchSafely { try await doubanService.fetchPopularChiTV(start: 0, count: 10) }
             async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+            async let korean = fetchSafely { try await doubanService.fetchKoreanTV(start: 0, count: 10) }
+            async let japanese = fetchSafely { try await doubanService.fetchJapaneseTV(start: 0, count: 10) }
             async let anim = fetchSafely { try await doubanService.fetchHotAnimation(start: 0, count: 10) }
             // 综艺类
             async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
 
             bannerSubjects = await banner
             showingMovies = await showing
-            comingSoon = await coming
+            latestMovies = await latest
             hotMovies = await movies
             movieWeekly = await weekly
-            usBox = await usbox
-            newMovies = await newMov
             top250 = await top
             hotTV = await tv
             chiTV = await chi
             americanTV = await american
+            koreanTV = await korean
+            japaneseTV = await japanese
             hotAnimation = await anim
             hotVariety = await variety
 
@@ -424,37 +424,64 @@ struct CategoryTile: View {
     }
 }
 
+// MARK: - 卡片位置偏好键（用于追踪哪张卡片最接近屏幕中心）
+private struct CardCenterDistance: Equatable {
+    let index: Int
+    let distance: CGFloat
+}
+
+private struct CardCenterDistanceKey: PreferenceKey {
+    static var defaultValue: [CardCenterDistance] = []
+    static func reduce(value: inout [CardCenterDistance], nextValue: () -> [CardCenterDistance]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 // MARK: - 横向主题行
 struct HorizontalSubjectRow: View {
     let subjects: [DoubanSubject]
     let settings: AppSettings
-    
-    @State private var lastHapticStep: Int = -1
-    private let cardWidth: CGFloat = 120
-    private let cardSpacing: CGFloat = 12
-    
+
+    @State private var isScrolling = false
+    @State private var lastCenterIndex: Int = -1
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: cardSpacing) {
+            HStack(spacing: 12) {
                 ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
                     SubjectCard(
                         subject: subject,
                         settings: settings,
-                        fallDelay: Double(index) * 0.08
+                        fallDelay: Double(index) * 0.08,
+                        isScrolling: isScrolling,
+                        cardIndex: index
                     )
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+        // 检测哪张卡片最接近屏幕中心，切换时触发震动
+        .onPreferenceChange(CardCenterDistanceKey.self) { distances in
+            guard isScrolling, !distances.isEmpty else { return }
+            if let closest = distances.min(by: { $0.distance < $1.distance }) {
+                if closest.index != lastCenterIndex {
+                    lastCenterIndex = closest.index
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
+            }
+        }
+        // 滑动手势：控制 isScrolling 状态
         .simultaneousGesture(
             DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    let step = cardWidth + cardSpacing
-                    let currentStep = Int(abs(value.translation.width) / step)
-                    if currentStep != lastHapticStep {
-                        lastHapticStep = currentStep
-                        UISelectionFeedbackGenerator().selectionChanged()
+                .onChanged { _ in
+                    if !isScrolling { isScrolling = true }
+                }
+                .onEnded { _ in
+                    // 延迟关闭，让减速期间也能保持放大效果
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        isScrolling = false
+                        lastCenterIndex = -1
                     }
                 }
         )
@@ -466,24 +493,24 @@ struct SubjectCard: View {
     let subject: DoubanSubject
     let settings: AppSettings
     let fallDelay: Double
-    
+    let isScrolling: Bool
+    let cardIndex: Int
+
     @State private var hasAppeared = false
     private let fallDistance: CGFloat = 40
-    
+
     var body: some View {
-        // GeometryReader 放在卡片内部：每张卡片自己实时感知全局位置
-        // 滚动时 SwiftUI 会重新求值，scaleEffect 跟随滚动实时变化
         GeometryReader { geo in
             let cardMidX = geo.frame(in: .global).midX
             let screenMidX = UIScreen.main.bounds.width / 2
             let distance = abs(cardMidX - screenMidX)
             let maxDistance: CGFloat = 120
             let normalized = min(distance / maxDistance, 1.0)
-            // 居中卡片 scale 1.0，边缘卡片 scale 0.85
-            let zoomScale = 1.0 - normalized * 0.15
-            // 居中卡片 opacity 1.0，边缘卡片 opacity 0.6
-            let zoomOpacity = 1.0 - Double(normalized) * 0.4
-            
+
+            // 只在滑动时应用中心放大，不滑动时所有卡片 scale 1.0
+            let zoomScale: CGFloat = isScrolling ? (1.0 - normalized * 0.15) : 1.0
+            let zoomOpacity: Double = isScrolling ? (1.0 - Double(normalized) * 0.4) : 1.0
+
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing) {
                     // 封面图
@@ -530,7 +557,7 @@ struct SubjectCard: View {
                         }
                         .frame(width: 120, height: 160)
                     }
-                    
+
                     if subject.ratingValue > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "star.fill")
@@ -547,26 +574,36 @@ struct SubjectCard: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                
+
                 Text(subject.title)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .frame(width: 120, alignment: .leading)
             }
-            // 中心放大：跟随滚动实时变化（不加 animation，确保跟手）
+            // 中心放大：只在滑动时生效，不滑动时所有卡片正常
             .scaleEffect(zoomScale)
             // 坠落入场：首次出现时从上方坠落
             .opacity(hasAppeared ? zoomOpacity : 0)
             .offset(y: hasAppeared ? 0 : -fallDistance)
-            // spring 动画只绑定 hasAppeared，不影响滚动时的 scaleEffect
             .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
             .onTapGesture {
                 settings.triggerSearch(subject.title)
             }
         }
-        // GeometryReader 需要固定尺寸，和卡片内容一致
         .frame(width: 120, height: 210, alignment: .topLeading)
+        // 向父级报告卡片到屏幕中心的距离（用于震动检测）
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: CardCenterDistanceKey.self,
+                    value: [CardCenterDistance(
+                        index: cardIndex,
+                        distance: abs(geo.frame(in: .global).midX - UIScreen.main.bounds.width / 2)
+                    )]
+                )
+            }
+        )
         .onAppear {
             guard !hasAppeared else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + fallDelay) {

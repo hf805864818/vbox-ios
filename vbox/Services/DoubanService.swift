@@ -252,25 +252,25 @@ class DoubanService: ObservableObject {
         return try await fetchCollectionWithTVCovers("tv_american", start: start, count: count)
     }
 
-    // MARK: - 北美票房榜
+    // MARK: - 最新电影
 
-    /// 北美票房榜
-    func fetchUsBox(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_us_box", start: start, count: count)
+    /// 最新电影
+    func fetchLatestMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_latest", start: start, count: count)
     }
 
-    // MARK: - 新片榜
+    // MARK: - 热门韩剧
 
-    /// 新片榜
-    func fetchNewMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_new_movies", start: start, count: count)
+    /// 热门韩剧
+    func fetchKoreanTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollectionWithTVCovers("tv_korean", start: start, count: count)
     }
 
-    // MARK: - 即将上映
+    // MARK: - 热门日剧
 
-    /// 即将上映
-    func fetchComingSoon(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
-        return try await fetchCollection("movie_coming_soon", start: start, count: count)
+    /// 热门日剧
+    func fetchJapaneseTV(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollectionWithTVCovers("tv_japanese", start: start, count: count)
     }
 
     // MARK: - 按栏目标签获取数据
