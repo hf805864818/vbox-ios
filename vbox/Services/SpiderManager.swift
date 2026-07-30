@@ -2228,6 +2228,12 @@ globalThis.__JS_SPIDER__ = _spider;
         var resultField: String?
         var titleField: String?
         var urlField: String?
+        /// 自定义详情页链接正则（可选，仅 cms 类型生效，覆盖默认正则）
+        var detailPattern: String?
+        /// 额外网盘域名白名单（可选，追加到默认列表，所有类型生效）
+        var extraPanHosts: [String]?
+        /// 额外网盘域名→显示名称映射（可选，追加到默认列表，所有类型生效）
+        var extraPanNames: [String: String]?
     }
 
     /// 云盘搜索引擎入口（按类型分发）
@@ -2374,7 +2380,13 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 从 CMS 搜索结果 HTML 中提取条目
     private func extractCMSSearchItems(from html: String, site: CloudSiteConfig) -> [VodItem] {
         // 匹配常见的 CMS 详情页链接，捕获 innerHTML 而非仅文本
-        let pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>(.+?)</a>"#
+        // 若远程配置了 detailPattern 则使用自定义正则，否则使用默认正则
+        let pattern: String
+        if let custom = site.detailPattern, !custom.isEmpty {
+            pattern = custom
+        } else {
+            pattern = #"<a[^>]*href="((?:/index\.php/vod/detail/id/|/voddetail/|/detail/|/vod/)(\d+)\.html)[^"]*"[^>]*>(.+?)</a>"#
+        }
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }
         let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
 
@@ -2696,7 +2708,7 @@ globalThis.__JS_SPIDER__ = _spider;
             guard let html = String(data: data, encoding: .utf8) else { return [] }
 
             // 策略 A: 搜索结果页直接含网盘链接（最常见）
-            let cloudLinks = parseCloudLinksFromHTML(html: html, siteName: site.name)
+            let cloudLinks = parseCloudLinksFromHTML(html: html, siteName: site.name, extraPanHosts: site.extraPanHosts, extraPanNames: site.extraPanNames)
             if !cloudLinks.isEmpty {
                 log("☁️ \(site.name)(论坛直链接): \(cloudLinks.count) 条")
                 return cloudLinks
@@ -2735,7 +2747,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
 
             // 策略 C: 全页扫描兜底
-            let fallback = parseCloudLinksFromHTML(html: html, siteName: site.name)
+            let fallback = parseCloudLinksFromHTML(html: html, siteName: site.name, extraPanHosts: site.extraPanHosts, extraPanNames: site.extraPanNames)
             return fallback
         } catch {
             log("☁️ ❌ \(site.name) 失败")
@@ -2744,8 +2756,8 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 从 HTML 中提取所有网盘链接（论坛/详情页通用）
-    private func parseCloudLinksFromHTML(html: String, siteName: String) -> [VodItem] {
-        let panPatterns: [(pattern: String, driveName: String)] = [
+    private func parseCloudLinksFromHTML(html: String, siteName: String, extraPanHosts: [String]? = nil, extraPanNames: [String: String]? = nil) -> [VodItem] {
+        var panPatterns: [(pattern: String, driveName: String)] = [
             (#"(https?://115cdn\.com/s/[^\s\"<>'\\]*)"#, "115网盘"),
             (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>'\\]*)"#, "阿里云盘"),
             (#"(https?://pan\.quark\.cn/s/[^\s\"<>'\\]*)"#, "夸克网盘"),
@@ -2754,6 +2766,14 @@ globalThis.__JS_SPIDER__ = _spider;
             (#"(https?://yun\.139\.com/[^\s\"<>'\\]*)"#, "天翼云盘"),
             (#"(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)"#, "123云盘"),
         ]
+        // 追加远程配置的额外网盘域名
+        if let extraHosts = extraPanHosts {
+            for host in extraHosts {
+                let escaped = NSRegularExpression.escapedPattern(for: host)
+                let name = extraPanNames?.first(where: { host.contains($0.key) })?.value ?? "网盘链接"
+                panPatterns.append(("(https?://\(escaped)[^\\s\"<>'\\\\]*)", name))
+            }
+        }
         var items: [VodItem] = []
         var seen = Set<String>()
         for (pattern, driveName) in panPatterns {
@@ -2966,9 +2986,15 @@ globalThis.__JS_SPIDER__ = _spider;
             return (cached.links, cached.siteName)
         }
 
+        // 根据详情页 URL 查找对应的站点配置，获取自定义网盘域名等
+        let sites = loadCloudSitesFromJSONConfig()
+        let matchedSite = sites.first { detailURL.hasPrefix($0.detailBase) }
+        let extraHosts = matchedSite?.extraPanHosts
+        let extraNames = matchedSite?.extraPanNames
+
         // 直通: URL 本身就是网盘链接（论坛搜索结果）
-        if isCloudDriveLink(detailURL) {
-            let driveName = cloudDriveName(for: detailURL)
+        if isCloudDriveLink(detailURL, extraHosts: extraHosts) {
+            let driveName = cloudDriveName(for: detailURL, extraPanNames: extraNames)
             let result = (links: [(url: detailURL, name: driveName)], siteName: "云盘直链")
             cacheCloudPlay(result, for: detailURL)
             return result
@@ -2994,14 +3020,14 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             guard let html = String(data: data, encoding: .utf8) else {
                 if let gbkData = try? NSString(data: data, encoding: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))) as String? {
-                    let result = await parseCloudHTML(html: gbkData)
+                    let result = await parseCloudHTML(html: gbkData, extraPanHosts: extraHosts, extraPanNames: extraNames)
                     if let result { cacheCloudPlay(result, for: detailURL) }
                     return result
                 }
                 print("[SpiderManager] ❌ 编码错误")
                 return nil
             }
-            let result = await parseCloudHTML(html: html)
+            let result = await parseCloudHTML(html: html, extraPanHosts: extraHosts, extraPanNames: extraNames)
             if let result { cacheCloudPlay(result, for: detailURL) }
             return result
         } catch {
@@ -3160,17 +3186,22 @@ globalThis.__JS_SPIDER__ = _spider;
     }
 
     /// 判断 URL 是否是已知网盘链接
-    private func isCloudDriveLink(_ url: String) -> Bool {
+    private func isCloudDriveLink(_ url: String, extraHosts: [String]? = nil) -> Bool {
         let patterns = [
             "pan.quark.cn/s/", "115cdn.com/s/", "aliyundrive.com/s/", "alipan.com/s/",
             "pan.baidu.com/s/", "drive.uc.cn/s/", "pan.uc.cn/s/",
             "yun.139.com/", "www.123", ".com/s/"
         ]
-        return patterns.contains { url.contains($0) }
+        if patterns.contains(where: { url.contains($0) }) { return true }
+        // 检查远程配置的额外网盘域名
+        if let extra = extraHosts {
+            return extra.contains(where: { url.contains($0) })
+        }
+        return false
     }
 
     /// 识别网盘类型名称
-    private func cloudDriveName(for url: String) -> String {
+    private func cloudDriveName(for url: String, extraPanNames: [String: String]? = nil) -> String {
         if url.contains("pan.quark.cn") { return "夸克网盘" }
         if url.contains("115cdn.com") { return "115网盘" }
         if url.contains("aliyundrive.com") || url.contains("alipan.com") { return "阿里云盘" }
@@ -3178,6 +3209,12 @@ globalThis.__JS_SPIDER__ = _spider;
         if url.contains("drive.uc.cn") || url.contains("pan.uc.cn") { return "UC网盘" }
         if url.contains("yun.139.com") { return "天翼云盘" }
         if url.contains("www.123") && url.contains("/s/") { return "123云盘" }
+        // 检查远程配置的额外网盘域名→名称映射
+        if let extra = extraPanNames {
+            for (host, name) in extra {
+                if url.contains(host) { return name }
+            }
+        }
         return "网盘链接"
     }
 
@@ -3193,7 +3230,7 @@ globalThis.__JS_SPIDER__ = _spider;
         cloudPlayCache.removeAll()
     }
 
-    private func parseCloudHTML(html: String) async -> (links: [(url: String, name: String)], siteName: String)? {
+    private func parseCloudHTML(html: String, extraPanHosts: [String]? = nil, extraPanNames: [String: String]? = nil) async -> (links: [(url: String, name: String)], siteName: String)? {
         // 提取视频名称
         var videoName = ""
         if let titleRegex = try? NSRegularExpression(pattern: #"<h1[^>]*class="[^"]*page-title[^"]*"[^>]*>([^<]+)"#),
@@ -3209,7 +3246,7 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         // 提取所有网盘分享链接（去重），并识别网盘类型
-        let panPatterns: [(pattern: String, driveName: String)] = [
+        var panPatterns: [(pattern: String, driveName: String)] = [
             (#"(https?://115cdn\.com/s/[^\s\"<>']*)"#, "115网盘"),
             (#"(https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[^\s\"<>']*)"#, "阿里云盘"),
             (#"(https?://pan\.quark\.cn/s/[^\s\"<>']*)"#, "夸克网盘"),
@@ -3219,6 +3256,14 @@ globalThis.__JS_SPIDER__ = _spider;
             (#"(https?://yun\.139\.com/share(?:web|wap)/#/[wm]/i[/?][^\s\"<>']*)"#, "天翼云盘分享"),
             (#"(https?://www\.123[a-z0-9]+\.com/s/[a-zA-Z0-9\-]+)"#, "123云盘"),
         ]
+        // 追加远程配置的额外网盘域名
+        if let extraHosts = extraPanHosts {
+            for host in extraHosts {
+                let escaped = NSRegularExpression.escapedPattern(for: host)
+                let name = extraPanNames?.first(where: { host.contains($0.key) })?.value ?? "网盘链接"
+                panPatterns.append(("(https?://\(escaped)[^\\s\"<>']*)", name))
+            }
+        }
 
         var allLinks: [(url: String, name: String)] = []
         var seenURLs = Set<String>()
