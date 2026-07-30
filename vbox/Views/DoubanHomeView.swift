@@ -424,6 +424,14 @@ struct CategoryTile: View {
     }
 }
 
+// MARK: - 水平滚动偏移追踪
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 // MARK: - 卡片位置偏好键（用于追踪哪张卡片最接近屏幕中心）
 private struct CardCenterDistance: Equatable {
     let index: Int
@@ -442,8 +450,9 @@ struct HorizontalSubjectRow: View {
     let subjects: [DoubanSubject]
     let settings: AppSettings
 
-    @State private var isScrolling = false
     @State private var lastCenterIndex: Int = -1
+    @State private var isScrolling: Bool = false
+    @State private var scrollDebounceWorkItem: DispatchWorkItem?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -460,31 +469,44 @@ struct HorizontalSubjectRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ScrollOffsetPreferenceKey.self,
+                        value: geo.frame(in: .named("hScroll")).minX
+                    )
+                }
+            )
+        }
+        .coordinateSpace(name: "hScroll")
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { _ in
+            // 检测到滚动，启用中心放大
+            if !isScrolling {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isScrolling = true
+                }
+            }
+            // 防抖：停止滚动 0.2 秒后恢复卡片正常状态
+            scrollDebounceWorkItem?.cancel()
+            let workItem = DispatchWorkItem {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isScrolling = false
+                }
+            }
+            scrollDebounceWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
         }
         // 检测哪张卡片最接近屏幕中心，切换时触发震动
         .onPreferenceChange(CardCenterDistanceKey.self) { distances in
-            guard isScrolling, !distances.isEmpty else { return }
+            guard !distances.isEmpty else { return }
             if let closest = distances.min(by: { $0.distance < $1.distance }) {
-                if closest.index != lastCenterIndex {
+                // 只在距离很小（正在经过中心）时才触发
+                if closest.distance < 60 && closest.index != lastCenterIndex {
                     lastCenterIndex = closest.index
                     UISelectionFeedbackGenerator().selectionChanged()
                 }
             }
         }
-        // 滑动手势：控制 isScrolling 状态
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { _ in
-                    if !isScrolling { isScrolling = true }
-                }
-                .onEnded { _ in
-                    // 延迟关闭，让减速期间也能保持放大效果
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        isScrolling = false
-                        lastCenterIndex = -1
-                    }
-                }
-        )
     }
 }
 
@@ -511,85 +533,89 @@ struct SubjectCard: View {
             let zoomScale: CGFloat = isScrolling ? (1.0 - normalized * 0.15) : 1.0
             let zoomOpacity: Double = isScrolling ? (1.0 - Double(normalized) * 0.4) : 1.0
 
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .topTrailing) {
-                    // 封面图
-                    if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
+            Button(action: {
+                settings.triggerSearch(subject.title)
+            }) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack(alignment: .topTrailing) {
+                        // 封面图
+                        if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 120, height: 160)
+                                case .failure(_):
+                                    ZStack {
+                                        Rectangle().fill(Color.gray.opacity(0.15))
+                                        Image(systemName: "photo")
+                                            .font(.system(size: 30))
+                                            .foregroundColor(.gray)
+                                    }
                                     .frame(width: 120, height: 160)
-                            case .failure(_):
-                                ZStack {
-                                    Rectangle().fill(Color.gray.opacity(0.15))
+                                case .empty:
+                                    ZStack {
+                                        Rectangle().fill(Color.gray.opacity(0.08))
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                            .tint(.gray)
+                                    }
+                                    .frame(width: 120, height: 160)
+                                @unknown default:
+                                    Rectangle().fill(Color.gray.opacity(0.1))
+                                        .frame(width: 120, height: 160)
+                                }
+                            }
+                        } else {
+                            ZStack {
+                                Rectangle().fill(Color.gray.opacity(0.1))
+                                VStack(spacing: 4) {
                                     Image(systemName: "photo")
                                         .font(.system(size: 30))
                                         .foregroundColor(.gray)
+                                    Text("暂无封面")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
                                 }
-                                .frame(width: 120, height: 160)
-                            case .empty:
-                                ZStack {
-                                    Rectangle().fill(Color.gray.opacity(0.08))
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                        .tint(.gray)
-                                }
-                                .frame(width: 120, height: 160)
-                            @unknown default:
-                                Rectangle().fill(Color.gray.opacity(0.1))
-                                    .frame(width: 120, height: 160)
                             }
+                            .frame(width: 120, height: 160)
                         }
-                    } else {
-                        ZStack {
-                            Rectangle().fill(Color.gray.opacity(0.1))
-                            VStack(spacing: 4) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 30))
-                                    .foregroundColor(.gray)
-                                Text("暂无封面")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                        .frame(width: 120, height: 160)
-                    }
 
-                    if subject.ratingValue > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.yellow)
-                            Text(String(format: "%.1f", subject.ratingValue))
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.yellow)
+                        if subject.ratingValue > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.yellow)
+                                Text(String(format: "%.1f", subject.ratingValue))
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.yellow)
+                            }
+                            .padding(4)
+                            .background(Color.black.opacity(0.5))
+                            .cornerRadius(4)
+                            .padding(4)
                         }
-                        .padding(4)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(4)
-                        .padding(4)
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    Text(subject.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(width: 120, alignment: .leading)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                Text(subject.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .frame(width: 120, alignment: .leading)
+                // 中心放大：只在滑动时生效，不滑动时所有卡片正常
+                .scaleEffect(zoomScale)
+                // 坠落入场：首次出现时从上方坠落
+                .opacity(hasAppeared ? zoomOpacity : 0)
+                .offset(y: hasAppeared ? 0 : -fallDistance)
+                .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
+                .animation(.easeInOut(duration: 0.2), value: isScrolling)
+                .contentShape(Rectangle())
             }
-            // 中心放大：只在滑动时生效，不滑动时所有卡片正常
-            .scaleEffect(zoomScale)
-            // 坠落入场：首次出现时从上方坠落
-            .opacity(hasAppeared ? zoomOpacity : 0)
-            .offset(y: hasAppeared ? 0 : -fallDistance)
-            .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
-            .onTapGesture {
-                settings.triggerSearch(subject.title)
-            }
+            .buttonStyle(.plain)
         }
         .frame(width: 120, height: 210, alignment: .topLeading)
         // 向父级报告卡片到屏幕中心的距离（用于震动检测）
