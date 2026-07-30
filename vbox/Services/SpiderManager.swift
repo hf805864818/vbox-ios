@@ -2234,6 +2234,8 @@ globalThis.__JS_SPIDER__ = _spider;
         var extraPanHosts: [String]?
         /// 额外网盘域名→显示名称映射（可选，追加到默认列表，所有类型生效）
         var extraPanNames: [String: String]?
+        /// 备用搜索 URL 列表（可选，仅 cms 类型生效，搜索时轮询尝试）
+        var searchurls: [String]?
     }
 
     /// 云盘搜索引擎入口（按类型分发）
@@ -2351,30 +2353,55 @@ globalThis.__JS_SPIDER__ = _spider;
     private func searchOneCMSSite(keyword: String, site: CloudSiteConfig, onLog: ((String) -> Void)? = nil) async -> [VodItem] {
         let log = onLog ?? { _ in }
         let encodedKW = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
-        let fullURL = site.searchurl + encodedKW
         log("☁️ \(site.name) 请求中...")
 
-        guard let url = URL(string: fullURL) else { return [] }
-        do {
-            var req = URLRequest(url: url)
-            req.timeoutInterval = 8
-            req.setValue(site.ua == "pc" ? cloudPcUA : cloudMobileUA, forHTTPHeaderField: "User-Agent")
-            let (data, response) = try await URLSession.shared.data(for: req)
-
-            // Cloudflare 拦截（503/403）
-            if let httpResp = response as? HTTPURLResponse {
-                guard httpResp.statusCode == 200 else {
-                    log("☁️ \(site.name) HTTP \(httpResp.statusCode)")
-                    return []
+        // 构建候选 URL 列表：主 URL 优先，后追加 searchurls 中的备用 URL
+        var candidateURLs = [site.searchurl + encodedKW]
+        if let backups = site.searchurls, !backups.isEmpty {
+            for backupURL in backups {
+                let fullBackup = backupURL + encodedKW
+                if !candidateURLs.contains(fullBackup) {
+                    candidateURLs.append(fullBackup)
                 }
             }
-
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
-            return extractCMSSearchItems(from: html, site: site)
-        } catch {
-            log("☁️ ❌ \(site.name) 失败")
-            return []
         }
+
+        // 轮询尝试每个 URL，第一个成功即返回
+        for (index, fullURL) in candidateURLs.enumerated() {
+            guard let url = URL(string: fullURL) else { continue }
+            do {
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 8
+                req.setValue(site.ua == "pc" ? cloudPcUA : cloudMobileUA, forHTTPHeaderField: "User-Agent")
+                let (data, response) = try await URLSession.shared.data(for: req)
+
+                if let httpResp = response as? HTTPURLResponse {
+                    guard httpResp.statusCode == 200 else {
+                        log("☁️ \(site.name) [线路\(index + 1)] HTTP \(httpResp.statusCode)，尝试下一条")
+                        continue
+                    }
+                }
+
+                guard let html = String(data: data, encoding: .utf8), !html.isEmpty else { continue }
+                let items = extractCMSSearchItems(from: html, site: site)
+                if !items.isEmpty {
+                    // 搜索成功，更新 detailBase 为当前可用域名
+                    log("☁️ \(site.name) [线路\(index + 1)] 成功: \(items.count)条")
+                    return items
+                }
+                // HTML 有内容但无搜索结果，继续尝试下一条（可能是反爬空页面）
+                if index < candidateURLs.count - 1 {
+                    log("☁️ \(site.name) [线路\(index + 1)] 无结果，尝试下一条")
+                }
+            } catch {
+                if index < candidateURLs.count - 1 {
+                    log("☁️ \(site.name) [线路\(index + 1)] 失败，尝试下一条")
+                } else {
+                    log("☁️ ❌ \(site.name) 所有线路均失败")
+                }
+            }
+        }
+        return []
     }
 
     /// 从 CMS 搜索结果 HTML 中提取条目
