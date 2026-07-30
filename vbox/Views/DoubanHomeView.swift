@@ -522,24 +522,7 @@ struct SubjectCard: View {
     let cardIndex: Int
 
     @State private var hasAppeared = false
-    @State private var cardDistance: CGFloat = 9999  // 卡片到屏幕中心的距离
     private let fallDistance: CGFloat = 40
-
-    /// 根据距离和滚动状态计算缩放比例
-    private var zoomScale: CGFloat {
-        guard isScrolling else { return 1.0 }
-        let maxDistance: CGFloat = 120
-        let normalized = min(cardDistance / maxDistance, 1.0)
-        return 1.0 - normalized * 0.15
-    }
-
-    /// 根据距离和滚动状态计算透明度
-    private var zoomOpacity: Double {
-        guard isScrolling else { return 1.0 }
-        let maxDistance: CGFloat = 120
-        let normalized = min(cardDistance / maxDistance, 1.0)
-        return 1.0 - Double(normalized) * 0.4
-    }
 
     var body: some View {
         GeometryReader { geo in
@@ -547,6 +530,12 @@ struct SubjectCard: View {
             let cardMidX = geo.frame(in: .global).midX
             let screenMidX = UIScreen.main.bounds.width / 2
             let distance = abs(cardMidX - screenMidX)
+
+            // 直接从 distance 计算缩放和透明度（不使用中间 @State，避免 onChange 不触发的问题）
+            let maxDistance: CGFloat = 120
+            let normalized = min(distance / maxDistance, 1.0)
+            let zoomScale: CGFloat = isScrolling ? (1.0 - normalized * 0.15) : 1.0
+            let zoomOpacity: Double = isScrolling ? (1.0 - Double(normalized) * 0.4) : 1.0
 
             Button(action: {
                 settings.triggerSearch(subject.title)
@@ -628,16 +617,9 @@ struct SubjectCard: View {
                 .offset(y: hasAppeared ? 0 : -fallDistance)
                 .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
                 .animation(.easeInOut(duration: 0.2), value: isScrolling)
-                .animation(.easeInOut(duration: 0.15), value: cardDistance)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onChange(of: distance) { newDistance in
-                cardDistance = newDistance
-            }
-            .onAppear {
-                cardDistance = distance
-            }
         }
         .frame(width: 120, height: 210, alignment: .topLeading)
         // 向父级报告卡片到屏幕中心的距离（用于震动检测）
