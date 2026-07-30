@@ -302,8 +302,8 @@ struct FloatingDownloadBubble: View {
     }
 
     private func snapToEdgeY(currentY: CGFloat) -> CGFloat {
-        let topEdge = bubbleSize / 2 + 60
-        let bottomEdge = screenHeight - bubbleSize / 2 - 60
+        let topEdge = bubbleSize / 2 + 100
+        let bottomEdge = screenHeight - bubbleSize / 2 - 100
         return currentY > screenHeight / 2
             ? bottomEdge - defaultPosition.y
             : topEdge - defaultPosition.y
