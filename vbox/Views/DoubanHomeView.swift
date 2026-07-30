@@ -427,92 +427,25 @@ struct CategoryTile: View {
     }
 }
 
-// MARK: - 水平滚动偏移追踪
-private struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 // MARK: - 横向主题行
 struct HorizontalSubjectRow: View {
     let subjects: [DoubanSubject]
     let settings: AppSettings
 
-    @State private var lastCenterIndex: Int = -1
-    @State private var isScrolling: Bool = false
-    @State private var scrollDebounceWorkItem: DispatchWorkItem?
-    @State private var scrollOffset: CGFloat = 0
-
-    // 卡片布局常量（与 SubjectCard 内部尺寸保持一致）
-    private let cardWidth: CGFloat = 120
-    private let cardSpacing: CGFloat = 12
-    private let horizontalPadding: CGFloat = 16
-
-    /// 根据卡片索引和滚动偏移计算该卡片到屏幕中心的距离
-    private func distanceFromCenter(index: Int) -> CGFloat {
-        let cardCenter = horizontalPadding + CGFloat(index) * (cardWidth + cardSpacing) + cardWidth / 2
-        let screenCenter = UIScreen.main.bounds.width / 2
-        return abs(cardCenter + scrollOffset - screenCenter)
-    }
-
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: cardSpacing) {
-                ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
-                    SubjectCard(
-                        subject: subject,
-                        settings: settings,
-                        fallDelay: Double(index) * 0.08,
-                        isScrolling: isScrolling,
-                        cardIndex: index,
-                        distanceFromCenter: distanceFromCenter(index: index)
-                    )
+        ScrollViewReader { _ in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
+                        SubjectCard(
+                            subject: subject,
+                            settings: settings,
+                            fallDelay: Double(index) * 0.08
+                        )
+                    }
                 }
-            }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 8)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ScrollOffsetPreferenceKey.self,
-                        value: geo.frame(in: .named("hScroll")).minX
-                    )
-                }
-            )
-        }
-        .coordinateSpace(name: "hScroll")
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
-            // 更新滚动偏移量（触发父级重渲染 → 子卡片 distanceFromCenter 重算 → zoomScale 更新）
-            scrollOffset = offset
-
-            // 检测到滚动，启用中心放大
-            if !isScrolling {
-                isScrolling = true
-            }
-            // 防抖：停止滚动 0.25 秒后恢复卡片正常状态
-            scrollDebounceWorkItem?.cancel()
-            let workItem = DispatchWorkItem {
-                isScrolling = false
-            }
-            scrollDebounceWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
-
-            // 震动检测：找最接近中心的卡片
-            if subjects.isEmpty { return }
-            var closestIdx = 0
-            var closestDist: CGFloat = .infinity
-            for i in 0..<subjects.count {
-                let d = distanceFromCenter(index: i)
-                if d < closestDist {
-                    closestDist = d
-                    closestIdx = i
-                }
-            }
-            if closestDist < 60 && closestIdx != lastCenterIndex {
-                lastCenterIndex = closestIdx
-                UISelectionFeedbackGenerator().selectionChanged()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
         }
     }
@@ -523,112 +456,63 @@ struct SubjectCard: View {
     let subject: DoubanSubject
     let settings: AppSettings
     let fallDelay: Double
-    let isScrolling: Bool
-    let cardIndex: Int
-    let distanceFromCenter: CGFloat
 
     @State private var hasAppeared = false
+    @State private var scaleAmount: CGFloat = 1.0
+    @State private var isAtCenter = false
+
     private let fallDistance: CGFloat = 40
-
-    /// 根据距离和滚动状态计算缩放比例
-    private var zoomScale: CGFloat {
-        guard isScrolling else { return 1.0 }
-        let maxDistance: CGFloat = 120
-        let normalized = min(distanceFromCenter / maxDistance, 1.0)
-        return 1.0 - normalized * 0.2
-    }
-
-    /// 根据距离和滚动状态计算透明度
-    private var zoomOpacity: Double {
-        guard isScrolling else { return 1.0 }
-        let maxDistance: CGFloat = 120
-        let normalized = min(distanceFromCenter / maxDistance, 1.0)
-        return 1.0 - Double(normalized) * 0.35
-    }
+    // 震动反馈只触发一次
+    private static let hapticGenerator = UISelectionFeedbackGenerator()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                // 封面图
-                if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 120, height: 160)
-                        case .failure(_):
-                            ZStack {
-                                Rectangle().fill(Color.gray.opacity(0.15))
-                                Image(systemName: "photo")
-                                    .font(.system(size: 30))
-                                    .foregroundColor(.gray)
-                            }
-                            .frame(width: 120, height: 160)
-                        case .empty:
-                            ZStack {
-                                Rectangle().fill(Color.gray.opacity(0.08))
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.gray)
-                            }
-                            .frame(width: 120, height: 160)
-                        @unknown default:
-                            Rectangle().fill(Color.gray.opacity(0.1))
-                                .frame(width: 120, height: 160)
-                        }
-                    }
-                } else {
-                    ZStack {
-                        Rectangle().fill(Color.gray.opacity(0.1))
-                        VStack(spacing: 4) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 30))
-                                .foregroundColor(.gray)
-                            Text("暂无封面")
-                                .font(.system(size: 10))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .frame(width: 120, height: 160)
-                }
+        GeometryReader { geo in
+            let midX = geo.frame(in: .global).midX
+            let screenMidX = UIScreen.main.bounds.width / 2
+            let distance = abs(midX - screenMidX)
 
-                if subject.ratingValue > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 8))
-                            .foregroundColor(.yellow)
-                        Text(String(format: "%.1f", subject.ratingValue))
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.yellow)
-                    }
-                    .padding(4)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(4)
-                    .padding(4)
+            // 距离越近缩放越大，范围 0.85 ~ 1.0
+            let maxDist: CGFloat = 100
+            let normalized = min(distance / maxDist, 1.0)
+            let targetScale = 1.0 - normalized * 0.15
+
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    cardImage
+                    ratingBadge
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                Text(subject.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(width: 120, alignment: .leading)
+            }
+            .scaleEffect(scaleAmount)
+            .opacity(hasAppeared ? 1.0 : 0)
+            .offset(y: hasAppeared ? 0 : -fallDistance)
+            .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                settings.triggerSearch(subject.title)
+            }
+            .onChange(of: targetScale) { newVal in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    scaleAmount = newVal
+                }
+                // 卡片到达中心位置时触发震动
+                let nowAtCenter = newVal > 0.97
+                if nowAtCenter && !isAtCenter {
+                    isAtCenter = true
+                    SubjectCard.hapticGenerator.selectionChanged()
+                } else if !nowAtCenter && isAtCenter {
+                    isAtCenter = false
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            Text(subject.title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .frame(width: 120, alignment: .leading)
-        }
-        // 中心放大：只在滑动时生效，不滑动时所有卡片恢复正常
-        .scaleEffect(zoomScale)
-        // 坠落入场：首次出现时从上方坠落
-        .opacity(hasAppeared ? zoomOpacity : 0)
-        .offset(y: hasAppeared ? 0 : -fallDistance)
-        .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
-        .animation(.easeInOut(duration: 0.2), value: isScrolling)
-        .animation(.easeInOut(duration: 0.12), value: distanceFromCenter)
-        .contentShape(Rectangle())
-        // 使用 onTapGesture 代替 Button，避免误触拦截上下滑动手势
-        .onTapGesture {
-            settings.triggerSearch(subject.title)
+            .onAppear {
+                scaleAmount = targetScale
+            }
         }
         .frame(width: 120, height: 210, alignment: .topLeading)
         .onAppear {
@@ -637,5 +521,73 @@ struct SubjectCard: View {
                 hasAppeared = true
             }
         }
+    }
+
+    // MARK: - 封面图
+    @ViewBuilder
+    private var cardImage: some View {
+        if let url = DoubanImageProxyServer.shared.proxiedURL(for: subject.coverImageURL) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 120, height: 160)
+                case .failure(_):
+                    placeholderImage(icon: "photo", text: nil)
+                case .empty:
+                    ZStack {
+                        Rectangle().fill(Color.gray.opacity(0.08))
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .tint(.gray)
+                    }
+                    .frame(width: 120, height: 160)
+                @unknown default:
+                    placeholderImage(icon: "photo", text: nil)
+                }
+            }
+        } else {
+            placeholderImage(icon: "photo", text: "暂无封面")
+        }
+    }
+
+    // MARK: - 评分角标
+    @ViewBuilder
+    private var ratingBadge: some View {
+        if subject.ratingValue > 0 {
+            HStack(spacing: 2) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 8))
+                    .foregroundColor(.yellow)
+                Text(String(format: "%.1f", subject.ratingValue))
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.yellow)
+            }
+            .padding(4)
+            .background(Color.black.opacity(0.5))
+            .cornerRadius(4)
+            .padding(4)
+        }
+    }
+
+    // MARK: - 占位图
+    @ViewBuilder
+    private func placeholderImage(icon: String, text: String?) -> some View {
+        ZStack {
+            Rectangle().fill(Color.gray.opacity(0.1))
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 30))
+                    .foregroundColor(.gray)
+                if let text {
+                    Text(text)
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+        .frame(width: 120, height: 160)
     }
 }
