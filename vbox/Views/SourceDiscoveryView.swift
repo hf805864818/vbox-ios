@@ -792,22 +792,15 @@ private struct SourceVideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // 封面图 — 固定 2:3 比例，图片填充裁剪
+            // 移除 GeometryReader 避免 proxy.size 在加载中/完成切换时不稳定导致点击命中区偏移
             ZStack(alignment: .bottomTrailing) {
-                GeometryReader { proxy in
-                    Rectangle()
-                        .fill(Color(uiColor: .systemGray6))
-                        .overlay(
+                Color(uiColor: .systemGray6)
+                    .overlay(
                         PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
                             .id("\(video.vodPic)|\(referer ?? "")")
                             .aspectRatio(2/3, contentMode: .fill)
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .clipped()
-                        )
-                        .clipped()
-                }
-                .aspectRatio(2/3, contentMode: .fit)
-                .clipped()
-                .cornerRadius(8)
+                    )
+                    .clipped()
 
                 // 备注标签
                 if let remarks = video.vodRemarks, !remarks.isEmpty {
@@ -822,6 +815,8 @@ private struct SourceVideoCard: View {
                 }
             }
             .aspectRatio(2/3, contentMode: .fit)
+            .clipped()
+            .cornerRadius(8)
 
             // 标题
             Text(video.vodName)
