@@ -547,7 +547,8 @@ struct SourceDiscoveryView: View {
                     SourceVideoCard(
                         video: video,
                         referer: source.referer,
-                        settings: settings
+                        settings: settings,
+                        fallDelay: Double(index % 3) * 0.12
                     )
                 }
                 .id("\(index)|\(video.discoveryStableId)")
@@ -788,11 +789,12 @@ private struct SourceVideoCard: View {
     let video: VodItem
     let referer: String?
     let settings: AppSettings
+    let fallDelay: Double  // 坠落延迟（同行卡片 1→2→3 顺序错开）
 
     // 坠落动效状态
     @State private var hasAppeared = false
-    // 初始坠落距离（卡片从上方坠落进入）
-    private let fallDistance: CGFloat = 60
+    // 初始坠落距离（卡片从上方坠落进入）— 增大幅度让效果更明显
+    private let fallDistance: CGFloat = 140
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -841,12 +843,13 @@ private struct SourceVideoCard: View {
         .opacity(hasAppeared ? 1 : 0)
         .offset(y: hasAppeared ? 0 : -fallDistance)
         .zIndex(hasAppeared ? 0 : -1)
-        // 使用 animation(value:) 绑定：SwiftUI 检测到 hasAppeared 变化时自动应用动画
-        // 比 DispatchQueue 延迟更可靠，确保初始状态先渲染再动画
-        .animation(.spring(response: 0.5, dampingFraction: 0.72), value: hasAppeared)
+        .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
         .onAppear {
-            // 直接设置状态，.animation(value:) 会自动处理过渡动画
-            hasAppeared = true
+            guard !hasAppeared else { return }
+            // 按 fallDelay 顺序触发：同行3个卡片依次坠落（1→2→3）
+            DispatchQueue.main.asyncAfter(deadline: .now() + fallDelay) {
+                hasAppeared = true
+            }
         }
     }
 }
