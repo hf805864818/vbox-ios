@@ -226,6 +226,14 @@ struct HomeView: View {
     private static var cachedShowingMovies: [DoubanSubject] = []
     private static var cachedHotGaiaMovies: [DoubanSubject] = []
     private static var cachedAmericanTV: [DoubanSubject] = []
+    // 新增分类缓存
+    private static var cachedComingSoon: [DoubanSubject] = []        // 即将上映
+    private static var cachedMovieWeekly: [DoubanSubject] = []       // 一周口碑榜
+    private static var cachedLatestMovies: [DoubanSubject] = []      // 最新电影
+    private static var cachedChiTV: [DoubanSubject] = []             // 华语口碑剧集
+    private static var cachedHotAnimation: [DoubanSubject] = []      // 热门动漫
+    private static var cachedKoreanTV: [DoubanSubject] = []          // 热门韩剧
+    private static var cachedJapaneseTV: [DoubanSubject] = []        // 热门日剧
     private static var hasHomeCache: Bool {
         !cachedBannerSubjects.isEmpty || !cachedHotMovies.isEmpty || !cachedHotTV.isEmpty || !cachedTop250.isEmpty
     }
@@ -238,6 +246,14 @@ struct HomeView: View {
     @State private var showingMovies: [DoubanSubject]
     @State private var hotGaiaMovies: [DoubanSubject]
     @State private var americanTV: [DoubanSubject]
+    // 新增分类状态
+    @State private var comingSoon: [DoubanSubject]                   // 即将上映
+    @State private var movieWeekly: [DoubanSubject]                  // 一周口碑榜
+    @State private var latestMovies: [DoubanSubject]                 // 最新电影
+    @State private var chiTV: [DoubanSubject]                        // 华语口碑剧集
+    @State private var hotAnimation: [DoubanSubject]                 // 热门动漫
+    @State private var koreanTV: [DoubanSubject]                     // 热门韩剧
+    @State private var japaneseTV: [DoubanSubject]                   // 热门日剧
     @State private var currentIndex = 0
 
     init() {
@@ -250,6 +266,13 @@ struct HomeView: View {
         _showingMovies = State(initialValue: Self.cachedShowingMovies)
         _hotGaiaMovies = State(initialValue: Self.cachedHotGaiaMovies)
         _americanTV = State(initialValue: Self.cachedAmericanTV)
+        _comingSoon = State(initialValue: Self.cachedComingSoon)
+        _movieWeekly = State(initialValue: Self.cachedMovieWeekly)
+        _latestMovies = State(initialValue: Self.cachedLatestMovies)
+        _chiTV = State(initialValue: Self.cachedChiTV)
+        _hotAnimation = State(initialValue: Self.cachedHotAnimation)
+        _koreanTV = State(initialValue: Self.cachedKoreanTV)
+        _japaneseTV = State(initialValue: Self.cachedJapaneseTV)
     }
 
     var body: some View {
@@ -347,33 +370,60 @@ struct HomeView: View {
                             BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
                         }
                         CategoryTilesView(settings: settings)
-                        if !hotMovies.isEmpty {
-                            SectionHeader(title: "热门电影", icon: "flame.fill")
-                            HorizontalSubjectRow(subjects: hotMovies, settings: settings)
-                        }
-                        if !top250.isEmpty {
-                            SectionHeader(title: "TOP250", icon: "crown.fill")
-                            HorizontalSubjectRow(subjects: top250, settings: settings)
-                        }
-                        if !hotTV.isEmpty {
-                            SectionHeader(title: "热门剧集", icon: "tv.fill")
-                            HorizontalSubjectRow(subjects: hotTV, settings: settings)
-                        }
-                        if !hotVariety.isEmpty {
-                            SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
-                            HorizontalSubjectRow(subjects: hotVariety, settings: settings)
-                        }
+                        // 1. 影院热映
                         if !showingMovies.isEmpty {
                             SectionHeader(title: "影院热映", icon: "film.fill")
                             HorizontalSubjectRow(subjects: showingMovies, settings: settings)
                         }
-                        if !hotGaiaMovies.isEmpty {
-                            SectionHeader(title: "豆瓣热门", icon: "flame.fill")
-                            HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
+                        // 2. 即将上映
+                        if !comingSoon.isEmpty {
+                            SectionHeader(title: "即将上映", icon: "calendar.badge.clock")
+                            HorizontalSubjectRow(subjects: comingSoon, settings: settings)
                         }
+                        // 3. 热门电影
+                        if !hotMovies.isEmpty {
+                            SectionHeader(title: "热门电影", icon: "flame.fill")
+                            HorizontalSubjectRow(subjects: hotMovies, settings: settings)
+                        }
+                        // 4. 一周口碑榜
+                        if !movieWeekly.isEmpty {
+                            SectionHeader(title: "一周口碑榜", icon: "star.fill")
+                            HorizontalSubjectRow(subjects: movieWeekly, settings: settings)
+                        }
+                        // 5. 新片榜
+                        if !latestMovies.isEmpty {
+                            SectionHeader(title: "新片榜", icon: "sparkles")
+                            HorizontalSubjectRow(subjects: latestMovies, settings: settings)
+                        }
+                        // 6. TOP250
+                        if !top250.isEmpty {
+                            SectionHeader(title: "TOP250", icon: "crown.fill")
+                            HorizontalSubjectRow(subjects: top250, settings: settings)
+                        }
+                        // 7. 热门剧集
+                        if !hotTV.isEmpty {
+                            SectionHeader(title: "热门剧集", icon: "tv.fill")
+                            HorizontalSubjectRow(subjects: hotTV, settings: settings)
+                        }
+                        // 8. 华语口碑剧集
+                        if !chiTV.isEmpty {
+                            SectionHeader(title: "华语口碑剧集", icon: "flag.fill")
+                            HorizontalSubjectRow(subjects: chiTV, settings: settings)
+                        }
+                        // 9. 值得看的英美剧
                         if !americanTV.isEmpty {
                             SectionHeader(title: "值得看的英美剧", icon: "globe")
                             HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                        }
+                        // 10. 热门动漫
+                        if !hotAnimation.isEmpty {
+                            SectionHeader(title: "热门动漫", icon: "paintbrush.fill")
+                            HorizontalSubjectRow(subjects: hotAnimation, settings: settings)
+                        }
+                        // 11. 热门综艺
+                        if !hotVariety.isEmpty {
+                            SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
+                            HorizontalSubjectRow(subjects: hotVariety, settings: settings)
                         }
                     }
                 }
@@ -573,46 +623,81 @@ struct HomeView: View {
             return
         }
         isLoading = true
-        do {
-            async let banner = doubanService.fetchTop250(start: 0, count: 10)
-            async let movies = doubanService.fetchHotMovies(start: 0, count: 10)
-            async let tv = doubanService.fetchHotTV(start: 0, count: 10)
-            async let variety = doubanService.fetchHotVariety(start: 0, count: 10)
-            async let top = doubanService.fetchTop250(start: 0, count: 10)
-            async let showing = doubanService.fetchUpcomingCN(start: 0, count: 10)
-            async let hotGaia = doubanService.fetchHotGaia(start: 0, count: 10)
-            async let american = doubanService.fetchAmericanTV(start: 0, count: 10)
-            bannerSubjects = try await banner
-            hotMovies = try await movies
-            hotTV = try await tv
-            hotVariety = try await variety
-            top250 = try await top
-            showingMovies = try await showing
-            hotGaiaMovies = try await hotGaia
-            americanTV = try await american
-            Self.cachedBannerSubjects = bannerSubjects
-            Self.cachedHotMovies = hotMovies
-            Self.cachedHotTV = hotTV
-            Self.cachedHotVariety = hotVariety
-            Self.cachedTop250 = top250
-            Self.cachedShowingMovies = showingMovies
-            Self.cachedHotGaiaMovies = hotGaiaMovies
-            Self.cachedAmericanTV = americanTV
-        } catch {
-            print("Douban API error: \(error)")
-        }
+
+        // 每个分类独立加载，一个失败不影响其他
+        async let banner = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+        async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
+        async let soon = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
+        async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
+        async let weekly = fetchSafely { try await doubanService.fetchMovieWeekly(start: 0, count: 10) }
+        async let latest = fetchSafely { try await doubanService.fetchLatestMovies(start: 0, count: 10) }
+        async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+        async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
+        async let chi = fetchSafely { try await doubanService.fetchPopularChiTV(start: 0, count: 10) }
+        async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+        async let anim = fetchSafely { try await doubanService.fetchHotAnimation(start: 0, count: 10) }
+        async let korean = fetchSafely { try await doubanService.fetchKoreanTV(start: 0, count: 10) }
+        async let japanese = fetchSafely { try await doubanService.fetchJapaneseTV(start: 0, count: 10) }
+        async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
+
+        bannerSubjects = await banner
+        showingMovies = await showing
+        comingSoon = await soon
+        hotMovies = await movies
+        movieWeekly = await weekly
+        latestMovies = await latest
+        top250 = await top
+        hotTV = await tv
+        chiTV = await chi
+        americanTV = await american
+        hotAnimation = await anim
+        koreanTV = await korean
+        japaneseTV = await japanese
+        hotVariety = await variety
+
+        // 缓存
+        Self.cachedBannerSubjects = bannerSubjects
+        Self.cachedShowingMovies = showingMovies
+        Self.cachedComingSoon = comingSoon
+        Self.cachedHotMovies = hotMovies
+        Self.cachedMovieWeekly = movieWeekly
+        Self.cachedLatestMovies = latestMovies
+        Self.cachedTop250 = top250
+        Self.cachedHotTV = hotTV
+        Self.cachedChiTV = chiTV
+        Self.cachedAmericanTV = americanTV
+        Self.cachedHotAnimation = hotAnimation
+        Self.cachedKoreanTV = koreanTV
+        Self.cachedJapaneseTV = japaneseTV
+        Self.cachedHotVariety = hotVariety
+
         isLoading = false
+    }
+
+    private func fetchSafely(_ operation: @escaping () async throws -> [DoubanSubject]) async -> [DoubanSubject] {
+        do {
+            return try await operation()
+        } catch {
+            print("[HomeView] 分类加载失败: \(error)")
+            return []
+        }
     }
 
     private func restoreHomeCache() {
         bannerSubjects = Self.cachedBannerSubjects
-        hotMovies = Self.cachedHotMovies
-        hotTV = Self.cachedHotTV
-        hotVariety = Self.cachedHotVariety
-        top250 = Self.cachedTop250
         showingMovies = Self.cachedShowingMovies
-        hotGaiaMovies = Self.cachedHotGaiaMovies
+        comingSoon = Self.cachedComingSoon
+        hotMovies = Self.cachedHotMovies
+        movieWeekly = Self.cachedMovieWeekly
+        latestMovies = Self.cachedLatestMovies
+        top250 = Self.cachedTop250
+        hotTV = Self.cachedHotTV
+        chiTV = Self.cachedChiTV
         americanTV = Self.cachedAmericanTV
+        hotAnimation = Self.cachedHotAnimation
+        koreanTV = Self.cachedKoreanTV
+        japaneseTV = Self.cachedJapaneseTV
+        hotVariety = Self.cachedHotVariety
         isLoading = false
     }
 }

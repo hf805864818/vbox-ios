@@ -259,6 +259,13 @@ class DoubanService: ObservableObject {
         return try await fetchCollection("movie_latest", start: start, count: count)
     }
 
+    // MARK: - 即将上映
+
+    /// 即将上映
+    func fetchComingSoon(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_soon", start: start, count: count)
+    }
+
     // MARK: - 热门韩剧
 
     /// 热门韩剧
