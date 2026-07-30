@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 豆瓣首页视图
 struct DoubanHomeView: View {
@@ -367,20 +368,92 @@ struct CategoryTile: View {
     }
 }
 
+// MARK: - 滚动偏移追踪
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 // MARK: - 横向主题行
 struct HorizontalSubjectRow: View {
     let subjects: [DoubanSubject]
     let settings: AppSettings
     
+    @State private var scrollOffset: CGFloat = 0
+    @State private var lastHapticIndex: Int = -1
+    @State private var hasInitializedHaptic = false
+    
+    private let cardWidth: CGFloat = 120
+    private let cardSpacing: CGFloat = 12
+    private let hPadding: CGFloat = 16
+    
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(subjects) { subject in
-                    SubjectCard(subject: subject, settings: settings)
+            HStack(spacing: cardSpacing) {
+                ForEach(Array(subjects.enumerated()), id: \.element.id) { index, subject in
+                    SubjectCard(
+                        subject: subject,
+                        settings: settings,
+                        fallDelay: Double(index) * 0.08,
+                        zoomScale: cardScale(for: index),
+                        zoomOpacity: cardOpacity(for: index)
+                    )
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, hPadding)
             .padding(.vertical, 8)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ScrollOffsetKey.self,
+                        value: geo.frame(in: .named("hScroll")).minX
+                    )
+                }
+            )
+        }
+        .coordinateSpace(name: "hScroll")
+        .onPreferenceChange(ScrollOffsetKey.self) { offset in
+            scrollOffset = offset
+            triggerHapticIfNeeded(offset: offset)
+        }
+    }
+    
+    // 中心放大：距离屏幕中心越远缩得越小
+    private func cardScale(for index: Int) -> CGFloat {
+        let screenCenter = UIScreen.main.bounds.width / 2
+        let cardCenter = hPadding + CGFloat(index) * (cardWidth + cardSpacing) + cardWidth / 2 + scrollOffset
+        let distance = abs(cardCenter - screenCenter)
+        let maxDistance: CGFloat = 180
+        let normalized = min(distance / maxDistance, 1.0)
+        return 1.0 - normalized * 0.15  // 1.0 → 0.85
+    }
+    
+    // 中心放大透明度：距离屏幕中心越远越淡
+    private func cardOpacity(for index: Int) -> Double {
+        let screenCenter = UIScreen.main.bounds.width / 2
+        let cardCenter = hPadding + CGFloat(index) * (cardWidth + cardSpacing) + cardWidth / 2 + scrollOffset
+        let distance = abs(cardCenter - screenCenter)
+        let maxDistance: CGFloat = 180
+        let normalized = min(distance / maxDistance, 1.0)
+        return 1.0 - normalized * 0.3  // 1.0 → 0.7
+    }
+    
+    // 滑动震动：当中心卡片切换时触发轻微触感反馈
+    private func triggerHapticIfNeeded(offset: CGFloat) {
+        let screenCenter = UIScreen.main.bounds.width / 2
+        let cardStart = hPadding + cardWidth / 2
+        let stepSize = cardWidth + cardSpacing
+        let newIndex = Int(round((screenCenter - cardStart - offset) / stepSize))
+        let clampedIndex = max(0, min(newIndex, subjects.count - 1))
+        
+        if !hasInitializedHaptic {
+            hasInitializedHaptic = true
+            lastHapticIndex = clampedIndex
+        } else if clampedIndex != lastHapticIndex {
+            lastHapticIndex = clampedIndex
+            UISelectionFeedbackGenerator().selectionChanged()
         }
     }
 }
@@ -389,6 +462,12 @@ struct HorizontalSubjectRow: View {
 struct SubjectCard: View {
     let subject: DoubanSubject
     let settings: AppSettings
+    let fallDelay: Double
+    let zoomScale: CGFloat
+    let zoomOpacity: Double
+    
+    @State private var hasAppeared = false
+    private let fallDistance: CGFloat = 40
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -461,8 +540,20 @@ struct SubjectCard: View {
                 .lineLimit(1)
                 .frame(width: 120, alignment: .leading)
         }
+        // 中心放大：横向滚动时居中卡片放大突出
+        .scaleEffect(zoomScale)
+        // 坠落入场：首次出现时从上方坠落进入
+        .opacity(hasAppeared ? zoomOpacity : 0)
+        .offset(y: hasAppeared ? 0 : -fallDistance)
+        .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
         .onTapGesture {
             settings.triggerSearch(subject.title)
+        }
+        .onAppear {
+            guard !hasAppeared else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + fallDelay) {
+                hasAppeared = true
+            }
         }
     }
 }
