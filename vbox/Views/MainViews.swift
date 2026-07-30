@@ -218,7 +218,7 @@ struct HomeView: View {
     @State private var allSources: [SourceDisplayItem] = []
     /// 缓存分组结果，避免每次渲染都重新分组（allSources 变化时重新计算）
     @State private var homeGroupedSourcesCache: [(key: String, items: [SourceDisplayItem])] = []
-    private static var cachedBannerSubjects: [DoubanSubject] = []
+    private static var cachedBannerItems: [BannerItem] = []
     private static var cachedHotMovies: [DoubanSubject] = []
     private static var cachedHotTV: [DoubanSubject] = []
     private static var cachedHotVariety: [DoubanSubject] = []
@@ -235,10 +235,10 @@ struct HomeView: View {
     private static var cachedKoreanTV: [DoubanSubject] = []          // 热门韩剧
     private static var cachedJapaneseTV: [DoubanSubject] = []        // 热门日剧
     private static var hasHomeCache: Bool {
-        !cachedBannerSubjects.isEmpty || !cachedHotMovies.isEmpty || !cachedHotTV.isEmpty || !cachedTop250.isEmpty
+        !cachedBannerItems.isEmpty || !cachedHotMovies.isEmpty || !cachedHotTV.isEmpty || !cachedTop250.isEmpty
     }
     @State private var isLoading: Bool
-    @State private var bannerSubjects: [DoubanSubject]
+    @State private var bannerItems: [BannerItem]
     @State private var hotMovies: [DoubanSubject]
     @State private var hotTV: [DoubanSubject]
     @State private var hotVariety: [DoubanSubject]
@@ -258,7 +258,7 @@ struct HomeView: View {
 
     init() {
         _isLoading = State(initialValue: !Self.hasHomeCache)
-        _bannerSubjects = State(initialValue: Self.cachedBannerSubjects)
+        _bannerItems = State(initialValue: Self.cachedBannerItems)
         _hotMovies = State(initialValue: Self.cachedHotMovies)
         _hotTV = State(initialValue: Self.cachedHotTV)
         _hotVariety = State(initialValue: Self.cachedHotVariety)
@@ -366,8 +366,8 @@ struct HomeView: View {
                             showSourcePicker: $showSourcePicker,
                             selectedSourceName: selectedSource?.name
                         )
-                        if !bannerSubjects.isEmpty {
-                            BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
+                        if !bannerItems.isEmpty {
+                            BannerCarousel(items: bannerItems, currentIndex: $currentIndex, settings: settings)
                         }
                         CategoryTilesView(settings: settings)
                         // 1. 影院热映
@@ -625,7 +625,6 @@ struct HomeView: View {
         isLoading = true
 
         // 每个分类独立加载，一个失败不影响其他
-        async let banner = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
         async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
         async let soon = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
         async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
@@ -640,7 +639,6 @@ struct HomeView: View {
         async let japanese = fetchSafely { try await doubanService.fetchJapaneseTV(start: 0, count: 10) }
         async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
 
-        bannerSubjects = await banner
         showingMovies = await showing
         comingSoon = await soon
         hotMovies = await movies
@@ -655,8 +653,19 @@ struct HomeView: View {
         japaneseTV = await japanese
         hotVariety = await variety
 
+        // ★ Banner 随机抽取：从所有已加载分类中汇总，随机选取 6~8 条
+        let allSubjects = (showingMovies + comingSoon + hotMovies + movieWeekly +
+                           latestMovies + top250 + hotTV + chiTV + americanTV +
+                           hotAnimation + koreanTV + japaneseTV + hotVariety)
+            .filter { $0.ratingValue > 0 }
+        let bannerCount = min(8, max(6, allSubjects.count))
+        let picked = Array(allSubjects.shuffled().prefix(bannerCount))
+
+        // 先用竖版封面创建 BannerItem（UI 立即可见），后续异步替换为横版海报
+        bannerItems = picked.map { BannerItem(from: $0) }
+        Self.cachedBannerItems = bannerItems
+
         // 缓存
-        Self.cachedBannerSubjects = bannerSubjects
         Self.cachedShowingMovies = showingMovies
         Self.cachedComingSoon = comingSoon
         Self.cachedHotMovies = hotMovies
@@ -672,6 +681,25 @@ struct HomeView: View {
         Self.cachedHotVariety = hotVariety
 
         isLoading = false
+
+        // ★ 异步获取横版海报 URL，逐条更新 + 预缓存前 3 张
+        await fetchBackdropURLs()
+    }
+
+    /// 逐条获取横版海报 URL 并更新 BannerItem，同时预缓存图片
+    @MainActor
+    private func fetchBackdropURLs() async {
+        for index in bannerItems.indices {
+            let backdropURL = await doubanService.fetchBackdropURL(subjectId: bannerItems[index].id)
+            if let backdropURL {
+                bannerItems[index] = bannerItems[index].withBackdropURL(backdropURL)
+                Self.cachedBannerItems = bannerItems
+                // 前 3 张预缓存到内存
+                if index < 3 {
+                    ImagePreloader.shared.preload(backdropURL)
+                }
+            }
+        }
     }
 
     private func fetchSafely(_ operation: @escaping () async throws -> [DoubanSubject]) async -> [DoubanSubject] {
@@ -684,7 +712,7 @@ struct HomeView: View {
     }
 
     private func restoreHomeCache() {
-        bannerSubjects = Self.cachedBannerSubjects
+        bannerItems = Self.cachedBannerItems
         showingMovies = Self.cachedShowingMovies
         comingSoon = Self.cachedComingSoon
         hotMovies = Self.cachedHotMovies
