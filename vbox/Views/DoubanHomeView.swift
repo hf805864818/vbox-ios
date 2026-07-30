@@ -283,30 +283,6 @@ struct BannerCard3D: View {
             // 图片层：优先横版海报，回退竖版封面
             imageLayer
 
-            // 顶部渐变遮罩（让右上角评分更清晰）
-            LinearGradient(
-                colors: [Color.black.opacity(0.5), Color.black.opacity(0)],
-                startPoint: .top, endPoint: .center
-            )
-
-            // 右上角评分
-            if item.ratingValue > 0 {
-                HStack(spacing: 2) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.yellow)
-                    Text(String(format: "%.1f", item.ratingValue))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.yellow)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.black.opacity(0.5))
-                .cornerRadius(6)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .topTrailing)
-            }
-
             // 底部渐变遮罩
             LinearGradient(
                 colors: [Color.black.opacity(0), Color.black.opacity(0.4), Color.black.opacity(0.8)],
@@ -316,10 +292,10 @@ struct BannerCard3D: View {
 
             // 左下角标题
             Text(item.title)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .lineLimit(1)
-                .padding(12)
+                .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
         .frame(width: cardWidth, height: cardHeight)
