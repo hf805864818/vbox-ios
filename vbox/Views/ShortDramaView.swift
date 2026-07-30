@@ -59,26 +59,46 @@ struct ShortDramaView: View {
                 
                 // 源标签滚动条
                 if !dramaService.shortDramaSources.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(dramaService.shortDramaSources) { source in
-                                Button(action: {
-                                    dramaService.selectedSourceId = source.id
-                                    Task { await dramaService.fetchDramas(refresh: true) }
-                                }) {
-                                    Text("\(source.name)(\(source.categoryName))")
-                                        .font(.system(size: 12))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(dramaService.selectedSourceId == source.id ? accentColor : Color.gray.opacity(0.12))
-                                        .foregroundColor(dramaService.selectedSourceId == source.id ? .white : .primary)
-                                        .cornerRadius(14)
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(dramaService.shortDramaSources) { source in
+                                    Button(action: {
+                                        dramaService.selectedSourceId = source.id
+                                        Task { await dramaService.fetchDramas(refresh: true) }
+                                    }) {
+                                        Text("\(source.name)(\(source.categoryName))")
+                                            .font(.system(size: 12))
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(dramaService.selectedSourceId == source.id ? accentColor : Color.gray.opacity(0.12))
+                                            .foregroundColor(dramaService.selectedSourceId == source.id ? .white : .primary)
+                                            .cornerRadius(14)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(source.id)
                                 }
-                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        }
+                        .onChange(of: dramaService.selectedSourceId) { newId in
+                            guard let newId else { return }
+                            // 短暂延迟，确保选择弹窗关闭后再执行滚动动画
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo(newId, anchor: .center)
+                                }
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .onAppear {
+                            // 源列表首次加载后，滚动到已选中的源
+                            if let selectedId = dramaService.selectedSourceId {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    proxy.scrollTo(selectedId, anchor: .center)
+                                }
+                            }
+                        }
                     }
                 }
                 

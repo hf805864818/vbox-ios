@@ -260,6 +260,8 @@ class ShortDramaService: ObservableObject {
             for await items in group {
                 receivedCount += items.count
                 appendDramaItems(items, seenNames: &seen)
+                // 让主线程有机会刷新 UI，实现"先加载先显示"的增量展示
+                await Task.yield()
             }
         }
         
@@ -343,7 +345,7 @@ class ShortDramaService: ObservableObject {
         }
     }
     
-    private func resolveImageUrl(_ raw: String, baseApi: String) -> String {
+    private nonisolated func resolveImageUrl(_ raw: String, baseApi: String) -> String {
         guard !raw.isEmpty else { return "" }
         if let url = URL(string: raw), url.scheme != nil { return raw }
         if raw.hasPrefix("//") { return "https:\(raw)" }
@@ -352,7 +354,7 @@ class ShortDramaService: ObservableObject {
         return resolved.absoluteString
     }
 
-    private func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
+    private nonisolated func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
         // JS 蜘蛛源：通过引擎调用 categoryContent
         if source.sourceType == .jsSpider, let engineKey = source.engineKey,
            let engine = SpiderManager.shared.getEngine(forKey: engineKey) {
