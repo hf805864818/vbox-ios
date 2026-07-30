@@ -139,18 +139,19 @@ struct ShortDramaView: View {
         ScrollView {
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 16) {
-                ForEach(dramaService.dramas) { drama in
-                    DramaCardView(drama: drama)
-                        .onTapGesture {
-                            selectedDrama = drama
+                ForEach(Array(dramaService.dramas.enumerated()), id: \.element.id) { index, drama in
+                    Button(action: { selectedDrama = drama }) {
+                        DramaCardView(drama: drama, fallDelay: Double(index % 3) * 0.12)
+                    }
+                    .buttonStyle(.plain)
+                    .onAppear {
+                        if drama.id == dramaService.dramas.last?.id, dramaService.hasMore {
+                            Task { await dramaService.fetchDramas(page: dramaService.currentPage + 1) }
                         }
-                        .onAppear {
-                            if drama.id == dramaService.dramas.last?.id, dramaService.hasMore {
-                                Task { await dramaService.fetchDramas(page: dramaService.currentPage + 1) }
-                            }
-                        }
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -180,13 +181,14 @@ struct ShortDramaView: View {
         ScrollView {
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 16) {
-                ForEach(searchResults) { drama in
-                    DramaCardView(drama: drama)
-                        .onTapGesture {
-                            selectedDrama = drama
-                        }
+                ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, drama in
+                    Button(action: { selectedDrama = drama }) {
+                        DramaCardView(drama: drama, fallDelay: Double(index % 3) * 0.12)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
@@ -293,7 +295,11 @@ struct ShortDramaView: View {
 
 struct DramaCardView: View {
     let drama: VodItem
+    var fallDelay: Double = 0
     @EnvironmentObject private var settings: AppSettings
+    
+    @State private var hasAppeared = false
+    private let fallDistance: CGFloat = 140
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -352,6 +358,17 @@ struct DramaCardView: View {
                     .font(.system(size: 11))
                     .lineLimit(1)
                     .foregroundColor(.secondary)
+            }
+        }
+        // 坠落动效：整个卡片从上方坠落进入
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : -fallDistance)
+        .zIndex(hasAppeared ? 0 : -1)
+        .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
+        .onAppear {
+            guard !hasAppeared else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + fallDelay) {
+                hasAppeared = true
             }
         }
     }
