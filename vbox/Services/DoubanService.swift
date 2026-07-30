@@ -86,6 +86,18 @@ struct BannerItem: Identifiable {
     let backdropURL: String?   // 横版剧照/海报 URL
     let coverURL: String?      // 竖版封面 URL（备用回退）
 
+    /// 全参数初始化器（供 withBackdropURL 使用）
+    init(id: String, title: String, ratingValue: Double, year: String?,
+         genres: String?, backdropURL: String?, coverURL: String?) {
+        self.id = id
+        self.title = title
+        self.ratingValue = ratingValue
+        self.year = year
+        self.genres = genres
+        self.backdropURL = backdropURL
+        self.coverURL = coverURL
+    }
+
     /// 从 DoubanSubject 构造（backdropURL 初始为 nil，后续异步填充）
     init(from subject: DoubanSubject) {
         self.id = subject.id
