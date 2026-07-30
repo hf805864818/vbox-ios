@@ -552,8 +552,6 @@ struct SourceDiscoveryView: View {
                 }
                 .id("\(index)|\(video.discoveryStableId)")
                 .buttonStyle(.plain)
-                // E. 入场渐显：卡片首次进入可视区时从下方淡入上移
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .onAppear {
                     // 只有初次分类加载完成后，且用户滚动到接近底部时才触发加载更多
                     if hasInitialCategoryLoad && index >= displayVideos.count - 4 && !isLoadingMore && hasMorePages {
@@ -562,7 +560,6 @@ struct SourceDiscoveryView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: displayVideos.count)
         .padding(.horizontal, 16)
         .padding(.top, 12)
     }
@@ -792,40 +789,22 @@ private struct SourceVideoCard: View {
     let referer: String?
     let settings: AppSettings
 
-    // 视差参数：图片比框多出的高度比例（给视差预留位移空间）
-    private let parallaxOverscan: CGFloat = 0.15
-    // 视差强度系数（0~1，越大移动越明显）
-    private let parallaxStrength: CGFloat = 0.5
+    // 坠落动效状态
+    @State private var hasAppeared = false
+    // 初始坠落距离（卡片从上方坠落进入）
+    private let fallDistance: CGFloat = 60
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 封面图 — 固定 2:3 比例，图片填充裁剪 + 视差落差
+            // 封面图 — 固定 2:3 比例
             ZStack(alignment: .bottomTrailing) {
-                // GeometryReader 在卡片外层读取全局位置，驱动视差偏移
-                // 注意：放在 ZStack 外层读位置，不干扰封面内部的点击命中区
-                GeometryReader { geo in
-                    let cardMidY = geo.frame(in: .global).midY
-                    let screenMidY = UIScreen.main.bounds.height / 2
-                    // 卡片相对屏幕中线的偏移，归一化到屏幕半高
-                    let normalized = (cardMidY - screenMidY) / (UIScreen.main.bounds.height / 2)
-                    // 反向偏移：卡片向下移时图片向上移，产生落差感
-                    let offsetY = -normalized * parallaxOverscan * parallaxStrength * geo.size.height
-
-                    Color(uiColor: .systemGray6)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .overlay(
-                            PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
-                                .id("\(video.vodPic)|\(referer ?? "")")
-                                .aspectRatio(2/3, contentMode: .fill)
-                                .frame(width: geo.size.width, height: geo.size.height)
-                                // 图片高度放大 (1+overscan)，在框内偏移制造视差
-                                .scaleEffect(1 + parallaxOverscan, anchor: .center)
-                                .offset(y: offsetY)
-                                .clipped()
-                        )
-                        .clipped()
-                }
-                .aspectRatio(2/3, contentMode: .fit)
+                Color(uiColor: .systemGray6)
+                    .overlay(
+                        PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
+                            .id("\(video.vodPic)|\(referer ?? "")")
+                            .aspectRatio(2/3, contentMode: .fill)
+                            .clipped()
+                    )
 
                 // 备注标签
                 if let remarks = video.vodRemarks, !remarks.isEmpty {
@@ -856,6 +835,17 @@ private struct SourceVideoCard: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+            }
+        }
+        // 坠落动效：整个卡片（封面图+标题+年份）从上方坠落进入
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : -fallDistance)
+        .onAppear {
+            // 延迟一帧确保初始状态（不可见+上偏移）先渲染，再触发坠落动画
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    hasAppeared = true
+                }
             }
         }
     }
