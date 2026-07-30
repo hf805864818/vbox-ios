@@ -6,14 +6,23 @@ struct DoubanHomeView: View {
     @StateObject private var doubanService = DoubanService.shared
     @EnvironmentObject private var settings: AppSettings
     @State private var isLoading = true
+    // Banner 轮播
     @State private var bannerSubjects: [DoubanSubject] = []
-    @State private var hotMovies: [DoubanSubject] = []
-    @State private var hotTV: [DoubanSubject] = []
-    @State private var hotVariety: [DoubanSubject] = []
-    @State private var top250: [DoubanSubject] = []
-    @State private var showingMovies: [DoubanSubject] = []
-    @State private var hotGaiaMovies: [DoubanSubject] = []
-    @State private var americanTV: [DoubanSubject] = []
+    // 电影类
+    @State private var showingMovies: [DoubanSubject] = []       // 影院热映
+    @State private var comingSoon: [DoubanSubject] = []          // 即将上映
+    @State private var hotMovies: [DoubanSubject] = []           // 热门电影
+    @State private var movieWeekly: [DoubanSubject] = []         // 一周口碑榜
+    @State private var usBox: [DoubanSubject] = []               // 北美票房
+    @State private var newMovies: [DoubanSubject] = []           // 新片榜
+    @State private var top250: [DoubanSubject] = []              // TOP250
+    // 剧集类
+    @State private var hotTV: [DoubanSubject] = []               // 热门剧集
+    @State private var chiTV: [DoubanSubject] = []               // 华语口碑剧集
+    @State private var americanTV: [DoubanSubject] = []          // 值得看的英美剧
+    @State private var hotAnimation: [DoubanSubject] = []        // 热门动漫
+    // 综艺类
+    @State private var hotVariety: [DoubanSubject] = []          // 热门综艺
     @State private var currentIndex = 0
     let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     
@@ -25,37 +34,70 @@ struct DoubanHomeView: View {
                         ProgressView().scaleEffect(1.5).padding(.top, 100)
                     }
                 } else {
+                    // 1. Banner 轮播
                     if !bannerSubjects.isEmpty {
                         BannerCarousel(subjects: bannerSubjects, currentIndex: $currentIndex, settings: settings)
                     }
                     CategoryTilesView(settings: settings)
-                    if !hotMovies.isEmpty {
-                        SectionHeader(title: "热门电影", icon: "flame.fill")
-                        HorizontalSubjectRow(subjects: hotMovies, settings: settings)
-                    }
-                    if !top250.isEmpty {
-                        SectionHeader(title: "TOP250", icon: "crown.fill")
-                        HorizontalSubjectRow(subjects: top250, settings: settings)
-                    }
-                    if !hotTV.isEmpty {
-                        SectionHeader(title: "热门剧集", icon: "tv.fill")
-                        HorizontalSubjectRow(subjects: hotTV, settings: settings)
-                    }
-                    if !hotVariety.isEmpty {
-                        SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
-                        HorizontalSubjectRow(subjects: hotVariety, settings: settings)
-                    }
+                    // 2. 影院热映
                     if !showingMovies.isEmpty {
                         SectionHeader(title: "影院热映", icon: "film.fill")
                         HorizontalSubjectRow(subjects: showingMovies, settings: settings)
                     }
-                    if !hotGaiaMovies.isEmpty {
-                        SectionHeader(title: "豆瓣热门", icon: "flame.fill")
-                        HorizontalSubjectRow(subjects: hotGaiaMovies, settings: settings)
+                    // 3. 即将上映
+                    if !comingSoon.isEmpty {
+                        SectionHeader(title: "即将上映", icon: "calendar")
+                        HorizontalSubjectRow(subjects: comingSoon, settings: settings)
                     }
+                    // 4. 热门电影
+                    if !hotMovies.isEmpty {
+                        SectionHeader(title: "热门电影", icon: "flame.fill")
+                        HorizontalSubjectRow(subjects: hotMovies, settings: settings)
+                    }
+                    // 5. 一周口碑榜
+                    if !movieWeekly.isEmpty {
+                        SectionHeader(title: "一周口碑榜", icon: "star.fill")
+                        HorizontalSubjectRow(subjects: movieWeekly, settings: settings)
+                    }
+                    // 6. 北美票房
+                    if !usBox.isEmpty {
+                        SectionHeader(title: "北美票房", icon: "dollarsign.circle.fill")
+                        HorizontalSubjectRow(subjects: usBox, settings: settings)
+                    }
+                    // 7. 新片榜
+                    if !newMovies.isEmpty {
+                        SectionHeader(title: "新片榜", icon: "sparkles")
+                        HorizontalSubjectRow(subjects: newMovies, settings: settings)
+                    }
+                    // 8. TOP250
+                    if !top250.isEmpty {
+                        SectionHeader(title: "TOP250", icon: "crown.fill")
+                        HorizontalSubjectRow(subjects: top250, settings: settings)
+                    }
+                    // 9. 热门剧集
+                    if !hotTV.isEmpty {
+                        SectionHeader(title: "热门剧集", icon: "tv.fill")
+                        HorizontalSubjectRow(subjects: hotTV, settings: settings)
+                    }
+                    // 10. 华语口碑剧集
+                    if !chiTV.isEmpty {
+                        SectionHeader(title: "华语口碑剧集", icon: "flag.fill")
+                        HorizontalSubjectRow(subjects: chiTV, settings: settings)
+                    }
+                    // 11. 值得看的英美剧
                     if !americanTV.isEmpty {
                         SectionHeader(title: "值得看的英美剧", icon: "globe")
                         HorizontalSubjectRow(subjects: americanTV, settings: settings)
+                    }
+                    // 12. 热门动漫
+                    if !hotAnimation.isEmpty {
+                        SectionHeader(title: "热门动漫", icon: "paintbrush.fill")
+                        HorizontalSubjectRow(subjects: hotAnimation, settings: settings)
+                    }
+                    // 13. 热门综艺
+                    if !hotVariety.isEmpty {
+                        SectionHeader(title: "热门综艺", icon: "theatermasks.fill")
+                        HorizontalSubjectRow(subjects: hotVariety, settings: settings)
                     }
                 }
             }
@@ -75,23 +117,37 @@ struct DoubanHomeView: View {
         isLoading = true
         Task {
             // 独立加载每个分类，一个失败不影响其他
+            // Banner 轮播
             async let banner = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
-            async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
-            async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
-            async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
-            async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+            // 电影类
             async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
-            async let hotGaia = fetchSafely { try await doubanService.fetchHotGaia(start: 0, count: 10) }
+            async let coming = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
+            async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
+            async let weekly = fetchSafely { try await doubanService.fetchMovieWeekly(start: 0, count: 10) }
+            async let usbox = fetchSafely { try await doubanService.fetchUsBox(start: 0, count: 10) }
+            async let newMov = fetchSafely { try await doubanService.fetchNewMovies(start: 0, count: 10) }
+            async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+            // 剧集类
+            async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
+            async let chi = fetchSafely { try await doubanService.fetchPopularChiTV(start: 0, count: 10) }
             async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+            async let anim = fetchSafely { try await doubanService.fetchHotAnimation(start: 0, count: 10) }
+            // 综艺类
+            async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
 
             bannerSubjects = await banner
-            hotMovies = await movies
-            hotTV = await tv
-            hotVariety = await variety
-            top250 = await top
             showingMovies = await showing
-            hotGaiaMovies = await hotGaia
+            comingSoon = await coming
+            hotMovies = await movies
+            movieWeekly = await weekly
+            usBox = await usbox
+            newMovies = await newMov
+            top250 = await top
+            hotTV = await tv
+            chiTV = await chi
             americanTV = await american
+            hotAnimation = await anim
+            hotVariety = await variety
 
             isLoading = false
         }

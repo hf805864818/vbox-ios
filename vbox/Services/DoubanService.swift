@@ -252,6 +252,27 @@ class DoubanService: ObservableObject {
         return try await fetchCollectionWithTVCovers("tv_american", start: start, count: count)
     }
 
+    // MARK: - 北美票房榜
+
+    /// 北美票房榜
+    func fetchUsBox(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_us_box", start: start, count: count)
+    }
+
+    // MARK: - 新片榜
+
+    /// 新片榜
+    func fetchNewMovies(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_new_movies", start: start, count: count)
+    }
+
+    // MARK: - 即将上映
+
+    /// 即将上映
+    func fetchComingSoon(start: Int = 0, count: Int = 20) async throws -> [DoubanSubject] {
+        return try await fetchCollection("movie_coming_soon", start: start, count: count)
+    }
+
     // MARK: - 按栏目标签获取数据
     
     /// 根据栏目标签名称获取对应的豆瓣数据（统一入口）
