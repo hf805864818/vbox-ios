@@ -1,7 +1,10 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 豆瓣首页视图
+// MARK: - ⚠️ 废弃视图（未被任何代码引用，实际首页使用 MainViews.swift 中的 HomeView）
+// 保留此文件仅为参考，请勿在此文件中修改首页逻辑。
+// 实际首页调用链：ContentView → HomeView → doubanHomeContent（MainViews.swift:328）
+@available(*, deprecated, message: "废弃视图，实际首页使用 HomeView（MainViews.swift）。HorizontalSubjectRow / SubjectCard / BannerCarousel 等公共组件仍被 HomeView 复用。")
 struct DoubanHomeView: View {
     @StateObject private var doubanService = DoubanService.shared
     @EnvironmentObject private var settings: AppSettings
@@ -519,19 +522,31 @@ struct SubjectCard: View {
     let cardIndex: Int
 
     @State private var hasAppeared = false
+    @State private var cardDistance: CGFloat = 9999  // 卡片到屏幕中心的距离
     private let fallDistance: CGFloat = 40
+
+    /// 根据距离和滚动状态计算缩放比例
+    private var zoomScale: CGFloat {
+        guard isScrolling else { return 1.0 }
+        let maxDistance: CGFloat = 120
+        let normalized = min(cardDistance / maxDistance, 1.0)
+        return 1.0 - normalized * 0.15
+    }
+
+    /// 根据距离和滚动状态计算透明度
+    private var zoomOpacity: Double {
+        guard isScrolling else { return 1.0 }
+        let maxDistance: CGFloat = 120
+        let normalized = min(cardDistance / maxDistance, 1.0)
+        return 1.0 - Double(normalized) * 0.4
+    }
 
     var body: some View {
         GeometryReader { geo in
+            // 实时追踪卡片到屏幕中心的距离
             let cardMidX = geo.frame(in: .global).midX
             let screenMidX = UIScreen.main.bounds.width / 2
             let distance = abs(cardMidX - screenMidX)
-            let maxDistance: CGFloat = 120
-            let normalized = min(distance / maxDistance, 1.0)
-
-            // 只在滑动时应用中心放大，不滑动时所有卡片 scale 1.0
-            let zoomScale: CGFloat = isScrolling ? (1.0 - normalized * 0.15) : 1.0
-            let zoomOpacity: Double = isScrolling ? (1.0 - Double(normalized) * 0.4) : 1.0
 
             Button(action: {
                 settings.triggerSearch(subject.title)
@@ -613,9 +628,16 @@ struct SubjectCard: View {
                 .offset(y: hasAppeared ? 0 : -fallDistance)
                 .animation(.spring(response: 0.6, dampingFraction: 0.68), value: hasAppeared)
                 .animation(.easeInOut(duration: 0.2), value: isScrolling)
+                .animation(.easeInOut(duration: 0.15), value: cardDistance)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onChange(of: distance) { newDistance in
+                cardDistance = newDistance
+            }
+            .onAppear {
+                cardDistance = distance
+            }
         }
         .frame(width: 120, height: 210, alignment: .topLeading)
         // 向父级报告卡片到屏幕中心的距离（用于震动检测）
