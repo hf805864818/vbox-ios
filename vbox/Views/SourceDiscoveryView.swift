@@ -552,6 +552,8 @@ struct SourceDiscoveryView: View {
                 }
                 .id("\(index)|\(video.discoveryStableId)")
                 .buttonStyle(.plain)
+                // E. 入场渐显：卡片首次进入可视区时从下方淡入上移
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .onAppear {
                     // 只有初次分类加载完成后，且用户滚动到接近底部时才触发加载更多
                     if hasInitialCategoryLoad && index >= displayVideos.count - 4 && !isLoadingMore && hasMorePages {
@@ -560,6 +562,7 @@ struct SourceDiscoveryView: View {
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.35), value: displayVideos.count)
         .padding(.horizontal, 16)
         .padding(.top, 12)
     }
@@ -789,18 +792,40 @@ private struct SourceVideoCard: View {
     let referer: String?
     let settings: AppSettings
 
+    // 视差参数：图片比框多出的高度比例（给视差预留位移空间）
+    private let parallaxOverscan: CGFloat = 0.15
+    // 视差强度系数（0~1，越大移动越明显）
+    private let parallaxStrength: CGFloat = 0.5
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 封面图 — 固定 2:3 比例，图片填充裁剪
-            // 移除 GeometryReader 避免 proxy.size 在加载中/完成切换时不稳定导致点击命中区偏移
+            // 封面图 — 固定 2:3 比例，图片填充裁剪 + 视差落差
             ZStack(alignment: .bottomTrailing) {
-                Color(uiColor: .systemGray6)
-                    .overlay(
-                        PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
-                            .id("\(video.vodPic)|\(referer ?? "")")
-                            .aspectRatio(2/3, contentMode: .fill)
-                    )
-                    .clipped()
+                // GeometryReader 在卡片外层读取全局位置，驱动视差偏移
+                // 注意：放在 ZStack 外层读位置，不干扰封面内部的点击命中区
+                GeometryReader { geo in
+                    let cardMidY = geo.frame(in: .global).midY
+                    let screenMidY = UIScreen.main.bounds.height / 2
+                    // 卡片相对屏幕中线的偏移，归一化到屏幕半高
+                    let normalized = (cardMidY - screenMidY) / (UIScreen.main.bounds.height / 2)
+                    // 反向偏移：卡片向下移时图片向上移，产生落差感
+                    let offsetY = -normalized * parallaxOverscan * parallaxStrength * geo.size.height
+
+                    Color(uiColor: .systemGray6)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .overlay(
+                            PlatformAsyncImage.sourceCover(video.vodPic, referer: referer)
+                                .id("\(video.vodPic)|\(referer ?? "")")
+                                .aspectRatio(2/3, contentMode: .fill)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                // 图片高度放大 (1+overscan)，在框内偏移制造视差
+                                .scaleEffect(1 + parallaxOverscan, anchor: .center)
+                                .offset(y: offsetY)
+                                .clipped()
+                        )
+                        .clipped()
+                }
+                .aspectRatio(2/3, contentMode: .fit)
 
                 // 备注标签
                 if let remarks = video.vodRemarks, !remarks.isEmpty {
