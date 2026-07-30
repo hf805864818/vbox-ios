@@ -2940,12 +2940,13 @@ globalThis.__JS_SPIDER__ = _spider;
             if seen.contains(detailURL) || title.isEmpty { continue }
             seen.insert(detailURL)
 
-            // 提取缩略图：从当前匹配项附近查找
+            // 提取缩略图：从当前匹配项之前查找（封面图在标题上方）
             var pic = ""
             let imgPattern = #"<img[^>]+src="([^"]+)"[^>]*alt="[^"]*封面""#
             if let imgRegex = try? NSRegularExpression(pattern: imgPattern, options: [.caseInsensitive]) {
-                let searchStart = match.range.location
-                let searchEnd = min(searchStart + 500, html.count)
+                // 封面图在 <h2> 标题之前，需要向前搜索
+                let searchStart = max(0, match.range.location - 500)
+                let searchEnd = min(match.range.location + 200, html.count)
                 let searchRange = NSRange(location: searchStart, length: searchEnd - searchStart)
                 if let imgMatch = imgRegex.firstMatch(in: html, range: searchRange),
                    let pRange = Range(imgMatch.range(at: 1), in: html) {
