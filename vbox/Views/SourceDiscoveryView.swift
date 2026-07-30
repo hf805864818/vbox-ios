@@ -840,13 +840,13 @@ private struct SourceVideoCard: View {
         // 坠落动效：整个卡片（封面图+标题+年份）从上方坠落进入
         .opacity(hasAppeared ? 1 : 0)
         .offset(y: hasAppeared ? 0 : -fallDistance)
+        .zIndex(hasAppeared ? 0 : -1)
+        // 使用 animation(value:) 绑定：SwiftUI 检测到 hasAppeared 变化时自动应用动画
+        // 比 DispatchQueue 延迟更可靠，确保初始状态先渲染再动画
+        .animation(.spring(response: 0.5, dampingFraction: 0.72), value: hasAppeared)
         .onAppear {
-            // 延迟一帧确保初始状态（不可见+上偏移）先渲染，再触发坠落动画
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                    hasAppeared = true
-                }
-            }
+            // 直接设置状态，.animation(value:) 会自动处理过渡动画
+            hasAppeared = true
         }
     }
 }
