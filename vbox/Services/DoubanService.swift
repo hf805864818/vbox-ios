@@ -1065,18 +1065,29 @@ extension DoubanService {
         return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
     }
 
-    /// 拉取豆瓣横版海报（用于 Banner 横版大图，作为 TMDB 的备选方案）
-    /// 仅尝试壁纸(type=W)和海报(type=R)，跳过剧照(type=S)以避免显示随机截图
+    /// 拉取豆瓣横版海报（用于 Banner 横版大图）
+    /// 优先海报(type=R，覆盖率最高)，其次壁纸(type=W)，跳过剧照(type=S)
+    /// 通过宽高比筛选 + 最优匹配，选取最适合 Banner 比例的横版图
     func fetchBackdropURL(subjectId: String) async -> String? {
-        // 依次尝试 type=W(壁纸，最可能是横版) → type=R(海报)，筛选 w > h 的横版图
+        // Banner 卡片宽高比约 1.65:1，只取宽高比在 1.5~3.0 之间且宽度 >= 800px 的横版图
+        let targetRatio: Double = 1.65
+        let minRatio: Double = 1.5
+        let maxRatio: Double = 3.0
+        let minWidth: Int = 800
+
+        // 依次尝试 type=R(海报，覆盖率高) → type=W(壁纸，几乎全是横版)
         // 跳过 type=S(剧照)，因为剧照是随机截图，视觉效果差
-        for photoType in ["W", "R"] {
-            let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=30")!
+        for photoType in ["R", "W"] {
+            let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=50")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let photos = json["photos"] as? [[String: Any]] else {
                 continue
             }
+
+            // 收集所有符合宽高比条件的横版图，选最接近 Banner 比例的一张
+            var bestURL: String? = nil
+            var bestDiff: Double = .infinity
 
             for photo in photos {
                 guard let image = photo["image"] as? [String: Any],
@@ -1084,16 +1095,28 @@ extension DoubanService {
                       let rawURL = large["url"] as? String,
                       let w = large["width"] as? Int,
                       let h = large["height"] as? Int,
-                      w > h else { continue }
+                      h > 0,
+                      w >= minWidth else { continue }
 
-                var components = URLComponents(string: rawURL)
-                components?.query = nil
-                let cleanURL = components?.string ?? rawURL
-                let finalURL = cleanURL
-                    .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
-                    .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
-                print("[DoubanService] fetchBackdropURL 成功: 横版 type=\(photoType) \(finalURL)")
-                return DoubanImageProxyServer.shared.markedURLString(for: finalURL)
+                let ratio = Double(w) / Double(h)
+                guard ratio >= minRatio, ratio <= maxRatio else { continue }
+
+                let diff = abs(ratio - targetRatio)
+                if diff < bestDiff {
+                    bestDiff = diff
+                    var components = URLComponents(string: rawURL)
+                    components?.query = nil
+                    let cleanURL = components?.string ?? rawURL
+                    bestURL = cleanURL
+                        .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
+                        .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+                }
+            }
+
+            if let bestURL {
+                let marked = DoubanImageProxyServer.shared.markedURLString(for: bestURL)
+                print("[DoubanService] fetchBackdropURL 成功: type=\(photoType) ratio≈\(String(format: "%.2f", targetRatio + bestDiff)) \(bestURL)")
+                return marked
             }
         }
 
