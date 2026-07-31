@@ -2,6 +2,7 @@ import Foundation
 import JavaScriptCore
 import CryptoKit
 import CommonCrypto
+import Security
 
 /// JavaScriptCore 异常
 struct JSError: Error, LocalizedError {
@@ -121,16 +122,136 @@ class JSSpiderEngine {
         context.setObject(unsafeBitCast(b64Encode, to: AnyObject.self),
                          forKeyedSubscript: "__b64Encode" as NSString)
 
+        // ====== 新增 crypto 桥接函数（仅新增，不修改已有函数） ======
+
+        // AES-ECB 解密 (base64密文, base64密钥 → UTF-8字符串)
+        let aesDecryptECB: @convention(block) (String, String) -> String = { encDataB64, keyB64 in
+            guard let keyData = Data(base64Encoded: keyB64),
+                  let cipherData = Data(base64Encoded: encDataB64) else {
+                return ""
+            }
+            let cryptLength = cipherData.count + kCCBlockSizeAES128
+            var cryptData = Data(count: cryptLength)
+            var numBytesDecrypted: size_t = 0
+            let status = cryptData.withUnsafeMutableBytes { cryptBytes in
+                cipherData.withUnsafeBytes { dataBytes in
+                    keyData.withUnsafeBytes { keyBytes in
+                        CCCrypt(CCOperation(kCCDecrypt),
+                                CCAlgorithm(kCCAlgorithmAES),
+                                CCOptions(kCCOptionPKCS7Padding | kCCOptionECBMode),
+                                keyBytes.baseAddress, keyData.count,
+                                nil,  // ECB 模式无 IV
+                                dataBytes.baseAddress, cipherData.count,
+                                cryptBytes.baseAddress, cryptLength,
+                                &numBytesDecrypted)
+                    }
+                }
+            }
+            guard status == kCCSuccess else { return "" }
+            cryptData.count = numBytesDecrypted
+            return String(data: cryptData, encoding: .utf8) ?? ""
+        }
+        context.setObject(unsafeBitCast(aesDecryptECB, to: AnyObject.self),
+                         forKeyedSubscript: "__aesDecryptECB" as NSString)
+
+        // SHA256 哈希 (文本 → hex字符串)
+        let sha256Hash: @convention(block) (String) -> String = { text in
+            let digest = SHA256.hash(data: text.data(using: .utf8) ?? Data())
+            return digest.map { String(format: "%02x", $0) }.joined()
+        }
+        context.setObject(unsafeBitCast(sha256Hash, to: AnyObject.self),
+                         forKeyedSubscript: "__sha256" as NSString)
+
+        // HMAC-SHA256 (key, message → base64字符串)
+        let hmacSHA256: @convention(block) (String, String) -> String = { key, message in
+            let keyData = SymmetricKey(data: key.data(using: .utf8) ?? Data())
+            let msgData = message.data(using: .utf8) ?? Data()
+            let hmac = HMAC<SHA256>.authenticationCode(for: msgData, using: keyData)
+            return Data(hmac).base64EncodedString()
+        }
+        context.setObject(unsafeBitCast(hmacSHA256, to: AnyObject.self),
+                         forKeyedSubscript: "__hmacSHA256" as NSString)
+
+        // RSA-SHA256 签名 (message, privateKeyBase64 → base64签名)
+        let rsaSign: @convention(block) (String, String) -> String = { message, privateKeyB64 in
+            guard let keyData = Data(base64Encoded: privateKeyB64) else { return "" }
+            let msgData = message.data(using: .utf8) ?? Data()
+
+            let attributes: [String: Any] = [
+                kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate
+            ]
+            var error: Unmanaged<CFError>?
+
+            // 尝试直接创建 SecKey (PKCS#8 格式)
+            var secKey = SecKeyCreateWithData(keyData as CFData, attributes as CFDictionary, &error)
+
+            // 如果失败，尝试去掉 PKCS#8 头部（前26字节）作为 PKCS#1
+            if secKey == nil && keyData.count > 26 {
+                error = nil
+                let pkcs1Data = keyData.subdata(in: 26..<keyData.count)
+                secKey = SecKeyCreateWithData(pkcs1Data as CFData, attributes as CFDictionary, &error)
+            }
+
+            guard let key = secKey else { return "" }
+
+            guard let signature = SecKeyCreateSignature(key,
+                                                          .rsaSignatureMessagePKCS1v15SHA256,
+                                                          msgData as CFData,
+                                                          &error) else { return "" }
+            return (signature as Data).base64EncodedString()
+        }
+        context.setObject(unsafeBitCast(rsaSign, to: AnyObject.self),
+                         forKeyedSubscript: "__rsaSign" as NSString)
+
+        // UUID v4 生成
+        let uuidGen: @convention(block) () -> String = {
+            return UUID().uuidString.lowercased()
+        }
+        context.setObject(unsafeBitCast(uuidGen, to: AnyObject.self),
+                         forKeyedSubscript: "__uuid" as NSString)
+
+        // Hex 字符串转 Base64
+        let hexToB64: @convention(block) (String) -> String = { hexStr in
+            let cleaned = hexStr.replacingOccurrences(of: " ", with: "")
+                                 .replacingOccurrences(of: "\n", with: "")
+                                 .replacingOccurrences(of: "\r", with: "")
+            var data = Data()
+            var i = cleaned.startIndex
+            while i < cleaned.endIndex {
+                let next = cleaned.index(i, offsetBy: 2, limitedBy: cleaned.endIndex) ?? cleaned.endIndex
+                if let byte = UInt8(cleaned[i..<next], radix: 16) {
+                    data.append(byte)
+                }
+                i = next
+            }
+            return data.base64EncodedString()
+        }
+        context.setObject(unsafeBitCast(hexToB64, to: AnyObject.self),
+                         forKeyedSubscript: "__hexToB64" as NSString)
+
         context.evaluateScript("""
         var crypto = {
             AES: {
-                decrypt: function(encData, keyB64) { return __aesDecrypt(encData, keyB64); }
+                decrypt: function(encData, keyB64) { return __aesDecrypt(encData, keyB64); },
+                decryptECB: function(encDataB64, keyB64) { return __aesDecryptECB(encDataB64, keyB64); }
+            },
+            RSA: {
+                sign: function(message, privateKeyB64) { return __rsaSign(message, privateKeyB64); }
             },
             MD5: function(text) { return __md5(text); },
+            SHA256: function(text) { return __sha256(text); },
+            HMAC: {
+                SHA256: function(key, message) { return __hmacSHA256(key, message); }
+            },
             base64: {
                 decode: function(text) { return __b64Decode(text); },
                 encode: function(text) { return __b64Encode(text); }
-            }
+            },
+            hex: {
+                toBase64: function(hexStr) { return __hexToB64(hexStr); }
+            },
+            uuid: function() { return __uuid(); }
         };
         """)
 

@@ -3,6 +3,7 @@
 #import "quickjs-libc.h"
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonCrypto.h>
+#import <Security/Security.h>
 #import <string.h>
 
 void* QJSBridge_createRuntime(void) {
@@ -244,29 +245,231 @@ static JSValue js_b64_encode_func(JSContext *ctx, JSValueConst this_val,
     return JS_NewString(ctx, [result UTF8String]);
 }
 
+// ====== 新增 crypto 函数（仅新增，不修改已有函数） ======
+
+// AES-ECB 解密 (base64密文, base64密钥 → UTF-8字符串)
+static JSValue js_aes_decrypt_ecb_func(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv) {
+    if (argc < 2) return JS_ThrowTypeError(ctx, "aesDecryptECB needs 2 arguments");
+    
+    const char* enc_cstr = JS_ToCString(ctx, argv[0]);
+    const char* key_cstr = JS_ToCString(ctx, argv[1]);
+    NSString* encDataB64 = [NSString stringWithUTF8String:enc_cstr];
+    NSString* keyB64 = [NSString stringWithUTF8String:key_cstr];
+    JS_FreeCString(ctx, enc_cstr);
+    JS_FreeCString(ctx, key_cstr);
+    
+    NSData* keyData = [[NSData alloc] initWithBase64EncodedString:keyB64 options:0];
+    NSData* cipherData = [[NSData alloc] initWithBase64EncodedString:encDataB64 options:0];
+    if (!keyData || !cipherData) return JS_NewString(ctx, "");
+    
+    size_t cryptLength = cipherData.length + kCCBlockSizeAES128;
+    NSMutableData* cryptData = [NSMutableData dataWithLength:cryptLength];
+    size_t numBytesDecrypted = 0;
+    
+    CCCryptorStatus status = CCCrypt(kCCDecrypt,
+                                     kCCAlgorithmAES,
+                                     kCCOptionPKCS7Padding | kCCOptionECBMode,
+                                     keyData.bytes, keyData.length,
+                                     NULL,  // ECB 无 IV
+                                     cipherData.bytes, cipherData.length,
+                                     cryptData.mutableBytes, cryptLength,
+                                     &numBytesDecrypted);
+    
+    if (status != kCCSuccess) return JS_NewString(ctx, "");
+    cryptData.length = numBytesDecrypted;
+    NSString* result = [[NSString alloc] initWithData:cryptData encoding:NSUTF8StringEncoding];
+    return JS_NewString(ctx, result ? [result UTF8String] : "");
+}
+
+// SHA256 哈希 (文本 → hex字符串)
+static JSValue js_sha256_func(JSContext *ctx, JSValueConst this_val,
+                               int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_NewString(ctx, "");
+    const char* text_cstr = JS_ToCString(ctx, argv[0]);
+    NSString* text = [NSString stringWithUTF8String:text_cstr];
+    JS_FreeCString(ctx, text_cstr);
+    
+    NSData* data = [text dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    
+    NSMutableString* hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) {
+        [hex appendFormat:@"%02x", digest[i]];
+    }
+    return JS_NewString(ctx, [hex UTF8String]);
+}
+
+// HMAC-SHA256 (key, message → base64字符串)
+static JSValue js_hmac_sha256_func(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv) {
+    if (argc < 2) return JS_NewString(ctx, "");
+    const char* key_cstr = JS_ToCString(ctx, argv[0]);
+    const char* msg_cstr = JS_ToCString(ctx, argv[1]);
+    NSString* keyStr = [NSString stringWithUTF8String:key_cstr];
+    NSString* msgStr = [NSString stringWithUTF8String:msg_cstr];
+    JS_FreeCString(ctx, key_cstr);
+    JS_FreeCString(ctx, msg_cstr);
+    
+    NSData* keyData = [keyStr dataUsingEncoding:NSUTF8StringEncoding];
+    NSData* msgData = [msgStr dataUsingEncoding:NSUTF8StringEncoding];
+    
+    unsigned char hmac[CC_SHA256_DIGEST_LENGTH];
+    CCHmac(kCCHmacAlgSHA256, keyData.bytes, keyData.length,
+           msgData.bytes, msgData.length, hmac);
+    
+    NSData* hmacData = [NSData dataWithBytes:hmac length:CC_SHA256_DIGEST_LENGTH];
+    NSString* result = [hmacData base64EncodedStringWithOptions:0];
+    return JS_NewString(ctx, [result UTF8String]);
+}
+
+// RSA-SHA256 签名 (message, privateKeyBase64 → base64签名)
+static JSValue js_rsa_sign_func(JSContext *ctx, JSValueConst this_val,
+                                 int argc, JSValueConst *argv) {
+    if (argc < 2) return JS_NewString(ctx, "");
+    const char* msg_cstr = JS_ToCString(ctx, argv[0]);
+    const char* key_cstr = JS_ToCString(ctx, argv[1]);
+    NSString* message = [NSString stringWithUTF8String:msg_cstr];
+    NSString* keyB64 = [NSString stringWithUTF8String:key_cstr];
+    JS_FreeCString(ctx, msg_cstr);
+    JS_FreeCString(ctx, key_cstr);
+    
+    // 清理 key（去除换行和空格）
+    NSString* cleanKey = [keyB64 stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+    cleanKey = [cleanKey stringByReplacingOccurrencesOfString:@" " withString:@""];
+    cleanKey = [cleanKey stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+    
+    NSData* keyData = [[NSData alloc] initWithBase64EncodedString:cleanKey options:0];
+    if (!keyData) return JS_NewString(ctx, "");
+    
+    NSData* msgData = [message dataUsingEncoding:NSUTF8StringEncoding];
+    
+    NSDictionary* attributes = @{
+        (__bridge id)kSecAttrKeyType: (__bridge id)kSecAttrKeyTypeRSA,
+        (__bridge id)kSecAttrKeyClass: (__bridge id)kSecAttrKeyClassPrivate
+    };
+    CFErrorRef error = NULL;
+    
+    // 尝试 PKCS#8
+    SecKeyRef secKey = SecKeyCreateWithData((__bridge CFDataRef)keyData,
+                                              (__bridge CFDictionaryRef)attributes,
+                                              &error);
+    
+    // 如果失败，尝试 PKCS#1（去掉前26字节头部）
+    if (!secKey && keyData.length > 26) {
+        if (error) { CFRelease(error); error = NULL; }
+        NSData* pkcs1Data = [keyData subdataWithRange:NSMakeRange(26, keyData.length - 26)];
+        secKey = SecKeyCreateWithData((__bridge CFDataRef)pkcs1Data,
+                                       (__bridge CFDictionaryRef)attributes,
+                                       &error);
+    }
+    
+    if (!secKey) {
+        if (error) CFRelease(error);
+        return JS_NewString(ctx, "");
+    }
+    
+    CFDataRef signature = SecKeyCreateSignature(secKey,
+                                                  kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256,
+                                                  (__bridge CFDataRef)msgData,
+                                                  &error);
+    CFRelease(secKey);
+    
+    if (!signature) {
+        if (error) CFRelease(error);
+        return JS_NewString(ctx, "");
+    }
+    
+    NSData* sigData = (__bridge_transfer NSData*)signature;
+    NSString* result = [sigData base64EncodedStringWithOptions:0];
+    return JS_NewString(ctx, [result UTF8String]);
+}
+
+// UUID v4 生成
+static JSValue js_uuid_func(JSContext *ctx, JSValueConst this_val,
+                             int argc, JSValueConst *argv) {
+    NSString* uuid = [[NSUUID UUID] UUIDString].lowercaseString;
+    return JS_NewString(ctx, [uuid UTF8String]);
+}
+
+// Hex 字符串转 Base64
+static JSValue js_hex_to_b64_func(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_NewString(ctx, "");
+    const char* hex_cstr = JS_ToCString(ctx, argv[0]);
+    NSString* hexStr = [NSString stringWithUTF8String:hex_cstr];
+    JS_FreeCString(ctx, hex_cstr);
+    
+    hexStr = [hexStr stringByReplacingOccurrencesOfString:@" " withString:@""];
+    hexStr = [hexStr stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+    hexStr = [hexStr stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+    
+    NSMutableData* data = [NSMutableData data];
+    const char* hex = [hexStr UTF8String];
+    size_t len = strlen(hex);
+    for (size_t i = 0; i + 1 < len; i += 2) {
+        char buf[3] = {hex[i], hex[i+1], 0};
+        unsigned int byte = 0;
+        sscanf(buf, "%02x", &byte);
+        [data appendBytes:&byte length:1];
+    }
+    
+    NSString* result = [data base64EncodedStringWithOptions:0];
+    return JS_NewString(ctx, [result UTF8String]);
+}
+
 void QJSBridge_registerCrypto(void* ctx) {
     JSContext* jsCtx = (JSContext*)ctx;
     
     // 创建 crypto 对象
     JSValue cryptoObj = JS_NewObject(jsCtx);
     
-    // AES 子对象
+    // AES 子对象（新增 decryptECB，保留原有 decrypt）
     JSValue aesObj = JS_NewObject(jsCtx);
     JSValue aesDecryptFunc = JS_NewCFunction(jsCtx, js_aes_decrypt_func, "decrypt", 2);
+    JSValue aesDecryptECBFunc = JS_NewCFunction(jsCtx, js_aes_decrypt_ecb_func, "decryptECB", 2);
     JS_SetPropertyStr(jsCtx, aesObj, "decrypt", aesDecryptFunc);
+    JS_SetPropertyStr(jsCtx, aesObj, "decryptECB", aesDecryptECBFunc);
     JS_SetPropertyStr(jsCtx, cryptoObj, "AES", aesObj);
     
-    // MD5
+    // RSA 子对象（新增）
+    JSValue rsaObj = JS_NewObject(jsCtx);
+    JSValue rsaSignFunc = JS_NewCFunction(jsCtx, js_rsa_sign_func, "sign", 2);
+    JS_SetPropertyStr(jsCtx, rsaObj, "sign", rsaSignFunc);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "RSA", rsaObj);
+    
+    // MD5（保留原有）
     JSValue md5Func = JS_NewCFunction(jsCtx, js_md5_func, "MD5", 1);
     JS_SetPropertyStr(jsCtx, cryptoObj, "MD5", md5Func);
     
-    // base64 子对象
+    // SHA256（新增）
+    JSValue sha256Func = JS_NewCFunction(jsCtx, js_sha256_func, "SHA256", 1);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "SHA256", sha256Func);
+    
+    // HMAC 子对象（新增）
+    JSValue hmacObj = JS_NewObject(jsCtx);
+    JSValue hmacSha256Func = JS_NewCFunction(jsCtx, js_hmac_sha256_func, "SHA256", 2);
+    JS_SetPropertyStr(jsCtx, hmacObj, "SHA256", hmacSha256Func);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "HMAC", hmacObj);
+    
+    // base64 子对象（保留原有）
     JSValue b64Obj = JS_NewObject(jsCtx);
     JSValue b64DecodeFunc = JS_NewCFunction(jsCtx, js_b64_decode_func, "decode", 1);
     JSValue b64EncodeFunc = JS_NewCFunction(jsCtx, js_b64_encode_func, "encode", 1);
     JS_SetPropertyStr(jsCtx, b64Obj, "decode", b64DecodeFunc);
     JS_SetPropertyStr(jsCtx, b64Obj, "encode", b64EncodeFunc);
     JS_SetPropertyStr(jsCtx, cryptoObj, "base64", b64Obj);
+    
+    // hex 子对象（新增）
+    JSValue hexObj = JS_NewObject(jsCtx);
+    JSValue hexToB64Func = JS_NewCFunction(jsCtx, js_hex_to_b64_func, "toBase64", 1);
+    JS_SetPropertyStr(jsCtx, hexObj, "toBase64", hexToB64Func);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "hex", hexObj);
+    
+    // uuid（新增）
+    JSValue uuidFunc = JS_NewCFunction(jsCtx, js_uuid_func, "uuid", 0);
+    JS_SetPropertyStr(jsCtx, cryptoObj, "uuid", uuidFunc);
     
     // 注册到全局
     // 注意：JS_SetPropertyStr 不增加 ref count，它直接接管值的所有权
