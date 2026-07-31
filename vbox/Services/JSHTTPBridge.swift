@@ -92,7 +92,15 @@ class JSHTTPBridge {
             semaphore.signal()
         }
         task.resume()
-        semaphore.wait()
+        // 添加超时保护：防止 URLSession 回调异常不触发时永久阻塞，
+        // 超时时间 = 请求超时 + 5秒缓冲，正常请求不受影响
+        let waitResult = semaphore.wait(timeout: .now() + timeout + 5)
+        if waitResult == .timedOut {
+            task.cancel()
+            result["content"] = "请求超时"
+            result["status"] = 0
+            return result
+        }
 
         // 构建返回
         if let errorMsg = errorMsg {

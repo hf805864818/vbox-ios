@@ -1862,7 +1862,41 @@ class PlayerState: ObservableObject {
         currentTask = nil
         player?.pause()
         isPlaying = false
-        savePlaybackProgress(force: true)
+        // 进度保存移到后台队列，避免 SQLite 操作阻塞主线程触发 watchdog
+        let videoToSave = currentVideo
+        let timeToSave = currentTime
+        let episodeToSave = currentEpisodeIndex
+        let progressKey = videoToSave.map { playbackProgressKey(for: $0) }
+        let durationToSave = duration
+        let lastSaveAt = lastProgressSaveAt
+        Task.detached(priority: .utility) {
+            guard let video = videoToSave, let key = progressKey,
+                  timeToSave.isFinite, timeToSave > 5 else { return }
+            if durationToSave > 0, durationToSave - timeToSave < 15 {
+                UserDefaults.standard.removeObject(forKey: key)
+                let favorites = DatabaseManager.shared.queryFavorites()
+                if let record = favorites.first(where: { $0.detailurl == video.vodId }),
+                   let fid = record.id {
+                    DatabaseManager.shared.removeFavorite(id: fid)
+                }
+                return
+            }
+            guard Date().timeIntervalSince(lastSaveAt) > 0 else { return }
+            UserDefaults.standard.set(timeToSave, forKey: key)
+            let record = HistoryRecord(
+                name: video.vodName,
+                laiyuan: video.vodRemarks ?? "",
+                imgurl: video.vodPic ?? "",
+                detailurl: video.vodId,
+                detailua: "",
+                xianlu: episodeToSave,
+                jishu: 0,
+                progress: timeToSave,
+                lastPlayedAt: Int64(Date().timeIntervalSince1970)
+            )
+            DatabaseManager.shared.addOrUpdateHistory(record)
+        }
+        lastProgressSaveAt = Date()
         log("[PlayerV2] 进入后台，已暂停播放器并取消任务")
     }
 
@@ -4492,6 +4526,17 @@ struct PlayerTopBarView: View {
                 // 旋转按钮：强制切换到横屏播放器（不受系统屏幕旋转锁定限制）
                 Button(action: {
                     OrientationHelper.lockOrientation(.landscape)
+                    // 立即更新 UI 状态，不等 orientationDidChangeNotification 回调，
+                    // 避免屏幕物理旋转延迟导致横屏功能按键延迟出现
+                    playerState.isPortrait = false
+                    playerState.showEpisodePicker = false
+                    playerState.showSettings = false
+                    playerState.showQualityPicker = false
+                    playerState.showEnginePicker = false
+                    // 短暂延迟后恢复允许所有方向，用户可自由旋转回竖屏
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        OrientationHelper.allowAllOrientations()
+                    }
                 }) {
                     Image(systemName: "rotate.right")
                         .font(.system(size: 18, weight: .semibold))

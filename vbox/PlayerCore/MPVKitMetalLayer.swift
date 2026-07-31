@@ -22,7 +22,8 @@ class MPVKitMetalLayer: CAMetalLayer {
             if Thread.isMainThread {
                 super.wantsExtendedDynamicRangeContent = newValue
             } else {
-                DispatchQueue.main.sync {
+                // 使用 async 避免后台线程与主线程死锁（HDR 标志延迟几毫秒生效不影响播放）
+                DispatchQueue.main.async {
                     super.wantsExtendedDynamicRangeContent = newValue
                 }
             }
