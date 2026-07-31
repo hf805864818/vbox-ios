@@ -3036,7 +3036,8 @@ class PlayerState: ObservableObject {
     
     /// 统一处理 playerContent 返回结果并播放（含 parse:1 二次解析和 header 透传）
     private func playFromPlayerContentResult(_ pr: PlayerContentResult, episodeName: String, spider: SpiderManager, baseHeaders: [String: String]? = nil) async {
-        let pu = pr.playUrl ?? pr.url
+        // 修复: playUrl 为空字符串时回退到 url（JS侧返回 null 时 playUrl 为 nil，空字符串时也需回退）
+        let pu = pr.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? pr.url
         var mergedHeaders = baseHeaders ?? [:]
         if let spiderHeaders = pr.header {
             for (key, value) in spiderHeaders where !key.isEmpty {
@@ -3192,7 +3193,7 @@ class PlayerState: ObservableObject {
 
         // 3. 尝试 QuickJS playerContent
         if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
-            let pu = pr.playUrl ?? pr.url
+            let pu = pr.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? pr.url
             // 合并 JS 蜘蛛返回的 header（如剧迷需要 Referer/UA），不覆盖已有自定义头
             var mergedHeaders = customHeaders ?? [:]
             if let spiderHeaders = pr.header {
