@@ -4488,6 +4488,18 @@ struct PlayerTopBarView: View {
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
+
+                // 旋转按钮：强制切换到横屏播放器（不受系统屏幕旋转锁定限制）
+                Button(action: {
+                    OrientationHelper.lockOrientation(.landscape)
+                }) {
+                    Image(systemName: "rotate.right")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             .padding(.horizontal, 12)
             .padding(.top, 4)
