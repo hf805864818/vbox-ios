@@ -357,7 +357,7 @@ class ShortDramaService: ObservableObject {
     private nonisolated func fetchSourceDramas(source: ShortDramaSource, page: Int) async -> [VodItem] {
         // JS 蜘蛛源：通过引擎调用 categoryContent
         if source.sourceType == .jsSpider, let engineKey = source.engineKey,
-           let engine = SpiderManager.shared.getEngine(forKey: engineKey) {
+           let engine = await SpiderManager.shared.getEngine(forKey: engineKey) {
             do {
                 let result = try engine.callCategoryContent(tid: source.categoryId, pg: page, extend: "{}")
                 guard let list = result.list, !list.isEmpty else { return [] }
