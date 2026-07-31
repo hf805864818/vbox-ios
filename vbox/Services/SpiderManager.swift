@@ -1887,6 +1887,46 @@ globalThis.__JS_SPIDER__ = _spider;
         return nil
     }
 
+    /// 带超时的 GCD 异步执行包装器
+    /// 避免 JS 引擎卡死（如 JS 代码死循环或 syncRequest 信号量永久阻塞）
+    /// 导致 withCheckedContinuation 永久挂起、界面卡死
+    private func withGCDTimeout<T>(
+        timeout: TimeInterval = 30,
+        qos: DispatchQoS = .userInitiated,
+        operation: String = "",
+        _ block: @escaping () -> T?
+    ) async -> T? {
+        return await withCheckedContinuation { continuation in
+            var resumed = false
+            let lock = NSLock()
+
+            // 安全超时：超时后强制 resume(nil)，防止 continuation 永久挂起
+            let timeoutWork = DispatchWorkItem {
+                lock.lock()
+                let already = resumed
+                resumed = true
+                lock.unlock()
+                if !already {
+                    print("[SpiderManager] ⚠️ \(operation) 超时(\(Int(timeout))s)，强制返回 nil")
+                    continuation.resume(returning: nil)
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
+
+            DispatchQueue.global(qos: qos).async {
+                let result = block()
+                lock.lock()
+                let already = resumed
+                resumed = true
+                lock.unlock()
+                timeoutWork.cancel()
+                if !already {
+                    continuation.resume(returning: result)
+                }
+            }
+        }
+    }
+
     /// 通过引擎获取详情，失败时回退到原生 API 详情
     func getDetail(ids: String, name: String? = nil, engineKey: String? = nil) async -> VodItem? {
         // 0. 如果 ids 是 HTTP URL，判断是 zhanyuan 站源还是网盘
@@ -1929,23 +1969,21 @@ globalThis.__JS_SPIDER__ = _spider;
         if let engineKey = engineKey {
             if engineKey != tencentKey, let engine = engines[engineKey] {
                 let idsCopy = ids
-                // ★ 用 DispatchQueue.global 替代 Task.detached，避免 JS 引擎的 syncRequest
-                // (DispatchSemaphore.wait) 阻塞 Swift 协作线程池导致主线程死锁
-                let result: VodItem? = await withCheckedContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        var itemResult: VodItem? = nil
-                        do {
-                            if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
-                                print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                                itemResult = item
-                            } else {
-                                print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空结果")
-                            }
-                        } catch {
-                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
+                // ★ 用 withGCDTimeout 替代 withCheckedContinuation，既保证 JS 引擎在独立 GCD
+                // 线程执行（避免协作线程池死锁），又增加 30s 整体超时防止永久卡死
+                let result: VodItem? = await withGCDTimeout(operation: "getDetail[\(engineKey)]") {
+                    var itemResult: VodItem? = nil
+                    do {
+                        if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
+                            itemResult = item
+                        } else {
+                            print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 返回空结果")
                         }
-                        continuation.resume(returning: itemResult)
+                    } catch {
+                        print("[SpiderManager] getDetail 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
                     }
+                    return itemResult
                 }
                 if let result { return result }
             }
@@ -1955,29 +1993,27 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         // 2. engineKey 未指定时，遍历所有引擎（跳过腾讯）
-        // ★ 用 DispatchQueue.global 替代 Task.detached，避免协作线程池死锁
+        // ★ 用 withGCDTimeout 替代 withCheckedContinuation，增加超时保护
         let idsCopy = ids
         let enginesSnapshot = engines
-        let fallbackResult: VodItem? = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var itemResult: VodItem? = nil
-                for (key, engine) in enginesSnapshot {
-                    if key == tencentKey { continue }
-                    do {
-                        if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
-                            let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
-                            let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
-                            if hasPlayUrl || hasPlayFrom {
-                                print("[SpiderManager] getDetail 成功 [\(key)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
-                                itemResult = item
-                                break
-                            }
-                            print("[SpiderManager] getDetail [\(key)] 返回空播放地址，继续尝试: \(item.vodName)")
+        let fallbackResult: VodItem? = await withGCDTimeout(operation: "getDetail[fallback]") {
+            var itemResult: VodItem? = nil
+            for (key, engine) in enginesSnapshot {
+                if key == tencentKey { continue }
+                do {
+                    if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                        let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
+                        let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
+                        if hasPlayUrl || hasPlayFrom {
+                            print("[SpiderManager] getDetail 成功 [\(key)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
+                            itemResult = item
+                            break
                         }
-                    } catch { continue }
-                }
-                continuation.resume(returning: itemResult)
+                        print("[SpiderManager] getDetail [\(key)] 返回空播放地址，继续尝试: \(item.vodName)")
+                    }
+                } catch { continue }
             }
+            return itemResult
         }
         if let fallbackResult { return fallbackResult }
         // 3. 引擎全部失败，回退到原生 API
@@ -1994,20 +2030,18 @@ globalThis.__JS_SPIDER__ = _spider;
                 let vodIdCopy = vodId
                 let flagCopy = flag
                 let urlCopy = url
-                // ★ 用 DispatchQueue.global 替代 Task.detached，避免协作线程池死锁
-                let result: PlayerContentResult? = await withCheckedContinuation { continuation in
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        var pcResult: PlayerContentResult? = nil
-                        do {
-                            let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
-                            let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
-                            print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
-                            pcResult = result
-                        } catch {
-                            print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
-                        }
-                        continuation.resume(returning: pcResult)
+                // ★ 用 withGCDTimeout 替代 withCheckedContinuation，增加超时保护
+                let result: PlayerContentResult? = await withGCDTimeout(operation: "getPlayerContent[\(engineKey)]") {
+                    var pcResult: PlayerContentResult? = nil
+                    do {
+                        let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
+                        let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
+                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
+                        pcResult = result
+                    } catch {
+                        print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)] 异常: \(error.localizedDescription)")
                     }
+                    return pcResult
                 }
                 if let result { return result }
             }
@@ -2017,30 +2051,28 @@ globalThis.__JS_SPIDER__ = _spider;
         }
         
         // 2. engineKey 未指定时，遍历所有引擎（跳过腾讯）
-        // ★ 用 DispatchQueue.global 替代 Task.detached，避免协作线程池死锁
+        // ★ 用 withGCDTimeout 替代 withCheckedContinuation，增加超时保护
         let enginesSnapshot = engines
         let vodIdCopy = vodId
         let flagCopy = flag
         let urlCopy = url
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var pcResult: PlayerContentResult? = nil
-                for (key, engine) in enginesSnapshot {
-                    if key == tencentKey { continue }
-                    do {
-                        let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
-                        let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
-                        let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
-                        if hasUrl {
-                            print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
-                            pcResult = result
-                            break
-                        }
-                        print("[SpiderManager] getPlayerContent [\(key)] 返回空地址，继续尝试")
-                    } catch { continue }
-                }
-                continuation.resume(returning: pcResult)
+        return await withGCDTimeout(operation: "getPlayerContent[fallback]") {
+            var pcResult: PlayerContentResult? = nil
+            for (key, engine) in enginesSnapshot {
+                if key == tencentKey { continue }
+                do {
+                    let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
+                    let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
+                    let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
+                    if hasUrl {
+                        print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
+                        pcResult = result
+                        break
+                    }
+                    print("[SpiderManager] getPlayerContent [\(key)] 返回空地址，继续尝试")
+                } catch { continue }
             }
+            return pcResult
         }
     }
 
