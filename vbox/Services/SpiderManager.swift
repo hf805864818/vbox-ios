@@ -1987,7 +1987,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 let result = await Task.detached(priority: .userInitiated) { () -> PlayerContentResult? in
                     do {
                         let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
-                        let urlStr = result.playUrl ?? result.url ?? ""
+                        let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
                         print("[SpiderManager] getPlayerContent 精确匹配 [\(engineKey)]: url=\(urlStr.prefix(60))")
                         return result
                     } catch {
@@ -2013,7 +2013,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 if key == tencentKey { continue }
                 do {
                     let result = try engine.callPlayerContent(vodId: vodIdCopy, flag: flagCopy, url: urlCopy)
-                    let urlStr = result.playUrl ?? result.url ?? ""
+                    let urlStr = result.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? result.url ?? ""
                     let hasUrl = !urlStr.isEmpty && (urlStr.contains("$") || urlStr.contains("http") || urlStr.contains("/"))
                     if hasUrl {
                         print("[SpiderManager] getPlayerContent 成功 [\(key)]: parse=\(result.parse ?? -1) url=\(urlStr.prefix(60))")
