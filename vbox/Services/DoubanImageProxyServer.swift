@@ -116,20 +116,23 @@ final class DoubanImageProxyServer {
         }
 
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        // 过期清理移到 async，避免阻塞主线程
+        queue.async { self.cleanupExpiredStreams() }
+        // 仅同步注册 stream item，确保 URL 返回后可立即被请求
+        let item = StreamItem(
+            url: targetURL,
+            headers: headers,
+            provider: provider,
+            createdAt: Date()
+        )
         queue.sync {
-            self.cleanupExpiredStreams()
-            let item = StreamItem(
-                url: targetURL,
-                headers: headers,
-                provider: provider,
-                createdAt: Date()
-            )
             self.streamItems[id] = item
-            let cookie = Self.headerValue(headers, "Cookie") ?? Self.headerValue(headers, "X-Baidu-Pcs-Cookie") ?? ""
-            let lowerCookie = cookie.lowercased()
-            print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasBDUSS=\(lowerCookie.contains("bduss=")), hasSTOKEN=\(lowerCookie.contains("stoken=")), hasPANPSC=\(lowerCookie.contains("panpsc=")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
-            self.preheatStream(item: item, id: id)
         }
+        let cookie = Self.headerValue(headers, "Cookie") ?? Self.headerValue(headers, "X-Baidu-Pcs-Cookie") ?? ""
+        let lowerCookie = cookie.lowercased()
+        print("✅ 注册本地视频代理[\(provider)]: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasBDUSS=\(lowerCookie.contains("bduss=")), hasSTOKEN=\(lowerCookie.contains("stoken=")), hasPANPSC=\(lowerCookie.contains("panpsc=")), headerKeys=\(headers.keys.sorted().joined(separator: ","))")
+        // 预热也移到 async
+        queue.async { self.preheatStream(item: item, id: id) }
 
         var components = URLComponents()
         components.scheme = "http"
@@ -167,18 +170,19 @@ final class DoubanImageProxyServer {
         }
 
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        // 过期清理移到 async，避免阻塞主线程
+        queue.async { self.cleanupExpiredStreams() }
+        let item = StreamItem(
+            url: targetURL,
+            headers: headers,
+            provider: "quark-m3u8",
+            createdAt: Date()
+        )
         queue.sync {
-            self.cleanupExpiredStreams()
-            let item = StreamItem(
-                url: targetURL,
-                headers: headers,
-                provider: "quark-m3u8",
-                createdAt: Date()
-            )
             self.streamItems[id] = item
-            let cookie = Self.headerValue(headers, "Cookie") ?? ""
-            print("✅ 注册夸克 m3u8 代理: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasVideoAuth=\(cookie.contains("Video-Auth="))")
         }
+        let cookie = Self.headerValue(headers, "Cookie") ?? ""
+        print("✅ 注册夸克 m3u8 代理: id=\(id), host=\(targetURL.host ?? ""), hasCookie=\(!cookie.isEmpty), hasVideoAuth=\(cookie.contains("Video-Auth="))")
 
         var components = URLComponents()
         components.scheme = "http"
