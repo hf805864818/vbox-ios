@@ -3083,9 +3083,89 @@ class PlayerState: ObservableObject {
         }
     }
     
+    /// 解码 base64 JSON 格式的播放地址（如哇哇影视的 episode.url）
+    /// base64 解码后是 JSON: {"name":"第1集","url":"https://...","parse":"","ag":"..."}
+    /// 返回 (url, headers) 元组，如果解码失败返回 nil
+    private func decodeBase64JsonUrl(_ b64String: String) -> (url: String, headers: [String: String])? {
+        // 去除可能的 $ 前缀（如 "第1集$eyJuYW1lIjo..."）
+        var b64 = b64String
+        if let dollarRange = b64.range(of: "$") {
+            b64 = String(b64[dollarRange.upperBound...])
+        }
+        // 清理空白字符
+        b64 = b64.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 补全 base64 padding
+        let pad = (4 - b64.count % 4) % 4
+        if pad > 0 {
+            b64 += String(repeating: "=", count: pad)
+        }
+        // 解码 base64
+        guard let data = Data(base64Encoded: b64),
+              let jsonStr = String(data: data, encoding: .utf8) else {
+            log("[PlayerV2] base64 解码失败: \(b64String.prefix(40))")
+            return nil
+        }
+        // 解析 JSON 提取 url 字段
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let jsonObj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            log("[PlayerV2] JSON 解析失败: \(jsonStr.prefix(60))")
+            return nil
+        }
+        let url = String(describing: jsonObj["url"] ?? "")
+        guard !url.isEmpty else {
+            log("[PlayerV2] JSON 中 url 字段为空: \(jsonStr.prefix(60))")
+            return nil
+        }
+        // 确保 url 是完整的 http URL
+        var result = url
+        if !result.lowercased().hasPrefix("http://") && !result.lowercased().hasPrefix("https://") {
+            if result.hasPrefix("//") {
+                result = "https:" + result
+            } else if !result.isEmpty {
+                result = "https://" + result
+            }
+        }
+        // 提取 headers（如 User-Agent）
+        var headers: [String: String] = [:]
+        if let ag = jsonObj["ag"] as? String, !ag.isEmpty {
+            headers["User-Agent"] = ag
+        }
+        return (result, headers)
+    }
+    
+    /// 从 URL 字符串中提取域名
+    private func extractHost(from urlString: String) -> String {
+        if let url = URL(string: urlString), let host = url.host {
+            return host
+        }
+        // 尝试从字符串中提取域名
+        if let regex = try? NSRegularExpression(pattern: "https?://([^/]+)"),
+           let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..., in: urlString)),
+           let range = Range(match.range(at: 1), in: urlString) {
+            return String(urlString[range])
+        }
+        return ""
+    }
+    
     // MARK: - 处理单个播放地址
     private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil) async {
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
+
+        // 修复: base64 JSON 预解码（哇哇影视等站点的 episode.url 是 base64 编码的 JSON）
+        // JS 引擎的 b64decodeStr 可能因原生桥接问题返回空值，导致 playerContent 拿到未解码的 base64
+        // 在 Swift 侧直接解码，绕过 JS 引擎的问题
+        if urlString.hasPrefix("eyJ") {
+            if let decoded = decodeBase64JsonUrl(urlString) {
+                log("[PlayerV2] base64 JSON 预解码成功: \(decoded.url.prefix(80))")
+                // 合并 base64 JSON 中提取的 header（如 User-Agent）
+                var mergedHdrs = customHeaders ?? [:]
+                for (k, v) in decoded.headers where !k.isEmpty { mergedHdrs[k] = v }
+                // 用解码后的 URL 递归调用，走正常的直链/解析流程
+                await handlePlayUrl(decoded.url, spider: spider, video: video, customHeaders: mergedHdrs.isEmpty ? nil : mergedHdrs)
+                return
+            }
+            log("[PlayerV2] ⚠️ base64 JSON 预解码失败，继续走 playerContent")
+        }
 
         // 🔧 修复: 自定义协议（如 xk://）优先走 playerContent 解析
         // 避免 xk:// 地址被解析器/WKWebView 处理导致失败或卡死
@@ -3634,7 +3714,22 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
         }
         if let customHeaders {
-            for (key, value) in customHeaders { headers[key] = value }
+            for (key, value) in customHeaders {
+                if key.lowercased() == "referer" && !noReferer {
+                    // 修复: 蜘蛛返回的Referer域名与播放URL域名不匹配时，用CDN自身Referer替代
+                    // 避免主站Referer导致CDN返回403
+                    let customHost = extractHost(from: value)
+                    let playHost = url.host ?? ""
+                    if !customHost.isEmpty && !playHost.isEmpty && customHost != playHost {
+                        log("[PlayerV2] ⚠️ Referer域名不匹配(spider=\(customHost) vs play=\(playHost))，使用CDN自身Referer")
+                        // 保留CDN自身Referer，不覆盖
+                    } else {
+                        headers[key] = value
+                    }
+                } else {
+                    headers[key] = value
+                }
+            }
             log("[PlayerV2] 已合并自定义HTTP头，Referer=\(headers["Referer"] ?? "nil")")
         }
         assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
