@@ -3926,6 +3926,22 @@ class PlayerState: ObservableObject {
             p.play()
             self?.log("[PlayerV2] 播放器开始播放")
         }
+
+        // 安全兜底：播放器已实际播放（有进度/在播放/已就绪）但 isLoading 仍为 true 时，清除 loading 状态。
+        // 覆盖 status observer 因极端时序未触发 readyToPlay 回调的边界情况。
+        // 正常资源 isLoading 早已被 observer 设为 false，此检查不会触发。
+        Task { @MainActor [weak self, weak p] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self, let p, self.player === p else { return }
+            guard self.isLoading, self.loadError == nil else { return }
+            let isPlaying = p.rate > 0 || p.timeControlStatus == .playing
+            let seconds = p.currentTime().seconds
+            let itemStatus = p.currentItem?.status
+            if isPlaying || seconds > 0 || itemStatus == .readyToPlay {
+                self.log("[PlayerV2] ⚠️ 播放器已就绪/播放中但 isLoading 仍为 true，自动清除 loading 状态 (rate=\(p.rate), seconds=\(String(format: "%.1f", seconds)), status=\(String(describing: itemStatus)))")
+                self.isLoading = false
+            }
+        }
     }
 
     private func shouldRouteDirectURLToMPV(_ url: URL) -> Bool {
