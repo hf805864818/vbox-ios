@@ -18,10 +18,11 @@ class BaiduWebViewBridge: NSObject {
     
     private override init() {
         super.init()
+        // WKWebView 必须在主线程创建，使用 async 避免后台线程调用时死锁
         if Thread.isMainThread {
             self.setupWebView()
         } else {
-            DispatchQueue.main.sync {
+            DispatchQueue.main.async {
                 self.setupWebView()
             }
         }
