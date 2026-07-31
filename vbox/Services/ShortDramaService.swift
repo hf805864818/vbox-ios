@@ -54,7 +54,12 @@ class ShortDramaService: ObservableObject {
             await scanShortDramaSources(from: sites)
         }
 
-        if forceRescan || dramas.isEmpty {
+        // scanShortDramaSources 内部会在第一个源出现时自动触发 fetchDramas
+        // 这里仅在扫描未触发加载时补充（如已缓存源但无数据的情况）
+        if dramas.isEmpty, !shortDramaSources.isEmpty {
+            if selectedSourceId == nil {
+                selectedSourceId = shortDramaSources.first?.id
+            }
             await fetchDramas(refresh: true)
         }
     }
@@ -89,6 +94,9 @@ class ShortDramaService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        // 标记是否已自动触发首批数据加载
+        var hasTriggeredFirstLoad = false
+
         await withTaskGroup(of: [ShortDramaSource].self) { group in
             var running = 0
 
@@ -96,6 +104,13 @@ class ShortDramaService: ObservableObject {
                 if running >= maxConcurrent {
                     if let batch = await group.next() {
                         appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
+                        // 第一个源刷新出来后，立即自动选中并开始加载数据
+                        if !hasTriggeredFirstLoad, let firstSource = shortDramaSources.first {
+                            hasTriggeredFirstLoad = true
+                            selectedSourceId = firstSource.id
+                            // 异步加载数据，不阻塞扫描继续进行
+                            Task { await fetchDramas(refresh: true) }
+                        }
                     }
                     running -= 1
                 }
@@ -108,6 +123,12 @@ class ShortDramaService: ObservableObject {
 
             for await batch in group {
                 appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
+                // 最终批次也要检查是否需要触发首次加载
+                if !hasTriggeredFirstLoad, let firstSource = shortDramaSources.first {
+                    hasTriggeredFirstLoad = true
+                    selectedSourceId = firstSource.id
+                    Task { await fetchDramas(refresh: true) }
+                }
             }
         }
 

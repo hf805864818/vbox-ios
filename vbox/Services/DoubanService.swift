@@ -1066,7 +1066,7 @@ extension DoubanService {
     }
 
     /// 拉取豆瓣横版海报（用于 Banner 横版大图）
-    /// 优先海报(type=R，覆盖率最高)，其次壁纸(type=W)，跳过剧照(type=S)
+    /// 优先海报(type=R) → 壁纸(type=W) → 剧照(type=S，仅作为最后回退)
     /// 通过宽高比筛选 + 最优匹配，选取最适合 Banner 比例的横版图
     func fetchBackdropURL(subjectId: String) async -> String? {
         // Banner 卡片宽高比约 1.65:1，只取宽高比在 1.5~3.0 之间且宽度 >= 800px 的横版图
@@ -1075,9 +1075,9 @@ extension DoubanService {
         let maxRatio: Double = 3.0
         let minWidth: Int = 800
 
-        // 依次尝试 type=R(海报，覆盖率高) → type=W(壁纸，几乎全是横版)
-        // 跳过 type=S(剧照)，因为剧照是随机截图，视觉效果差
-        for photoType in ["R", "W"] {
+        // 依次尝试 type=R(海报) → type=W(壁纸) → type=S(剧照，最后回退)
+        // type=S 虽然是剧照，但通过宽高比筛选可以找到有场景感的横版剧照，比空白好
+        for photoType in ["R", "W", "S"] {
             let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=50")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
