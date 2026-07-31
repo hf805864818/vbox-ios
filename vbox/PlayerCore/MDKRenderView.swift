@@ -271,10 +271,12 @@ final class MDKRenderView: MTKView {
     /// 在 MDK render callback（后台解码线程）中完成 PiP 帧捕获。
     /// 进入桌面小窗后 MTKView 不 draw，必须靠这里持续把视频帧推到 PiP 队列。
     /// 屏幕渲染仍由 draw(in:) 自己调用 renderVideo 负责，避免 callback 单独渲染失败导致洋红。
+    /// 使用 tryLock 避免后台线程与主线程 draw() 争锁导致主线程渲染卡顿，
+    /// 获取不到锁时跳过本帧（PiP 只需 ~10fps，丢帧不可见）。
     private func capturePiPFrameInCallback() {
         guard let player = player, let queue = commandQueue else { return }
 
-        renderLock.lock()
+        guard renderLock.try() else { return }
         defer { renderLock.unlock() }
 
         guard renderTexture != nil else { return }

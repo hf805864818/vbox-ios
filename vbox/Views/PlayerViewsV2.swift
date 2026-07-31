@@ -391,8 +391,10 @@ class PiPHelper: NSObject {
         snapshotTimer?.invalidate()
         snapshotDisplayLink?.invalidate()
 
-        // 使用 CADisplayLink 保证进入后台前画面更新更频繁，并加入 common runloop
+        // CADisplayLink 用于前台时保持画面同步，但限制为 5fps（200ms/帧）
+        // 默认 60fps 会在每帧创建/销毁 snapshotView，导致主线程严重过载
         let displayLink = CADisplayLink(target: self, selector: #selector(updateSnapshotFrame))
+        displayLink.preferredFramesPerSecond = 5
         displayLink.add(to: .main, forMode: .common)
         snapshotDisplayLink = displayLink
 
@@ -1386,31 +1388,44 @@ class PlayerState: ObservableObject {
     func savePlaybackProgress(force: Bool = false) {
         guard let video = currentVideo, currentTime.isFinite, currentTime > 5 else { return }
         if duration > 0, duration - currentTime < 15 {
-            UserDefaults.standard.removeObject(forKey: playbackProgressKey(for: video))
-            // 同步清除 SQLite 历史记录
-            let favorites = DatabaseManager.shared.queryFavorites()
-            if let record = favorites.first(where: { $0.detailurl == video.vodId }),
-               let fid = record.id {
-                DatabaseManager.shared.removeFavorite(id: fid)
+            // 快进到末尾：清除进度，移到后台执行避免 SQLite/UserDefaults 阻塞主线程
+            let key = playbackProgressKey(for: video)
+            let videoId = video.vodId
+            Task.detached(priority: .utility) {
+                UserDefaults.standard.removeObject(forKey: key)
+                let favorites = DatabaseManager.shared.queryFavorites()
+                if let record = favorites.first(where: { $0.detailurl == videoId }),
+                   let fid = record.id {
+                    DatabaseManager.shared.removeFavorite(id: fid)
+                }
             }
             return
         }
         guard force || Date().timeIntervalSince(lastProgressSaveAt) > 5 else { return }
         lastProgressSaveAt = Date()
-        UserDefaults.standard.set(currentTime, forKey: playbackProgressKey(for: video))
-        // 同步写入 SQLite 历史记录
-        let record = HistoryRecord(
-            name: video.vodName,
-            laiyuan: video.vodRemarks ?? "",
-            imgurl: video.vodPic ?? "",
-            detailurl: video.vodId,
-            detailua: "",
-            xianlu: currentEpisodeIndex,
-            jishu: 0,
-            progress: currentTime,
-            lastPlayedAt: Int64(Date().timeIntervalSince1970)
-        )
-        DatabaseManager.shared.addOrUpdateHistory(record)
+        // 所有 I/O 操作移到后台队列，避免 SQLite + UserDefaults 阻塞主线程
+        let key = playbackProgressKey(for: video)
+        let timeToSave = currentTime
+        let episodeToSave = currentEpisodeIndex
+        let videoName = video.vodName
+        let videoRemarks = video.vodRemarks ?? ""
+        let videoPic = video.vodPic ?? ""
+        let videoId = video.vodId
+        Task.detached(priority: .utility) {
+            UserDefaults.standard.set(timeToSave, forKey: key)
+            let record = HistoryRecord(
+                name: videoName,
+                laiyuan: videoRemarks,
+                imgurl: videoPic,
+                detailurl: videoId,
+                detailua: "",
+                xianlu: episodeToSave,
+                jishu: 0,
+                progress: timeToSave,
+                lastPlayedAt: Int64(Date().timeIntervalSince1970)
+            )
+            DatabaseManager.shared.addOrUpdateHistory(record)
+        }
     }
 
     // MARK: - 收藏功能
@@ -1545,13 +1560,21 @@ class PlayerState: ObservableObject {
     }
 
     /// 添加调试日志（同时打印到控制台和UI）
+    /// 使用 DispatchQueue.main.async 而非 Task，避免高频日志调用时大量 Task 对象
+    /// 挤占主线程协程调度队列导致 UI 卡顿
     func log(_ msg: String) {
         print(msg)
         let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
-        Task { @MainActor in
+        if Thread.isMainThread {
             debugLogs.append(short)
-            // 保留最近 500 条，便于从头回溯完整播放/清理链路
             if debugLogs.count > 500 { debugLogs.removeFirst(debugLogs.count - 500) }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.debugLogs.append(short)
+                if self?.debugLogs.count ?? 0 > 500 {
+                    self?.debugLogs.removeFirst((self?.debugLogs.count ?? 500) - 500)
+                }
+            }
         }
     }
 
@@ -2487,6 +2510,7 @@ class PlayerState: ObservableObject {
 
         var localStatusObserver: AnyCancellable?
         localStatusObserver = playerItem.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self else { return }
                 switch status {
@@ -2497,9 +2521,7 @@ class PlayerState: ObservableObject {
                     let size = playerItem.presentationSize
                     let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
                     self.log("[PlayerV2] 网盘 PlayerItem 准备就绪，耗时=\(elapsed)ms，画面=\(Int(size.width))x\(Int(size.height))")
-                    Task { @MainActor in
-                        self.isLoading = false
-                    }
+                    self.isLoading = false
                     // 对夸克/百度本地代理都执行首帧黑屏检测（红色封面/和谐文件会返回尺寸为0）
                     self.scheduleVideoTrackCheck(
                         for: playerItem,
@@ -2598,10 +2620,16 @@ class PlayerState: ObservableObject {
             player?.pause()
             player = p
             isPlaying = true
-            isLoading = true
-            loadingMessage = "正在缓冲首帧..."
+            // 修复竞态：await MainActor.run 挂起期间，本地代理响应极快可能导致
+            // playerItem.status 已变为 .readyToPlay，观察者已在主队列回调中设置了 isLoading=false。
+            // 此处若盲目覆盖为 true，status 不再变化，观察者不会再次触发，界面永久卡在"正在缓冲首帧..."。
+            // 仅在仍未就绪时才设为 loading 状态。
+            if playerItem.status != .readyToPlay {
+                isLoading = true
+                loadingMessage = "正在缓冲首帧..."
+            }
         }
-        
+
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
             guard let self else { return }
@@ -2614,8 +2642,23 @@ class PlayerState: ObservableObject {
                 self.reportBaiduCacheProgressIfNeeded()
             }
         }
-        
+
         p.play()
+
+        // 安全兜底：播放器已实际播放（有进度/在播放）但 isLoading 仍为 true 时，清除 loading 状态。
+        // 覆盖观察者回调因各种极端时序未被处理的边界情况。
+        Task { @MainActor [weak self, weak p] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self, let p, self.player === p else { return }
+            guard self.isLoading, self.loadError == nil else { return }
+            let isPlaying = p.rate > 0 || p.timeControlStatus == .playing
+            let seconds = p.currentTime().seconds
+            let itemStatus = p.currentItem?.status
+            if isPlaying || seconds > 0 || itemStatus == .readyToPlay {
+                self.log("[PlayerV2] ⚠️ 播放器已就绪/播放中但 isLoading 仍为 true，自动清除 loading 状态 (rate=\(p.rate), seconds=\(String(format: "%.1f", seconds)), status=\(String(describing: itemStatus)))")
+                self.isLoading = false
+            }
+        }
     }
 
     private func prefetchNextBaiduFileNearEnd(current: Double, duration: Double) {
@@ -3782,6 +3825,7 @@ class PlayerState: ObservableObject {
         // 监听PlayerItem状态
         var localStatusObserver: AnyCancellable?
         localStatusObserver = playerItem.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self = self else { return }
                 switch status {
@@ -3826,17 +3870,17 @@ class PlayerState: ObservableObject {
         
         // 监听播放失败
         failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
                     self?.log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
-                    Task { @MainActor in
-                        self?.failPlayback("播放失败: \(error.localizedDescription)")
-                    }
+                    self?.failPlayback("播放失败: \(error.localizedDescription)")
                 }
             }
         
         // 监听播放结束
         endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.log("[PlayerV2] 播放结束")
                 // 普通资源自动播放下一集
