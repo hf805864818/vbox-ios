@@ -3648,10 +3648,21 @@ class PlayerState: ObservableObject {
                     // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
                     log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
                     guard let video = self.currentVideo else { return }
+                    // 设置 loading 状态，与其他切集路径（百度/夸克/UC）保持一致
+                    await MainActor.run {
+                        self.isLoading = true
+                        self.loadError = nil
+                        self.loadingMessage = "正在解析播放地址..."
+                    }
                     if let pr = await SpiderManager.shared.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url, engineKey: video.engineKey) {
                         await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: SpiderManager.shared)
                     } else {
-                        log("[PlayerV2] ⚠️ 切集 playerContent 无结果")
+                        // ★ 修复: playerContent 返回 nil 时必须调用 failPlayback，
+                        // 否则 isLoading 永远为 true，界面永久卡在加载状态
+                        log("[PlayerV2] ❌ 切集 playerContent 无结果，显示错误")
+                        await MainActor.run {
+                            self.failPlayback("解析播放地址失败，请尝试更换源或清晰度")
+                        }
                     }
                 }
             case .baidu:
