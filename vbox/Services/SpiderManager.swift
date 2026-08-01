@@ -1913,7 +1913,7 @@ globalThis.__JS_SPIDER__ = _spider;
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
 
-            DispatchQueue.global(qos: qos).async {
+            DispatchQueue.global(qos: qos.qosClass).async {
                 let result = block()
                 lock.lock()
                 let already = resumed
