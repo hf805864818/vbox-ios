@@ -365,11 +365,16 @@ class JSSpiderEngine {
                 // 返回值已经是 JSON 字符串，直接使用
                 jsonString = result.toString()
             } else if result.isObject || result.isArray {
-                // 返回值是对象/数组，需要 stringify
-                let stringifyScript = "JSON.stringify(\(rawScript))"
+                // 🔧 修复: 将已有结果存入临时变量再 stringify，避免重复执行蜘蛛方法
+                // 旧代码用 JSON.stringify(rawScript) 会导致 playerContent 等方法被调用两次
+                // 网络请求翻倍、耗时翻倍，更容易触发 30s 超时
+                context.setObject(result, forKeyedSubscript: "__tmpResult" as NSString)
+                let stringifyScript = "JSON.stringify(__tmpResult)"
                 guard let str = context.evaluateScript(stringifyScript)?.toString() else {
+                    context.evaluateScript("delete globalThis.__tmpResult")
                     throw JSError(message: "\(methodName) 返回无效")
                 }
+                context.evaluateScript("delete globalThis.__tmpResult")
                 jsonString = str
             } else {
                 throw JSError(message: "\(methodName) 返回类型无效")
