@@ -1840,6 +1840,8 @@ class PlayerState: ObservableObject {
     private var hasRetriedNoReferer = false
     private var endObserver: AnyCancellable?
     private var currentTask: Task<Void, Never>?
+    /// 🔧 修复: 标记 handlePlayUrl 是否正在执行，防止后台详情任务并发启动第二个 handlePlayUrl
+    private var isHandlingPlayUrl = false
     
     func setupPlayer(video: VodItem) {
         currentTask?.cancel()
@@ -3000,7 +3002,10 @@ class PlayerState: ObservableObject {
             let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if !firstUrlClean.isEmpty {
                 log("[PlayerV2] 步骤1: 先尝试已有地址: \(firstUrlClean.prefix(80))...")
+                // 🔧 修复: 标记正在处理，防止后台详情任务并发启动第二个 handlePlayUrl
+                await MainActor.run { self.isHandlingPlayUrl = true }
                 await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders)
+                await MainActor.run { self.isHandlingPlayUrl = false }
             }
         }
         
@@ -3021,11 +3026,13 @@ class PlayerState: ObservableObject {
                 }
                 if !newBest.isEmpty {
                     await MainActor.run {
-                        if self.player == nil || self.loadError != nil {
+                        // 🔧 修复: 增加 !self.isHandlingPlayUrl 检查，防止第一个 handlePlayUrl
+                        // 仍在执行时后台详情并发启动第二个，导致两次 initPlayer 竞争
+                        if (self.player == nil || self.loadError != nil) && !self.isHandlingPlayUrl {
                             self.loadError = nil
                             Task { await self.handlePlayUrl(newBest, spider: spider, video: video) }
                         } else {
-                            log("[PlayerV2] 步骤1: 已有播放器在运行，跳过更新")
+                            log("[PlayerV2] 步骤1: 已有播放器在运行或正在解析，跳过更新")
                         }
                     }
                 }
@@ -3156,6 +3163,13 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] ❌ playerContent 返回非标准协议，不传给播放器: \(pu.prefix(60))")
             await MainActor.run {
                 self.failPlayback("播放地址格式不支持，请尝试更换源")
+            }
+        } else {
+            // 🔧 修复: playUrl 和 url 均为 nil/空时，必须调用 failPlayback
+            // 否则 isLoading 永远为 true，界面永久卡在"正在缓冲首帧..."，只能划后台关闭
+            log("[PlayerV2] ❌ playerContent 返回空URL(playUrl=nil, url=nil)，触发失败回调")
+            await MainActor.run {
+                self.failPlayback("播放地址为空，请尝试更换源或清晰度")
             }
         }
     }
@@ -3907,7 +3921,9 @@ class PlayerState: ObservableObject {
         let timeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard let self = self else { return }
-            if await MainActor.run { self.player != nil && self.loadError == nil } {
+            // 🔧 修复: 检查 self.player === p，确保超时只销毁当前播放器
+            // 旧代码只检查 self.player != nil，当播放器被替换后（重试/后台详情）仍会误杀新播放器
+            if await MainActor.run({ self.player != nil && self.player === p && self.loadError == nil }) {
                 let status = await MainActor.run { p.currentItem?.status }
                 let isActuallyPlaying = await MainActor.run { p.rate > 0 || p.timeControlStatus == .playing }
                 // 如果视频已经在播放或已就绪，不触发超时
