@@ -3923,7 +3923,7 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             // 🔧 修复: 检查 self.player === p，确保超时只销毁当前播放器
             // 旧代码只检查 self.player != nil，当播放器被替换后（重试/后台详情）仍会误杀新播放器
-            if await MainActor.run({ self.player != nil && self.player === p && self.loadError == nil }) {
+            if await MainActor.run(body: { self.player != nil && self.player === p && self.loadError == nil }) {
                 let status = await MainActor.run { p.currentItem?.status }
                 let isActuallyPlaying = await MainActor.run { p.rate > 0 || p.timeControlStatus == .playing }
                 // 如果视频已经在播放或已就绪，不触发超时

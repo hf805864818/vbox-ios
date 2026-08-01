@@ -1896,7 +1896,7 @@ globalThis.__JS_SPIDER__ = _spider;
         operation: String = "",
         _ block: @escaping () -> T?
     ) async -> T? {
-        return await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
             var resumed = false
             let lock = NSLock()
 
