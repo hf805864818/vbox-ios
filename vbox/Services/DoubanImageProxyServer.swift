@@ -264,6 +264,7 @@ final class DoubanImageProxyServer {
             || pathAndQuery.hasPrefix("/ali-stream")
             || pathAndQuery.hasPrefix("/uc-stream")
             || pathAndQuery.hasPrefix("/115-stream")
+            || pathAndQuery.hasPrefix("/xunlei-stream")
             || pathAndQuery.hasPrefix("/sihu-stream")
             || pathAndQuery.hasPrefix("/xcp-stream")
             || pathAndQuery.hasPrefix("/mystery-stream") {
@@ -426,6 +427,17 @@ final class DoubanImageProxyServer {
             }
             if request.value(forHTTPHeaderField: "Origin") == nil {
                 request.setValue("https://115.com", forHTTPHeaderField: "Origin")
+            }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        } else if item.provider == "xunlei" {
+            if request.value(forHTTPHeaderField: "User-Agent") == nil {
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            }
+            if request.value(forHTTPHeaderField: "Referer") == nil {
+                request.setValue("https://pan.xunlei.com/", forHTTPHeaderField: "Referer")
+            }
+            if request.value(forHTTPHeaderField: "Origin") == nil {
+                request.setValue("https://pan.xunlei.com", forHTTPHeaderField: "Origin")
             }
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         } else {
@@ -843,6 +855,7 @@ final class DoubanImageProxyServer {
             || isAliPlaybackHost(host)
             || isUCPlaybackHost(host)
             || is115PlaybackHost(host)
+            || isXunleiPlaybackHost(host)
     }
 
     private func isAllowedQuarkM3U8URL(_ rawURL: String) -> Bool {
@@ -915,6 +928,26 @@ final class DoubanImageProxyServer {
             || lower.contains("anxia.com")
             || lower.contains("cdnfhnup")
             || lower.contains("fhnqqso")
+    }
+
+    /// 迅雷云盘播放/下载地址域名匹配
+    /// 迅雷 CDN 域名包括 *.xunlei.com、*.fntx.* 等
+    private func isXunleiPlaybackHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower.hasSuffix(".xunlei.com") || lower == "xunlei.com" {
+            // 排除 API/页面域名，避免误把网页域转代理
+            let excluded: Set<String> = [
+                "pan.xunlei.com",
+                "i.xunlei.com",
+                "api-pan.xunlei.com",
+                "xluser-ssl.xunlei.com",
+                "www.xunlei.com"
+            ]
+            return !excluded.contains(lower)
+        }
+        return lower.contains("fntx")
+            || lower.contains("xlgateway")
+            || lower.hasSuffix(".xunlei.cn")
     }
 
     private func cleanupExpiredStreams() {

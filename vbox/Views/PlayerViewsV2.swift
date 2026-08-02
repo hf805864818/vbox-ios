@@ -2379,6 +2379,14 @@ class PlayerState: ObservableObject {
                 finalURLString = url
                 log("[PlayerV2] ⚠️ 115本地代理创建失败，回退直连")
             }
+        } else if isXunleiPlaybackURL(url) {
+            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "xunlei") {
+                finalURLString = localURL.absoluteString
+                log("[PlayerV2] 迅雷云盘走本地代理: \(finalURLString)")
+            } else {
+                finalURLString = url
+                log("[PlayerV2] ⚠️ 迅雷本地代理创建失败，回退直连")
+            }
         } else {
             finalURLString = url
         }
@@ -2396,7 +2404,7 @@ class PlayerState: ObservableObject {
         let playlistKind = await probeM3U8IfNeeded(url: urlObj, headers: headers)
         let isUCLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("uc-stream")
         let isCloudLocalProxy = urlObj.host == "127.0.0.1"
-            && (urlObj.path.contains("ali-stream") || isUCLocalProxy || urlObj.path.contains("115-stream"))
+            && (urlObj.path.contains("ali-stream") || isUCLocalProxy || urlObj.path.contains("115-stream") || urlObj.path.contains("xunlei-stream"))
         await MainActor.run {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
@@ -2833,6 +2841,24 @@ class PlayerState: ObservableObject {
             || host.contains("anxia.com")
             || host.contains("cdnfhnup")
             || host.contains("fhnqqso")
+    }
+
+    private func isXunleiPlaybackURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        if host.hasSuffix(".xunlei.com") || host == "xunlei.com" {
+            let excluded: Set<String> = [
+                "pan.xunlei.com",
+                "i.xunlei.com",
+                "api-pan.xunlei.com",
+                "xluser-ssl.xunlei.com",
+                "www.xunlei.com"
+            ]
+            return !excluded.contains(host)
+        }
+        return host.contains("fntx")
+            || host.contains("xlgateway")
+            || host.hasSuffix(".xunlei.cn")
     }
 
     private func isUnsupportedMediaError(_ error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {
