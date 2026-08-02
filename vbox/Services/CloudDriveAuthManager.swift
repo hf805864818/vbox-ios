@@ -1707,12 +1707,22 @@ final class CloudDriveAuthManager: ObservableObject {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             let nsErr = error as NSError
             if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            // 帧框加载已中断（页面跳转/重定向时常见，非真实错误）
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
             self.errorText = "页面加载失败"
             self.statusText = "请检查网络后重试"
             print("[Pan123] didFail navigation: \(error)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            // 过滤导航被取消（页面跳转/重定向导致的正常中断）
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
+            // WebKit 帧框加载已中断（登录跳转时常见，非真实错误）
+            if nsErr.domain == "WebKitErrorDomain" && nsErr.code == 102 { return }
+            // 通用：错误描述包含"帧框加载已中断"也跳过
+            if error.localizedDescription.contains("帧框加载已中断") || error.localizedDescription.contains("Frame load interrupted") { return }
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
             print("[Pan123] didFailProvisionalNavigation: \(error)")
@@ -1997,6 +2007,14 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            // 过滤导航被取消（页面跳转/重定向导致的正常中断）
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
+            // WebKit 帧框加载已中断（登录跳转时常见，非真实错误）
+            if nsErr.domain == "WebKitErrorDomain" && nsErr.code == 102 { return }
+            // 通用：错误描述包含"帧框加载已中断"也跳过
+            if error.localizedDescription.contains("帧框加载已中断") || error.localizedDescription.contains("Frame load interrupted") { return }
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
             print("[Pan115] didFailProvisionalNavigation: \(error)")
