@@ -1333,7 +1333,7 @@ class CloudDriveManager: ObservableObject {
         if url.contains("123pan.com") || url.contains("123cloud.cn") { return .pan123 }
         if url.contains("yun.139.com") || url.contains("139.com") { return .pan139 }
         if url.contains("cloud.189.cn") || url.contains("189.cn") { return .pan189 }
-        if url.contains("pan.xunlei.com") || url.contains("xunlei.com") { return .xunlei }
+        if url.contains("pan.xunlei.com") { return .xunlei }
         return nil
     }
 
@@ -7374,27 +7374,37 @@ class CloudDriveManager: ObservableObject {
         // 使用 WebView 在页面上下文中解析
         let result = try await xunleiResolveViaWebView(shareURL: shareURL, cookie: cookie, sharePwd: sharePwd)
 
-        guard let playURL = result.playURL, !playURL.isEmpty else {
-            let msg = result.error ?? "迅雷云盘: 未获取到播放地址"
-            throw DriveError.noPlayURL(msg)
-        }
-
-        print("[Xunlei] ✅ 播放地址获取成功: \(playURL.prefix(80))")
-
         let headers: [String: String] = [
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36",
             "Referer": "https://pan.xunlei.com/"
         ]
 
-        return PlayResult(
-            url: playURL,
-            headers: headers,
-            driveType: .xunlei,
-            source: result.fileName,
-            fallbackURL: result.fallbackURL,
-            fallbackHeaders: headers,
-            fallbackSource: result.fileName
-        )
+        // 优先使用 medias 视频流地址，退而求其次使用 web_content_link 直链
+        if let playURL = result.playURL, !playURL.isEmpty {
+            print("[Xunlei] ✅ 播放地址获取成功 (medias): \(playURL.prefix(80))")
+            return PlayResult(
+                url: playURL,
+                headers: headers,
+                driveType: .xunlei,
+                source: result.fileName,
+                fallbackURL: result.fallbackURL,
+                fallbackHeaders: headers,
+                fallbackSource: result.fileName
+            )
+        }
+
+        if let fallbackURL = result.fallbackURL, !fallbackURL.isEmpty {
+            print("[Xunlei] ⚠️ medias 为空，使用 web_content_link 兜底: \(fallbackURL.prefix(80))")
+            return PlayResult(
+                url: fallbackURL,
+                headers: headers,
+                driveType: .xunlei,
+                source: result.fileName
+            )
+        }
+
+        let msg = result.error ?? "迅雷云盘: 未获取到播放地址"
+        throw DriveError.noPlayURL(msg)
     }
 
     /// 通过 WebView 在迅雷页面上下文中解析播放地址
