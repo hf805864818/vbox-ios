@@ -3554,33 +3554,47 @@ struct NativeCloudQRLoginView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    Text("\(driveType.displayName) 原生扫码授权")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if driveType == .one15 {
+                    VStack(spacing: 0) {
+                        Pan115WebView(webView: pan115Helper.webView)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    qrCard
-                    statusCard
-                    tipCard
-
-                    if driveType != .one15 {
-                        Button(action: {
-                            Task { await startLoginFlow() }
-                        }) {
-                            Text(isPolling ? "重新生成二维码" : "生成二维码")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(hex: "E11D48"))
-                                .cornerRadius(12)
+                        VStack(spacing: 8) {
+                            statusCard
+                            tipCard
                         }
-                        .disabled(isGenerating)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            Text("\(driveType.displayName) 原生扫码授权")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            qrCard
+                            statusCard
+                            tipCard
+
+                            Button(action: {
+                                Task { await startLoginFlow() }
+                            }) {
+                                Text(isPolling ? "重新生成二维码" : "生成二维码")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color(hex: "E11D48"))
+                                    .cornerRadius(12)
+                            }
+                            .disabled(isGenerating)
+                        }
+                        .padding(16)
                     }
                 }
-                .padding(16)
             }
             .background(Color(uiColor: .systemBackground))
             .navigationTitle("扫码授权")
