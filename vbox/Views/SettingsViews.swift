@@ -1660,9 +1660,6 @@ struct CloudAuthCenterView: View {
                     Button(action: { show123NativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
                     }
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页兜底", icon: "globe")
-                    }
                 } else if type == .one15 {
                     Button(action: { show115NativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
@@ -3555,10 +3552,15 @@ struct NativeCloudQRLoginView: View {
     var body: some View {
         NavigationView {
             Group {
-                if driveType == .one15 {
+                if driveType == .one15 || driveType == .pan123 {
                     VStack(spacing: 0) {
-                        Pan115WebView(webView: pan115Helper.webView)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if driveType == .one15 {
+                            Pan115WebView(webView: pan115Helper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            Pan123WebView(webView: pan123Helper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
 
                         VStack(spacing: 8) {
                             statusCard
@@ -3620,7 +3622,7 @@ struct NativeCloudQRLoginView: View {
                 }
             }
             .onAppear {
-                if driveType == .one15 {
+                if driveType == .one15 || driveType == .pan123 {
                     Task { await startLoginFlow() }
                 }
             }
@@ -3742,7 +3744,7 @@ struct NativeCloudQRLoginView: View {
         case .pan123:
             return "请在页面中登录123云盘（手机号/微信扫码登录）。登录成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .one15:
-            return "请在页面中登录115网盘（扫码或账号密码）。登录成功后自动获取 Cookie，用于解析播放文件链接。"
+            return "请在页面中登录115网盘（账号密码或手机验证码）。登录成功后自动获取 Cookie，用于解析播放文件链接。"
         default:
             return "请使用 UC / UC网盘客户端扫码确认。若点击确认后卡住，请点击下方「网页登录兜底」在页面中登录。"
         }
