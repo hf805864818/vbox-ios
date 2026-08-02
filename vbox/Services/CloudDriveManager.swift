@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import CryptoKit
+import WebKit
 
 /// 用于 CloudDriveManager 向播放器 Debug Overlay 广播日志
 extension Notification.Name {
