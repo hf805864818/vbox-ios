@@ -264,6 +264,9 @@ final class CloudDriveAuthManager: ObservableObject {
     }
 
     /// 通过 OpenList 刷新阿里云盘 token
+    /// OpenList renewapi 内部会调用阿里云盘官方 OAuth 接口（含 client_id/secret）进行刷新
+    /// 成功返回 {"refresh_token":"...", "access_token":"..."} (HTTP 200)
+    /// 失败返回 {"text":"<错误描述>"} (HTTP 500)
     func refreshAliAccessTokenIfNeeded() async throws -> CloudDriveCredential {
         guard var credential = credential(for: .ali),
               let refreshToken = credential.refreshToken,
@@ -271,41 +274,102 @@ final class CloudDriveAuthManager: ObservableObject {
             throw AuthError.notAuthorized("阿里云盘未授权")
         }
 
-        // 使用 OpenList 的在线刷新接口
+        // 尝试 OpenList 刷新（GET 方式）
+        do {
+            let result = try await refreshAliViaOpenList(refreshToken: refreshToken, usePost: false)
+            credential.accessToken = result.accessToken
+            credential.refreshToken = result.refreshToken
+            credential.state = .valid
+            credential.statusMessage = "阿里 token 已刷新"
+            credential.lastCheckedAt = Date()
+            credential.updatedAt = Date()
+            saveCredential(credential)
+            print("[Ali OpenList] ✅ refresh 成功，access_token 长度=\(result.accessToken?.count ?? 0)")
+            return credential
+        } catch {
+            print("[Ali OpenList] ⚠️ GET 刷新失败: \(error.localizedDescription)")
+        }
+
+        // 尝试 OpenList 刷新（POST 方式，兜底）
+        do {
+            let result = try await refreshAliViaOpenList(refreshToken: refreshToken, usePost: true)
+            credential.accessToken = result.accessToken
+            credential.refreshToken = result.refreshToken
+            credential.state = .valid
+            credential.statusMessage = "阿里 token 已刷新"
+            credential.lastCheckedAt = Date()
+            credential.updatedAt = Date()
+            saveCredential(credential)
+            print("[Ali OpenList] ✅ POST refresh 成功")
+            return credential
+        } catch {
+            print("[Ali OpenList] ⚠️ POST 刷新也失败: \(error.localizedDescription)")
+        }
+
+        // 所有刷新方式均失败，标记凭证失效
+        markInvalid(.ali, reason: "token 已过期，请重新授权")
+        throw AuthError.remoteError("阿里云盘 token 已过期，请在网盘授权中心重新授权阿里云盘")
+    }
+
+    /// OpenList 刷新阿里云盘 token 的具体实现
+    private func refreshAliViaOpenList(refreshToken: String, usePost: Bool) async throws -> (accessToken: String?, refreshToken: String) {
         var components = URLComponents(string: OpenListAliConfig.renewURL)!
-        components.queryItems = [
+        let queryItems = [
             URLQueryItem(name: "driver_txt", value: "alicloud_qr"),
             URLQueryItem(name: "refresh_ui", value: refreshToken),
             URLQueryItem(name: "server_use", value: "true")
         ]
-        var request = URLRequest(url: components.url!)
+
+        var request: URLRequest
+        if usePost {
+            // POST 方式：参数放在 body 中
+            var postComponents = URLComponents(string: OpenListAliConfig.renewURL)!
+            request = URLRequest(url: postComponents.url!)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            let bodyString = queryItems.map { "\($0.name)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
+            request.httpBody = bodyString.data(using: .utf8)
+        } else {
+            // GET 方式：参数放在 URL 中
+            components.queryItems = queryItems
+            request = URLRequest(url: components.url!)
+        }
         request.setValue(aliUserAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let bodyPreview = String(data: data.prefix(500), encoding: .utf8) ?? "(binary)"
+        print("[Ali OpenList] renewapi HTTP \(httpStatus), usePost=\(usePost), response: \(bodyPreview)")
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AuthError.invalidResponse("阿里云盘刷新 token 返回无法解析")
+            throw AuthError.invalidResponse("阿里云盘刷新 token 返回无法解析 (HTTP \(httpStatus))")
         }
 
-        let newRefreshToken = json["refresh_token"] as? String ?? json["refreshToken"] as? String ?? refreshToken
+        // 检测 OpenList 错误格式：{"text":"<错误描述>"} 表示刷新失败
+        if let errorText = json["text"] as? String {
+            print("[Ali OpenList] ❌ renewapi 返回错误: \(errorText) (HTTP \(httpStatus))")
+            if errorText.contains("invalid") || errorText.contains("expired") || errorText.contains("过期") {
+                throw AuthError.remoteError("阿里云盘 refresh_token 已失效：\(errorText)")
+            }
+            throw AuthError.remoteError("阿里云盘 token 刷新失败：\(errorText)")
+        }
+
+        // HTTP 状态码检查：>= 400 视为错误
+        if httpStatus >= 400 {
+            let msg = json["message"] as? String ?? json["error"] as? String ?? "HTTP \(httpStatus)"
+            throw AuthError.remoteError("阿里云盘 token 刷新失败：\(msg)")
+        }
+
+        // 解析成功的响应：{"refresh_token":"...", "access_token":"..."}
+        let newRefreshToken = json["refresh_token"] as? String ?? json["refreshToken"] as? String ?? ""
         let newAccessToken = json["access_token"] as? String ?? json["accessToken"] as? String
 
-        if newRefreshToken.isEmpty && newAccessToken == nil {
-            print("[Ali OpenList] refresh 返回无有效 token, HTTP \(httpStatus), response: \(json)")
-            markInvalid(.ali, reason: "token 刷新失败")
-            throw AuthError.remoteError("阿里云盘 token 刷新失败")
+        // 必须返回新的 refresh_token 才算成功（不再回退到旧 token，避免掩盖错误）
+        guard !newRefreshToken.isEmpty else {
+            throw AuthError.invalidResponse("阿里云盘刷新 token 未返回 refresh_token (HTTP \(httpStatus))")
         }
 
-        print("[Ali OpenList] refresh 成功")
-        credential.accessToken = newAccessToken
-        credential.refreshToken = newRefreshToken
-        credential.state = .valid
-        credential.statusMessage = "阿里 token 已刷新"
-        credential.lastCheckedAt = Date()
-        credential.updatedAt = Date()
-        saveCredential(credential)
-        return credential
+        return (accessToken: newAccessToken, refreshToken: newRefreshToken)
     }
 
     // MARK: - 天翼云盘 原生扫码
