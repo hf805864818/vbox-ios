@@ -1319,6 +1319,11 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
+            if nsErr.domain == "WebKitErrorDomain" && nsErr.code == 102 { return }
+            if error.localizedDescription.contains("帧框加载已中断") || error.localizedDescription.contains("Frame load interrupted") { return }
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
             print("[Pan139] didFailProvisionalNavigation: \(error)")
@@ -1448,6 +1453,11 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
+            if nsErr.domain == "WebKitErrorDomain" && nsErr.code == 102 { return }
+            if error.localizedDescription.contains("帧框加载已中断") || error.localizedDescription.contains("Frame load interrupted") { return }
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
         }
@@ -1599,6 +1609,11 @@ final class CloudDriveAuthManager: ObservableObject {
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsErr = error as NSError
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == -999 { return }
+            if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled { return }
+            if nsErr.domain == "WebKitErrorDomain" && nsErr.code == 102 { return }
+            if error.localizedDescription.contains("帧框加载已中断") || error.localizedDescription.contains("Frame load interrupted") { return }
             self.errorText = "链接失败: \(error.localizedDescription)"
             self.statusText = "加载失败"
         }
