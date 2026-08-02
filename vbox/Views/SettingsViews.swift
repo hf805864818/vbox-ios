@@ -1334,7 +1334,7 @@ struct CloudAuthCenterView: View {
                 VStack(spacing: 16) {
                     baiduAccountCard
                     quarkAccountCard
-                    providerAccountCard(type: .ali, note: "支持原生扫码登录自动获取 Refresh Token；也可使用网页登录兜底或手动粘贴。")
+                    providerAccountCard(type: .ali, note: "阿里云盘使用官方网页扫码/登录获取 refresh_token，用于解析播放文件链接。")
                     providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     providerAccountCard(type: .pan123, note: "123云盘支持网页扫码登录回收 Cookie，播放分享链接时自动使用。")
@@ -1623,10 +1623,7 @@ struct CloudAuthCenterView: View {
             HStack(spacing: 10) {
                 if type == .ali {
                     Button(action: { showAliNativeQR = true }) {
-                        authButtonLabel("原生扫码", icon: "qrcode")
-                    }
-                    Button(action: { webAuthDriveType = .ali }) {
-                        authButtonLabel("网页登录兜底", icon: "globe")
+                        authButtonLabel("网页登录授权", icon: "globe")
                     }
                 } else if type == .uc {
                     Button(action: { showUCNativeQR = true }) {
@@ -3543,7 +3540,7 @@ struct NativeCloudQRLoginView: View {
     var body: some View {
         NavigationView {
             Group {
-                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei || driveType == .ali {
                     VStack(spacing: 0) {
                         if driveType == .one15 {
                             Pan115WebView(webView: pan115Helper.webView)
@@ -3559,6 +3556,9 @@ struct NativeCloudQRLoginView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else if driveType == .xunlei {
                             XunleiWebView(webView: xunleiHelper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if driveType == .ali {
+                            AliOpenListWebView(webView: aliOpenListHelper.webView)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
 
@@ -3622,7 +3622,7 @@ struct NativeCloudQRLoginView: View {
                 }
             }
             .onAppear {
-                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei || driveType == .ali {
                     Task { await startLoginFlow() }
                 }
             }
@@ -3734,7 +3734,7 @@ struct NativeCloudQRLoginView: View {
         case .baidu:
             return "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。"
         case .ali:
-            return "通过 OpenList 发起阿里云盘 OAuth 授权，请使用阿里云盘 App 扫码并确认。授权成功后自动获取 refresh_token。"
+            return "请在页面中登录阿里云盘（扫码或账号密码）。登录成功后自动获取 refresh_token，用于解析播放文件链接。"
         case .pan139:
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
