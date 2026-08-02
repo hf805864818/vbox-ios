@@ -7504,8 +7504,8 @@ class CloudDriveManager: ObservableObject {
                 var pwd = pwdMatch ? decodeURIComponent(pwdMatch[1]) : "";
 
                 // 步骤2: 调用分享详情 API 获取文件列表
-                // 迅雷分享 API: POST https://api-pan.xunlei.com/drive/v1/share/detail
-                var detailResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/detail', {
+                // 迅雷分享 API: POST https://x-api-pan.xunlei.com/drive/v1/share/detail
+                var detailResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/detail', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -7517,7 +7517,7 @@ class CloudDriveManager: ObservableObject {
 
                 if (!detailResp.ok) {
                     // 尝试 GET 方式获取分享文件列表
-                    var getListResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/files?share_id=' + shareId + '&pass_code=' + pwd, {
+                    var getListResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/files?share_id=' + shareId + '&pass_code=' + pwd, {
                         headers: {'Content-Type': 'application/json'}
                     });
                     var getListData = await getListResp.json();
@@ -7544,7 +7544,7 @@ class CloudDriveManager: ObservableObject {
                             var fileId = videoFile.id || videoFile.file_id || '';
                             var fileName = videoFile.name || videoFile.file_name || '';
                             // 获取文件详情（播放地址）
-                            var fileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
+                            var fileResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
                                 headers: {'Content-Type': 'application/json'}
                             });
                             var fileData = await fileResp.json();
@@ -7606,7 +7606,7 @@ class CloudDriveManager: ObservableObject {
 
                 // 步骤3: 获取文件播放地址
                 // 尝试直接获取文件详情
-                var fileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
+                var fileResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
                     headers: {'Content-Type': 'application/json'}
                 });
 
@@ -7629,13 +7629,13 @@ class CloudDriveManager: ObservableObject {
 
                 // 步骤4: 如果直接获取失败，尝试保存到网盘后再获取
                 // 先获取根目录 ID
-                var listResp = await fetch('https://api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=&page_token=&with_audit=true&limit=1', {
+                var listResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=&page_token=&with_audit=true&limit=1', {
                     headers: {'Content-Type': 'application/json'}
                 });
                 if (listResp.ok) {
                     var listData = await listResp.json();
                     // 创建临时文件夹用于保存分享文件
-                    var createResp = await fetch('https://api-pan.xunlei.com/drive/v1/files', {
+                    var createResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -7649,7 +7649,7 @@ class CloudDriveManager: ObservableObject {
                         var createData = await createResp.json();
                         var tempFolderId = createData.id || '';
                         // 保存分享文件到临时文件夹
-                        var saveResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/save', {
+                        var saveResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/save', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({
@@ -7667,7 +7667,7 @@ class CloudDriveManager: ObservableObject {
                                 // 等待保存完成
                                 await new Promise(r => setTimeout(r, 3000));
                                 // 获取保存后的文件列表
-                                var savedListResp = await fetch('https://api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=' + tempFolderId + '&with_audit=true&limit=50', {
+                                var savedListResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=' + tempFolderId + '&with_audit=true&limit=50', {
                                     headers: {'Content-Type': 'application/json'}
                                 });
                                 if (savedListResp.ok) {
@@ -7687,7 +7687,7 @@ class CloudDriveManager: ObservableObject {
                                         savedFileId = savedFiles[0].id || '';
                                     }
                                     if (savedFileId) {
-                                        var savedFileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + savedFileId + '?with_audit=true&space=', {
+                                        var savedFileResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + savedFileId + '?with_audit=true&space=', {
                                             headers: {'Content-Type': 'application/json'}
                                         });
                                         if (savedFileResp.ok) {
@@ -7703,7 +7703,7 @@ class CloudDriveManager: ObservableObject {
                                             }
                                             var fallbackUrl2 = savedFileData.web_content_link || '';
                                             // 清理临时文件夹
-                                            fetch('https://api-pan.xunlei.com/drive/v1/files/' + tempFolderId + '/trash', {
+                                            fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + tempFolderId + '/trash', {
                                                 method: 'PATCH',
                                                 headers: {'Content-Type': 'application/json'},
                                                 body: '{}'
