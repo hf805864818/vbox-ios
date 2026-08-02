@@ -1333,6 +1333,7 @@ class CloudDriveManager: ObservableObject {
         if url.contains("123pan.com") || url.contains("123cloud.cn") { return .pan123 }
         if url.contains("yun.139.com") || url.contains("139.com") { return .pan139 }
         if url.contains("cloud.189.cn") || url.contains("189.cn") { return .pan189 }
+        if url.contains("pan.xunlei.com") || url.contains("xunlei.com") { return .xunlei }
         return nil
     }
 
@@ -7351,6 +7352,424 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("UCTV Token 返回中未找到播放地址")
     }
 
+    // MARK: - 迅雷云盘
+
+    /// 迅雷云盘播放地址解析
+    /// 迅雷 API 需要复杂的 captcha_token（无感验证码），纯 Swift 无法生成，
+    /// 采用 WebView 方案：在页面上下文中调用 API，自动携带认证信息和 captcha token。
+    func resolveXunleiPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
+        print("[Xunlei] 开始解析: \(shareURL)")
+
+        // 提取分享链接中的密码
+        var sharePwd = ""
+        if let url = URL(string: shareURL),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            if let pwdItem = components.queryItems?.first(where: { $0.name == "pwd" }) {
+                sharePwd = pwdItem.value ?? ""
+            }
+        }
+
+        print("[Xunlei] 分享链接密码: \(sharePwd.isEmpty ? "无" : "有")")
+
+        // 使用 WebView 在页面上下文中解析
+        let result = try await xunleiResolveViaWebView(shareURL: shareURL, cookie: cookie, sharePwd: sharePwd)
+
+        guard let playURL = result.playURL, !playURL.isEmpty else {
+            let msg = result.error ?? "迅雷云盘: 未获取到播放地址"
+            throw DriveError.noPlayURL(msg)
+        }
+
+        print("[Xunlei] ✅ 播放地址获取成功: \(playURL.prefix(80))")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36",
+            "Referer": "https://pan.xunlei.com/"
+        ]
+
+        return PlayResult(
+            url: playURL,
+            headers: headers,
+            driveType: .xunlei,
+            source: result.fileName,
+            fallbackURL: result.fallbackURL,
+            fallbackHeaders: headers,
+            fallbackSource: result.fileName
+        )
+    }
+
+    /// 通过 WebView 在迅雷页面上下文中解析播放地址
+    @MainActor
+    private func xunleiResolveViaWebView(shareURL: String, cookie: String, sharePwd: String) async throws -> (playURL: String?, fallbackURL: String?, fileName: String?, error: String?) {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+        webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        // 注入已有的 Cookie
+        if !cookie.isEmpty {
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            let pieces = cookie.components(separatedBy: ";")
+            for piece in pieces {
+                let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, let eqIndex = trimmed.firstIndex(of: "=") else { continue }
+                let name = String(trimmed[..<eqIndex]).trimmingCharacters(in: .whitespaces)
+                let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { continue }
+                let properties: [HTTPCookiePropertyKey: Any] = [
+                    .name: name,
+                    .value: value,
+                    .domain: ".xunlei.com",
+                    .path: "/"
+                ]
+                if let httpCookie = HTTPCookie(properties: properties) {
+                    await withCheckedContinuation { cont in
+                        store.setCookie(httpCookie) { cont.resume() }
+                    }
+                }
+            }
+        }
+
+        // 将 WebView 添加到窗口（WKWebView 需要附加到视图层级才能正常工作）
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            webView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            window.addSubview(webView)
+        }
+
+        defer {
+            webView.removeFromSuperview()
+        }
+
+        // 加载分享链接
+        guard let url = URL(string: shareURL) else {
+            return (nil, nil, nil, "迅雷云盘: 无效的分享链接")
+        }
+
+        print("[Xunlei] WebView 加载分享链接: \(shareURL)")
+        webView.load(URLRequest(url: url))
+
+        // 等待页面加载完成
+        try await Task.sleep(nanoseconds: 5_000_000_000)
+
+        // 等待 React SPA 渲染文件列表（最多等待 30 秒）
+        var fileListReady = false
+        for _ in 0..<15 {
+            let ready = try await webView.evaluateJavaScript("""
+                (function() {
+                    // 检查文件列表是否已渲染
+                    var items = document.querySelectorAll('[class*="file-item"], [class*="file-list"] > div, [class*="FileList"] > div, [data-file-id]');
+                    if (items.length > 0) return true;
+                    // 检查是否有"保存到网盘"按钮（表示文件列表已加载）
+                    var saveBtn = document.querySelector('[class*="save"], [class*="Save"]');
+                    if (saveBtn) return true;
+                    // 检查页面是否还在加载
+                    var loading = document.querySelector('[class*="loading"], [class*="Loading"]');
+                    if (loading) return false;
+                    // 检查是否有错误提示
+                    var error = document.querySelector('[class*="error"], [class*="Error"]');
+                    if (error && error.textContent.length > 5) return true;
+                    return items.length > 0;
+                })()
+            """)
+            if let isReady = ready as? Bool, isReady {
+                fileListReady = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+
+        print("[Xunlei] 文件列表就绪: \(fileListReady)")
+
+        if !fileListReady {
+            return (nil, nil, nil, "迅雷云盘: 页面加载超时，文件列表未渲染")
+        }
+
+        // 注入 JavaScript 获取文件列表和播放地址
+        // 迅雷网页版的文件列表存储在 React 组件状态中，我们可以从 DOM 或 API 获取
+        let jsCode = """
+        (async function() {
+            try {
+                // 步骤1: 获取分享内容（文件列表）
+                // 从 URL 提取分享 ID
+                var url = window.location.href;
+                var shareIdMatch = url.match(/\\/s\\/([A-Za-z0-9]+)/);
+                if (!shareIdMatch) return {error: "无法提取分享ID"};
+                var shareId = shareIdMatch[1];
+
+                // 获取密码参数
+                var pwdMatch = url.match(/[?&]pwd=([^&]+)/);
+                var pwd = pwdMatch ? decodeURIComponent(pwdMatch[1]) : "";
+
+                // 步骤2: 调用分享详情 API 获取文件列表
+                // 迅雷分享 API: POST https://api-pan.xunlei.com/drive/v1/share/detail
+                var detailResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/detail', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        share_id: shareId,
+                        pass_code: pwd,
+                        flags: {page: 1, size: 50}
+                    })
+                });
+
+                if (!detailResp.ok) {
+                    // 尝试 GET 方式获取分享文件列表
+                    var getListResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/files?share_id=' + shareId + '&pass_code=' + pwd, {
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                    var getListData = await getListResp.json();
+                    if (getListData.files && getListData.files.length > 0) {
+                        var files = getListData.files;
+                        // 筛选视频文件
+                        var videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m4v', '.rmvb', '.rm'];
+                        var videoFile = null;
+                        for (var i = 0; i < files.length; i++) {
+                            var name = (files[i].name || files[i].file_name || '').toLowerCase();
+                            for (var j = 0; j < videoExts.length; j++) {
+                                if (name.endsWith(videoExts[j])) {
+                                    videoFile = files[i];
+                                    break;
+                                }
+                            }
+                            if (videoFile) break;
+                        }
+                        if (!videoFile && files.length > 0) {
+                            // 如果没有找到视频文件，取第一个文件
+                            videoFile = files[0];
+                        }
+                        if (videoFile) {
+                            var fileId = videoFile.id || videoFile.file_id || '';
+                            var fileName = videoFile.name || videoFile.file_name || '';
+                            // 获取文件详情（播放地址）
+                            var fileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
+                                headers: {'Content-Type': 'application/json'}
+                            });
+                            var fileData = await fileResp.json();
+                            // 优先使用媒体链接（视频流，不限速）
+                            var playUrl = '';
+                            if (fileData.medias && fileData.medias.length > 0) {
+                                for (var k = 0; k < fileData.medias.length; k++) {
+                                    if (fileData.medias[k].link && fileData.medias[k].link.url) {
+                                        playUrl = fileData.medias[k].link.url;
+                                        break;
+                                    }
+                                }
+                            }
+                            var fallbackUrl = fileData.web_content_link || '';
+                            return {playUrl: playUrl, fallbackUrl: fallbackUrl, fileName: fileName};
+                        }
+                    }
+                    return {error: '分享文件列表为空或获取失败: ' + getListResp.status};
+                }
+
+                var detailData = await detailResp.json();
+
+                // 检查是否需要保存到网盘
+                // 迅雷云盘分享链接可能需要先保存到网盘才能获取下载/播放地址
+                var shareInfo = detailData.share || {};
+                var fileList = detailData.file_list || detailData.files || [];
+                var fileListAll = fileList;
+
+                if (fileListAll.length === 0 && detailData.file_infos) {
+                    fileListAll = detailData.file_infos;
+                }
+
+                if (fileListAll.length === 0) {
+                    return {error: "分享内容为空或无文件"};
+                }
+
+                // 筛选视频文件
+                var videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m4v', '.rmvb', '.rm'];
+                var videoFile = null;
+                for (var i = 0; i < fileListAll.length; i++) {
+                    var name = (fileListAll[i].name || fileListAll[i].file_name || '').toLowerCase();
+                    for (var j = 0; j < videoExts.length; j++) {
+                        if (name.endsWith(videoExts[j])) {
+                            videoFile = fileListAll[i];
+                            break;
+                        }
+                    }
+                    if (videoFile) break;
+                }
+                if (!videoFile && fileListAll.length > 0) {
+                    videoFile = fileListAll[0];
+                }
+                if (!videoFile) return {error: "未找到可播放的文件"};
+
+                var fileId = videoFile.id || videoFile.file_id || '';
+                var fileName = videoFile.name || videoFile.file_name || '';
+
+                if (!fileId) return {error: "无法获取文件ID"};
+
+                // 步骤3: 获取文件播放地址
+                // 尝试直接获取文件详情
+                var fileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + fileId + '?with_audit=true&space=', {
+                    headers: {'Content-Type': 'application/json'}
+                });
+
+                if (fileResp.ok) {
+                    var fileData = await fileResp.json();
+                    var playUrl = '';
+                    if (fileData.medias && fileData.medias.length > 0) {
+                        for (var k = 0; k < fileData.medias.length; k++) {
+                            if (fileData.medias[k].link && fileData.medias[k].link.url) {
+                                playUrl = fileData.medias[k].link.url;
+                                break;
+                            }
+                        }
+                    }
+                    var fallbackUrl = fileData.web_content_link || '';
+                    if (playUrl || fallbackUrl) {
+                        return {playUrl: playUrl, fallbackUrl: fallbackUrl, fileName: fileName};
+                    }
+                }
+
+                // 步骤4: 如果直接获取失败，尝试保存到网盘后再获取
+                // 先获取根目录 ID
+                var listResp = await fetch('https://api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=&page_token=&with_audit=true&limit=1', {
+                    headers: {'Content-Type': 'application/json'}
+                });
+                if (listResp.ok) {
+                    var listData = await listResp.json();
+                    // 创建临时文件夹用于保存分享文件
+                    var createResp = await fetch('https://api-pan.xunlei.com/drive/v1/files', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            kind: 'drive#folder',
+                            name: 'vbox_temp_' + Date.now(),
+                            parent_id: '',
+                            space: ''
+                        })
+                    });
+                    if (createResp.ok) {
+                        var createData = await createResp.json();
+                        var tempFolderId = createData.id || '';
+                        // 保存分享文件到临时文件夹
+                        var saveResp = await fetch('https://api-pan.xunlei.com/drive/v1/share/save', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                share_id: shareId,
+                                pass_code: pwd,
+                                file_ids: [fileId],
+                                parent_id: tempFolderId,
+                                space: ''
+                            })
+                        });
+                        if (saveResp.ok) {
+                            var saveData = await saveResp.json();
+                            var savedFileId = '';
+                            if (saveData.tasks && saveData.tasks.length > 0) {
+                                // 等待保存完成
+                                await new Promise(r => setTimeout(r, 3000));
+                                // 获取保存后的文件列表
+                                var savedListResp = await fetch('https://api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=' + tempFolderId + '&with_audit=true&limit=50', {
+                                    headers: {'Content-Type': 'application/json'}
+                                });
+                                if (savedListResp.ok) {
+                                    var savedListData = await savedListResp.json();
+                                    var savedFiles = savedListData.files || [];
+                                    for (var m = 0; m < savedFiles.length; m++) {
+                                        var savedName = (savedFiles[m].name || '').toLowerCase();
+                                        for (var n = 0; n < videoExts.length; n++) {
+                                            if (savedName.endsWith(videoExts[n])) {
+                                                savedFileId = savedFiles[m].id || '';
+                                                break;
+                                            }
+                                        }
+                                        if (savedFileId) break;
+                                    }
+                                    if (!savedFileId && savedFiles.length > 0) {
+                                        savedFileId = savedFiles[0].id || '';
+                                    }
+                                    if (savedFileId) {
+                                        var savedFileResp = await fetch('https://api-pan.xunlei.com/drive/v1/files/' + savedFileId + '?with_audit=true&space=', {
+                                            headers: {'Content-Type': 'application/json'}
+                                        });
+                                        if (savedFileResp.ok) {
+                                            var savedFileData = await savedFileResp.json();
+                                            var playUrl2 = '';
+                                            if (savedFileData.medias && savedFileData.medias.length > 0) {
+                                                for (var p = 0; p < savedFileData.medias.length; p++) {
+                                                    if (savedFileData.medias[p].link && savedFileData.medias[p].link.url) {
+                                                        playUrl2 = savedFileData.medias[p].link.url;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            var fallbackUrl2 = savedFileData.web_content_link || '';
+                                            // 清理临时文件夹
+                                            fetch('https://api-pan.xunlei.com/drive/v1/files/' + tempFolderId + '/trash', {
+                                                method: 'PATCH',
+                                                headers: {'Content-Type': 'application/json'},
+                                                body: '{}'
+                                            });
+                                            if (playUrl2 || fallbackUrl2) {
+                                                return {playUrl: playUrl2, fallbackUrl: fallbackUrl2, fileName: fileName};
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return {error: "所有获取播放地址的方式均失败"};
+            } catch(e) {
+                return {error: 'JS异常: ' + e.message};
+            }
+        })()
+        """
+
+        print("[Xunlei] 开始注入 JavaScript 解析播放地址...")
+
+        let jsResult: Any?
+        do {
+            jsResult = try await withTimeout(seconds: 30) {
+                try await webView.evaluateJavaScript(jsCode)
+            }
+        } catch {
+            print("[Xunlei] ❌ JS 执行超时或失败: \(error.localizedDescription)")
+            return (nil, nil, nil, "迅雷云盘: 解析超时，请重试")
+        }
+
+        guard let resultDict = jsResult as? [String: Any] else {
+            return (nil, nil, nil, "迅雷云盘: 解析结果格式异常")
+        }
+
+        let playURL = resultDict["playUrl"] as? String
+        let fallbackURL = resultDict["fallbackUrl"] as? String
+        let fileName = resultDict["fileName"] as? String
+        let error = resultDict["error"] as? String
+
+        print("[Xunlei] 解析结果: playURL=\(playURL != nil ? "有" : "无"), fallbackURL=\(fallbackURL != nil ? "有" : "无"), error=\(error ?? "无")")
+
+        return (playURL, fallbackURL, fileName, error)
+    }
+
+    /// 带超时的异步操作包装
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw DriveError.noPlayURL("操作超时")
+            }
+            guard let result = try await group.next() else {
+                throw DriveError.noPlayURL("操作无结果")
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
     // MARK: - 统一解析入口
 
     private func splitVboxFragment(from url: String) -> (baseURL: String, params: [String: String]) {
@@ -7445,8 +7864,7 @@ class CloudDriveManager: ObservableObject {
                 case .pan189:
                     result = try await resolve189PanPlayURL(shareURL: baseURL, cookie: token.value)
                 case .xunlei:
-                    // TODO: 迅雷云盘播放解析待实现（WebView 播放方案）
-                    throw DriveError.tokenNotConfigured("迅雷云盘播放解析尚未实现")
+                    result = try await resolveXunleiPlayURL(shareURL: baseURL, cookie: token.value)
                 }
                 self.log("[CloudDrive] ✅ \(driveType.displayName) Token \"\(token.name)\" 成功")
                 return result
@@ -7521,6 +7939,7 @@ enum DriveTypeAlias: String {
     case pan123 = "123云盘"
     case pan139 = "139云盘"
     case pan189 = "天翼云盘"
+    case xunlei = "迅雷云盘"
 }
 
 enum DriveError: LocalizedError {
