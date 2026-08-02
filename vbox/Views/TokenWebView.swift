@@ -184,6 +184,16 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            // 115/123 等网盘登录页面可能通过 iframe 加载子资源，子帧加载失败不应中断主页面登录流程
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled || nsError.code == 102 {
+                print("[TokenWebView] 忽略帧框加载中断: \(error.localizedDescription)")
+                return
+            }
+            print("[TokenWebView] 页面加载失败: \(error.localizedDescription)")
+        }
+
         // MARK: - WKUIDelegate：处理 window.open / alert / confirm / prompt
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
             // UC 等网页登录可能通过 window.open 打开新窗口，直接在当前页加载
@@ -379,8 +389,12 @@ struct TokenWebViewRepresentable: UIViewRepresentable {
             case .uc:
                 return lower.contains("__pus=") || lower.contains("__kps=") || lower.contains("__uid=") || (lower.contains("uc") && lower.count > 50)
             case .one15:
-                return lower.contains("uid=") || lower.contains("cid=") || lower.contains("seid=") ||
-                       lower.contains("user_id") || lower.contains("115") || lower.contains("passport")
+                // 115 网盘要求 Cookie 包含 UID + CID（SEID/KID 为推荐字段）
+                // 仅当同时包含 UID 和 CID 时才认为 Cookie 足够，避免过早接受不完整的 Cookie
+                let hasUID = lower.contains("uid=")
+                let hasCID = lower.contains("cid=")
+                let hasKID = lower.contains("kid=")
+                return (hasUID && hasCID) || (hasUID && hasKID)
             case .pan123:
                 return lower.contains("authorization") || lower.contains("token") || lower.contains("auth") ||
                        lower.contains("session") || lower.contains("login") || lower.contains("userid") ||

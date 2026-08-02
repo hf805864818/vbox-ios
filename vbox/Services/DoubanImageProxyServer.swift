@@ -419,7 +419,7 @@ final class DoubanImageProxyServer {
             }
         } else if item.provider == "115" {
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
-                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+                request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             }
             if request.value(forHTTPHeaderField: "Referer") == nil {
                 request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
@@ -913,6 +913,8 @@ final class DoubanImageProxyServer {
             || lower.hasSuffix(".115.com")
             || lower.contains("115cdn.com")
             || lower.contains("anxia.com")
+            || lower.contains("cdnfhnup")
+            || lower.contains("fhnqqso")
     }
 
     private func cleanupExpiredStreams() {

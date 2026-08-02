@@ -5798,45 +5798,35 @@ class CloudDriveManager: ObservableObject {
         var request = URLRequest(url: components.url!)
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[115] snap 响应: HTTP \(httpStatus), bytes=\(data.count)")
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let bodyPreview = String(data: data.prefix(200), encoding: .utf8) ?? "(binary)"
+            print("[115] snap 响应非 JSON: \(bodyPreview)")
             throw DriveError.invalidResponse
         }
         if let state = json["state"] as? Bool, state == false {
             let message = json["error"] as? String ?? json["message"] as? String ?? "115 snap 失败"
+            print("[115] snap state=false: \(message), HTTP \(httpStatus)")
             throw DriveError.noPlayURL("115: \(message)")
         }
-        guard let dataDict = json["data"] as? [String: Any] else { throw DriveError.invalidResponse }
+        // 兼容 data 在不同层级的情况
+        guard let dataDict = json["data"] as? [String: Any] else {
+            // 某些情况下 snap 直接返回文件列表（无 data 包裹）
+            if let directList = json["list"] as? [[String: Any]], !directList.isEmpty {
+                return directList.compactMap { one15ParseSnapItem($0) }
+            }
+            print("[115] snap 响应缺少 data 字段，顶层 keys: \(json.keys.sorted())")
+            throw DriveError.invalidResponse
+        }
 
         let rawList = (dataDict["list"] as? [[String: Any]])
             ?? (dataDict["data"] as? [[String: Any]])
             ?? []
-        let result = rawList.compactMap { item -> One15SnapResult? in
-            let name = item["n"] as? String
-                ?? item["file_name"] as? String
-                ?? item["name"] as? String
-            let pick = item["pc"] as? String
-                ?? item["pick_code"] as? String
-                ?? item["pickcode"] as? String
-            let itemCid = item["cid"] as? String
-                ?? item["fid"] as? String
-                ?? item["id"] as? String
-                ?? (item["cid"] as? Int).map { String($0) }
-            let isDir: Bool
-            if let boolValue = item["is_dir"] as? Bool {
-                isDir = boolValue
-            } else if let fc = item["fc"] as? String, !fc.isEmpty {
-                isDir = true
-            } else if let category = item["file_category"] as? String {
-                isDir = category == "0"
-            } else {
-                isDir = false
-            }
-            guard name != nil || pick != nil || itemCid != nil else { return nil }
-            return One15SnapResult(pickCode: pick, cid: itemCid, fileName: name, isDir: isDir)
-        }
+        let result = rawList.compactMap { one15ParseSnapItem($0) }
         if !result.isEmpty {
             return result
         }
@@ -5848,25 +5838,106 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("115: 分享列表为空")
     }
 
+    /// 解析 snap 返回的单个文件项，兼容多种字段名
+    private func one15ParseSnapItem(_ item: [String: Any]) -> One15SnapResult? {
+        let name = item["n"] as? String
+            ?? item["file_name"] as? String
+            ?? item["name"] as? String
+        let pick = item["pc"] as? String
+            ?? item["pick_code"] as? String
+            ?? item["pickcode"] as? String
+        let itemCid = item["cid"] as? String
+            ?? item["fid"] as? String
+            ?? item["id"] as? String
+            ?? (item["cid"] as? Int).map { String($0) }
+            ?? (item["fid"] as? Int).map { String($0) }
+        let isDir: Bool
+        if let boolValue = item["is_dir"] as? Bool {
+            isDir = boolValue
+        } else if let fc = item["fc"] as? String, !fc.isEmpty {
+            isDir = true
+        } else if let category = item["file_category"] as? String {
+            isDir = category == "0"
+        } else if let pid = item["pid"] as? String, !pid.isEmpty {
+            isDir = false
+        } else {
+            isDir = false
+        }
+        guard name != nil || pick != nil || itemCid != nil else { return nil }
+        return One15SnapResult(pickCode: pick, cid: itemCid, fileName: name, isDir: isDir)
+    }
+
     private func one15GetDownloadURL(pickCode: String, cookie: String) async throws -> String {
-        var components = URLComponents(string: "https://proapi.115.com/app/chrome/downurl")!
+        // 115 网盘下载接口可能因风控/版本更迭失效，按优先级尝试多个端点
+        let endpoints: [(url: String, source: String)] = [
+            ("https://proapi.115.com/app/chrome/downurl", "chrome/downurl"),
+            ("https://proapi.115.com/android/2.0/ufile/download", "android/ufile/download"),
+            ("https://webapi.115.com/files/download", "webapi/files/download"),
+        ]
+
+        var lastError: Error?
+        for (baseURL, source) in endpoints {
+            do {
+                let url = try await one15FetchDownloadURL(
+                    from: baseURL,
+                    pickCode: pickCode,
+                    cookie: cookie,
+                    source: source
+                )
+                print("[115] ✅ 下载链接获取成功（\(source)），host=\(URL(string: url)?.host ?? "unknown")")
+                return url
+            } catch {
+                print("[115] ❌ \(source) 失败: \(error.localizedDescription)")
+                lastError = error
+            }
+        }
+        throw lastError ?? DriveError.noPlayURL("115: 所有下载接口均失败")
+    }
+
+    /// 尝试从单个端点获取下载链接
+    private func one15FetchDownloadURL(
+        from baseURL: String,
+        pickCode: String,
+        cookie: String,
+        source: String
+    ) async throws -> String {
+        var components = URLComponents(string: baseURL)!
         components.queryItems = [URLQueryItem(name: "pickcode", value: pickCode)]
+        // webapi.115.com/files/download 需要时间戳参数
+        if source == "webapi/files/download" {
+            components.queryItems?.append(URLQueryItem(name: "_", value: String(Int(Date().timeIntervalSince1970 * 1000))))
+        }
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
 
-        let (data, _) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+        // 某些端点可能返回 302 重定向到直链，检查 response URL
+        if let finalURL = response.url, finalURL.absoluteString.hasPrefix("http"),
+           !finalURL.absoluteString.contains("proapi.115.com"),
+           !finalURL.absoluteString.contains("webapi.115.com") {
+            print("[115] \(source) 返回重定向直链: \(finalURL.host ?? "")")
+            return finalURL.absoluteString
+        }
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let bodyPreview = String(data: data.prefix(200), encoding: .utf8) ?? "(binary)"
+            print("[115] \(source) 响应非 JSON (HTTP \(httpStatus)): \(bodyPreview)")
             throw DriveError.invalidResponse
         }
+
         if let state = json["state"] as? Bool, state == false {
-            let message = json["error"] as? String ?? json["message"] as? String ?? "115 downurl 失败"
+            let message = json["error"] as? String ?? json["message"] as? String ?? "115 \(source) 失败"
+            print("[115] \(source) state=false: \(message), HTTP \(httpStatus)")
             throw DriveError.noPlayURL("115: \(message)")
         }
 
+        // 尝试从 data 字典中提取 URL
         if let dataObj = json["data"] as? [String: Any] {
             for (_, value) in dataObj {
                 if let fileInfo = value as? [String: Any],
@@ -5875,9 +5946,11 @@ class CloudDriveManager: ObservableObject {
                 }
             }
         }
+        // 尝试从顶层提取 URL（如 file_url 字段）
         if let url = one15ExtractURL(from: json) { return url }
 
-        throw DriveError.noPlayURL("115: 未获取到下载地址")
+        print("[115] \(source) 未找到下载地址，响应 keys: \(json.keys.sorted())")
+        throw DriveError.noPlayURL("115: \(source) 未获取到下载地址")
     }
 
     private func one15ExtractURL(from value: Any) -> String? {
@@ -5885,7 +5958,7 @@ class CloudDriveManager: ObservableObject {
             return text
         }
         if let dict = value as? [String: Any] {
-            for key in ["url", "download_url", "dlink"] {
+            for key in ["url", "download_url", "dlink", "file_url", "fileUrl", "downloadUrl"] {
                 if let text = dict[key] as? String, text.hasPrefix("http") { return text }
                 if let nested = dict[key], let url = one15ExtractURL(from: nested) { return url }
             }
@@ -5900,21 +5973,37 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
+    /// 115 网盘统一 User-Agent（API 调用 + 播放代理均使用此 UA，确保 Cookie 与 UA 一致）
+    private static let one15UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
     private func normalize115Cookie(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.lowercased().hasPrefix("cookie:") {
-            return String(trimmed.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        var cookie = trimmed
+        if cookie.lowercased().hasPrefix("cookie:") {
+            cookie = String(cookie.dropFirst("cookie:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if trimmed.contains("=") {
-            return trimmed
+        if !cookie.contains("=") {
+            cookie = "CID=\(cookie)"
         }
-        return "CID=\(trimmed)"
+        // 校验 Cookie 完整性：115 网盘要求 UID + CID + SEID，KID 为新版 API 推荐字段
+        let lower = cookie.lowercased()
+        let hasUID = lower.contains("uid=")
+        let hasCID = lower.contains("cid=")
+        let hasKID = lower.contains("kid=")
+        if !hasUID || !hasCID {
+            print("[115] ⚠️ Cookie 可能不完整（UID=\(hasUID), CID=\(hasCID), KID=\(hasKID)），可能导致 API 调用失败")
+        } else if !hasKID {
+            print("[115] ⚠️ Cookie 缺少 KID 参数，115 新版 API 可能需要此字段")
+        } else {
+            print("[115] ✅ Cookie 完整性检查通过（UID + CID + KID）")
+        }
+        return cookie
     }
 
     private func one15PlaybackHeaders(cookie: String) -> [String: String] {
         [
             "Cookie": cookie,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) 115Chrome/33.0.0.0 Safari/537.36",
+            "User-Agent": Self.one15UA,
             "Referer": "https://115.com/",
             "Origin": "https://115.com",
             "Accept": "*/*",

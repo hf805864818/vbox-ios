@@ -2831,6 +2831,8 @@ class PlayerState: ObservableObject {
             || host.hasSuffix(".115.com")
             || host.contains("115cdn.com")
             || host.contains("anxia.com")
+            || host.contains("cdnfhnup")
+            || host.contains("fhnqqso")
     }
 
     private func isUnsupportedMediaError(_ error: NSError?, errorDesc: String, underlyingDesc: String) -> Bool {

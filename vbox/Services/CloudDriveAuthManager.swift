@@ -2846,7 +2846,14 @@ final class CloudDriveAuthManager: ObservableObject {
         request.httpMethod = url.contains("/file/sort") ? "POST" : "GET"
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue(referer, forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        // 115 网盘需要完整 Chrome UA + Origin；其他网盘用通用 UA 即可
+        let is115 = url.contains("115.com")
+        if is115 {
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            request.setValue("https://115.com", forHTTPHeaderField: "Origin")
+        } else {
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        }
         if let auth = authorization, !auth.isEmpty {
             request.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization")
         }
