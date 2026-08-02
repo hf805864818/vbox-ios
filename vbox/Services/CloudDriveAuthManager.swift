@@ -327,7 +327,12 @@ final class CloudDriveAuthManager: ObservableObject {
             request = URLRequest(url: postComponents.url!)
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            let bodyString = queryItems.map { "\($0.name)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }.joined(separator: "&")
+            let bodyParts = queryItems.map { item -> String in
+                let value = item.value ?? ""
+                let encoded = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                return "\(item.name)=\(encoded)"
+            }
+            let bodyString = bodyParts.joined(separator: "&")
             request.httpBody = bodyString.data(using: .utf8)
         } else {
             // GET 方式：参数放在 URL 中

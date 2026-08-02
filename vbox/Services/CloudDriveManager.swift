@@ -5896,13 +5896,16 @@ class CloudDriveManager: ObservableObject {
             ?? item["pickcode"] as? String
             ?? item["pick"] as? String
             ?? item["oid"] as? String
-        let itemCid = item["cid"] as? String
-            ?? item["fid"] as? String
-            ?? item["id"] as? String
-            ?? item["file_id"] as? String
-            ?? (item["cid"] as? Int).map { String($0) }
-            ?? (item["fid"] as? Int).map { String($0) }
-            ?? (item["id"] as? Int).map { String($0) }
+        let itemCid: String? = {
+            if let s = item["cid"] as? String { return s }
+            if let s = item["fid"] as? String { return s }
+            if let s = item["id"] as? String { return s }
+            if let s = item["file_id"] as? String { return s }
+            if let i = item["cid"] as? Int { return String(i) }
+            if let i = item["fid"] as? Int { return String(i) }
+            if let i = item["id"] as? Int { return String(i) }
+            return nil
+        }()
         let isDir: Bool
         if let boolValue = item["is_dir"] as? Bool {
             isDir = boolValue
