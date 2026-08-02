@@ -1637,24 +1637,15 @@ struct CloudAuthCenterView: View {
                     }
                 } else if type == .pan139 {
                     Button(action: { show139NativeQR = true }) {
-                        authButtonLabel("原生扫码", icon: "qrcode")
-                    }
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页登录兜底", icon: "globe")
+                        authButtonLabel("网页登录授权", icon: "globe")
                     }
                 } else if type == .pan189 {
                     Button(action: { show189NativeQR = true }) {
-                        authButtonLabel("扫码授权", icon: "qrcode")
-                    }
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页兜底", icon: "globe")
+                        authButtonLabel("网页登录授权", icon: "globe")
                     }
                 } else if type == .xunlei {
                     Button(action: { showXunleiNativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
-                    }
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页兜底", icon: "globe")
                     }
                 } else if type == .pan123 {
                     Button(action: { show123NativeQR = true }) {
@@ -3552,13 +3543,22 @@ struct NativeCloudQRLoginView: View {
     var body: some View {
         NavigationView {
             Group {
-                if driveType == .one15 || driveType == .pan123 {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
                     VStack(spacing: 0) {
                         if driveType == .one15 {
                             Pan115WebView(webView: pan115Helper.webView)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
+                        } else if driveType == .pan123 {
                             Pan123WebView(webView: pan123Helper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if driveType == .pan139 {
+                            Pan139WebView(webView: pan139Helper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if driveType == .pan189 {
+                            Pan189WebView(webView: pan189Helper.webView)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if driveType == .xunlei {
+                            XunleiWebView(webView: xunleiHelper.webView)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
 
@@ -3622,7 +3622,7 @@ struct NativeCloudQRLoginView: View {
                 }
             }
             .onAppear {
-                if driveType == .one15 || driveType == .pan123 {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
                     Task { await startLoginFlow() }
                 }
             }
