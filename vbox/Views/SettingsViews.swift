@@ -1667,9 +1667,6 @@ struct CloudAuthCenterView: View {
                     Button(action: { show115NativeQR = true }) {
                         authButtonLabel("网页登录授权", icon: "globe")
                     }
-                    Button(action: { webAuthDriveType = type }) {
-                        authButtonLabel("网页兜底", icon: "globe")
-                    }
                 } else {
                     Button(action: { webAuthDriveType = type }) {
                         authButtonLabel(type == .one15 ? "网页登录授权" : "网页登录兜底", icon: "globe")
@@ -3568,18 +3565,20 @@ struct NativeCloudQRLoginView: View {
                     statusCard
                     tipCard
 
-                    Button(action: {
-                        Task { await startLoginFlow() }
-                    }) {
-                        Text(isPolling ? "重新生成二维码" : "生成二维码")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color(hex: "E11D48"))
-                            .cornerRadius(12)
+                    if driveType != .one15 {
+                        Button(action: {
+                            Task { await startLoginFlow() }
+                        }) {
+                            Text(isPolling ? "重新生成二维码" : "生成二维码")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color(hex: "E11D48"))
+                                .cornerRadius(12)
+                        }
+                        .disabled(isGenerating)
                     }
-                    .disabled(isGenerating)
                 }
                 .padding(16)
             }
@@ -3604,6 +3603,11 @@ struct NativeCloudQRLoginView: View {
                 }
                 if driveType == .ali {
                     aliOpenListHelper.cleanup()
+                }
+            }
+            .onAppear {
+                if driveType == .one15 {
+                    Task { await startLoginFlow() }
                 }
             }
             .toolbar {
