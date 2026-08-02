@@ -939,7 +939,7 @@ final class DoubanImageProxyServer {
             let excluded: Set<String> = [
                 "pan.xunlei.com",
                 "i.xunlei.com",
-                "api-pan.xunlei.com",
+                "x-api-pan.xunlei.com",
                 "xluser-ssl.xunlei.com",
                 "www.xunlei.com"
             ]

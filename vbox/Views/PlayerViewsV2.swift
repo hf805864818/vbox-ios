@@ -2850,7 +2850,7 @@ class PlayerState: ObservableObject {
             let excluded: Set<String> = [
                 "pan.xunlei.com",
                 "i.xunlei.com",
-                "api-pan.xunlei.com",
+                "x-api-pan.xunlei.com",
                 "xluser-ssl.xunlei.com",
                 "www.xunlei.com"
             ]
@@ -3340,6 +3340,43 @@ class PlayerState: ObservableObject {
                 return
             }
             log("[PlayerV2] ❌ 直链URL创建失败, raw=\(urlString.prefix(120))")
+        }
+
+        // 提前检测云盘分享链接（如 pan.xunlei.com/s/、pan.quark.cn/s/ 等），
+        // 云盘链接无法通过解析器/playerContent/nativeDetail 处理，直接由云盘 API 解析，失败即报错
+        if let driveType = CloudDriveManager.detectDrive(from: urlString) {
+            let tokens = CloudDriveManager.shared.tokens(for: driveType)
+            if tokens.isEmpty {
+                let msg = "未配置\(driveType.displayName) Token，请到 设置→网盘播放 中添加"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { self.failPlayback(msg) }
+                return
+            }
+            log("[PlayerV2] ✅ 提前检测到 \(driveType.displayName) 分享链接，直接走云盘解析")
+            do {
+                let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                log("[PlayerV2] ✅ 云盘解析成功! 播放地址: \(result.url.prefix(80))...")
+                await playResolvedDriveVideo(result)
+                return
+            } catch let error as DriveError {
+                let msg: String
+                switch error {
+                case .tokenNotConfigured(let name): msg = "未配置\(name) Token，请到 设置→网盘播放 中添加"
+                case .noPlayURL(let reason): msg = "\(driveType.displayName) \(reason)"
+                case .invalidShareURL: msg = "无效的\(driveType.displayName)分享链接"
+                case .saveFailed: msg = "\(driveType.displayName) 转存失败"
+                case .invalidResponse: msg = "\(driveType.displayName) 服务器响应异常"
+                case .notImplemented: msg = "\(driveType.displayName) 暂不支持"
+                }
+                log("[PlayerV2] ❌ DriveError: \(msg)")
+                await MainActor.run { self.failPlayback(msg) }
+                return
+            } catch {
+                let msg = "\(driveType.displayName) 解析异常: \(error.localizedDescription)"
+                log("[PlayerV2] ❌ \(msg)")
+                await MainActor.run { self.failPlayback(msg) }
+                return
+            }
         }
 
         // 需要解析的链接：先试解析器，再试 playerContent
