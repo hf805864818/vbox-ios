@@ -1344,7 +1344,7 @@ class CloudDriveManager: ObservableObject {
         let cred = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
         let accessToken = cred.accessToken ?? ""
         guard !accessToken.isEmpty else {
-            throw DriveError.noPlayURL("阿里 token 刷新失败：OpenList 未返回 access_token")
+            throw DriveError.noPlayURL("阿里 token 刷新成功但未返回 access_token，请重新授权阿里云盘")
         }
 
         let shareInfo = extractAliShareInfo(from: shareURL)
@@ -5786,6 +5786,9 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func one15Snap(shareCode: String, receiveCode: String, cid: String, cookie: String) async throws -> [One15SnapResult] {
+        // 先调用 share/receive 接收分享（115 要求先接收分享才能获取完整的文件信息含 pick_code）
+        await one15ReceiveShare(shareCode: shareCode, receiveCode: receiveCode, cookie: cookie)
+
         var components = URLComponents(string: "https://webapi.115.com/share/snap")!
         components.queryItems = [
             URLQueryItem(name: "share_code", value: shareCode),
@@ -5803,6 +5806,11 @@ class CloudDriveManager: ObservableObject {
         let (data, response) = try await session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
         print("[115] snap 响应: HTTP \(httpStatus), bytes=\(data.count)")
+
+        // 记录原始响应内容用于诊断
+        let rawBody = String(data: data.prefix(1000), encoding: .utf8) ?? "(binary)"
+        print("[115] snap 原始响应: \(rawBody)")
+
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             let bodyPreview = String(data: data.prefix(200), encoding: .utf8) ?? "(binary)"
             print("[115] snap 响应非 JSON: \(bodyPreview)")
@@ -5810,14 +5818,17 @@ class CloudDriveManager: ObservableObject {
         }
         if let state = json["state"] as? Bool, state == false {
             let message = json["error"] as? String ?? json["message"] as? String ?? "115 snap 失败"
-            print("[115] snap state=false: \(message), HTTP \(httpStatus)")
+            print("[115] snap state=false: \(message), HTTP \(httpStatus), 完整响应: \(json)")
             throw DriveError.noPlayURL("115: \(message)")
         }
         // 兼容 data 在不同层级的情况
         guard let dataDict = json["data"] as? [String: Any] else {
             // 某些情况下 snap 直接返回文件列表（无 data 包裹）
             if let directList = json["list"] as? [[String: Any]], !directList.isEmpty {
-                return directList.compactMap { one15ParseSnapItem($0) }
+                print("[115] snap 直接返回 list（无 data 包裹），共 \(directList.count) 项")
+                let results = directList.compactMap { one15ParseSnapItem($0) }
+                print("[115] snap 解析结果: \(results.count) 项，其中含 pickCode 的: \(results.filter { $0.pickCode != nil }.count)")
+                return results
             }
             print("[115] snap 响应缺少 data 字段，顶层 keys: \(json.keys.sorted())")
             throw DriveError.invalidResponse
@@ -5826,7 +5837,13 @@ class CloudDriveManager: ObservableObject {
         let rawList = (dataDict["list"] as? [[String: Any]])
             ?? (dataDict["data"] as? [[String: Any]])
             ?? []
+        print("[115] snap data.list 共 \(rawList.count) 项")
+        if let firstItem = rawList.first {
+            print("[115] snap 首项所有字段: \(firstItem.keys.sorted())")
+            print("[115] snap 首项内容: \(firstItem)")
+        }
         let result = rawList.compactMap { one15ParseSnapItem($0) }
+        print("[115] snap 解析结果: \(result.count) 项，其中含 pickCode 的: \(result.filter { $0.pickCode != nil }.count)")
         if !result.isEmpty {
             return result
         }
@@ -5835,7 +5852,37 @@ class CloudDriveManager: ObservableObject {
             return [One15SnapResult(pickCode: pickCode, cid: dataDict["cid"] as? String, fileName: dataDict["file_name"] as? String, isDir: false)]
         }
 
-        throw DriveError.noPlayURL("115: 分享列表为空")
+        throw DriveError.noPlayURL("115: 分享列表为空或未返回 pick_code")
+    }
+
+    /// 接收 115 分享（在调用 snap 前先接收，确保能获取到 pick_code）
+    private func one15ReceiveShare(shareCode: String, receiveCode: String, cookie: String) async {
+        var components = URLComponents(string: "https://webapi.115.com/share/receive")!
+        components.queryItems = [
+            URLQueryItem(name: "share_code", value: shareCode),
+            URLQueryItem(name: "receive_code", value: receiveCode)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let state = json["state"] as? Bool ?? false
+                let msg = json["error"] as? String ?? json["message"] as? String ?? ""
+                print("[115] receive: HTTP \(httpStatus), state=\(state), msg=\(msg)")
+                if let dataDict = json["data"] as? [String: Any] {
+                    print("[115] receive data keys: \(dataDict.keys.sorted())")
+                }
+            } else {
+                print("[115] receive: HTTP \(httpStatus), 响应非 JSON")
+            }
+        } catch {
+            print("[115] receive 请求失败（不影响后续 snap 调用）: \(error.localizedDescription)")
+        }
     }
 
     /// 解析 snap 返回的单个文件项，兼容多种字段名
@@ -5843,14 +5890,19 @@ class CloudDriveManager: ObservableObject {
         let name = item["n"] as? String
             ?? item["file_name"] as? String
             ?? item["name"] as? String
+        // pick_code 字段名兼容：pc / pick_code / pickcode / pick / oid
         let pick = item["pc"] as? String
             ?? item["pick_code"] as? String
             ?? item["pickcode"] as? String
+            ?? item["pick"] as? String
+            ?? item["oid"] as? String
         let itemCid = item["cid"] as? String
             ?? item["fid"] as? String
             ?? item["id"] as? String
+            ?? item["file_id"] as? String
             ?? (item["cid"] as? Int).map { String($0) }
             ?? (item["fid"] as? Int).map { String($0) }
+            ?? (item["id"] as? Int).map { String($0) }
         let isDir: Bool
         if let boolValue = item["is_dir"] as? Bool {
             isDir = boolValue
@@ -5864,7 +5916,14 @@ class CloudDriveManager: ObservableObject {
             isDir = false
         }
         guard name != nil || pick != nil || itemCid != nil else { return nil }
-        return One15SnapResult(pickCode: pick, cid: itemCid, fileName: name, isDir: isDir)
+        // 如果 pick_code 为空但 fid 存在，尝试从其他字段推导
+        var finalPick = pick
+        if finalPick == nil, let fid = itemCid, !fid.isEmpty {
+            // 某些 115 API 版本中 pick_code 可能为空，但 fid 可用于直接下载
+            print("[115] ⚠️ 文件 '\(name ?? "?")' 无 pick_code，fid=\(fid)，将尝试用 fid 获取下载链接")
+            finalPick = fid
+        }
+        return One15SnapResult(pickCode: finalPick, cid: itemCid, fileName: name, isDir: isDir)
     }
 
     private func one15GetDownloadURL(pickCode: String, cookie: String) async throws -> String {
