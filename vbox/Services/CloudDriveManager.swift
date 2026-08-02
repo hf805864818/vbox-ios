@@ -1340,8 +1340,12 @@ class CloudDriveManager: ObservableObject {
 
     func resolveAliPlayURL(shareURL: String, refreshToken: String) async throws -> PlayResult {
         print("[Ali] 开始解析: \(shareURL)")
-        let tokenResult = try await aliRefreshAccessToken(refreshToken: refreshToken)
-        let accessToken = tokenResult.accessToken
+        // 使用 OpenList 刷新 access_token（与授权获取 token 路径一致，确保 client_id 匹配）
+        let cred = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
+        let accessToken = cred.accessToken ?? ""
+        guard !accessToken.isEmpty else {
+            throw DriveError.noPlayURL("阿里 token 刷新失败：OpenList 未返回 access_token")
+        }
 
         let shareInfo = extractAliShareInfo(from: shareURL)
         guard !shareInfo.shareId.isEmpty else { throw DriveError.invalidShareURL }
@@ -1421,32 +1425,6 @@ class CloudDriveManager: ObservableObject {
             fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
             fallbackSource: fallbackSource
         )
-    }
-
-    private func aliRefreshAccessToken(refreshToken: String) async throws -> AliTokenResponse {
-        var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/account/token")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
-            "refresh_token": refreshToken,
-            "grant_type": "refresh_token",
-            "client_id": "25dzX3vbRqA4f1D1ma2M"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, _) = try await session.data(for: request)
-        // 先检查 code，避免错误响应被 JSONDecoder 误解析
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let code = json["code"] as? String, code != "OK" && code != "ok" && code != "0" {
-                let msg = json["message"] as? String ?? code
-                throw DriveError.noPlayURL("阿里 token 刷新失败：\(msg)")
-            }
-            if let code = json["code"] as? Int, code != 0 && code != 200 {
-                let msg = json["message"] as? String ?? "code=\(code)"
-                throw DriveError.noPlayURL("阿里 token 刷新失败：\(msg)")
-            }
-        }
-        return try JSONDecoder().decode(AliTokenResponse.self, from: data)
     }
 
     private func aliGetShareToken(shareId: String, sharePwd: String?, token: String) async throws -> String {
@@ -7421,16 +7399,6 @@ enum DriveError: LocalizedError {
 }
 
 // MARK: - 阿里云盘 API 响应模型
-
-private struct AliTokenResponse: Codable {
-    let accessToken: String
-    let refreshToken: String
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
-    }
-}
 
 private struct AliShareTokenResponse: Codable {
     let shareToken: String
