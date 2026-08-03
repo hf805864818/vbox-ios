@@ -118,6 +118,10 @@ struct WelfarePlatformRouter {
         case .fuliBase:
             return makeFuliBaseDestination(for: platform)
 
+        // MARK: 福利专区专用远程 Spider
+        case .welfareSpider:
+            return makeWelfareSpiderDestination(for: platform)
+
         // MARK: 未实现路由
         case .unknown:
             // serviceType 不在枚举中：显示明确错误，不兜底到其他平台
@@ -153,6 +157,29 @@ struct WelfarePlatformRouter {
         default:
             // 未知 fuli_base 平台：显示明确错误，不兜底到 XJSP
             return AnyView(UnsupportedPlatformView(platform: platform))
+        }
+    }
+
+    /// 福利专区专用 Spider 路由
+    ///
+    /// 已实现原生 Swift Service 的平台直接走 FuliPlatformMainView，
+    /// 未实现的平台仍展示 WelfareSpiderHomeView（脚本缓存状态页）。
+    /// 新增福利 Spider 平台时：只需在此处加一个 case + 创建对应 Service 文件。
+    private func makeWelfareSpiderDestination(for platform: WelfarePlatform) -> AnyView {
+        let key = platform.platformKey
+
+        switch key {
+        case "lusushequ":
+            // 六速社区：已实现原生 Swift Service，复用自适应框架
+            let p = makeYBoxPlatform2(from: platform)
+            return AnyView(
+                FuliPlatformMainView(platform: p, service: LusushequService.shared)
+            )
+        default:
+            // 未实现原生 Service 的平台：展示脚本缓存状态页
+            return AnyView(
+                WelfareSpiderHomeView(platform: platform)
+            )
         }
     }
 
