@@ -253,6 +253,7 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
+		0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */ = {isa = PBXBuildFile; fileRef = 4E3071D27583832059A8C211 /* WelfareRemoteAutoLoader.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -518,6 +519,7 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
+		4E3071D27583832059A8C211 /* WelfareRemoteAutoLoader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WelfareRemoteAutoLoader.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -636,7 +638,8 @@
 				C58B12E309090FC8BE8664F2 /* RemoteWelfarePasswordSheet.swift */,
 				39F98B4020C6C82E76951C53 /* RemoteWelfareEntryPoint.swift */,
 				3EBA63285C8717260EC36C0B /* XJSPWelfareMainView.swift */,
-			);
+							4E3071D27583832059A8C211 /* WelfareRemoteAutoLoader.m */,
+);
 			path = WelfareRemote;
 			sourceTree = "<group>";
 		};
@@ -1133,6 +1136,7 @@
 				A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */,
 				D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */,
 				A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */,
+				0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
