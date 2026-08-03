@@ -19,6 +19,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct RemoteWelfareHomeView: View {
     @EnvironmentObject private var settings: AppSettings
@@ -160,6 +161,7 @@ struct RemoteWelfareHomeView: View {
                             .buttonStyle(.plain)
                             .simultaneousGesture(
                                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                     navigatePlatformKey = nil
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         withAnimation { isEditMode = true }
