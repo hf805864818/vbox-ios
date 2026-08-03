@@ -1054,30 +1054,27 @@ extension DoubanService {
             return nil
         }
 
-        // 去掉 imageView2 处理参数，并把 /photo/large/ 或 /photo/l/ 都转成 /photo/raw/ 取原图
-        var components = URLComponents(string: portraitURL)
-        components?.query = nil
-        let cleanURL = components?.string ?? portraitURL
-        let rawURL = cleanURL
-            .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
-            .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
-        print("[DoubanService] fetchWallpaperURL 成功: 竖版 \(rawURL)")
-        return DoubanImageProxyServer.shared.markedURLString(for: rawURL)
+        // 升级图片 URL 获取高清版本（修复：不能去掉 query 或使用 raw 路径，会返回空图）
+        let upgradedURL = upgradeDoubanImageURL(portraitURL)
+        print("[DoubanService] fetchWallpaperURL 成功: 竖版 \(upgradedURL)")
+        return DoubanImageProxyServer.shared.markedURLString(for: upgradedURL)
     }
 
     /// 拉取豆瓣横版海报（用于 Banner 横版大图）
-    /// 优先海报(type=R) → 壁纸(type=W) → 剧照(type=S，仅作为最后回退)
+    /// 优先海报(type=R) → 剧照(type=S，仅作为最后回退)
     /// 通过宽高比筛选 + 最优匹配，选取最适合 Banner 比例的横版图
     func fetchBackdropURL(subjectId: String) async -> String? {
-        // Banner 卡片宽高比约 1.65:1，只取宽高比在 1.5~3.0 之间且宽度 >= 800px 的横版图
+        // Banner 卡片宽高比约 1.65:1，只取宽高比在 1.5~3.0 之间的横版图
+        // 注意：不再限制 minWidth，因为豆瓣移动端 API 返回的 large 版本通过 imageView2
+        // 参数压缩到 600px 宽度，API 返回的 width 是压缩后的值而非原图尺寸
         let targetRatio: Double = 1.65
         let minRatio: Double = 1.5
         let maxRatio: Double = 3.0
-        let minWidth: Int = 800
 
-        // 依次尝试 type=R(海报) → type=W(壁纸) → type=S(剧照，最后回退)
+        // type=R(海报) → type=S(剧照，最后回退)
+        // 已移除 type=W(壁纸)：API 返回数据与 type=R 完全相同，无额外价值
         // type=S 虽然是剧照，但通过宽高比筛选可以找到有场景感的横版剧照，比空白好
-        for photoType in ["R", "W", "S"] {
+        for photoType in ["R", "S"] {
             let url = URL(string: "\(baseURL)/movie/\(subjectId)/photos?type=\(photoType)&count=50")!
             guard let (data, _) = try? await session.data(from: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1095,8 +1092,7 @@ extension DoubanService {
                       let rawURL = large["url"] as? String,
                       let w = large["width"] as? Int,
                       let h = large["height"] as? Int,
-                      h > 0,
-                      w >= minWidth else { continue }
+                      h > 0 else { continue }
 
                 let ratio = Double(w) / Double(h)
                 guard ratio >= minRatio, ratio <= maxRatio else { continue }
@@ -1104,12 +1100,7 @@ extension DoubanService {
                 let diff = abs(ratio - targetRatio)
                 if diff < bestDiff {
                     bestDiff = diff
-                    var components = URLComponents(string: rawURL)
-                    components?.query = nil
-                    let cleanURL = components?.string ?? rawURL
-                    bestURL = cleanURL
-                        .replacingOccurrences(of: "/photo/large/", with: "/photo/raw/")
-                        .replacingOccurrences(of: "/photo/l/", with: "/photo/raw/")
+                    bestURL = upgradeDoubanImageURL(rawURL)
                 }
             }
 
@@ -1122,5 +1113,29 @@ extension DoubanService {
 
         print("[DoubanService] fetchBackdropURL 未找到横版海报，subjectId=\(subjectId)")
         return nil
+    }
+
+    /// 升级豆瓣图片 URL 以获取更大尺寸版本
+    /// 豆瓣移动端 API 返回的 large 版本通过 imageView2 参数将宽度压缩到 600px，
+    /// 需修改 imageView2 的 w 参数获取高清版本。
+    /// 不能去掉 query 参数（qnmob 域名会返回 12 bytes 空图），
+    /// 不能使用 /photo/raw/ 路径替换（qnmob 和 img9 域名均不支持，返回空图）。
+    private func upgradeDoubanImageURL(_ rawURL: String) -> String {
+        if rawURL.contains("imageView2") {
+            // qnmob 域名: 修改 imageView2 中的 w 参数为 2000 获取高清版本
+            // 原 URL: ...?imageView2/2/q/80/w/600/h/3000/format/jpg
+            // 新 URL: ...?imageView2/2/q/85/w/2000/h/3000/format/jpg
+            var upgraded = rawURL
+            // 替换 w/xxx/ 为 w/2000/
+            if let range = upgraded.range(of: "/w/\\d+/", options: .regularExpression) {
+                upgraded = upgraded.replacingCharacters(in: range, with: "/w/2000/")
+            }
+            // 同时提高质量 q/80 → q/85
+            upgraded = upgraded.replacingOccurrences(of: "/q/80/", with: "/q/85/")
+            return upgraded
+        } else {
+            // img9 等域名无 imageView2 参数: URL 本身就是大图，保留原样
+            return rawURL
+        }
     }
 }
