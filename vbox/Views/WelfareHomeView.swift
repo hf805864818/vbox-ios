@@ -128,6 +128,8 @@ struct WelfareHomeView: View {
                             .buttonStyle(.plain)
                             .simultaneousGesture(
                                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                                    generator.impactOccurred()
                                     navigatePlatformID = nil
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         withAnimation { isEditMode = true }
