@@ -42,21 +42,4 @@ final class WelfareRemoteBootstrapGateway: NSObject {
     }
 }
 
-// MARK: - 启动辅助（手动调用入口）
 
-/// 福利远程源启动辅助
-/// 在 ContentView.onAppear 中调用（可选，+load 已自动触发）：
-///     WelfareRemoteBootstrapper.bootstrap()
-struct WelfareRemoteBootstrapper {
-    /// 幂等的 bootstrap 调用
-    @MainActor
-    static func bootstrap() {
-        WelfarePlatformConfigStore.shared.bootstrap()
-    }
-
-    /// 手动触发一次远程源拉取
-    @MainActor
-    static func refresh(completion: ((Result<Int, Error>) -> Void)? = nil) {
-        WelfarePlatformConfigStore.shared.refresh(completion: completion)
-    }
-}
