@@ -120,6 +120,7 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     ///   - "xigua"           → 通用吸瓜
     ///   - "fuli_base"       → 通用 FuliBaseService 子类
     ///   - "sb_aggregation"  → 色播聚合
+    ///   - "welfare_spider"  → 福利专区专用远程 Spider 脚本
     let serviceType: String
     /// 默认域名列表（按顺序回退探测）
     let defaultHosts: [String]
@@ -129,6 +130,20 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let defaultProxy: Bool?
     /// 备注（仅作说明，不影响业务）
     let notes: String?
+    /// 福利专区专用 Spider 脚本路径。
+    ///
+    /// 仅当 serviceType == "welfare_spider" 时使用；普通福利平台和普通远程源不会读取该字段。
+    let api: String?
+    /// 福利专区专用脚本类型，当前仅识别 "python"。
+    let scriptType: String?
+    /// 福利专区专用脚本执行引擎标记，预留给后续运行时扩展。
+    let engine: String?
+    /// 是否允许进入普通首页。福利 Spider 默认不允许。
+    let visibleInHome: Bool?
+    /// 是否允许进入普通全局搜索。福利 Spider 默认不允许。
+    let visibleInGlobalSearch: Bool?
+    /// 是否允许注册到普通 Spider 源池。福利 Spider 默认不允许。
+    let visibleInNormalSpider: Bool?
 
     var id: String { platformKey }
 
@@ -143,10 +158,24 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case sortOrder
         case defaultProxy
         case notes
+        case api
+        case scriptType
+        case engine
+        case visibleInHome
+        case visibleInGlobalSearch
+        case visibleInNormalSpider
     }
 
     /// 获取当前第一个可用域名
     var primaryHost: String { defaultHosts.first ?? "" }
+
+    /// 是否为福利专区专用 Spider 平台。
+    var isWelfareSpider: Bool { serviceType == WelfareServiceType.welfareSpider.rawValue }
+
+    /// 福利 Spider 是否允许进入普通 Spider 源池，默认 false。
+    var allowsNormalSpiderRegistration: Bool {
+        visibleInNormalSpider ?? false
+    }
 }
 
 // MARK: - 分类枚举（与 WelfareHomeView 中的 WelfareTab 对齐）
@@ -205,6 +234,7 @@ enum WelfareServiceType: String, CaseIterable {
     case xigua = "xigua"                       // 通用吸瓜
     case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
     case sbAggregation = "sb_aggregation"      // 色播聚合
+    case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本
 
     /// 未知 serviceType：远程 JSON 中的 serviceType 在枚举中找不到时使用，
     /// 路由会显示 UnsupportedPlatformView 错误页，不会兜底到其他平台。
