@@ -68,7 +68,7 @@ struct ContentView: View {
                     case .search: SearchView()
                     case .shortDrama: ShortDramaView()
                     case .live: LiveTVView()
-                    case .welfare: WelfareHomeView()
+                    case .welfare: WelfareTabGateView()
                     case .profile: ProfileView()
                     }
                 }
