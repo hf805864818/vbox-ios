@@ -1,0 +1,388 @@
+//
+//  RemoteWelfareSettingsView.swift
+//  vbox
+//
+//  Phase 2：iOS 客户端新增文件（不改任何现有代码）
+//  作用：远程源福利平台设置页面，与现有 WelfareSettingsView 并行存在。
+//        - 顶部「使用福利远程源」Toggle（默认开）
+//        - 关闭时给提示语：当前将使用内置资源版本
+//        - 平台列表：从 WelfarePlatformConfigStore 拉取
+//        - 每个平台展示：图标 + 名称 + 描述 + 当前域名 + 编辑域名
+//        - 域名修改：写入 WelfareDomainStore（与旧版共享同一 store）
+//        - 顶部「立即同步」按钮：手动刷新远程源
+//
+//  使用：
+//    if WelfarePlatformConfigStore.shared.switchEnabled {
+//        RemoteWelfareSettingsView()
+//    } else {
+//        WelfareSettingsView()  // 旧版
+//    }
+//
+
+import SwiftUI
+
+struct RemoteWelfareSettingsView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @ObservedObject private var configStore = WelfarePlatformConfigStore.shared
+    @ObservedObject private var domainStore = WelfareDomainStore.shared
+
+    @State private var editingPlatform: WelfarePlatform?
+    @State private var editDomain: String = ""
+    @State private var savedToast: String?
+
+    var body: some View {
+        List {
+            // 1. 顶部：远程源开关
+            switchSection
+
+            // 2. 远程源状态信息
+            statusSection
+
+            // 3. 平台列表（按 category 分组）
+            ForEach(RemoteWelfareCategory.allCases) { cat in
+                let plats = configStore.platforms(in: cat)
+                if !plats.isEmpty {
+                    Section(header: Text(cat.displayName)) {
+                        ForEach(plats) { platform in
+                            platformRow(platform)
+                        }
+                    }
+                }
+            }
+
+            // 4. 底部：调试按钮
+            debugSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("福利平台设置（远程源）")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingPlatform) { p in
+            domainEditSheet(platform: p)
+        }
+        .overlay(alignment: .top) {
+            if let toast = savedToast {
+                Text(toast)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.black.opacity(0.85))
+                    )
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+    }
+
+    // MARK: - 开关 Section
+
+    private var switchSection: some View {
+        Section {
+            Toggle(isOn: $configStore.switchEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("使用福利远程源")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text(configStore.switchEnabled
+                         ? "开启：使用远程源中的福利平台列表"
+                         : "关闭：使用内置资源版本（与升级前一致）")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .tint(.accentColor)
+        } footer: {
+            Text("关闭后，福利专区将回到内置资源版本，所有现有数据和播放功能不受影响。")
+                .font(.system(size: 11))
+        }
+    }
+
+    // MARK: - 状态 Section
+
+    private var statusSection: some View {
+        Section(header: Text("远程源状态")) {
+            HStack {
+                Image(systemName: statusIconName)
+                    .foregroundColor(statusColor)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(statusTitle)
+                        .font(.system(size: 14, weight: .medium))
+                    if let detail = statusDetail {
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                Button(action: manualRefresh) {
+                    HStack(spacing: 4) {
+                        if case .loading = configStore.loadState {
+                            ProgressView().scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text("立即同步")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private var statusIconName: String {
+        switch configStore.loadState {
+        case .idle: return "icloud.slash"
+        case .loading: return "icloud.and.arrow.down"
+        case .loaded: return "checkmark.icloud.fill"
+        case .failed: return "exclamationmark.icloud.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch configStore.loadState {
+        case .idle: return .secondary
+        case .loading: return .blue
+        case .loaded: return .green
+        case .failed: return .red
+        }
+    }
+
+    private var statusTitle: String {
+        switch configStore.loadState {
+        case .idle: return "未加载"
+        case .loading: return "正在拉取…"
+        case .loaded(let count, _): return "已就绪 · \(count) 个平台"
+        case .failed: return "拉取失败"
+        }
+    }
+
+    private var statusDetail: String? {
+        switch configStore.loadState {
+        case .loaded(_, let v):
+            if let v = v { return "version: \(v)" }
+            return configStore.lastSuccessTime.map { "上次成功：\($0.formatted(date: .abbreviated, time: .shortened))" }
+        case .failed(let msg):
+            return msg
+        default:
+            return configStore.lastSuccessTime.map { "上次成功：\($0.formatted(date: .abbreviated, time: .shortened))" }
+        }
+    }
+
+    // MARK: - 平台行
+
+    private func platformRow(_ platform: WelfarePlatform) -> some View {
+        Button {
+            editingPlatform = platform
+            editDomain = currentDomain(for: platform)
+        } label: {
+            HStack(spacing: 12) {
+                // 图标
+                Image(systemName: platform.icon)
+                    .font(.system(size: 18))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.15))
+                    )
+                    .foregroundColor(.accentColor)
+                // 名称 + 描述
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(platform.name)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.primary)
+                        Text("[\(platform.platformKey)]")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.6))
+                    }
+                    Text(platform.desc)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(currentDomain(for: platform))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 130, alignment: .trailing)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+            }
+        }
+    }
+
+    // MARK: - 调试 Section
+
+    private var debugSection: some View {
+        Section(header: Text("调试")) {
+            Button(action: { configStore.clearAllCache() }) {
+                Label("清空远程源缓存", systemImage: "trash")
+                    .foregroundColor(.red)
+            }
+        }
+    }
+
+    // MARK: - 域名编辑 Sheet
+
+    private func domainEditSheet(platform: WelfarePlatform) -> some View {
+        NavigationView {
+            Form {
+                Section(header: Text("平台")) {
+                    HStack {
+                        Image(systemName: platform.icon)
+                        Text(platform.name)
+                        Spacer()
+                        Text("[\(platform.platformKey)]")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Section(header: Text("当前域名")) {
+                    TextField("https://example.com", text: $editDomain)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled(true)
+                }
+                Section(header: Text("默认域名（按优先级）")) {
+                    ForEach(Array(platform.defaultHosts.enumerated()), id: \.offset) { idx, host in
+                        HStack {
+                            Text("\(idx + 1).")
+                                .foregroundColor(.secondary)
+                            Text(host)
+                                .font(.system(size: 13))
+                            Spacer()
+                            if currentDomain(for: platform) == host {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            } else {
+                                Button("使用") {
+                                    editDomain = host
+                                }
+                                .font(.system(size: 12))
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                            }
+                        }
+                    }
+                }
+                Section {
+                    Button("保存并重置服务") {
+                        saveDomain(for: platform)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .foregroundColor(.white)
+                    .listRowBackground(Color.accentColor)
+                }
+            }
+            .navigationTitle("编辑域名")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") { editingPlatform = nil }
+                }
+            }
+        }
+    }
+
+    // MARK: - 域名持久化
+
+    private func currentDomain(for platform: WelfarePlatform) -> String {
+        // 优先用 WelfareDomainStore 中的自定义域名
+        if let custom = WelfareDomainStore.shared.domains(for: platform.name).first {
+            return custom
+        }
+        // 否则用平台 defaultHosts 第一个
+        return platform.primaryHost
+    }
+
+    private func saveDomain(for platform: WelfarePlatform) {
+        let domain = editDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty,
+              URL(string: domain) != nil,
+              domain.hasPrefix("http://") || domain.hasPrefix("https://") else {
+            showToast("域名格式错误")
+            return
+        }
+        // 写入 WelfareDomainStore
+        WelfareDomainStore.shared.setDomains([domain], for: platform.name)
+
+        // 触发对应 Service 重新探测
+        triggerServiceReset(for: platform)
+
+        showToast("已保存：\(platform.name)")
+        editingPlatform = nil
+    }
+
+    private func triggerServiceReset(for platform: WelfarePlatform) {
+        let type = WelfareServiceType(raw: platform.serviceType)
+        switch type {
+        case .dailyBattle:
+            DailyBattleService.shared.reprobe()
+            DailyBattleService.contest.reprobe()
+        case .mysteryMovie:
+            MysteryMovieService.shared.reprobe()
+        case .sihuVideo:
+            SihuVideoService.shared.reprobe()
+        case .xcp:
+            XCPService.shared.reprobe()
+        case .luoliAv:
+            LuoliAVService.shared.reprobe()
+        case .madouFree:
+            MadouFreeService.shared.reprobe()
+        case .jiujiu:
+            JiujiuService.shared.reprobe()
+        case .koreanPorn:
+            KoreanPornService.shared.reprobe()
+        case .kanliao:
+            KanliaoService.shared.reprobe()
+        case .heiliao:
+            HeiliaoService.shared.reprobe()
+        case .xigua:
+            XiguaService.shared.reprobe()
+        case .sbAggregation:
+            SBAggregationService.shared.reprobe()
+        case .fuliBase:
+            // 根据 platformKey 选择具体 Service
+            switch platform.platformKey {
+            case "panda_video": PandaVideoService.shared.reprobe()
+            case "four_h_video": FourHVideoService.shared.reprobe()
+            case "full_hd": FullHDService.shared.reprobe()
+            case "banana_video": BananaVideoService.shared.reprobe()
+            default: break
+            }
+        case .yboxSpecial, .yboxXjsp, .unknown:
+            // YBoxService2 走远端 API，不做域名重置
+            break
+        }
+    }
+
+    // MARK: - 手动刷新
+
+    private func manualRefresh() {
+        configStore.refresh { result in
+            switch result {
+            case .success(let count):
+                showToast("已同步 · \(count) 个平台")
+            case .failure(let err):
+                showToast("同步失败：\(err.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Toast
+
+    private func showToast(_ text: String) {
+        withAnimation { savedToast = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { savedToast = nil }
+        }
+    }
+}
