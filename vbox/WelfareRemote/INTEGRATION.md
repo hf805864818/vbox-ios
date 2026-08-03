@@ -6,21 +6,24 @@
 
 ---
 
-## 一、文件清单（共 9 个文件，2476 行）
+## 一、文件清单（共 10 个文件）
 
-| # | 文件 | 行数 | 职责 |
-|---|---|---|---|
-| 1 | `WelfareRemoteBootstrap.swift` | 125 | 启动自动激活（核心） |
-| 2 | `WelfarePlatformConfig.swift` | 212 | 数据模型（对应 `welfare_platforms.json`） |
-| 3 | `WelfarePlatformConfigStore.swift` | 425 | 远程配置存储 + 缓存 + 状态管理 |
-| 4 | `WelfarePlatformRouter.swift` | 227 | 平台路由（platformKey → View） |
-| 5 | `RemoteWelfareHomeView.swift` | 417 | 远程福利首页 UI（带长按排序） |
-| 6 | `RemoteWelfareSettingsView.swift` | 388 | 远程福利设置页（顶部 Toggle） |
-| 7 | `RemoteWelfarePasswordSheet.swift` | 268 | 密码弹窗（左上角刷新按钮） |
-| 8 | `RemoteWelfareEntryPoint.swift` | 133 | 路由入口（封装了「开/关」二选一） |
-| 9 | `XJSPWelfareMainView.swift` | 281 | 通用 XJSP 协议主视图（香蕉秀系） |
+| # | 文件 | 职责 |
+|---|---|---|
+| 1 | `WelfareRemoteAutoLoader.m` | **Objective-C +load 自动激活**（核心） |
+| 2 | `WelfareRemoteBootstrap.swift` | Objective-C 可见启动网关 + 手动调用入口 |
+| 3 | `WelfarePlatformConfig.swift` | 数据模型（对应 `welfare_platforms.json`） |
+| 4 | `WelfarePlatformConfigStore.swift` | 远程配置存储 + 缓存 + 状态管理 |
+| 5 | `WelfarePlatformRouter.swift` | 平台路由（platformKey → View） |
+| 6 | `RemoteWelfareHomeView.swift` | 远程福利首页 UI（带长按排序） |
+| 7 | `RemoteWelfareSettingsView.swift` | 远程福利设置页（顶部 Toggle） |
+| 8 | `RemoteWelfarePasswordSheet.swift` | 密码弹窗（左上角刷新按钮） |
+| 9 | `RemoteWelfareEntryPoint.swift` | 路由入口（封装了「开/关」二选一） |
+| 10 | `XJSPWelfareMainView.swift` | 通用 XJSP 协议主视图（香蕉秀系） |
 
 **位置**：`vbox/WelfareRemote/`
+
+> 注意：`WelfareRemoteAutoLoader.m` 必须加入主 target 编译，否则自动激活不会生效。
 
 ---
 
@@ -43,7 +46,8 @@
 启动时控制台应看到：
 
 ```
-[WelfareRemote] ✅ App 启动自动 bootstrap 完成
+[WelfareRemote] ✅ +load 已触发 bootstrap
+[WelfareRemote] ✅ Objective-C +load 触发 bootstrap 完成
 ```
 
 并附带类似：
@@ -66,31 +70,29 @@
 
 ## 三、为什么可以 0 改动？
 
-### 核心机制：`WelfareRemoteBootstrap.swift`
+### 核心机制：`WelfareRemoteAutoLoader.m`（Objective-C +load）
 
-```swift
-@objc(WelfareRemoteAutoLoader)
-final class WelfareRemoteAutoLoader: NSObject {
-    @objc class func load() {
-        // 防御：仅主 App target 激活
-        guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
-        // 主线程异步 bootstrap
-        DispatchQueue.main.async {
-            WelfarePlatformConfigStore.shared.bootstrap()
-        }
-    }
+```objc
+@implementation WelfareRemoteAutoLoader
++ (void)load {
+    // 防御：仅主 App target 激活
+    if (![[NSBundle mainBundle].bundlePath hasSuffix:@".app"]) return;
+    // 主线程异步 bootstrap
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Class gateway = NSClassFromString(@"WelfareRemoteBootstrapGateway");
+        id shared = [gateway performSelector:@selector(shared)];
+        [shared performSelector:@selector(bootstrap)];
+    });
 }
+@end
 ```
 
 **原理**：
 - Objective-C 的 `+load` 在类加载时（**早于 `main`**）就会被调用
-- 本类用 `@objc` 暴露给 Objective-C runtime
-- 因此只要这个类被编译进 App 二进制，它就会在 App 启动的瞬间自动执行
+- Swift 6 已禁止在 Swift 类中定义 `class func load()`，因此使用真正的 Objective-C `.m` 文件
+- `WelfareRemoteBootstrapGateway` 是 Swift 中 `@objc` 暴露给 Objective-C 的网关类
+- 因此只要 `WelfareRemoteAutoLoader.m` 被编译进 App 二进制，它就会在 App 启动的瞬间自动执行
 - 整个过程不需要任何现有代码去显式调用
-
-**兜底机制**：另一个 `WelfareRemoteAppDelegateSwizzler` 类
-会通过 `method_exchangeImplementations` 钩住 `VBoxAppDelegate.application(_:didFinishLaunchingWithOptions:)`，
-**双重保险**地确保 bootstrap 被调用。
 
 ### 隔离性保证
 
@@ -141,8 +143,8 @@ init() {
 ### 场景 C：你想用手动的方式跳过自动 bootstrap
 
 如果你不想用 `+load` 机制（例如想避免控制台日志），可以：
-1. 在 `WelfareRemoteBootstrap.swift` 顶部加上 `@available(*, unavailable)` 或
-2. 干脆不把 `WelfareRemoteBootstrap.swift` 加进 target（其他 8 个文件仍可独立使用）
+1. 不把 `WelfareRemoteAutoLoader.m` 加进 target（其他 9 个文件仍可独立使用）
+2. 在 `ContentView.onAppear` 中显式调用 `WelfareRemoteBootstrapper.bootstrap()`
 
 ---
 
@@ -151,7 +153,7 @@ init() {
 接入后请按以下顺序验证：
 
 ### 5.1 启动验证
-- [ ] 启动 App，控制台出现 `✅ App 启动自动 bootstrap 完成`
+- [ ] 启动 App，控制台出现 `✅ +load 已触发 bootstrap` 和 `✅ Objective-C +load 触发 bootstrap 完成`
 - [ ] 控制台出现 `📡 从远程拉取 welfare_platforms.json ...`
 - [ ] 控制台出现 `✅ 远程源加载成功 (22 个平台)` 或类似成功日志
 - [ ] App 启动速度未明显变慢（bootstrap 是异步的，不应阻塞）
@@ -218,7 +220,7 @@ CI 会自动：
 | 数据模型 | ✅ 完成 | 与 `welfare_platforms.json` 一一对应 |
 | 远程拉取 | ✅ 完成 | 异步、缓存、TTL 6h |
 | 状态管理 | ✅ 完成 | `@Published` + `UserDefaults` 持久化 |
-| 启动激活 | ✅ 完成 | `+load` + swizzle 双重保险 |
+| 启动激活 | ✅ 完成 | Objective-C `+load` 自动激活 |
 | UI 入口 | ✅ 完成 | 路由封装，开关切换 |
 | 福利首页 | ✅ 完成 | 分类、卡片、长按排序 |
 | 密码弹窗 | ✅ 完成 | 含左上角刷新按钮 |
