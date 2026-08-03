@@ -32,18 +32,15 @@ struct RemoteWelfareHomeView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 1. 顶部：远程源状态条 + 刷新按钮 + 平台数
-                remoteStatusBar
-
-                // 2. Tab 切换栏
+                // 1. Tab 切换栏
                 tabBar
 
-                // 3. 编辑模式提示
+                // 2. 编辑模式提示
                 if isEditMode {
                     editModeBar
                 }
 
-                // 4. 平台网格
+                // 3. 平台网格
                 TabView(selection: $selectedTab) {
                     platformGrid(for: .video).tag(RemoteWelfareCategory.video)
                     platformGrid(for: .live).tag(RemoteWelfareCategory.live)
@@ -57,63 +54,6 @@ struct RemoteWelfareHomeView: View {
                 configStore.bootstrap()
                 loadOrder()
             }
-        }
-    }
-
-    // MARK: - 顶部状态条
-
-    private var remoteStatusBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: statusIcon)
-                .foregroundColor(statusColor)
-            Text(statusText)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
-            Spacer()
-            if case .loading = configStore.loadState {
-                ProgressView().scaleEffect(0.7)
-            } else {
-                Button(action: { configStore.refresh { _ in } }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 14, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Color(uiColor: .secondarySystemBackground).opacity(0.5))
-    }
-
-    private var statusIcon: String {
-        switch configStore.loadState {
-        case .idle: return "icloud.slash"
-        case .loading: return "icloud.and.arrow.down"
-        case .loaded: return "checkmark.icloud.fill"
-        case .failed: return "exclamationmark.icloud.fill"
-        }
-    }
-
-    private var statusColor: Color {
-        switch configStore.loadState {
-        case .idle: return .secondary
-        case .loading: return .blue
-        case .loaded: return .green
-        case .failed: return .red
-        }
-    }
-
-    private var statusText: String {
-        switch configStore.loadState {
-        case .idle:
-            return "远程福利源未加载"
-        case .loading:
-            return "正在拉取远程福利源…"
-        case .loaded(let count, let version):
-            return "远程源已就绪 · \(count) 个平台" + (version.map { " · v\($0)" } ?? "")
-        case .failed(let message):
-            return "远程源失败：\(message)"
         }
     }
 
