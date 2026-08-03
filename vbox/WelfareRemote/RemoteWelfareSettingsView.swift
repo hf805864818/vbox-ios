@@ -196,7 +196,7 @@ struct RemoteWelfareSettingsView: View {
 
     @ViewBuilder
     private var proxySection: some View {
-        Section(header: Text("代理设置")) {
+        Section {
             VStack(spacing: 12) {
                 // 代理 URL 输入
                 HStack(spacing: 8) {
@@ -284,6 +284,8 @@ struct RemoteWelfareSettingsView: View {
                 }
             }
             .padding(.vertical, 4)
+        } header: {
+            Text("代理设置")
         } footer: {
             Text("支持 URL 转发代理格式，在代理地址末尾拼接原始URL")
                 .font(.system(size: 12))
