@@ -1,0 +1,212 @@
+//
+//  WelfarePlatformConfig.swift
+//  vbox
+//
+//  Phase 2：iOS 客户端新增文件（不改任何现有代码）
+//  作用：定义福利平台远程配置的数据模型，对应远端 sources/welfare_platforms.json 的 schema。
+//
+//  使用方式：
+//    let data = try JSONDecoder().decode(WelfarePlatformConfig.self, from: jsonData)
+//    for platform in data.platforms { ... }
+//
+//  注意：本文件是纯数据模型，所有逻辑（加载/缓存/路由）放在其他 WelfareRemote/* 文件中。
+//
+
+import Foundation
+
+// MARK: - 顶层配置（对应 welfare_platforms.json 根对象）
+
+/// 福利平台远程配置完整模型
+/// JSON 示例（远端 sources/welfare_platforms.json）：
+/// ```json
+/// {
+///   "_meta": { ... },
+///   "schemaVersion": 1,
+///   "categories": [ ... ],
+///   "platforms": [ ... ]
+/// }
+/// ```
+struct WelfarePlatformConfig: Codable, Equatable {
+    /// 元数据（仅作说明用，不参与业务逻辑）
+    let meta: WelfarePlatformConfigMeta?
+    /// schema 版本号（用于将来字段变更兼容性检查）
+    let schemaVersion: Int
+    /// 平台分类列表（视频 / 直播 / 漫画）
+    let categories: [WelfareCategory]
+    /// 平台列表
+    let platforms: [WelfarePlatform]
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case schemaVersion
+        case categories
+        case platforms
+    }
+
+    /// 校验当前 JSON 是否合法（解码失败时返回 false）
+    static func isValid(jsonData: Data) -> Bool {
+        do {
+            _ = try JSONDecoder().decode(WelfarePlatformConfig.self, from: jsonData)
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
+// MARK: - 元数据
+
+/// 远端 welfare_platforms.json 的 _meta 字段
+/// 仅作日志/调试用途，不影响业务逻辑。
+struct WelfarePlatformConfigMeta: Codable, Equatable {
+    let name: String?
+    let type: String?
+    let description: String?
+    let version: String?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case type
+        case description
+        case version
+        case updatedAt
+    }
+}
+
+// MARK: - 平台分类
+
+/// 福利平台分类（视频 / 直播 / 漫画）
+/// 与 WelfareHomeView 中的 WelfareTab 概念一致。
+struct WelfareCategory: Codable, Equatable, Identifiable {
+    /// 唯一 key（建议与现有 WelfareTab 命名一致：video / live / comic）
+    let key: String
+    /// 显示名称（中文）
+    let name: String
+    /// SF Symbol 图标
+    let icon: String
+
+    var id: String { key }
+}
+
+// MARK: - 平台元数据
+
+/// 福利平台完整元数据
+/// 对应 welfare_platforms.json 中 platforms 数组的每个元素。
+struct WelfarePlatform: Codable, Equatable, Identifiable {
+    /// 平台唯一 key（不可变，迁移用户排序数据时用作主键）
+    let platformKey: String
+    /// 平台显示名称（如 "香蕉秀"）
+    let name: String
+    /// 分类 key（video / live / comic）
+    let category: String
+    /// SF Symbol 图标
+    let icon: String
+    /// 平台描述（用于卡片副标题）
+    let desc: String
+    /// 对应客户端 Service 实现类型（用于路由分发）
+    ///   - "ybox_special"    → 香蕉秀专用（fetchBanana* 系列）
+    ///   - "ybox_xjsp"       → 香蕉秀通用分类（XJSPWelfareMainView）
+    ///   - "daily_battle"    → 每日大乱斗 / 每日大赛
+    ///   - "mystery_movie"   → 神秘电影
+    ///   - "sihu_video"      → 四虎视频
+    ///   - "xcp"             → 香肠派对
+    ///   - "luoli_av"        → 萝莉AV
+    ///   - "madou_free"      → 麻豆免费
+    ///   - "jiujiu"          → 久久網
+    ///   - "korean_porn"     → 韩国色情电影
+    ///   - "kanliao"         → 今日看料
+    ///   - "heiliao"         → 黑料不打烊
+    ///   - "xigua"           → 通用吸瓜
+    ///   - "fuli_base"       → 通用 FuliBaseService 子类
+    ///   - "sb_aggregation"  → 色播聚合
+    let serviceType: String
+    /// 默认域名列表（按顺序回退探测）
+    let defaultHosts: [String]
+    /// 排序权重（同 category 内按 sortOrder 升序展示）
+    let sortOrder: Int
+    /// 备注（仅作说明，不影响业务）
+    let notes: String?
+
+    var id: String { platformKey }
+
+    enum CodingKeys: String, CodingKey {
+        case platformKey
+        case name
+        case category
+        case icon
+        case desc
+        case serviceType
+        case defaultHosts
+        case sortOrder
+        case notes
+    }
+
+    /// 获取当前第一个可用域名
+    var primaryHost: String { defaultHosts.first ?? "" }
+}
+
+// MARK: - 分类枚举（与 WelfareHomeView 中的 WelfareTab 对齐）
+
+/// 福利分类枚举（远程源版本，与现有 WelfareTab 等价）
+/// 不放在 WelfareHomeView 内部，便于外部 View 复用。
+enum RemoteWelfareCategory: String, CaseIterable, Identifiable {
+    case video = "video"
+    case live = "live"
+    case comic = "comic"
+
+    var id: String { rawValue }
+
+    /// 中文显示名
+    var displayName: String {
+        switch self {
+        case .video: return "视频"
+        case .live: return "直播"
+        case .comic: return "漫画"
+        }
+    }
+
+    /// SF Symbol 图标（与 WelfareTab 保持一致）
+    var icon: String {
+        switch self {
+        case .video: return "play.rectangle.fill"
+        case .live: return "antenna.radiowaves.left.and.right"
+        case .comic: return "books.vertical.fill"
+        }
+    }
+
+    /// 从 category key 安全转换为枚举（未知 key 兜底为 video）
+    static func from(key: String) -> RemoteWelfareCategory {
+        RemoteWelfareCategory(rawValue: key) ?? .video
+    }
+}
+
+// MARK: - 业务 ServiceType 枚举（用于 switch 路由）
+
+/// 客户端 Service 实现类型枚举
+/// 与 WelfarePlatform.serviceType 字符串对应。
+/// 新增 Service 时只需在此处加一个 case，并在 WelfarePlatformRouter 中加一个 case 分支。
+enum WelfareServiceType: String, CaseIterable {
+    case yboxSpecial = "ybox_special"          // 香蕉秀专用
+    case yboxXjsp = "ybox_xjsp"                // 香蕉秀通用分类
+    case dailyBattle = "daily_battle"          // 每日大乱斗 / 每日大赛
+    case mysteryMovie = "mystery_movie"        // 神秘电影
+    case sihuVideo = "sihu_video"              // 四虎视频
+    case xcp = "xcp"                           // 香肠派对
+    case luoliAv = "luoli_av"                  // 萝莉AV
+    case madouFree = "madou_free"              // 麻豆免费
+    case jiujiu = "jiujiu"                     // 久久網
+    case koreanPorn = "korean_porn"            // 韩国色情电影
+    case kanliao = "kanliao"                   // 今日看料
+    case heiliao = "heiliao"                   // 黑料不打烊
+    case xigua = "xigua"                       // 通用吸瓜
+    case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
+    case sbAggregation = "sb_aggregation"      // 色播聚合
+
+    /// 未知 serviceType 兜底（仍能展示，但点击后跳到通用香蕉秀页）
+    case unknown = "unknown"
+
+    init(raw: String) {
+        self = WelfareServiceType(rawValue: raw) ?? .unknown
+    }
+}
