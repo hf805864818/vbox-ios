@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 福利首页（仅保留 MissAV 和 香蕉秀）
 struct WelfareHomeView: View {
@@ -128,9 +129,7 @@ struct WelfareHomeView: View {
                             .buttonStyle(.plain)
                             .simultaneousGesture(
                                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                                    generator.prepare()
-                                    generator.impactOccurred()
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                     navigatePlatformID = nil
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                         withAnimation { isEditMode = true }
