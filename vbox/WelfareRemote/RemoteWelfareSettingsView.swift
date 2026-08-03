@@ -30,6 +30,12 @@ struct RemoteWelfareSettingsView: View {
     @State private var editDomain: String = ""
     @State private var savedToast: String?
 
+    // 代理设置相关
+    @ObservedObject private var proxyStore = WelfareProxyStore.shared
+    @State private var proxyInput: String = ""
+    @State private var isProxyExpanded: Bool = false
+    @FocusState private var proxyFocused: Bool
+
     var body: some View {
         List {
             // 1. 顶部：远程源开关
@@ -38,7 +44,10 @@ struct RemoteWelfareSettingsView: View {
             // 2. 远程源状态信息
             statusSection
 
-            // 3. 平台列表（按 category 分组）
+            // 3. 代理设置
+            proxySection
+
+            // 4. 平台列表（按 category 分组）
             ForEach(RemoteWelfareCategory.allCases) { cat in
                 let plats = configStore.platforms(in: cat)
                 if !plats.isEmpty {
@@ -50,12 +59,15 @@ struct RemoteWelfareSettingsView: View {
                 }
             }
 
-            // 4. 底部：调试按钮
+            // 5. 底部：调试按钮
             debugSection
         }
         .listStyle(.insetGrouped)
         .navigationTitle("福利平台设置（远程源）")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            proxyInput = proxyStore.proxyURL
+        }
         .sheet(item: $editingPlatform) { p in
             domainEditSheet(platform: p)
         }
@@ -171,6 +183,161 @@ struct RemoteWelfareSettingsView: View {
         }
     }
 
+    // MARK: - 代理设置 Section
+
+    /// 所有平台的扁平列表（跨分类）
+    private var allPlatforms: [WelfarePlatform] {
+        RemoteWelfareCategory.allCases.flatMap { configStore.platforms(in: $0) }
+    }
+
+    private var enabledProxyCount: Int {
+        allPlatforms.filter { proxyStore.isProxyEnabled(for: $0.name) }.count
+    }
+
+    @ViewBuilder
+    private var proxySection: some View {
+        Section(header: Text("代理设置")) {
+            VStack(spacing: 12) {
+                // 代理 URL 输入
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                        .foregroundColor(.accentColor)
+                        .frame(width: 20)
+                    TextField("输入代理地址，如 https://your-proxy.com/?url=", text: $proxyInput)
+                        .font(.system(size: 14, design: .monospaced))
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .focused($proxyFocused)
+                        .submitLabel(.done)
+                        .onSubmit { saveProxy() }
+                }
+
+                // 保存/清除按钮
+                HStack(spacing: 12) {
+                    Button(action: { saveProxy() }) {
+                        Text("保存代理")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(proxyInput.isEmpty)
+
+                    if !proxyStore.proxyURL.isEmpty {
+                        Button(action: { clearProxy() }) {
+                            Text("清除代理")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.red.opacity(0.1))
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                // 平台代理开关（折叠）
+                Divider()
+                    .padding(.vertical, 4)
+
+                Button(action: {
+                    withAnimation { isProxyExpanded.toggle() }
+                }) {
+                    HStack {
+                        Image(systemName: isProxyExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Text("平台代理开关")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if proxyStore.proxyURL.isEmpty {
+                            Text("未设置代理")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("\(enabledProxyCount)/\(allPlatforms.count) 已开启")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isProxyExpanded {
+                    VStack(spacing: 0) {
+                        ForEach(Array(allPlatforms.enumerated()), id: \.element.platformKey) { idx, platform in
+                            proxyPlatformRow(platform)
+                            if idx < allPlatforms.count - 1 {
+                                Divider()
+                                    .padding(.leading, 32)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    .opacity(proxyStore.proxyURL.isEmpty ? 0.5 : 1.0)
+                    .disabled(proxyStore.proxyURL.isEmpty)
+                }
+            }
+            .padding(.vertical, 4)
+        } footer: {
+            Text("支持 URL 转发代理格式，在代理地址末尾拼接原始URL")
+                .font(.system(size: 12))
+        }
+    }
+
+    // MARK: - 平台代理开关行
+
+    @ViewBuilder
+    private func proxyPlatformRow(_ platform: WelfarePlatform) -> some View {
+        HStack {
+            Image(systemName: platform.icon)
+                .foregroundColor(.accentColor)
+                .frame(width: 20)
+            Text(platform.name)
+                .font(.system(size: 14))
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { proxyStore.isProxyEnabled(for: platform.name) },
+                set: { newValue in
+                    proxyStore.setProxyEnabled(newValue, for: platform.name)
+                    if newValue {
+                        triggerServiceReset(for: platform)
+                    }
+                }
+            ))
+            .labelsHidden()
+            .tint(.accentColor)
+        }
+        .padding(.vertical, 6)
+        .padding(.leading, 4)
+    }
+
+    // MARK: - 代理相关方法
+
+    private func saveProxy() {
+        let trimmed = proxyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        proxyStore.setProxyURL(trimmed)
+        // 所有代理开关默认关闭，不自动开启任何平台
+        showToast("代理已保存")
+        proxyFocused = false
+    }
+
+    private func clearProxy() {
+        proxyStore.clearProxyURL()
+        proxyInput = ""
+        // 重置所有平台服务
+        for platform in allPlatforms {
+            triggerServiceReset(for: platform)
+        }
+        showToast("代理已清除")
+    }
+
     // MARK: - 平台行
 
     private func platformRow(_ platform: WelfarePlatform) -> some View {
@@ -194,6 +361,12 @@ struct RemoteWelfareSettingsView: View {
                         Text(platform.name)
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(.primary)
+                        // 代理状态标识
+                        if proxyStore.isProxyEnabled(for: platform.name) {
+                            Image(systemName: "network")
+                                .font(.system(size: 10))
+                                .foregroundColor(.green)
+                        }
                         Text("[\(platform.platformKey)]")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary.opacity(0.6))

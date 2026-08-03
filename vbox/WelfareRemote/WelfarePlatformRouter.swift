@@ -118,10 +118,10 @@ struct WelfarePlatformRouter {
         case .fuliBase:
             return makeFuliBaseDestination(for: platform)
 
-        // MARK: 兜底
+        // MARK: 未实现路由
         case .unknown:
-            // 未知 serviceType：先按 platform.name 反查旧路由（兼容）
-            return fallbackByName(platform: platform, settings: settings)
+            // serviceType 不在枚举中：显示明确错误，不兜底到其他平台
+            return AnyView(UnsupportedPlatformView(platform: platform))
         }
     }
 
@@ -151,55 +151,8 @@ struct WelfarePlatformRouter {
                 FuliPlatformMainView(platform: p, service: BananaVideoService.shared)
             )
         default:
-            // 未知 fuli_base 平台：兜底走通用 XJSP
-            return AnyView(XJSPWelfareMainView(platform: p))
-        }
-    }
-
-    /// 兜底：按 platform.name 匹配 WelfareHomeView 中已有的硬编码路由
-    /// 保留此分支是为防御性兼容：万一 serviceType 字段缺失或填错，至少仍能跳到对的 View
-    private func fallbackByName(platform: WelfarePlatform, settings: AppSettings) -> AnyView {
-        let p = makeYBoxPlatform2(from: platform)
-        let name = platform.name
-
-        switch name {
-        case "每日大乱斗", "每日大赛":
-            return AnyView(DailyBattleMainView(platform: p))
-        case "神秘电影":
-            return AnyView(MysteryMovieMainView(platform: p))
-        case "色播聚合":
-            return AnyView(SBAggregationView(platform: p))
-        case "四虎视频":
-            return AnyView(SihuVideoHomeView(platform: p))
-        case "香肠派对":
-            return AnyView(XCPHomeView(platform: p))
-        case "萝莉AV":
-            return AnyView(LuoliAVHomeView())
-        case "麻豆免费":
-            return AnyView(MadouFreeHomeView())
-        case "久久網":
-            return AnyView(JiujiuHomeView())
-        case "韩国色情电影":
-            return AnyView(KoreanPornHomeView())
-        case "今日看料":
-            return AnyView(KanliaoHomeView())
-        case "黑料不打烊":
-            return AnyView(HeiliaoHomeView())
-        case "通用吸瓜":
-            return AnyView(XiguaMainView(platform: p))
-        case "熊猫视频":
-            return AnyView(FuliPlatformMainView(platform: p, service: PandaVideoService.shared))
-        case "4H视频":
-            return AnyView(FuliPlatformMainView(platform: p, service: FourHVideoService.shared))
-        case "FullHD":
-            return AnyView(FuliPlatformMainView(platform: p, service: FullHDService.shared))
-        case "香蕉视频":
-            return AnyView(FuliPlatformMainView(platform: p, service: BananaVideoService.shared))
-        case "香蕉秀", "幻想次元", "午夜寻欢", "绿帽淫妻", "1080视频":
-            return AnyView(YBoxXjspMainView(platform: p))
-        default:
-            // 最终兜底：跳到香蕉秀通用分类
-            return AnyView(YBoxXjspMainView(platform: p))
+            // 未知 fuli_base 平台：显示明确错误，不兜底到 XJSP
+            return AnyView(UnsupportedPlatformView(platform: platform))
         }
     }
 

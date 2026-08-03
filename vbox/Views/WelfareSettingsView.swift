@@ -40,9 +40,6 @@ struct WelfareSettingsView: View {
         ("香蕉视频", "play.rectangle.fill", ["https://618013.xyz", "https://618012.xyz", "https://618011.xyz"]),
     ]
 
-    // 默认开启代理的平台
-    private let defaultProxyPlatforms: Set<String> = ["4H视频", "今日看料", "麻豆免费"]
-
     var body: some View {
         if remoteConfigStore.switchEnabled {
             RemoteWelfareSettingsView()
@@ -397,13 +394,7 @@ struct WelfareSettingsView: View {
         guard !trimmed.isEmpty else { return }
         proxyStore.setProxyURL(trimmed)
 
-        // 首次设置代理时，为默认平台开启代理
-        if proxyStore.enabledPlatforms.isEmpty {
-            for name in defaultProxyPlatforms {
-                proxyStore.setProxyEnabled(true, for: name)
-                resetService(for: name)
-            }
-        }
+        // 所有代理开关默认关闭，不自动开启任何平台
 
         showToast("代理已保存")
         proxyFocused = false
