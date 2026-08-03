@@ -1,8 +1,28 @@
 import SwiftUI
 
-// vbox 主入口在 App/VBoxApp.swift
+// ============================================================
+// MARK: - 文件说明
+// 本文件包含首页（HomeView）和搜索页（SearchView）的实现。
+// 实际入口为 App/ContentView.swift，由 ContentView 切换显示各页面。
+//
+// ⚠️ 以下结构体为废弃代码，已无任何外部引用，仅保留备查：
+//   - MainTabView        旧版主标签视图（已被 ContentView 取代）
+//   - GlassBottomTabBar  旧版底栏（已被 ContentView 内联底栏取代）
+//   - LiquidBackground   旧版液态背景（已被 AppLiquidBackground 取代）
+//   - CategoryView       旧版分类页（已被 CategoryTilesView 取代）
+//   - CategoryCard       仅被废弃的 CategoryView 引用
+//   - UserInfoSection    废弃，无任何引用
+//   - ProfileMenuItem    废弃，无任何引用
+//
+// ✅ 以下结构体正在使用：
+//   - HomeView           被 ContentView 引用（首页）
+//   - SearchView         被 ContentView 引用（搜索页）
+//   - SectionHeader      被 HomeView + DoubanHomeView 引用
+//   - FlowLayout         被 DailyBattleMainView 引用
+//   - edgeSwipeBack      被 PlayerViews + SourceDiscoveryView 引用
+// ============================================================
 
-// 主标签视图
+// ⚠️ 废弃：旧版主标签视图，已被 ContentView 取代，不再使用
 struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var tabHistory: [Int] = [0]
@@ -92,7 +112,7 @@ extension View {
     }
 }
 
-// 毛玻璃底部导航栏
+// ⚠️ 废弃：旧版底栏，已被 ContentView 内联底栏取代，不再使用
 struct GlassBottomTabBar: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var settings: AppSettings
@@ -168,7 +188,7 @@ struct GlassBottomTabBar: View {
     }
 }
 
-// 液态背景效果
+// ⚠️ 废弃：旧版液态背景，已被 AppLiquidBackground 取代，不再使用
 struct LiquidBackground: View {
     @State private var phase: Double = 0
 
@@ -2075,7 +2095,7 @@ struct DoubanSkeletonCardItem: View {
     }
 }
 
-// MARK: - 分类视图
+// ⚠️ 废弃：旧版分类视图，已被 CategoryTilesView 取代，不再使用
 struct CategoryView: View {
     @EnvironmentObject private var settings: AppSettings
     private let categories = [
@@ -2122,7 +2142,7 @@ struct CategoryView: View {
     }
 }
 
-// 分类卡片
+// ⚠️ 废弃：仅被废弃的 CategoryView 引用，不再使用
 struct CategoryCard: View {
     let name: String
     let icon: String
@@ -2185,7 +2205,7 @@ struct CategoryCard: View {
     }
 }
 
-// 用户信息区域
+// ⚠️ 废弃：无任何引用，不再使用
 struct UserInfoSection: View {
     var body: some View {
         VStack(spacing: 16) {
@@ -2227,7 +2247,7 @@ struct UserInfoSection: View {
     }
 }
 
-// 个人中心菜单项
+// ⚠️ 废弃：无任何引用，不再使用
 struct ProfileMenuItem: View {
     let icon: String
     let title: String
