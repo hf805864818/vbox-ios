@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @StateObject private var settings = AppSettings()
@@ -85,6 +86,7 @@ struct ContentView: View {
                         HStack(spacing: 0) {
                             ForEach(visibleTabs, id: \.self) { tab in
                                 Button {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                     withAnimation(.easeInOut(duration: 0.2)) {
                                         selectedTab = tab
                                     }
