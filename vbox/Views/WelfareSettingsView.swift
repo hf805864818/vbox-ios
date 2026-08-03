@@ -6,6 +6,7 @@ struct WelfareSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = WelfareDomainStore.shared
     @ObservedObject private var proxyStore = WelfareProxyStore.shared
+    @ObservedObject private var remoteConfigStore = WelfarePlatformConfigStore.shared
     @State private var editingPlatform: String? = nil
     @State private var editDomain: String = ""
     @State private var savedToast: String? = nil
@@ -43,8 +44,37 @@ struct WelfareSettingsView: View {
     private let defaultProxyPlatforms: Set<String> = ["4H视频", "今日看料", "麻豆免费"]
 
     var body: some View {
+        if remoteConfigStore.switchEnabled {
+            RemoteWelfareSettingsView()
+        } else {
+            builtinSettingsBody
+        }
+    }
+
+    // MARK: - 内置资源域名设置主体
+
+    private var builtinSettingsBody: some View {
         ZStack {
             List {
+                // 远程源总开关
+                Section {
+                    Toggle(isOn: $remoteConfigStore.switchEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("使用福利远程源")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text(remoteConfigStore.switchEnabled
+                                 ? "开启：使用远程源中的福利平台列表"
+                                 : "关闭：使用内置资源版本（与升级前一致）")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .tint(.accentColor)
+                } footer: {
+                    Text("关闭后，福利专区将回到内置资源版本，所有现有数据和播放功能不受影响。")
+                        .font(.system(size: 11))
+                }
+
                 // 代理设置 Section
                 Section {
                     proxySection
