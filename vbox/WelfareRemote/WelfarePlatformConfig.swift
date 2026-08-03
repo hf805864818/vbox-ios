@@ -125,6 +125,8 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let defaultHosts: [String]
     /// 排序权重（同 category 内按 sortOrder 升序展示）
     let sortOrder: Int
+    /// 是否默认开启代理（远程配置字段，当前所有平台默认关闭）
+    let defaultProxy: Bool?
     /// 备注（仅作说明，不影响业务）
     let notes: String?
 
@@ -139,6 +141,7 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case serviceType
         case defaultHosts
         case sortOrder
+        case defaultProxy
         case notes
     }
 
@@ -203,7 +206,8 @@ enum WelfareServiceType: String, CaseIterable {
     case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
     case sbAggregation = "sb_aggregation"      // 色播聚合
 
-    /// 未知 serviceType 兜底（仍能展示，但点击后跳到通用香蕉秀页）
+    /// 未知 serviceType：远程 JSON 中的 serviceType 在枚举中找不到时使用，
+    /// 路由会显示 UnsupportedPlatformView 错误页，不会兜底到其他平台。
     case unknown = "unknown"
 
     init(raw: String) {
