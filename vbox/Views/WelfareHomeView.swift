@@ -129,6 +129,7 @@ struct WelfareHomeView: View {
                             .simultaneousGesture(
                                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                                     let generator = UIImpactFeedbackGenerator(style: .medium)
+                                    generator.prepare()
                                     generator.impactOccurred()
                                     navigatePlatformID = nil
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
