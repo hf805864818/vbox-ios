@@ -287,6 +287,7 @@ final class LusushequService: FuliBaseService {
 
         var decrypted = [UInt8](repeating: 0, count: encrypted.count)
         var decryptedLength = 0
+        let decryptedCount = decrypted.count
 
         let status = key.withUnsafeBufferPointer { keyPtr in
             iv.withUnsafeBufferPointer { ivPtr in
@@ -299,7 +300,7 @@ final class LusushequService: FuliBaseService {
                             keyPtr.baseAddress, key.count,
                             ivPtr.baseAddress,
                             encPtr.baseAddress, encrypted.count,
-                            decPtr.baseAddress, decrypted.count,
+                            decPtr.baseAddress, decryptedCount,
                             &decryptedLength
                         )
                     }
