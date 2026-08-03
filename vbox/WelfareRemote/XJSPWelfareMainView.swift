@@ -177,7 +177,7 @@ struct XJSPWelfareMainView: View {
                 ForEach(videos) { video in
                     VideoRow(video: video)
                         .onAppear {
-                            if video == videos.last, hasMore, !isLoading {
+                            if video.id == videos.last?.id, hasMore, !isLoading {
                                 Task { await loadVideos(reset: false) }
                             }
                         }

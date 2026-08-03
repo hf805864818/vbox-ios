@@ -41,9 +41,12 @@ final class WelfareRemoteAutoLoader: NSObject {
         }
 
         // 在主线程异步执行 bootstrap（+load 阶段不能阻塞）
+        // 使用 @MainActor 保证 Swift 6 并发检查通过
         DispatchQueue.main.async {
-            WelfarePlatformConfigStore.shared.bootstrap()
-            print("[WelfareRemote] ✅ App 启动自动 bootstrap 完成")
+            Task { @MainActor in
+                WelfarePlatformConfigStore.shared.bootstrap()
+                print("[WelfareRemote] ✅ App 启动自动 bootstrap 完成")
+            }
         }
     }
 }
@@ -110,12 +113,13 @@ final class WelfareRemoteAppDelegateSwizzler: NSObject {
         print("[WelfareRemote] ✅ didFinishLaunching swizzle 安装完成")
     }
 
+    @MainActor
     @objc func swizzled_didFinishLaunching(
         _ application: UIApplication,
         launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         // 调用原实现（已 swizzled，self.swizzled_xxx 实际指向原 original）
-        let result = self.swizzled_didFinishLaunching(application, launchOptions)
+        let result = self.swizzled_didFinishLaunching(application, launchOptions: launchOptions)
 
         // 兜底激活：再次调用 bootstrap（幂等）
         WelfarePlatformConfigStore.shared.bootstrap()
