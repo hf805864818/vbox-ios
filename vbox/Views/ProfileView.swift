@@ -123,7 +123,11 @@ struct ProfileView: View {
             }
         }
         .sheet(isPresented: $showWelfareSheet) {
-            welfareUnlockSheet
+            if WelfarePlatformConfigStore.shared.switchEnabled {
+                RemoteWelfareGateView(isPresented: $showWelfareSheet)
+            } else {
+                welfareUnlockSheet
+            }
         }
         .sheet(isPresented: $showPushPlay) {
             PushPlayView()
@@ -453,7 +457,7 @@ struct ProfileView: View {
         .presentationDetents([.medium])
         .sheet(isPresented: $showWelfareSettings) {
             NavigationView {
-                WelfareSettingsView()
+                RemoteWelfareSettingsGateView()
             }
         }
     }

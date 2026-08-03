@@ -1,17 +1,17 @@
-# WelfareRemote 接入指南（方案 A：完全不动现有代码）
+# WelfareRemote 接入指南（方案 A + Phase 3 最小改动）
 
-> Phase 2 交付：福利专区远程源系统
+> Phase 3 交付：福利专区远程源系统已完整接入现有 App 流程
 > 实现思路：**App 启动时通过 Objective-C `+load` 机制自动激活**，
-> 整个项目除新增 `vbox/WelfareRemote/` 目录外，**0 行现有代码被修改**。
+> 并通过最小改动把现有福利入口路由到远程源 View。
 
 ---
 
-## 一、文件清单（共 10 个文件）
+## 一、文件清单（共 11 个新文件）
 
 | # | 文件 | 职责 |
 |---|---|---|
 | 1 | `WelfareRemoteAutoLoader.m` | **Objective-C +load 自动激活**（核心） |
-| 2 | `WelfareRemoteBootstrap.swift` | Objective-C 可见启动网关 + 手动调用入口 |
+| 2 | `WelfareRemoteBootstrap.swift` | Objective-C 可见启动网关 |
 | 3 | `WelfarePlatformConfig.swift` | 数据模型（对应 `welfare_platforms.json`） |
 | 4 | `WelfarePlatformConfigStore.swift` | 远程配置存储 + 缓存 + 状态管理 |
 | 5 | `WelfarePlatformRouter.swift` | 平台路由（platformKey → View） |
@@ -20,6 +20,7 @@
 | 8 | `RemoteWelfarePasswordSheet.swift` | 密码弹窗（左上角刷新按钮） |
 | 9 | `RemoteWelfareEntryPoint.swift` | 路由入口（封装了「开/关」二选一） |
 | 10 | `XJSPWelfareMainView.swift` | 通用 XJSP 协议主视图（香蕉秀系） |
+| 11 | `WelfareTabGateView.swift` | Tab 栏福利入口路由门 |
 
 **位置**：`vbox/WelfareRemote/`
 
@@ -27,21 +28,31 @@
 
 ---
 
-## 二、接入步骤（用户操作）
+## 二、Phase 3 对现有文件的改动（已自动完成）
+
+| 文件 | 改动 | 说明 |
+|---|---|---|
+| `vbox/App/ContentView.swift` | `case .welfare: WelfareHomeView()` → `WelfareTabGateView()` | 底部 Tab 福利入口按开关路由 |
+| `vbox/Views/MainViews.swift` | `WelfareHomeView()` → `WelfareTabGateView()` | 备用 MainTabView 同步 |
+| `vbox/Views/ProfileView.swift` | 福利弹窗 → `RemoteWelfareGateView` | 开关打开时走远程源密码弹窗 |
+| `vbox/Views/ProfileView.swift` | 福利平台设置 → `RemoteWelfareSettingsGateView()` | 设置页按开关路由 |
+
+**改动原则**：只改入口路由，不修改任何 Service / 数据模型 / 播放逻辑。
+
+---
+
+## 三、接入步骤（用户操作）
 
 ### 步骤 1：把目录加到 Xcode target
 
 1. 用 Xcode 打开 `vbox-ios` 项目
-2. 在项目导航器中右键点击 `vbox` 文件夹 → **Add Files to "vbox"…**
-3. 选择 `vbox/WelfareRemote/` 整个目录
-4. 勾选 **"Create groups"**（不是 Create folder references）
-5. **Target Membership** 勾选主 `vbox` target
-6. **不要**勾选任何 Widget / Extension target
-7. 点击 **Add**
+2. 确认 `vbox/WelfareRemote/` 目录已在主 target 中（Phase 2 已添加）
+3. 确认新增文件 `WelfareTabGateView.swift` 已勾选主 `vbox` target
+4. 编译运行即可
 
 ### 步骤 2：编译运行
 
-直接 Build & Run 即可。**不需要修改任何现有 `.swift` 文件**。
+直接 Build & Run 即可。
 
 启动时控制台应看到：
 
@@ -63,12 +74,12 @@
 - 开关 = 开（默认）：走 `RemoteWelfareGateView` → 密码弹窗 → `RemoteWelfareHomeView`
 - 开关 = 关：走原有 `WelfareHomeView`（**与改造前完全一致**）
 
-切换开关的位置：在福利设置页（`WelfareSettingsView`）的**顶部新增的 Section**，
+切换开关的位置：在「福利平台设置」页面（`RemoteWelfareSettingsView`）的**顶部 Section**，
 文案为「使用福利远程源」，Toggle 默认为 ON。
 
 ---
 
-## 三、为什么可以 0 改动？
+## 四、自动激活机制
 
 ### 核心机制：`WelfareRemoteAutoLoader.m`（Objective-C +load）
 
@@ -98,16 +109,16 @@
 
 | 维度 | 现状 |
 |---|---|
-| 现有 `.swift` 文件 | 0 修改 |
+| 改动的现有 `.swift` 文件 | 3 个（仅改入口路由） |
 | 现有资源（MissAV、One 平台、麻豆平台） | 完全保留在 `YBoxService2` 等原服务中 |
 | 现有 UI 入口 | `WelfareHomeView` 仍然存在，开关关闭时仍走原路径 |
-| 现有 Service | `YBoxService2`、`VideoService` 等未被触碰 |
+| 现有 Service / 数据模型 / 播放逻辑 | 未被触碰 |
 | 现有 JSON 源 | `api_sources.json` 等 6 个源 0 改动 |
 | 编译警告 | 不应引入任何 |
 
 ---
 
-## 四、什么场景需要手动接入？
+## 五、什么场景需要手动接入？
 
 > 大多数情况**不需要**手动接入。但如果以下情况发生，可以选择手动接入：
 
@@ -129,26 +140,30 @@ init() {
 
 ### 场景 B：你想在福利专区入口替换为 Remote 入口
 
-找到现有代码进入福利专区的地方（通常是 `WelfareHomeView` 的入口），
-把调用改为 `RemoteWelfareGateView`：
+Phase 3 已自动完成：
+
+- ContentView 底部 Tab：改为 `WelfareTabGateView()`
+- ProfileView 福利弹窗：改为 `RemoteWelfareGateView(isPresented: $showWelfareSheet)`
+
+如需在其他地方接入，把 `WelfareHomeView()` 替换为：
 
 ```swift
-// 旧：WelfareHomeView()
-// 新：RemoteWelfareGateView()  // 自动按开关路由
-```
+// Tab / 非弹窗入口
+WelfareTabGateView()
 
-> 但 **不需要这么做** — 因为 `RemoteWelfareHomeView` 内部已经处理了开关逻辑，
-> 你只需要把 `WelfareHomeView()` 那一行换成 `RemoteWelfareHomeView()`（开关关闭时仍走 Remote 的 fallback）。
+// Sheet 弹窗入口
+RemoteWelfareGateView(isPresented: $showWelfareSheet)
+```
 
 ### 场景 C：你想用手动的方式跳过自动 bootstrap
 
 如果你不想用 `+load` 机制（例如想避免控制台日志），可以：
-1. 不把 `WelfareRemoteAutoLoader.m` 加进 target（其他 9 个文件仍可独立使用）
+1. 不把 `WelfareRemoteAutoLoader.m` 加进 target（其他 10 个文件仍可独立使用）
 2. 在 `ContentView.onAppear` 中显式调用 `WelfareRemoteBootstrapper.bootstrap()`
 
 ---
 
-## 五、验证清单
+## 六、验证清单
 
 接入后请按以下顺序验证：
 
@@ -184,7 +199,7 @@ init() {
 
 ---
 
-## 六、回滚方案
+## 七、回滚方案
 
 如需完全回滚到改造前状态：
 
@@ -192,11 +207,11 @@ init() {
 2. **Delete** → 选择 **Remove References**（不勾选 Move to Trash）
 3. 编译运行 → App 恢复为改造前状态
 
-> 因为现有代码 0 修改，删除 `WelfareRemote/` 整个目录即 100% 回滚。
+> 回滚步骤：1) 删除 `vbox/WelfareRemote/` 目录引用；2) 恢复 Phase 3 改动的 3 个现有文件。
 
 ---
 
-## 七、远程仓库配置
+## 八、远程仓库配置
 
 当前生效的远程源：
 
@@ -213,7 +228,7 @@ CI 会自动：
 
 ---
 
-## 八、Phase 2 交付状态总览
+## 九、Phase 3 交付状态总览
 
 | 模块 | 状态 | 备注 |
 |---|---|---|
@@ -227,7 +242,7 @@ CI 会自动：
 | 设置页 | ✅ 完成 | 顶部 Toggle，默认开 |
 | 平台路由 | ✅ 完成 | platformKey → View 映射 |
 | 通用 XJSP | ✅ 完成 | 香蕉秀系平台共用 |
-| 现有代码改动 | ✅ 0 行 | 完全不动现有代码 |
-| 回滚成本 | ✅ 1 步 | 删除目录即回滚 |
+| 现有文件改动 | ✅ 3 处 | 仅入口路由 |
+| 自动编译 | ⏳ 待验证 | 已推送，等待 GitHub Actions |
 
-**Phase 2 整体交付：完成。** ✅
+**Phase 3 整体交付：完成代码改动，等待 CI 验证。** ✅

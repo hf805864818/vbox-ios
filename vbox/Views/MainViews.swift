@@ -26,7 +26,7 @@ struct MainTabView: View {
                     }
                     .tag(1)
 
-                WelfareHomeView()
+                WelfareTabGateView()
                     .tabItem {
                         Image(systemName: selectedTab == 2 ? "heart.fill" : "heart")
                         Text("福利")

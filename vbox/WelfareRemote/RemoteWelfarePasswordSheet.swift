@@ -223,6 +223,7 @@ struct RemoteWelfarePasswordSheet: View {
             passwordError = false
             hasUnlocked = true
             settings.welfareUnlocked = true
+            settings.welfareEnabled = true
             // 密码正确后触发一次远程源拉取
             refreshRemote()
         } else {

@@ -254,6 +254,7 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
+		2B6F46BD9B27CF764190C6F1 /* WelfareTabGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CABEC3013D14E3B1328BED19 /* WelfareTabGateView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -520,6 +521,7 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
+		CABEC3013D14E3B1328BED19 /* WelfareTabGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareTabGateView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -639,7 +641,8 @@
 				39F98B4020C6C82E76951C53 /* RemoteWelfareEntryPoint.swift */,
 				3EBA63285C8717260EC36C0B /* XJSPWelfareMainView.swift */,
 				4E3071D27583832059A8C211 /* WelfareRemoteAutoLoader.m */,
-			);
+							CABEC3013D14E3B1328BED19 /* WelfareTabGateView.swift */,
+);
 			path = WelfareRemote;
 			sourceTree = "<group>";
 		};
@@ -979,6 +982,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B6F46BD9B27CF764190C6F1 /* WelfareTabGateView.swift in Sources */,
 				940544D33D66544964FE1993 /* WelfareRemoteBootstrap.swift in Sources */,
 				63F6E82864CC31F4573BA29E /* WelfarePlatformConfig.swift in Sources */,
 				BB267C723AB496EEF6A45393 /* WelfarePlatformConfigStore.swift in Sources */,
