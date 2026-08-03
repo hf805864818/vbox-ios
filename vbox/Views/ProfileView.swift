@@ -22,6 +22,7 @@ struct ProfileView: View {
     @State private var showWelfareSettings: Bool = false
     @State private var welfarePasswordInput: String = ""
     @State private var welfarePasswordError: Bool = false
+    @State private var isRefreshingRemoteSource: Bool = false
     @State private var showPushPlay: Bool = false
     @State private var showCloudDriveSort: Bool = false
     @State private var showFeedbackSheet: Bool = false
@@ -123,11 +124,7 @@ struct ProfileView: View {
             }
         }
         .sheet(isPresented: $showWelfareSheet) {
-            if WelfarePlatformConfigStore.shared.switchEnabled {
-                RemoteWelfareGateView(isPresented: $showWelfareSheet)
-            } else {
-                welfareUnlockSheet
-            }
+            welfareUnlockSheet
         }
         .sheet(isPresented: $showPushPlay) {
             PushPlayView()
@@ -338,8 +335,9 @@ struct ProfileView: View {
 
     private var welfareUnlockSheet: some View {
         VStack(spacing: 24) {
-            // 标题 + 右上角设置按钮
-            HStack {
+            // 标题 + 左上角刷新 + 右上角设置
+            ZStack {
+                // 标题居中
                 VStack(spacing: 8) {
                     Image(systemName: "gift.fill")
                         .font(.system(size: 44))
@@ -350,17 +348,42 @@ struct ProfileView: View {
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: .infinity)
+
+                // 左上角刷新按钮（仅解锁后可操作）
+                if settings.welfareUnlocked {
+                    HStack {
+                        Button(action: refreshRemoteSource) {
+                            if isRefreshingRemoteSource {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .tint(accentColor)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(accentColor)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isRefreshingRemoteSource)
+                        .accessibilityLabel("刷新远程源")
+                        Spacer()
+                    }
+                    .padding(.leading, 12)
+                    .padding(.top, -40)
+                }
 
                 // 右上角设置按钮（仅解锁后可操作）
                 if settings.welfareUnlocked {
-                    Button(action: { showWelfareSettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(accentColor)
+                    HStack {
+                        Spacer()
+                        Button(action: { showWelfareSettings = true }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 12)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 12)
                     .padding(.top, -40)
                 }
             }
@@ -457,8 +480,17 @@ struct ProfileView: View {
         .presentationDetents([.medium])
         .sheet(isPresented: $showWelfareSettings) {
             NavigationView {
-                RemoteWelfareSettingsGateView()
+                WelfareSettingsView()
             }
+        }
+    }
+
+    /// 手动刷新福利远程源
+    private func refreshRemoteSource() {
+        guard !isRefreshingRemoteSource else { return }
+        isRefreshingRemoteSource = true
+        WelfarePlatformConfigStore.shared.refresh { _ in
+            isRefreshingRemoteSource = false
         }
     }
 
