@@ -110,6 +110,7 @@ struct GlassBottomTabBar: View {
             ForEach(0..<tabs.count, id: \.self) { index in
                 Button(action: {
                     let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.prepare()
                     generator.impactOccurred()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         selectedTab = index
