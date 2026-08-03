@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // vbox 主入口在 App/VBoxApp.swift
 
@@ -68,6 +69,7 @@ struct MainTabView: View {
             selectedTab = 1
         }
         .onChange(of: selectedTab) { newValue in
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             guard tabHistory.last != newValue else { return }
             tabHistory.append(newValue)
             if tabHistory.count > 8 { tabHistory.removeFirst(tabHistory.count - 8) }
@@ -109,9 +111,6 @@ struct GlassBottomTabBar: View {
         HStack(spacing: 2) {
             ForEach(0..<tabs.count, id: \.self) { index in
                 Button(action: {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.prepare()
-                    generator.impactOccurred()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         selectedTab = index
                     }
