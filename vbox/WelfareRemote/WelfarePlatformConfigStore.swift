@@ -205,17 +205,16 @@ final class WelfarePlatformConfigStore: ObservableObject {
         }
         let data = try Data(contentsOf: cacheURL)
 
-        // 解析 allSources 容器，提取 welfarePlatforms 字段
-        let container = try JSONDecoder().decode(AllSourcesContainer.self, from: data)
-        guard let wpData = container.welfarePlatforms else {
+        // 用 JSONSerialization 直接提取 welfarePlatforms 字段，避免 AnyCodable 冲突
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let wpObject = json["welfarePlatforms"] else {
             throw NSError(
                 domain: "WelfareRemote", code: 404,
                 userInfo: [NSLocalizedDescriptionKey: "all_sources.json 中无 welfarePlatforms 字段"]
             )
         }
-        // wpData 已经是 [String: Any] 结构，再次解析为 WelfarePlatformConfig
-        let jsonData = try JSONSerialization.data(withJSONObject: wpData, options: [])
-        return try JSONDecoder().decode(WelfarePlatformConfig.self, from: jsonData)
+        let wpData = try JSONSerialization.data(withJSONObject: wpObject, options: [])
+        return try JSONDecoder().decode(WelfarePlatformConfig.self, from: wpData)
     }
 
     /// 策略 2：直接拉 manifest 中的 welfarePlatforms URL
@@ -354,72 +353,3 @@ final class WelfarePlatformConfigStore: ObservableObject {
     }
 }
 
-// MARK: - 辅助：AllSourcesContainer
-
-/// 复用 RemoteSourceConfigManager 缓存文件中 welfarePlatforms 字段的容器
-/// 注意：这是嵌套在 allSources 容器中的子对象，结构是直接 WelfarePlatformConfig（不含 _meta 包装）
-///   all_sources.json 顶层结构：
-///   {
-///     "apiSources": ...,
-///     "cloudSources": ...,
-///     "welfarePlatforms": { "schemaVersion": 1, "categories": [...], "platforms": [...] }
-///   }
-private struct AllSourcesContainer: Decodable {
-    let welfarePlatforms: [String: AnyCodable]?
-
-    // 注意：这里用 [String: AnyCodable] 解析为通用字典，
-    //       然后在 fetchFromAllSourcesCache 中通过 JSONSerialization 转回 Data
-    //       再二次 decode 为 WelfarePlatformConfig
-
-    // 自定义 decode
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: DynamicKey.self)
-        if let wp = try container.decodeIfPresent([String: AnyCodable].self, forKey: DynamicKey(stringValue: "welfarePlatforms")!) {
-            self.welfarePlatforms = wp
-        } else {
-            self.welfarePlatforms = nil
-        }
-    }
-
-    private struct DynamicKey: CodingKey {
-        var stringValue: String
-        init?(stringValue: String) { self.stringValue = stringValue }
-        var intValue: Int? { nil }
-        init?(intValue: Int) { return nil }
-    }
-}
-
-/// 通用 JSON 值包装
-private struct AnyCodable: Codable {
-    let value: Any
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let v = try? container.decode(Bool.self) { value = v; return }
-        if let v = try? container.decode(Int.self) { value = v; return }
-        if let v = try? container.decode(Double.self) { value = v; return }
-        if let v = try? container.decode(String.self) { value = v; return }
-        if let v = try? container.decode([AnyCodable].self) {
-            value = v.map { $0.value }
-            return
-        }
-        if let v = try? container.decode([String: AnyCodable].self) {
-            value = v.mapValues { $0.value }
-            return
-        }
-        value = NSNull()
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch value {
-        case let v as Bool: try container.encode(v)
-        case let v as Int: try container.encode(v)
-        case let v as Double: try container.encode(v)
-        case let v as String: try container.encode(v)
-        case let v as [Any]: try container.encode(v.map { AnyCodable(value: $0) })
-        case let v as [String: Any]: try container.encode(v.mapValues { AnyCodable(value: $0) })
-        default: try container.encodeNil()
-        }
-    }
-}

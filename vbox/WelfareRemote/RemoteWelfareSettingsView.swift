@@ -327,12 +327,6 @@ struct RemoteWelfareSettingsView: View {
         case .dailyBattle:
             DailyBattleService.shared.reprobe()
             DailyBattleService.contest.reprobe()
-        case .mysteryMovie:
-            MysteryMovieService.shared.reprobe()
-        case .sihuVideo:
-            SihuVideoService.shared.reprobe()
-        case .xcp:
-            XCPService.shared.reprobe()
         case .luoliAv:
             LuoliAVService.shared.reprobe()
         case .madouFree:
@@ -347,19 +341,9 @@ struct RemoteWelfareSettingsView: View {
             HeiliaoService.shared.reprobe()
         case .xigua:
             XiguaService.shared.reprobe()
-        case .sbAggregation:
-            SBAggregationService.shared.reprobe()
-        case .fuliBase:
-            // 根据 platformKey 选择具体 Service
-            switch platform.platformKey {
-            case "panda_video": PandaVideoService.shared.reprobe()
-            case "four_h_video": FourHVideoService.shared.reprobe()
-            case "full_hd": FullHDService.shared.reprobe()
-            case "banana_video": BananaVideoService.shared.reprobe()
-            default: break
-            }
-        case .yboxSpecial, .yboxXjsp, .unknown:
-            // YBoxService2 走远端 API，不做域名重置
+        case .mysteryMovie, .sihuVideo, .xcp, .sbAggregation, .fuliBase, .yboxSpecial, .yboxXjsp, .unknown:
+            // 这些 Service 当前未暴露 reprobe()，域名已通过 WelfareDomainStore 持久化，
+            // 下次进入页面会从 domain store 读取最新域名。
             break
         }
     }
