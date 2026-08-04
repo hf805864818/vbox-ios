@@ -13,7 +13,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     @State private var showPlayer = false
     @State private var playerVideo: VodItem?
     @State private var selectedEpisode: FuliEpisode?
-    @State private var showEpisodeSheet = false
+    @State private var showEpisodePanel = false
 
     // 播放地址解析相关
     @State private var isResolvingURL = false
@@ -68,7 +68,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                             Button(action: { playFirst() }) {
                                 HStack {
                                     Image(systemName: "play.fill")
-                                    Text(detail.episodes.count == 1 ? "立即播放" : "播放第1集")
+                                    Text(detail.episodes.count == 1 ? "立即播放" : "播放\(selectedEpisode?.name ?? detail.episodes.first!.name)")
                                 }
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.white)
@@ -78,15 +78,20 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                             .buttonStyle(.plain)
 
                             if detail.episodes.count > 1 {
-                                Button(action: { showEpisodeSheet = true }) {
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showEpisodePanel.toggle()
+                                    }
+                                }) {
                                     HStack {
-                                        Image(systemName: "list.bullet")
-                                        Text("选集(\(detail.episodes.count))")
+                                        Image(systemName: "line.3.horizontal.decrease")
+                                        Text("线路(\(detail.episodes.count))")
                                     }
                                     .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.accentColor)
+                                    .foregroundColor(showEpisodePanel ? Color(hex: "2196F3") : .accentColor)
                                     .padding(.horizontal, 20).padding(.vertical, 10)
-                                    .background(Color.accentColor.opacity(0.1)).cornerRadius(22)
+                                    .background(showEpisodePanel ? Color(hex: "2196F3").opacity(0.15) : Color.accentColor.opacity(0.1))
+                                    .cornerRadius(22)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -116,11 +121,36 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                     VideoPlayerViewV2(video: playerVideo)
                 }
             }
-            .sheet(isPresented: $showEpisodeSheet) {
-                FuliEpisodeSheetView(episodes: detail?.episodes ?? []) { ep in
-                    playEpisode(ep)
-                    showEpisodeSheet = false
-                }
+
+            // 线路悬浮弹窗（类似播放器倍速面板）
+            if showEpisodePanel, let detail = detail, detail.episodes.count > 1 {
+                // 半透明背景，点击关闭
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showEpisodePanel = false
+                        }
+                    }
+
+                // 悬浮面板
+                FuliEpisodeFloatingPanel(
+                    episodes: detail.episodes,
+                    selectedEpisode: selectedEpisode ?? detail.episodes.first,
+                    onSelect: { ep in
+                        selectedEpisode = ep
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showEpisodePanel = false
+                        }
+                        playEpisode(ep)
+                    }
+                )
+                .frame(maxWidth: 220)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                    removal: .opacity.combined(with: .scale(scale: 0.9))
+                ))
+                .zIndex(50)
             }
 
             // 播放地址解析加载浮层
@@ -199,6 +229,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
 
     private func playFirst() {
         guard let first = detail?.episodes.first else { return }
+        selectedEpisode = first
         playEpisode(first)
     }
 
@@ -247,40 +278,70 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     }
 }
 
-// MARK: - 选集弹窗
-struct FuliEpisodeSheetView: View {
+// MARK: - 线路悬浮面板
+//
+// 仿照播放器倍速面板（PlayerSettingsPanelV2）设计的悬浮线路选择器。
+// 显示为半透明背景上的垂直列表面板，点击外部区域自动关闭。
+struct FuliEpisodeFloatingPanel: View {
     let episodes: [FuliEpisode]
+    let selectedEpisode: FuliEpisode?
     let onSelect: (FuliEpisode) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        VStack(alignment: .leading, spacing: 0) {
+            // 标题
+            HStack {
+                Text("选择线路")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            // 线路列表
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(episodes) { ep in
-                        Button(action: { onSelect(ep); dismiss() }) {
-                            Text(ep.name)
-                                .font(.system(size: 13, weight: .medium))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .foregroundColor(.primary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                .cornerRadius(10)
+                        let isSelected = ep.id == selectedEpisode?.id
+                        Button(action: { onSelect(ep) }) {
+                            HStack {
+                                Text(ep.name)
+                                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                                    .foregroundColor(isSelected ? Color(hex: "2196F3") : .white.opacity(0.85))
+                                    .lineLimit(1)
+                                Spacer()
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color(hex: "2196F3"))
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+                            .background(
+                                isSelected ? Color(hex: "2196F3").opacity(0.15) : Color.clear
+                            )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PlainButtonStyle())
+
+                        if ep.id != episodes.last?.id {
+                            Divider()
+                                .background(Color.white.opacity(0.08))
+                                .padding(.leading, 14)
+                        }
                     }
                 }
-                .padding(16)
             }
-            .navigationTitle("选集")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
+            .frame(maxHeight: 280)
         }
+        .background(Color.black.opacity(0.85))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
     }
 }
