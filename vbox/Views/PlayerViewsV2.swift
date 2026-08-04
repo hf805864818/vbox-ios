@@ -3864,15 +3864,24 @@ class PlayerState: ObservableObject {
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
         
-        // 本地代理 URL（127.0.0.1）不需要设置 HTTP 头
-        // 代理服务器使用自己存储的 headers 发起上游请求，AVPlayer 的 headers 会被忽略
-        // 设置错误的 Referer（如 https://127.0.0.1/）反而可能干扰代理服务器
+        // 本地代理 URL（127.0.0.1）的处理
+        // 代理服务器本身不需要 AVPlayer 的 headers（它用自己的存储 headers）
+        // 但 m3u8 中的 key URI 和 TS 分片可能需要正确的 headers（如六速社区需要 User-Agent 和 Referer）
+        // 当 m3u8 重写只修复 key URI 为绝对路径（不改写为代理 URL）时，
+        // AVPlayer 会直接请求 CDN 获取 key 和 TS，需要正确的 headers
         let isLocalProxy = url.host == "127.0.0.1"
         
         if isLocalProxy {
-            // 本地代理：清空 headers，与网盘播放路径（第2516行）行为一致
-            assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [:]
-            log("[PlayerV2] HTTP头配置 - 本地代理URL，清空headers")
+            if let customHeaders, !customHeaders.isEmpty {
+                // 本地代理 + 有 customHeaders：使用 customHeaders
+                // 代理请求会忽略这些 headers，但 key/TS 直接请求 CDN 时需要
+                assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = customHeaders
+                log("[PlayerV2] HTTP头配置 - 本地代理URL，使用customHeaders: \(customHeaders.keys.joined(separator: ","))")
+            } else {
+                // 本地代理 + 无 customHeaders：清空 headers
+                assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [:]
+                log("[PlayerV2] HTTP头配置 - 本地代理URL，清空headers")
+            }
         } else {
             // 设置HTTP头（m3u8播放通常需要正确的User-Agent和Referer）
             var headers: [String: String] = [

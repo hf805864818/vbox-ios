@@ -460,13 +460,13 @@ final class DoubanImageProxyServer {
         request.httpMethod = "GET"
         for (key, value) in item.headers {
             let lower = key.lowercased()
-            // 跳过 host/content-length/connection/accept-encoding，
-            // accept-encoding 由 URLSession 自动管理以启用自动解压
             if lower == "host" || lower == "content-length" || lower == "connection" || lower == "accept-encoding" { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
-        // 不手动设置 Accept-Encoding：URLSession 会自动添加 gzip/deflate/br 并自动解压响应。
-        // 之前手动设置 "gzip, deflate" 会导致 URLSession 不自动解压，gzip 压缩的 m3u8 无法解码为 UTF-8。
+        // 不手动设置 Accept-Encoding，让 URLSession 自动处理 gzip/deflate/br 解压
+        // 测试发现：服务器始终返回 gzip 压缩的 m3u8（无论 Accept-Encoding 值是什么）
+        // 手动设置 Accept-Encoding 会导致 URLSession 不自动解压，
+        // 而 gunzip 函数使用 COMPRESSION_ZLIB 无法处理 gzip 格式头部（RFC 1952）
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         // 使用带 SSL 绕过的 session（六速社区服务器使用自签名证书）
@@ -619,17 +619,62 @@ final class DoubanImageProxyServer {
     }
 
     /// 使用 Compression 框架解压 gzip 数据
+    /// COMPRESSION_ZLIB 只能处理 raw deflate（RFC 1951），不能处理 gzip 格式头部（RFC 1952）
+    /// 需要先剥离 gzip 头部，再对 raw deflate 数据进行解压
     private static func gunzip(_ data: Data) -> Data? {
-        // COMPRESSION_ZLIB 算法可以解压 gzip 格式（包含 gzip 头部）
-        let capacity = max(data.count * 20, 131072)
+        // 1. 剥离 gzip 头部
+        // gzip 格式：magic(2) + method(1) + flags(1) + mtime(4) + xfl(1) + os(1) = 10 字节固定头
+        // flags 各位含义：bit0=FTEXT, bit1=FHCRC, bit2=FEXTRA, bit3=FNAME, bit4=FCOMMENT
+        guard data.count >= 10 else { return nil }
+        guard data[0] == 0x1f, data[1] == 0x8b else { return nil }
+        guard data[2] == 0x08 else { return nil } // 只支持 deflate 压缩方法
+
+        let flags = data[3]
+        var offset = 10 // 固定头部大小
+
+        // FEXTRA：额外字段
+        if (flags & 0x04) != 0 {
+            guard offset + 2 <= data.count else { return nil }
+            let extraLen = Int(data[offset]) | (Int(data[offset + 1]) << 8)
+            offset += 2 + extraLen
+            guard offset <= data.count else { return nil }
+        }
+
+        // FNAME：原始文件名（null 结尾）
+        if (flags & 0x08) != 0 {
+            while offset < data.count && data[offset] != 0 { offset += 1 }
+            offset += 1 // 跳过 null
+            guard offset <= data.count else { return nil }
+        }
+
+        // FCOMMENT：注释（null 结尾）
+        if (flags & 0x10) != 0 {
+            while offset < data.count && data[offset] != 0 { offset += 1 }
+            offset += 1 // 跳过 null
+            guard offset <= data.count else { return nil }
+        }
+
+        // FHCRC：头部 CRC-16（2 字节）
+        if (flags & 0x02) != 0 {
+            offset += 2
+            guard offset <= data.count else { return nil }
+        }
+
+        // 2. 剥离尾部 CRC-32 和原始大小（各 4 字节）
+        let deflateEnd = data.count - 4 - 4
+        guard offset < deflateEnd else { return nil }
+        let deflateData = data.subdata(in: offset..<deflateEnd)
+
+        // 3. 用 COMPRESSION_ZLIB 解压 raw deflate 数据
+        let capacity = max(deflateData.count * 20, 131072)
         var buffer = Data(count: capacity)
         let result = buffer.withUnsafeMutableBytes { destPtr -> Int in
-            data.withUnsafeBytes { srcPtr -> Int in
+            deflateData.withUnsafeBytes { srcPtr -> Int in
                 guard let destBase = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
                       let srcBase = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
                 return compression_decode_buffer(
                     destBase, capacity,
-                    srcBase, data.count,
+                    srcBase, deflateData.count,
                     nil, COMPRESSION_ZLIB
                 )
             }
@@ -658,7 +703,16 @@ final class DoubanImageProxyServer {
         return buffer.prefix(result)
     }
 
-    /// 重写六速社区 m3u8：将 key URI 和 TS 分片路径替换为本地代理 URL
+    /// 重写六速社区 m3u8：仅将 key URI 从根相对路径转为绝对路径
+    ///
+    /// 与 Python Spider 的 _proxy_m3u8 逻辑完全一致：
+    /// - 只修复 #EXT-X-KEY 行中的 URI，将根相对路径（/api/v2/...）转为绝对路径（https://host/api/v2/...）
+    /// - TS 分片路径不改写，播放器直接从 CDN 获取（所有主机 SSL 证书有效，不需要代理）
+    ///
+    /// 之前的实现将 key 和 TS 都改写为本地代理 URL，导致：
+    /// 1. 所有请求经过本地代理，增加延迟和故障点
+    /// 2. 代理服务器的 gunzip 无法正确解压 gzip 格式
+    /// 3. 代理转发 TS 分片可能出现流处理问题
     private func rewriteLusushequM3U8(_ text: String, baseURL: URL, id: String) -> String {
         // 计算 base 用于解析相对路径
         let finalURLString = baseURL.absoluteString
@@ -675,29 +729,18 @@ final class DoubanImageProxyServer {
             basePath = schemeHostPort + "/"
         }
 
+        // 逐行处理：只修复 #EXT-X-KEY 中的 URI，其他行原样保留
         return text.components(separatedBy: .newlines).map { line in
-            rewriteLusushequM3U8Line(line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("#EXT-X-KEY"), trimmed.contains("URI=\"") else {
+                return line
+            }
+            return rewriteLusushequKeyURI(in: line, schemeHostPort: schemeHostPort, basePath: basePath)
         }.joined(separator: "\n")
     }
 
-    private func rewriteLusushequM3U8Line(_ line: String, schemeHostPort: String, basePath: String, id: String) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return line }
-
-        // #EXT-X-KEY 行：重写 URI="..." 中的路径
-        if line.hasPrefix("#EXT-X-KEY") {
-            return rewriteLusushequURIAttributes(in: line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
-        }
-
-        // 非 # 开头的行是 TS 分片路径
-        if !line.hasPrefix("#") {
-            return localLusushequSegmentURL(for: trimmed, schemeHostPort: schemeHostPort, basePath: basePath, id: id) ?? line
-        }
-
-        return line
-    }
-
-    private func rewriteLusushequURIAttributes(in line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+    /// 将 #EXT-X-KEY 行中的 URI 从相对路径转为绝对路径
+    private func rewriteLusushequKeyURI(in line: String, schemeHostPort: String, basePath: String) -> String {
         var result = line
         let pattern = #"URI="([^"]+)""#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return line }
@@ -708,37 +751,18 @@ final class DoubanImageProxyServer {
                   let uriRange = Range(match.range(at: 1), in: result),
                   let fullRange = Range(match.range(at: 0), in: result) else { continue }
             let uri = String(result[uriRange])
-            guard let local = localLusushequSegmentURL(for: uri, schemeHostPort: schemeHostPort, basePath: basePath, id: id) else { continue }
-            result.replaceSubrange(fullRange, with: "URI=\"\(local)\"")
+            // 已经是绝对路径，不需要处理
+            if uri.hasPrefix("http://") || uri.hasPrefix("https://") { continue }
+            // 根相对路径 → 绝对路径
+            let absolute: String
+            if uri.hasPrefix("/") {
+                absolute = schemeHostPort + uri
+            } else {
+                absolute = basePath + uri
+            }
+            result.replaceSubrange(fullRange, with: "URI=\"\(absolute)\"")
         }
         return result
-    }
-
-    private func localLusushequSegmentURL(for raw: String, schemeHostPort: String, basePath: String, id: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let absolute: String
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            absolute = trimmed
-        } else if trimmed.hasPrefix("/") {
-            absolute = schemeHostPort + trimmed
-        } else {
-            absolute = basePath + trimmed
-        }
-
-        guard URL(string: absolute) != nil else { return nil }
-
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = "127.0.0.1"
-        components.port = Int(port)
-        components.path = "/lusushequ-segment"
-        components.queryItems = [
-            URLQueryItem(name: "id", value: id),
-            URLQueryItem(name: "url", value: absolute)
-        ]
-        return components.url?.absoluteString
     }
 
     /// 代理六速社区 key/TS 请求（SSL 绕过 + 自定义 header）
@@ -748,12 +772,11 @@ final class DoubanImageProxyServer {
         request.httpMethod = method
         for (key, value) in item.headers {
             let lower = key.lowercased()
-            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            if lower == "host" || lower == "content-length" || lower == "connection" || lower == "accept-encoding" { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
-        // 排除 br 压缩
-        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        // 不手动设置 Accept-Encoding，让 URLSession 自动处理解压
         if let range = normalizedRange(incomingRange) {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
@@ -1427,14 +1450,9 @@ final class DoubanImageProxyServer {
             ?? (headers["accept-ranges"] as? String)
             ?? "bytes"
 
-        var header = """
-        HTTP/1.1 \(statusCode) \(reason)\r
-        Content-Type: \(contentType)\r
-        Content-Length: \(body.count)\r
-        Accept-Ranges: \(acceptRanges)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        // 多行字符串的空行会导致 header 前多一个 \n 字节，造成 HTTP 响应格式错误
+        var header = "HTTP/1.1 \(statusCode) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nAccept-Ranges: \(acceptRanges)\r\nCache-Control: no-store\r\nConnection: close\r\n"
 
         if let contentRange {
             header += "Content-Range: \(contentRange)\r\n"
@@ -1457,13 +1475,9 @@ final class DoubanImageProxyServer {
         let acceptRanges = headerValue(headers, "Accept-Ranges") ?? "bytes"
         let contentLength = headerValue(headers, "Content-Length")
 
-        var header = """
-        HTTP/1.1 \(statusCode) \(reason)\r
-        Content-Type: \(contentType)\r
-        Accept-Ranges: \(acceptRanges)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        // 多行字符串的空行会导致 header 前多一个 \n 字节，造成 HTTP 响应格式错误
+        var header = "HTTP/1.1 \(statusCode) \(reason)\r\nContent-Type: \(contentType)\r\nAccept-Ranges: \(acceptRanges)\r\nCache-Control: no-store\r\nConnection: close\r\n"
 
         if let contentLength {
             header += "Content-Length: \(contentLength)\r\n"
@@ -1819,15 +1833,9 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
 
     private func sendErrorAndClose(statusCode: Int, message: String) {
         let body = Data(message.utf8)
-        let header = """
-        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
-        Content-Type: text/plain\r
-        Content-Length: \(body.count)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        \r
-
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        // 之前的多行字符串在 \r 后有空行再接 """，导致 body 前多一个 \n 字节
+        let header = "HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
 
         var response = Data(header.utf8)
         response.append(body)
@@ -1943,15 +1951,8 @@ private final class LusushequStreamForwarder: NSObject, URLSessionDataDelegate {
 
     private func sendErrorAndClose(statusCode: Int, message: String) {
         let body = Data(message.utf8)
-        let header = """
-        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
-        Content-Type: text/plain\r
-        Content-Length: \(body.count)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        \r
-
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        let header = "HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
 
         var response = Data(header.utf8)
         response.append(body)
@@ -2063,15 +2064,8 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
 
     private func sendErrorAndClose(statusCode: Int, message: String) {
         let body = Data(message.utf8)
-        let header = """
-        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
-        Content-Type: text/plain\r
-        Content-Length: \(body.count)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        \r
-
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        let header = "HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
 
         var response = Data(header.utf8)
         response.append(body)
