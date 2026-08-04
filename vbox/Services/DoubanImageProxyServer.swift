@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Compression
 
 extension Notification.Name {
     static let vboxBaiduStreamCacheProgress = Notification.Name("vbox.baidu.stream.cache.progress")
@@ -430,18 +431,20 @@ final class DoubanImageProxyServer {
         fetchLusushequStream(item: segItem, id: id, method: method, incomingRange: incomingRange, on: connection)
     }
 
-    /// 下载六速社区 m3u8（SSL 绕过 + gzip 解压），重写 key URI 和 TS 路径为本地代理 URL
+    /// 下载六速社区 m3u8（SSL 绕过 + 自动解压），重写 key URI 和 TS 路径为本地代理 URL
     private func fetchLusushequM3U8(item: StreamItem, id: String, on connection: NWConnection) {
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 20
         request.httpMethod = "GET"
         for (key, value) in item.headers {
             let lower = key.lowercased()
-            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            // 跳过 host/content-length/connection/accept-encoding，
+            // accept-encoding 由 URLSession 自动管理以启用自动解压
+            if lower == "host" || lower == "content-length" || lower == "connection" || lower == "accept-encoding" { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
-        // 排除 br，避免服务器返回 Brotli 压缩导致解压失败
-        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        // 不手动设置 Accept-Encoding：URLSession 会自动添加 gzip/deflate/br 并自动解压响应。
+        // 之前手动设置 "gzip, deflate" 会导致 URLSession 不自动解压，gzip 压缩的 m3u8 无法解码为 UTF-8。
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         // 使用带 SSL 绕过的 session（六速社区服务器使用自签名证书）
@@ -465,28 +468,95 @@ final class DoubanImageProxyServer {
                 return
             }
 
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
-            guard let data, let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            let httpResp = response as? HTTPURLResponse
+            let status = httpResp?.statusCode ?? 200
+            let contentEncoding = (httpResp?.value(forHTTPHeaderField: "Content-Encoding") ?? "").lowercased()
+
+            guard let data else {
                 print("❌ 六速社区 m3u8 内容为空: id=\(id), status=\(status)")
                 self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
             }
 
+            // 解压 m3u8 数据：URLSession 通常已自动解压，但作为兜底也手动处理 gzip
+            let text = self.decompressM3U8Text(data: data, contentEncoding: contentEncoding)
+
+            guard let text, !text.isEmpty else {
+                print("❌ 六速社区 m3u8 解码失败: id=\(id), status=\(status), encoding=\(contentEncoding), bytes=\(data.count), head=\(data.prefix(4).map { String(format: "%02x", $0) }.joined(separator: " "))")
+                self.sendNoStore(statusCode: 502, body: Data("Decode M3U8 Failed".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
             // 验证是合法的 m3u8
             guard text.contains("#EXTM3U") else {
-                print("❌ 六速社区 m3u8 内容无效（非 EXTM3U）: id=\(id), status=\(status)")
+                print("❌ 六速社区 m3u8 内容无效（非 EXTM3U）: id=\(id), status=\(status), prefix=\(text.prefix(80))")
                 self.sendNoStore(statusCode: 502, body: Data("Invalid M3U8".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
             }
 
-            let rewritten = self.rewriteLusushequM3U8(text, baseURL: item.url, id: id)
+            // 使用最终 URL（重定向后）作为 base，避免相对路径解析错误
+            let finalURL = httpResp?.url ?? item.url
+            let rewritten = self.rewriteLusushequM3U8(text, baseURL: finalURL, id: id)
             let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
-            print("✅ 六速社区 m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(rewritten.count)")
+            print("✅ 六速社区 m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(rewritten.count), finalHost=\(finalURL.host ?? "")")
             self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
             sslSession.invalidateAndCancel()
         }.resume()
+    }
+
+    /// 解压 m3u8 数据为文本
+    /// URLSession 在不手动设置 Accept-Encoding 时会自动解压 gzip/deflate/br，
+    /// 此方法作为兜底，处理 URLSession 未自动解压的情况。
+    private func decompressM3U8Text(data: Data, contentEncoding: String) -> String? {
+        // 1. 尝试直接 UTF-8 解码（URLSession 已自动解压或明文响应）
+        if let text = String(data: data, encoding: .utf8) {
+            if text.contains("#EXTM3U") {
+                return text
+            }
+        }
+
+        // 2. 检测 gzip 魔数 (1f 8b) 并尝试解压
+        if data.count >= 2, data[0] == 0x1f, data[1] == 0x8b {
+            if let decompressed = Self.gunzip(data),
+               let text = String(data: decompressed, encoding: .utf8) {
+                print("📦 六速社区 m3u8 gzip 手动解压成功: \(data.count) → \(decompressed.count) bytes")
+                return text
+            }
+        }
+
+        // 3. 基于 Content-Encoding 尝试 zlib 解压
+        if contentEncoding == "gzip" || contentEncoding == "deflate" {
+            if let decompressed = Self.gunzip(data),
+               let text = String(data: decompressed, encoding: .utf8) {
+                return text
+            }
+        }
+
+        // 4. 最后尝试直接解码（可能是非标准编码的文本）
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// 使用 Compression 框架解压 gzip 数据
+    private static func gunzip(_ data: Data) -> Data? {
+        // COMPRESSION_ZLIB 算法可以解压 gzip 格式（包含 gzip 头部）
+        let capacity = max(data.count * 20, 131072)
+        var buffer = Data(count: capacity)
+        let result = buffer.withUnsafeMutableBytes { destPtr -> Int in
+            data.withUnsafeBytes { srcPtr -> Int in
+                guard let destBase = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                      let srcBase = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+                return compression_decode_buffer(
+                    destBase, capacity,
+                    srcBase, data.count,
+                    nil, COMPRESSION_ZLIB
+                )
+            }
+        }
+        guard result > 0 else { return nil }
+        return buffer.prefix(result)
     }
 
     /// 重写六速社区 m3u8：将 key URI 和 TS 分片路径替换为本地代理 URL
