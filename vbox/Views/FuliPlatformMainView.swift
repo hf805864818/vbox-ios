@@ -157,7 +157,7 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                         spacing: 14
                     ) {
                         ForEach(videos) { video in
-                            NavigationLink(destination: FuliVideoBridgeView(svc: svc, video: video)) {
+                            NavigationLink(destination: detailView(for: video)) {
                                 FuliVideoCard(video: video)
                             }
                             .buttonStyle(.plain)
@@ -175,6 +175,14 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
             }
         }
         .onAppear { refresh() }
+    }
+
+    private func detailView(for video: FuliVideo) -> some View {
+        if svc.contentCategory == .comic {
+            return AnyView(ComicDetailBridgeView(svc: svc, video: video))
+        } else {
+            return AnyView(FuliVideoBridgeView(svc: svc, video: video))
+        }
     }
 
     private func subButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -262,7 +270,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                         spacing: 14
                     ) {
                         ForEach(videos) { video in
-                            NavigationLink(destination: FuliVideoBridgeView(svc: svc, video: video)) {
+                            NavigationLink(destination: searchDetailView(for: video)) {
                                 FuliVideoCard(video: video)
                             }
                             .buttonStyle(.plain)
@@ -274,6 +282,14 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                     .padding(12)
                 }
             }
+        }
+    }
+
+    private func searchDetailView(for video: FuliVideo) -> some View {
+        if svc.contentCategory == .comic {
+            return AnyView(ComicDetailBridgeView(svc: svc, video: video))
+        } else {
+            return AnyView(FuliVideoBridgeView(svc: svc, video: video))
         }
     }
 

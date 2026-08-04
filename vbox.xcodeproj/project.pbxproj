@@ -261,6 +261,10 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
+		A10157 /* CMSV10Helper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10157 /* CMSV10Helper.swift */; };
+		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
+		A10159 /* AidanComicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* AidanComicService.swift */; };
+		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -534,6 +538,10 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
+		B10157 /* CMSV10Helper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMSV10Helper.swift; sourceTree = "<group>"; };
+		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
+		B10159 /* AidanComicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanComicService.swift; sourceTree = "<group>"; };
+		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -793,6 +801,9 @@
 				1FAAAB2C8F43495F933A2C8A /* FourHVideoService.swift */,
 				9C7C813277704DC9A355F569 /* PandaVideoService.swift */,
 				C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */,
+				B10157 /* CMSV10Helper.swift */,
+				B10158 /* AidanVideoService.swift */,
+				B10159 /* AidanComicService.swift */,
 				XIGUA1000000000000000002 /* XiguaService.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
 			);
@@ -836,6 +847,7 @@
 				DDDD000000000000000000001 /* HeiliaoHomeView.swift */,
 				B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */,
 				B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */,
+				B10160 /* ComicDetailBridgeView.swift */,
 				XIGUA1000000000000000003 /* XiguaHomeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
@@ -1165,6 +1177,10 @@
 				D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */,
 				A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */,
 				0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */,
+				A10157 /* CMSV10Helper.swift in Sources */,
+				A10158 /* AidanVideoService.swift in Sources */,
+				A10159 /* AidanComicService.swift in Sources */,
+				A10160 /* ComicDetailBridgeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

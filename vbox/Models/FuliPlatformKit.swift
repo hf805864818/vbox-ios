@@ -40,11 +40,25 @@ struct FuliVideo: Identifiable {
     }
 }
 
+/// 内容类型（用于区分视频平台与漫画平台）
+enum FuliContentCategory {
+    case video
+    case comic
+}
+
 /// 剧集
 struct FuliEpisode: Identifiable {
     var id: String { "\(name)_\(url)" }
     let name: String
     let url: String
+    /// 漫画/套图专用：该剧集包含的图片地址列表
+    var images: [String]?
+
+    init(name: String, url: String, images: [String]? = nil) {
+        self.name = name
+        self.url = url
+        self.images = images
+    }
 }
 
 /// 视频详情

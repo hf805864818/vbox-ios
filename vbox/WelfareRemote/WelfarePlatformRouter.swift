@@ -118,6 +118,16 @@ struct WelfarePlatformRouter {
         case .fuliBase:
             return makeFuliBaseDestination(for: platform)
 
+        case .aidanVideo:
+            return AnyView(
+                FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanVideoService.shared)
+            )
+
+        case .aidanComic:
+            return AnyView(
+                FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanComicService.shared)
+            )
+
         // MARK: 福利专区专用远程 Spider
         case .welfareSpider:
             return makeWelfareSpiderDestination(for: platform)
