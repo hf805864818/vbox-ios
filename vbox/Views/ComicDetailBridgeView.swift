@@ -132,7 +132,7 @@ struct ComicGalleryView: View {
                             case .success(let image):
                                 image
                                     .resizable()
-                                    .scaledToFit
+                                    .scaledToFit()
                             case .failure:
                                 VStack(spacing: 8) {
                                     Image(systemName: "exclamationmark.triangle")
