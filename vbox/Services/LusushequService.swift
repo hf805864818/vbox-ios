@@ -192,9 +192,9 @@ final class LusushequService: FuliBaseService {
         EncImageURLProtocol.register()
     }
 
-    // MARK: - 域名探测（覆盖基类，使用 SSL 绕过）
+    // MARK: - 域名探测（使用 SSL 绕过，shadow 协议扩展的默认实现）
 
-    override func probeHost() async -> String {
+    func probeHost() async -> String {
         let hosts = allHosts
         for host in hosts {
             guard let url = URL(string: host) else { continue }
