@@ -363,7 +363,12 @@ final class DoubanImageProxyServer {
         }
 
         guard method == "GET" else {
-            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            // HEAD 请求：返回 Content-Type 但不返回 Content-Length: 0
+            // AVPlayer 看到 Content-Length: 0 会认为 m3u8 内容为空，不发后续 GET 请求
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
             return
         }
 
@@ -408,7 +413,12 @@ final class DoubanImageProxyServer {
         }
 
         guard method == "GET" else {
-            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            // HEAD 请求：返回 Content-Type 但不返回 Content-Length: 0
+            // AVPlayer 看到 Content-Length: 0 会认为 m3u8 内容为空，不发后续 GET 请求
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
             return
         }
 
@@ -441,7 +451,11 @@ final class DoubanImageProxyServer {
 
     /// 下载六速社区 m3u8（SSL 绕过 + 自动解压），重写 key URI 和 TS 路径为本地代理 URL
     private func fetchLusushequM3U8(item: StreamItem, id: String, on connection: NWConnection) {
-        var request = URLRequest(url: item.url)
+        fetchLusushequM3U8FromURL(item: item, id: id, url: item.url, attemptCDNFallback: true, on: connection)
+    }
+
+    private func fetchLusushequM3U8FromURL(item: StreamItem, id: String, url: URL, attemptCDNFallback: Bool, on connection: NWConnection) {
+        var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.httpMethod = "GET"
         for (key, value) in item.headers {
@@ -471,6 +485,11 @@ final class DoubanImageProxyServer {
 
             if let error {
                 print("❌ 六速社区 m3u8 拉取失败: id=\(id), err=\(error.localizedDescription)")
+                // 尝试 cdnId 降级
+                if attemptCDNFallback, self.tryCDNFallback(item: item, id: id, url: url, on: connection) {
+                    sslSession.invalidateAndCancel()
+                    return
+                }
                 self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
@@ -482,6 +501,10 @@ final class DoubanImageProxyServer {
 
             guard let data else {
                 print("❌ 六速社区 m3u8 内容为空: id=\(id), status=\(status)")
+                if attemptCDNFallback, self.tryCDNFallback(item: item, id: id, url: url, on: connection) {
+                    sslSession.invalidateAndCancel()
+                    return
+                }
                 self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
@@ -492,6 +515,10 @@ final class DoubanImageProxyServer {
 
             guard let text, !text.isEmpty else {
                 print("❌ 六速社区 m3u8 解码失败: id=\(id), status=\(status), encoding=\(contentEncoding), bytes=\(data.count), head=\(data.prefix(4).map { String(format: "%02x", $0) }.joined(separator: " "))")
+                if attemptCDNFallback, self.tryCDNFallback(item: item, id: id, url: url, on: connection) {
+                    sslSession.invalidateAndCancel()
+                    return
+                }
                 self.sendNoStore(statusCode: 502, body: Data("Decode M3U8 Failed".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
@@ -500,19 +527,54 @@ final class DoubanImageProxyServer {
             // 验证是合法的 m3u8
             guard text.contains("#EXTM3U") else {
                 print("❌ 六速社区 m3u8 内容无效（非 EXTM3U）: id=\(id), status=\(status), prefix=\(text.prefix(80))")
+                if attemptCDNFallback, self.tryCDNFallback(item: item, id: id, url: url, on: connection) {
+                    sslSession.invalidateAndCancel()
+                    return
+                }
                 self.sendNoStore(statusCode: 502, body: Data("Invalid M3U8".utf8), contentType: "text/plain", on: connection)
                 sslSession.invalidateAndCancel()
                 return
             }
 
             // 使用最终 URL（重定向后）作为 base，避免相对路径解析错误
-            let finalURL = httpResp?.url ?? item.url
+            let finalURL = httpResp?.url ?? url
             let rewritten = self.rewriteLusushequM3U8(text, baseURL: finalURL, id: id)
             let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
             print("✅ 六速社区 m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(rewritten.count), finalHost=\(finalURL.host ?? "")")
             self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
             sslSession.invalidateAndCancel()
         }.resume()
+    }
+
+    /// 尝试 cdnId 降级：cdnId=3 失败时尝试 cdnId=1 和 cdnId=2
+    /// 与 Python Spider 的 _fetch_m3u8_text 降级逻辑一致
+    private func tryCDNFallback(item: StreamItem, id: String, url: URL, on connection: NWConnection) -> Bool {
+        let urlStr = url.absoluteString
+        guard urlStr.contains("cdnId=") else { return false }
+
+        // 提取当前 cdnId
+        guard let regex = try? NSRegularExpression(pattern: "cdnId=(\\d+)"),
+              let match = regex.firstMatch(in: urlStr, range: NSRange(urlStr.startIndex..., in: urlStr)),
+              let range = Range(match.range(at: 1), in: urlStr) else {
+            return false
+        }
+        let currentCDN = String(urlStr[range])
+        print("⚠️ 六速社区 m3u8 当前 cdnId=\(currentCDN) 失败，尝试降级")
+
+        for cdnId in [3, 1, 2] {
+            let cdnStr = String(cdnId)
+            if cdnStr == currentCDN { continue }
+            let altUrl = urlStr.replacingOccurrences(
+                of: "cdnId=\\d+",
+                with: "cdnId=\(cdnStr)",
+                options: .regularExpression
+            )
+            guard let altURL = URL(string: altUrl) else { continue }
+            print("🔄 六速社区 m3u8 降级尝试 cdnId=\(cdnStr): \(altUrl.prefix(100))")
+            fetchLusushequM3U8FromURL(item: item, id: id, url: altURL, attemptCDNFallback: false, on: connection)
+            return true
+        }
+        return false
     }
 
     /// 解压 m3u8 数据为文本
@@ -748,7 +810,12 @@ final class DoubanImageProxyServer {
         }
 
         guard method == "GET" else {
-            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            // HEAD 请求：返回 Content-Type 但不返回 Content-Length: 0
+            // AVPlayer 看到 Content-Length: 0 会认为 m3u8 内容为空，不发后续 GET 请求
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
             return
         }
 

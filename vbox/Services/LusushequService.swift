@@ -192,6 +192,38 @@ final class LusushequService: FuliBaseService {
         EncImageURLProtocol.register()
     }
 
+    // MARK: - 域名探测（覆盖基类，使用 SSL 绕过）
+
+    override func probeHost() async -> String {
+        let hosts = allHosts
+        for host in hosts {
+            guard let url = URL(string: host) else { continue }
+            var req = URLRequest(url: url)
+            req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            req.setValue(referer, forHTTPHeaderField: "Referer")
+            do {
+                let (_, resp) = try await apiSession.data(for: req)
+                guard let http = resp as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode) else { continue }
+                await MainActor.run {
+                    self.currentHost = host
+                    self.isHostReady = true
+                }
+                print("[六速社区] 选用站点: \(host)")
+                return host
+            } catch {
+                print("[六速社区] 探测失败 \(host): \(error.localizedDescription)")
+                continue
+            }
+        }
+        let fallback = hosts.first ?? defaultHosts.first ?? ""
+        await MainActor.run {
+            self.currentHost = fallback
+            self.isHostReady = true
+        }
+        return fallback
+    }
+
     // MARK: - API 核心
 
     /// 请求 API 并解密返回的 JSON 数据

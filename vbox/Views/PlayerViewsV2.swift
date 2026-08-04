@@ -3864,42 +3864,53 @@ class PlayerState: ObservableObject {
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
         
-        // 设置HTTP头（m3u8播放通常需要正确的User-Agent和Referer）
-        var headers: [String: String] = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-            "Accept": "*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9"
-        ]
-        if !noReferer {
-            var referer = url.absoluteString
-            if let host = url.host {
-                referer = "https://\(host)/"
-            }
-            headers["Referer"] = referer
-            log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+        // 本地代理 URL（127.0.0.1）不需要设置 HTTP 头
+        // 代理服务器使用自己存储的 headers 发起上游请求，AVPlayer 的 headers 会被忽略
+        // 设置错误的 Referer（如 https://127.0.0.1/）反而可能干扰代理服务器
+        let isLocalProxy = url.host == "127.0.0.1"
+        
+        if isLocalProxy {
+            // 本地代理：清空 headers，与网盘播放路径（第2516行）行为一致
+            assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = [:]
+            log("[PlayerV2] HTTP头配置 - 本地代理URL，清空headers")
         } else {
-            log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
-        }
-        if let customHeaders {
-            for (key, value) in customHeaders {
-                if key.lowercased() == "referer" && !noReferer {
-                    // 修复: 蜘蛛返回的Referer域名与播放URL域名不匹配时，用CDN自身Referer替代
-                    // 避免主站Referer导致CDN返回403
-                    let customHost = extractHost(from: value)
-                    let playHost = url.host ?? ""
-                    if !customHost.isEmpty && !playHost.isEmpty && customHost != playHost {
-                        log("[PlayerV2] ⚠️ Referer域名不匹配(spider=\(customHost) vs play=\(playHost))，使用CDN自身Referer")
-                        // 保留CDN自身Referer，不覆盖
+            // 设置HTTP头（m3u8播放通常需要正确的User-Agent和Referer）
+            var headers: [String: String] = [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+                "Accept": "*/*",
+                "Accept-Language": "zh-CN,zh;q=0.9"
+            ]
+            if !noReferer {
+                var referer = url.absoluteString
+                if let host = url.host {
+                    referer = "https://\(host)/"
+                }
+                headers["Referer"] = referer
+                log("[PlayerV2] HTTP头配置 - Referer: \(referer)")
+            } else {
+                log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
+            }
+            if let customHeaders {
+                for (key, value) in customHeaders {
+                    if key.lowercased() == "referer" && !noReferer {
+                        // 修复: 蜘蛛返回的Referer域名与播放URL域名不匹配时，用CDN自身Referer替代
+                        // 避免主站Referer导致CDN返回403
+                        let customHost = extractHost(from: value)
+                        let playHost = url.host ?? ""
+                        if !customHost.isEmpty && !playHost.isEmpty && customHost != playHost {
+                            log("[PlayerV2] ⚠️ Referer域名不匹配(spider=\(customHost) vs play=\(playHost))，使用CDN自身Referer")
+                            // 保留CDN自身Referer，不覆盖
+                        } else {
+                            headers[key] = value
+                        }
                     } else {
                         headers[key] = value
                     }
-                } else {
-                    headers[key] = value
                 }
+                log("[PlayerV2] 已合并自定义HTTP头，Referer=\(headers["Referer"] ?? "nil")")
             }
-            log("[PlayerV2] 已合并自定义HTTP头，Referer=\(headers["Referer"] ?? "nil")")
+            assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
         }
-        assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
         
         // 创建Asset和PlayerItem
         let asset = AVURLAsset(url: url, options: assetOptions)
