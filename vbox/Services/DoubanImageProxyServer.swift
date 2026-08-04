@@ -193,6 +193,42 @@ final class DoubanImageProxyServer {
         return components.url
     }
 
+    // MARK: - 六速社区 m3u8 代理
+    //
+    // 六速社区 API 服务器使用自签名 SSL 证书，AVPlayer 无法直接加载。
+    // 同时 m3u8 中 key URI 和 TS 分片路径可能是相对路径，需要重写为绝对路径
+    // 或替换为本地代理 URL。此方法注册一个 m3u8 代理项，返回本地 HTTP URL。
+    //
+    // 与 Python Spider 的 localProxy 机制完全对应：
+    // - m3u8 请求：下载 → 解压 → 修复 key URI → 返回修改后的 m3u8
+    // - key/TS 请求：代理转发（SSL 绕过 + 自定义 header）
+    func proxiedLusushequM3U8URL(for sourceURL: String, headers: [String: String]) -> URL? {
+        guard let targetURL = URL(string: sourceURL) else {
+            return URL(string: sourceURL)
+        }
+
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        queue.async { self.cleanupExpiredStreams() }
+        let item = StreamItem(
+            url: targetURL,
+            headers: headers,
+            provider: "lusushequ-m3u8",
+            createdAt: Date()
+        )
+        queue.sync {
+            self.streamItems[id] = item
+        }
+        print("✅ 注册六速社区 m3u8 代理: id=\(id), host=\(targetURL.host ?? "")")
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/lusushequ-m3u8"
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        return components.url
+    }
+
     private func localProxyURL(for targetURLString: String) -> URL? {
         var components = URLComponents()
         components.scheme = "http"
@@ -279,6 +315,14 @@ final class DoubanImageProxyServer {
             routeQuarkSegment(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }
+        if pathAndQuery.hasPrefix("/lusushequ-m3u8") {
+            routeLusushequM3U8(pathAndQuery, method: method, on: connection)
+            return
+        }
+        if pathAndQuery.hasPrefix("/lusushequ-segment") {
+            routeLusushequSegment(pathAndQuery, requestText: requestText, method: method, on: connection)
+            return
+        }
 
         guard pathAndQuery.hasPrefix("/douban-cover"),
               let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
@@ -340,6 +384,217 @@ final class DoubanImageProxyServer {
         )
         print("📥 夸克分片代理收到请求: id=\(id), range=\(incomingRange ?? "无"), host=\(targetURL.host ?? "")")
         fetchStream(item: item, id: id, method: method, incomingRange: incomingRange, on: connection)
+    }
+
+    // MARK: - 六速社区 m3u8 代理
+
+    private func routeLusushequM3U8(_ pathAndQuery: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let item = streamItems[id]
+        else {
+            print("❌ 六速社区 m3u8 代理未找到注册项: \(pathAndQuery)")
+            send(statusCode: 404, body: Data("M3U8 Not Found".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        guard method == "GET" else {
+            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            return
+        }
+
+        fetchLusushequM3U8(item: item, id: id, on: connection)
+    }
+
+    private func routeLusushequSegment(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let rawURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+              let parentItem = streamItems[id],
+              let targetURL = URL(string: rawURL)
+        else {
+            print("❌ 六速社区分片代理参数无效: \(pathAndQuery)")
+            send(statusCode: 403, body: Data("Forbidden Segment".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let requestHeaders = parseRequestHeaders(requestText)
+        let incomingRange = requestHeaders["range"]
+        let segItem = StreamItem(
+            url: targetURL,
+            headers: parentItem.headers,
+            provider: "lusushequ-segment",
+            createdAt: Date()
+        )
+        print("📥 六速社区分片代理收到请求: id=\(id), range=\(incomingRange ?? "无"), host=\(targetURL.host ?? "")")
+        fetchLusushequStream(item: segItem, id: id, method: method, incomingRange: incomingRange, on: connection)
+    }
+
+    /// 下载六速社区 m3u8（SSL 绕过 + gzip 解压），重写 key URI 和 TS 路径为本地代理 URL
+    private func fetchLusushequM3U8(item: StreamItem, id: String, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 20
+        request.httpMethod = "GET"
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        // 排除 br，避免服务器返回 Brotli 压缩导致解压失败
+        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        // 使用带 SSL 绕过的 session（六速社区服务器使用自签名证书）
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 30
+        let sslSession = URLSession(configuration: config, delegate: LusushequSSLDelegate(), delegateQueue: nil)
+
+        let startedAt = Date()
+        sslSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                connection.cancel()
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            if let error {
+                print("❌ 六速社区 m3u8 拉取失败: id=\(id), err=\(error.localizedDescription)")
+                self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            guard let data, let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+                print("❌ 六速社区 m3u8 内容为空: id=\(id), status=\(status)")
+                self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            // 验证是合法的 m3u8
+            guard text.contains("#EXTM3U") else {
+                print("❌ 六速社区 m3u8 内容无效（非 EXTM3U）: id=\(id), status=\(status)")
+                self.sendNoStore(statusCode: 502, body: Data("Invalid M3U8".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            let rewritten = self.rewriteLusushequM3U8(text, baseURL: item.url, id: id)
+            let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
+            print("✅ 六速社区 m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(rewritten.count)")
+            self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
+            sslSession.invalidateAndCancel()
+        }.resume()
+    }
+
+    /// 重写六速社区 m3u8：将 key URI 和 TS 分片路径替换为本地代理 URL
+    private func rewriteLusushequM3U8(_ text: String, baseURL: URL, id: String) -> String {
+        // 计算 base 用于解析相对路径
+        let finalURLString = baseURL.absoluteString
+        let scheme = baseURL.scheme ?? "https"
+        let host = baseURL.host ?? ""
+        let port = baseURL.port.map { ":\($0)" } ?? ""
+        let schemeHostPort = "\(scheme)://\(host)\(port)"
+
+        let pathOnly = finalURLString.components(separatedBy: "?")[0]
+        let basePath: String
+        if let lastSlash = pathOnly.lastIndex(of: "/") {
+            basePath = String(pathOnly[..<lastSlash]) + "/"
+        } else {
+            basePath = schemeHostPort + "/"
+        }
+
+        return text.components(separatedBy: .newlines).map { line in
+            rewriteLusushequM3U8Line(line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+        }.joined(separator: "\n")
+    }
+
+    private func rewriteLusushequM3U8Line(_ line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return line }
+
+        // #EXT-X-KEY 行：重写 URI="..." 中的路径
+        if line.hasPrefix("#EXT-X-KEY") {
+            return rewriteLusushequURIAttributes(in: line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+        }
+
+        // 非 # 开头的行是 TS 分片路径
+        if !line.hasPrefix("#") {
+            return localLusushequSegmentURL(for: trimmed, schemeHostPort: schemeHostPort, basePath: basePath, id: id) ?? line
+        }
+
+        return line
+    }
+
+    private func rewriteLusushequURIAttributes(in line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+        var result = line
+        let pattern = #"URI="([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return line }
+        let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+        let matches = regex.matches(in: result, range: nsRange).reversed()
+        for match in matches {
+            guard match.numberOfRanges >= 2,
+                  let uriRange = Range(match.range(at: 1), in: result),
+                  let fullRange = Range(match.range(at: 0), in: result) else { continue }
+            let uri = String(result[uriRange])
+            guard let local = localLusushequSegmentURL(for: uri, schemeHostPort: schemeHostPort, basePath: basePath, id: id) else { continue }
+            result.replaceSubrange(fullRange, with: "URI=\"\(local)\"")
+        }
+        return result
+    }
+
+    private func localLusushequSegmentURL(for raw: String, schemeHostPort: String, basePath: String, id: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let absolute: String
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            absolute = trimmed
+        } else if trimmed.hasPrefix("/") {
+            absolute = schemeHostPort + trimmed
+        } else {
+            absolute = basePath + trimmed
+        }
+
+        guard URL(string: absolute) != nil else { return nil }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/lusushequ-segment"
+        components.queryItems = [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "url", value: absolute)
+        ]
+        return components.url?.absoluteString
+    }
+
+    /// 代理六速社区 key/TS 请求（SSL 绕过 + 自定义 header）
+    private func fetchLusushequStream(item: StreamItem, id: String, method: String, incomingRange: String?, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 30
+        request.httpMethod = method
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        // 排除 br 压缩
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        if let range = normalizedRange(incomingRange) {
+            request.setValue(range, forHTTPHeaderField: "Range")
+        }
+
+        print("📡 六速社区分片代理上游请求: method=\(method), id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? "")")
+
+        LusushequStreamForwarder(
+            id: id,
+            connection: connection
+        ).start(request: request)
     }
 
     private func routeStream(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
@@ -1142,6 +1397,130 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         if error == nil, let httpResponse, let cacheSink, (200..<300).contains(statusCode), cacheBody.count == receivedBytes {
             cacheSink(httpResponse, cacheBody)
         }
+        connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
+    }
+
+    private func elapsedMS() -> Int {
+        Int(Date().timeIntervalSince(startTime) * 1000)
+    }
+
+    private func sendErrorAndClose(statusCode: Int, message: String) {
+        let body = Data(message.utf8)
+        let header = """
+        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
+        Content-Type: text/plain\r
+        Content-Length: \(body.count)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        \r
+
+        """
+
+        var response = Data(header.utf8)
+        response.append(body)
+        connection.send(content: response, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
+    }
+}
+
+// MARK: - 六速社区流转发器（SSL 绕过）
+//
+// 与 StreamForwarder 功能类似，但使用 LusushequSSLDelegate 绕过自签名证书。
+// 专门用于六速社区的 key 和 TS 分片代理转发。
+
+private final class LusushequStreamForwarder: NSObject, URLSessionDataDelegate {
+    private let id: String
+    private let connection: NWConnection
+    private let callbackQueue = OperationQueue()
+    private var session: URLSession?
+    private var responseStarted = false
+    private var statusCode = 0
+    private var receivedBytes = 0
+    private var startTime = Date()
+    private var firstByteLogged = false
+
+    init(id: String, connection: NWConnection) {
+        self.id = id
+        self.connection = connection
+        self.callbackQueue.maxConcurrentOperationCount = 1
+        super.init()
+    }
+
+    func start(request: URLRequest) {
+        startTime = Date()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 45
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // 使用带 SSL 绕过的 session
+        let session = URLSession(configuration: configuration, delegate: LusushequSSLDelegate(), delegateQueue: callbackQueue)
+        self.session = session
+        session.dataTask(with: request).resume()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            print("❌ 六速社区分片代理上游响应无效: id=\(id)")
+            sendErrorAndClose(statusCode: 502, message: "Invalid Upstream Response")
+            completionHandler(.cancel)
+            return
+        }
+
+        statusCode = http.statusCode
+        let headers = http.allHeaderFields
+        let contentType = DoubanImageProxyServer.headerValue(headers, "Content-Type") ?? "application/octet-stream"
+        let contentLength = DoubanImageProxyServer.headerValue(headers, "Content-Length") ?? "\(response.expectedContentLength)"
+        let contentRange = DoubanImageProxyServer.headerValue(headers, "Content-Range") ?? "无"
+
+        print("📥 六速社区分片代理上游响应: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, contentType=\(contentType), contentLength=\(contentLength), contentRange=\(contentRange)")
+
+        let responseHeader = DoubanImageProxyServer.streamResponseHeader(statusCode: statusCode, headers: headers)
+        responseStarted = true
+        connection.send(content: responseHeader, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 六速社区分片代理响应头发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        receivedBytes += data.count
+        if !firstByteLogged {
+            firstByteLogged = true
+            print("🚀 六速社区分片代理首包: id=\(id), cost=\(elapsedMS())ms, bytes=\(data.count)")
+        }
+
+        connection.send(content: data, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 六速社区分片代理数据发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer {
+            session.invalidateAndCancel()
+            self.session = nil
+        }
+
+        if let error {
+            print("❌ 六速社区分片代理拉流失败: id=\(id), error=\(error.localizedDescription), receivedBytes=\(receivedBytes)")
+            if !responseStarted {
+                sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+                return
+            }
+        }
+
+        print("✅ 六速社区分片代理转发完成: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, bytes=\(receivedBytes)")
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
             self.connection.cancel()
         })

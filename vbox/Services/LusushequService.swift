@@ -520,115 +520,28 @@ final class LusushequService: FuliBaseService {
             "Referer": referer,
         ]
 
-        // 尝试预加载 m3u8 并修复 key URI（根相对路径 → 绝对路径）
-        // 解决问题：m3u8 中 #EXT-X-KEY 的 URI 是根相对路径 /api/v2/...，
-        // AVPlayer 从本地文件播放时无法正确解析相对路径。
-        // 预加载后将 key URI 改写为绝对路径，写入临时文件返回。
-        if let rewrittenURL = await rewriteM3U8KeyURIs(url: url) {
-            return FuliPlayerResult(url: rewrittenURL, headers: headers, parse: 0)
+        // 使用本地 HTTP 代理服务器提供修改后的 m3u8 内容
+        //
+        // 原方案（临时文件 file://）已废弃：AVPlayer 无法从 file:// URL 播放 HLS 内容，
+        // 导致 CoreMediaErrorDomain -12865 错误。
+        //
+        // 新方案与 Python Spider 的 localProxy 机制完全对应：
+        // 1. 注册 m3u8 代理项，获取 http://127.0.0.1:port/lusushequ-m3u8?id=xxx
+        // 2. 代理服务器在收到请求时：下载 m3u8（SSL 绕过）→ 解压 → 重写 key/TS URI → 返回
+        // 3. key 和 TS 分片通过 /lusushequ-segment 代理（SSL 绕过）
+        //
+        // 代理 URL 是标准 http:// 协议，AVPlayer 完全支持，不影响其他资源播放。
+        DoubanImageProxyServer.shared.start()
+
+        if let proxyURL = DoubanImageProxyServer.shared.proxiedLusushequM3U8URL(
+            for: url,
+            headers: headers
+        ) {
+            return FuliPlayerResult(url: proxyURL.absoluteString, headers: headers, parse: 0)
         }
 
-        // 预加载失败时回退到直接 URL（AVPlayer 自行解析相对路径）
+        // 代理注册失败时回退到直接 URL
         return FuliPlayerResult(url: url, headers: headers, parse: 0)
-    }
-
-    // MARK: - m3u8 key URI 兼容性处理
-
-    /// 预加载 m3u8 内容，将 #EXT-X-KEY 中的根相对路径 URI 改写为绝对路径，
-    /// 然后写入临时文件返回。
-    ///
-    /// 对应 Python 脚本 `_proxy_m3u8` 中的 key URI 修复逻辑：
-    /// - 根相对路径 `/api/v2/...` → `https://host:port/api/v2/...`
-    /// - 相对路径 `key.bin` → `https://host:port/path/to/key.bin`
-    ///
-    /// 使用 apiSession（SSL 绕过）下载 m3u8 内容，
-    /// 解决 API 服务器自签名 SSL 证书导致 AVPlayer 无法直接加载的问题。
-    private func rewriteM3U8KeyURIs(url: String) async -> String? {
-        guard let urlObj = URL(string: url) else { return nil }
-
-        var req = URLRequest(url: urlObj)
-        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(referer, forHTTPHeaderField: "Referer")
-        req.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
-
-        do {
-            let (data, response) = try await apiSession.data(for: req)
-
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode),
-                  let content = String(data: data, encoding: .utf8),
-                  content.contains("#EXTM3U") else {
-                return nil
-            }
-
-            // 获取最终 URL（可能经过重定向），用于计算 base
-            let finalURLString = http.url?.absoluteString ?? url
-
-            // 解析 scheme://host[:port]
-            guard let finalURL = URL(string: finalURLString),
-                  let scheme = finalURL.scheme,
-                  let host = finalURL.host else {
-                return nil
-            }
-            let port = finalURL.port.map { ":\($0)" } ?? ""
-            let schemeHostPort = "\(scheme)://\(host)\(port)"
-
-            // 计算 base path（去掉 query 和文件名）
-            // 例如 https://host/path/to/playlist.m3u8?cdnId=3 → https://host/path/to/
-            let pathOnly = finalURLString.components(separatedBy: "?")[0]
-            let basePath: String
-            if let lastSlash = pathOnly.lastIndex(of: "/") {
-                basePath = String(pathOnly[..<lastSlash]) + "/"
-            } else {
-                basePath = schemeHostPort + "/"
-            }
-
-            // 逐行处理，修复 #EXT-X-KEY 中的 URI
-            var lines = content.components(separatedBy: "\n")
-            for i in 0..<lines.count {
-                let line = lines[i].trimmingCharacters(in: .whitespaces)
-                guard line.hasPrefix("#EXT-X-KEY"), line.contains("URI=\"") else { continue }
-
-                // 提取 URI="..." 中的值
-                guard let uriStartRange = line.range(of: "URI=\""),
-                      let uriEndRange = line.range(of: "\"", range: uriStartRange.upperBound..<line.endIndex) else {
-                    continue
-                }
-                let uri = String(line[uriStartRange.upperBound..<uriEndRange.lowerBound])
-
-                // 已经是绝对路径，不需要修复
-                if uri.hasPrefix("http://") || uri.hasPrefix("https://") {
-                    continue
-                }
-
-                // 根相对路径 /api/v2/... → https://host:port/api/v2/...
-                // 相对路径 key.bin → https://host:port/path/to/key.bin
-                let absoluteURI: String
-                if uri.hasPrefix("/") {
-                    absoluteURI = schemeHostPort + uri
-                } else {
-                    absoluteURI = basePath + uri
-                }
-
-                lines[i] = line.replacingOccurrences(
-                    of: "URI=\"\(uri)\"",
-                    with: "URI=\"\(absoluteURI)\""
-                )
-            }
-
-            // 写入临时文件
-            let rewrittenContent = lines.joined(separator: "\n")
-            let tempDir = FileManager.default.temporaryDirectory
-            let tempFile = tempDir.appendingPathComponent("lusushequ_\(UUID().uuidString).m3u8")
-            try rewrittenContent.data(using: .utf8)?.write(to: tempFile, options: .atomic)
-
-            print("[六速社区] m3u8 key URI 已修复，临时文件: \(tempFile.lastPathComponent)")
-            return tempFile.absoluteString
-
-        } catch {
-            print("[六速社区] m3u8 预加载失败，回退到直接 URL: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     // MARK: - 辅助
