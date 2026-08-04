@@ -77,7 +77,8 @@ final class WelfareJSSpiderService: FuliBaseService {
         do {
             let script = try await WelfareSpiderLoader.shared.loadScript(for: platform)
             let eng = JSSpiderEngine(sslBypass: sslBypass)
-            eng.onLog = { msg in print("[WelfareJS:\(platform.platformKey)] \(msg)") }
+            let platformKey = platform.platformKey
+            eng.onLog = { msg in print("[WelfareJS:\(platformKey)] \(msg)") }
             try eng.loadScript(script.content)
             try eng.registerSpider()
 
