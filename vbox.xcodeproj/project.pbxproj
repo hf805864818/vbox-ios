@@ -155,6 +155,10 @@
 		A10152 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10152 /* TMDBService.swift */; };
 		A10153 /* MaShanZheng-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B10153 /* MaShanZheng-Regular.ttf */; };
 		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
+		A10157 /* CMSV10Helper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10157 /* CMSV10Helper.swift */; };
+		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
+		A10159 /* AidanComicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* AidanComicService.swift */; };
+		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
@@ -261,10 +265,6 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
-		A10157 /* CMSV10Helper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10157 /* CMSV10Helper.swift */; };
-		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
-		A10159 /* AidanComicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* AidanComicService.swift */; };
-		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -445,6 +445,10 @@
 		B10154 /* DoubanChartService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubanChartService.swift; sourceTree = "<group>"; };
 		B10155 /* MissAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVService.swift; sourceTree = "<group>"; };
 		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
+		B10157 /* CMSV10Helper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMSV10Helper.swift; sourceTree = "<group>"; };
+		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
+		B10159 /* AidanComicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanComicService.swift; sourceTree = "<group>"; };
+		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -538,10 +542,6 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
-		B10157 /* CMSV10Helper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMSV10Helper.swift; sourceTree = "<group>"; };
-		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
-		B10159 /* AidanComicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanComicService.swift; sourceTree = "<group>"; };
-		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
