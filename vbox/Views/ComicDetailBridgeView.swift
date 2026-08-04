@@ -165,12 +165,8 @@ struct ComicGalleryView: View {
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { dismiss() }
-                        .foregroundColor(.white)
-                }
-            }
+            .navigationBarItems(trailing: Button("完成") { dismiss() }
+                .foregroundColor(.white))
         }
     }
 }
