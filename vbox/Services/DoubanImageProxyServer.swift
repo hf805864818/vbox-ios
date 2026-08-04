@@ -1388,15 +1388,10 @@ final class DoubanImageProxyServer {
 
     private func send(statusCode: Int, body: Data, contentType: String, on connection: NWConnection) {
         let reason = Self.reasonPhrase(for: statusCode)
-        let header = """
-        HTTP/1.1 \(statusCode) \(reason)\r
-        Content-Type: \(contentType)\r
-        Content-Length: \(body.count)\r
-        Cache-Control: public, max-age=86400\r
-        Connection: close\r
-        \r
-
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        // 多行字符串的空行会导致 body 前多一个 \n 字节，造成 Content-Length 不匹配
+        // 和 m3u8 内容以 \n 开头而非 #EXTM3U，AVPlayer 无法识别
+        let header = "HTTP/1.1 \(statusCode) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nCache-Control: public, max-age=86400\r\nConnection: close\r\n\r\n"
 
         var response = Data(header.utf8)
         response.append(body)
@@ -1408,15 +1403,10 @@ final class DoubanImageProxyServer {
 
     private func sendNoStore(statusCode: Int, body: Data, contentType: String, on connection: NWConnection) {
         let reason = Self.reasonPhrase(for: statusCode)
-        let header = """
-        HTTP/1.1 \(statusCode) \(reason)\r
-        Content-Type: \(contentType)\r
-        Content-Length: \(body.count)\r
-        Cache-Control: no-store\r
-        Connection: close\r
-        \r
-
-        """
+        // 使用简单字符串拼接，避免 Swift 多行字符串在 """ 前空行产生额外 \n
+        // 多行字符串的空行会导致 body 前多一个 \n 字节，造成 Content-Length 不匹配
+        // 和 m3u8 内容以 \n 开头而非 #EXTM3U，AVPlayer 无法识别
+        let header = "HTTP/1.1 \(statusCode) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
 
         var response = Data(header.utf8)
         response.append(body)
