@@ -20,9 +20,10 @@ class JSSpiderEngine {
     var onLog: ((String) -> Void)?
 
     // MARK: - 初始化
-    init() {
+    init(sslBypass: Bool = false) {
         self.context = JSContext()
         self.httpBridge = JSHTTPBridge()
+        self.httpBridge.sslBypass = sslBypass
         setupContext()
     }
 
@@ -262,6 +263,33 @@ class JSSpiderEngine {
         context.setObject(unsafeBitCast(xhrOpen, to: AnyObject.self),
                          forKeyedSubscript: "__xhrOpen" as NSString)
 
+        // 桥接 atob / btoa — 标准 Web API，处理二进制 base64
+        // atob 返回二进制字符串（每个字符 charCode 0-255），btoa 接受二进制字符串
+        // JS 蜘蛛脚本可用 atob 解码 base64 后进行 XOR/AES 等二进制操作
+        let atobFunc: @convention(block) (String) -> String = { b64 in
+            var s = b64.replacingOccurrences(of: "-", with: "+")
+                       .replacingOccurrences(of: "_", with: "/")
+            let pad = (4 - s.count % 4) % 4
+            s += String(repeating: "=", count: pad)
+            guard let data = Data(base64Encoded: s) else { return "" }
+            // 返回二进制字符串（Latin-1 编码，每个字符 = 一个字节）
+            return String(data: data, encoding: .isoLatin1) ?? ""
+        }
+        context.setObject(unsafeBitCast(atobFunc, to: AnyObject.self),
+                         forKeyedSubscript: "__atob" as NSString)
+
+        let btoaFunc: @convention(block) (String) -> String = { binaryStr in
+            let data = binaryStr.data(using: .isoLatin1) ?? Data()
+            return data.base64EncodedString()
+        }
+        context.setObject(unsafeBitCast(btoaFunc, to: AnyObject.self),
+                         forKeyedSubscript: "__btoa" as NSString)
+
+        context.evaluateScript("""
+        var atob = function(s) { return __atob(s); };
+        var btoa = function(s) { return __btoa(s); };
+        """)
+
         onLog?("✅ JS引擎上下文初始化完成")
     }
 
@@ -404,9 +432,9 @@ class JSSpiderEngine {
         try callSpiderMethod("detailContent", args: [ids], as: DetailContentResult.self)
     }
 
-    /// 调用 spider.searchContent(keyword, pg)
+    /// 调用 spider.searchContent(key, quick, pg)
     func callSearchContent(keyword: String, pg: Int = 1) throws -> SearchContentResult {
-        try callSpiderMethod("searchContent", args: [keyword, String(pg)], as: SearchContentResult.self)
+        try callSpiderMethod("searchContent", args: [keyword, "false", String(pg)], as: SearchContentResult.self)
     }
 
     /// 调用 spider.playerContent(vod_id, flag, url)

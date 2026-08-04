@@ -324,6 +324,14 @@ final class DoubanImageProxyServer {
             routeLusushequSegment(pathAndQuery, requestText: requestText, method: method, on: connection)
             return
         }
+        if pathAndQuery.hasPrefix("/welfare-js-m3u8") {
+            routeWelfareJSM3U8(pathAndQuery, method: method, on: connection)
+            return
+        }
+        if pathAndQuery.hasPrefix("/welfare-js-segment") {
+            routeWelfareJSSegment(pathAndQuery, requestText: requestText, method: method, on: connection)
+            return
+        }
 
         guard pathAndQuery.hasPrefix("/douban-cover"),
               let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
@@ -527,7 +535,16 @@ final class DoubanImageProxyServer {
             }
         }
 
-        // 3. 基于 Content-Encoding 尝试 zlib 解压
+        // 3. Brotli 解压（服务器对部分 CDN 线路强制返回 br 压缩）
+        if contentEncoding == "br" {
+            if let decompressed = Self.debrotli(data),
+               let text = String(data: decompressed, encoding: .utf8) {
+                print("📦 六速社区 m3u8 Brotli 手动解压成功: \(data.count) → \(decompressed.count) bytes")
+                return text
+            }
+        }
+
+        // 4. 基于 Content-Encoding 尝试 zlib 解压
         if contentEncoding == "gzip" || contentEncoding == "deflate" {
             if let decompressed = Self.gunzip(data),
                let text = String(data: decompressed, encoding: .utf8) {
@@ -535,7 +552,7 @@ final class DoubanImageProxyServer {
             }
         }
 
-        // 4. 最后尝试直接解码（可能是非标准编码的文本）
+        // 5. 最后尝试直接解码（可能是非标准编码的文本）
         return String(data: data, encoding: .utf8)
     }
 
@@ -552,6 +569,26 @@ final class DoubanImageProxyServer {
                     destBase, capacity,
                     srcBase, data.count,
                     nil, COMPRESSION_ZLIB
+                )
+            }
+        }
+        guard result > 0 else { return nil }
+        return buffer.prefix(result)
+    }
+
+    /// 使用 Compression 框架解压 Brotli 数据
+    /// iOS 13+ 支持 COMPRESSION_BROTLI 算法
+    private static func debrotli(_ data: Data) -> Data? {
+        let capacity = max(data.count * 20, 131072)
+        var buffer = Data(count: capacity)
+        let result = buffer.withUnsafeMutableBytes { destPtr -> Int in
+            data.withUnsafeBytes { srcPtr -> Int in
+                guard let destBase = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                      let srcBase = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+                return compression_decode_buffer(
+                    destBase, capacity,
+                    srcBase, data.count,
+                    nil, COMPRESSION_BROTLI
                 )
             }
         }
@@ -662,6 +699,253 @@ final class DoubanImageProxyServer {
         print("📡 六速社区分片代理上游请求: method=\(method), id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? "")")
 
         LusushequStreamForwarder(
+            id: id,
+            connection: connection
+        ).start(request: request)
+    }
+
+    // MARK: - 通用福利 JS Spider m3u8 代理
+    //
+    // 为通过远程 JS 脚本加载的福利平台提供 m3u8 代理服务。
+    // 与六速社区专用代理功能相同，但使用通用 SSL 绕过 Delegate，
+    // 适用于任何需要 SSL 绕过的福利 JS Spider 平台。
+
+    func proxiedWelfareJSM3U8URL(for sourceURL: String, headers: [String: String]) -> URL? {
+        guard let targetURL = URL(string: sourceURL) else {
+            return URL(string: sourceURL)
+        }
+
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        queue.async { self.cleanupExpiredStreams() }
+        let item = StreamItem(
+            url: targetURL,
+            headers: headers,
+            provider: "welfare-js-m3u8",
+            createdAt: Date()
+        )
+        queue.sync {
+            self.streamItems[id] = item
+        }
+        print("✅ 注册福利JS m3u8 代理: id=\(id), host=\(targetURL.host ?? "")")
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/welfare-js-m3u8"
+        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        return components.url
+    }
+
+    private func routeWelfareJSM3U8(_ pathAndQuery: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let item = streamItems[id]
+        else {
+            print("❌ 福利JS m3u8 代理未找到注册项: \(pathAndQuery)")
+            send(statusCode: 404, body: Data("M3U8 Not Found".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        guard method == "GET" else {
+            sendNoStore(statusCode: 200, body: Data(), contentType: "application/vnd.apple.mpegurl", on: connection)
+            return
+        }
+
+        fetchWelfareJSM3U8(item: item, id: id, on: connection)
+    }
+
+    private func routeWelfareJSSegment(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              let rawURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+              let parentItem = streamItems[id],
+              let targetURL = URL(string: rawURL)
+        else {
+            print("❌ 福利JS分片代理参数无效: \(pathAndQuery)")
+            send(statusCode: 403, body: Data("Forbidden Segment".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let requestHeaders = parseRequestHeaders(requestText)
+        let incomingRange = requestHeaders["range"]
+        let segItem = StreamItem(
+            url: targetURL,
+            headers: parentItem.headers,
+            provider: "welfare-js-segment",
+            createdAt: Date()
+        )
+        print("📥 福利JS分片代理收到请求: id=\(id), range=\(incomingRange ?? "无"), host=\(targetURL.host ?? "")")
+        fetchWelfareJSStream(item: segItem, id: id, method: method, incomingRange: incomingRange, on: connection)
+    }
+
+    /// 下载福利 JS Spider m3u8（SSL 绕过 + 自动解压），重写 key URI 和 TS 路径为本地代理 URL
+    private func fetchWelfareJSM3U8(item: StreamItem, id: String, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 20
+        request.httpMethod = "GET"
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" || lower == "accept-encoding" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 30
+        let sslSession = URLSession(configuration: config, delegate: WelfareSSLBypassDelegate(), delegateQueue: nil)
+
+        let startedAt = Date()
+        sslSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else {
+                connection.cancel()
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            if let error {
+                print("❌ 福利JS m3u8 拉取失败: id=\(id), err=\(error.localizedDescription)")
+                self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            let httpResp = response as? HTTPURLResponse
+            let status = httpResp?.statusCode ?? 200
+            let contentEncoding = (httpResp?.value(forHTTPHeaderField: "Content-Encoding") ?? "").lowercased()
+
+            guard let data else {
+                print("❌ 福利JS m3u8 内容为空: id=\(id), status=\(status)")
+                self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            let text = self.decompressM3U8Text(data: data, contentEncoding: contentEncoding)
+
+            guard let text, !text.isEmpty else {
+                print("❌ 福利JS m3u8 解码失败: id=\(id), status=\(status), encoding=\(contentEncoding), bytes=\(data.count)")
+                self.sendNoStore(statusCode: 502, body: Data("Decode M3U8 Failed".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            guard text.contains("#EXTM3U") else {
+                print("❌ 福利JS m3u8 内容无效（非 EXTM3U）: id=\(id), status=\(status), prefix=\(text.prefix(80))")
+                self.sendNoStore(statusCode: 502, body: Data("Invalid M3U8".utf8), contentType: "text/plain", on: connection)
+                sslSession.invalidateAndCancel()
+                return
+            }
+
+            let finalURL = httpResp?.url ?? item.url
+            let rewritten = self.rewriteWelfareJSM3U8(text, baseURL: finalURL, id: id)
+            let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
+            print("✅ 福利JS m3u8 已重写: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(rewritten.count), finalHost=\(finalURL.host ?? "")")
+            self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
+            sslSession.invalidateAndCancel()
+        }.resume()
+    }
+
+    /// 重写福利 JS Spider m3u8：将 key URI 和 TS 分片路径替换为本地代理 URL
+    private func rewriteWelfareJSM3U8(_ text: String, baseURL: URL, id: String) -> String {
+        let finalURLString = baseURL.absoluteString
+        let scheme = baseURL.scheme ?? "https"
+        let host = baseURL.host ?? ""
+        let port = baseURL.port.map { ":\($0)" } ?? ""
+        let schemeHostPort = "\(scheme)://\(host)\(port)"
+
+        let pathOnly = finalURLString.components(separatedBy: "?")[0]
+        let basePath: String
+        if let lastSlash = pathOnly.lastIndex(of: "/") {
+            basePath = String(pathOnly[..<lastSlash]) + "/"
+        } else {
+            basePath = schemeHostPort + "/"
+        }
+
+        return text.components(separatedBy: .newlines).map { line in
+            rewriteWelfareJSM3U8Line(line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+        }.joined(separator: "\n")
+    }
+
+    private func rewriteWelfareJSM3U8Line(_ line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return line }
+
+        if line.hasPrefix("#EXT-X-KEY") {
+            return rewriteWelfareJSURIAttributes(in: line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+        }
+
+        if !line.hasPrefix("#") {
+            return localWelfareJSSegmentURL(for: trimmed, schemeHostPort: schemeHostPort, basePath: basePath, id: id) ?? line
+        }
+
+        return line
+    }
+
+    private func rewriteWelfareJSURIAttributes(in line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+        var result = line
+        let pattern = #"URI="([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return line }
+        let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+        let matches = regex.matches(in: result, range: nsRange).reversed()
+        for match in matches {
+            guard match.numberOfRanges >= 2,
+                  let uriRange = Range(match.range(at: 1), in: result),
+                  let fullRange = Range(match.range(at: 0), in: result) else { continue }
+            let uri = String(result[uriRange])
+            guard let local = localWelfareJSSegmentURL(for: uri, schemeHostPort: schemeHostPort, basePath: basePath, id: id) else { continue }
+            result.replaceSubrange(fullRange, with: "URI=\"\(local)\"")
+        }
+        return result
+    }
+
+    private func localWelfareJSSegmentURL(for raw: String, schemeHostPort: String, basePath: String, id: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let absolute: String
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            absolute = trimmed
+        } else if trimmed.hasPrefix("/") {
+            absolute = schemeHostPort + trimmed
+        } else {
+            absolute = basePath + trimmed
+        }
+
+        guard URL(string: absolute) != nil else { return nil }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = Int(port)
+        components.path = "/welfare-js-segment"
+        components.queryItems = [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "url", value: absolute)
+        ]
+        return components.url?.absoluteString
+    }
+
+    /// 代理福利 JS Spider key/TS 请求（SSL 绕过 + 自定义 header）
+    private func fetchWelfareJSStream(item: StreamItem, id: String, method: String, incomingRange: String?, on connection: NWConnection) {
+        var request = URLRequest(url: item.url)
+        request.timeoutInterval = 30
+        request.httpMethod = method
+        for (key, value) in item.headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "content-length" || lower == "connection" { continue }
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        if let range = normalizedRange(incomingRange) {
+            request.setValue(range, forHTTPHeaderField: "Range")
+        }
+
+        print("📡 福利JS分片代理上游请求: method=\(method), id=\(id), range=\(request.value(forHTTPHeaderField: "Range") ?? "无"), host=\(item.url.host ?? "")")
+
+        WelfareJSStreamForwarder(
             id: id,
             connection: connection
         ).start(request: request)
@@ -1591,6 +1875,126 @@ private final class LusushequStreamForwarder: NSObject, URLSessionDataDelegate {
         }
 
         print("✅ 六速社区分片代理转发完成: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, bytes=\(receivedBytes)")
+        connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
+    }
+
+    private func elapsedMS() -> Int {
+        Int(Date().timeIntervalSince(startTime) * 1000)
+    }
+
+    private func sendErrorAndClose(statusCode: Int, message: String) {
+        let body = Data(message.utf8)
+        let header = """
+        HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r
+        Content-Type: text/plain\r
+        Content-Length: \(body.count)\r
+        Cache-Control: no-store\r
+        Connection: close\r
+        \r
+
+        """
+
+        var response = Data(header.utf8)
+        response.append(body)
+        connection.send(content: response, completion: .contentProcessed { _ in
+            self.connection.cancel()
+        })
+    }
+}
+
+/// 通用福利 JS Spider 分片转发器（SSL 绕过）
+/// 与 LusushequStreamForwarder 功能相同，但使用通用 WelfareSSLBypassDelegate
+private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
+    private let id: String
+    private let connection: NWConnection
+    private let callbackQueue = OperationQueue()
+    private var session: URLSession?
+    private var responseStarted = false
+    private var statusCode = 0
+    private var receivedBytes = 0
+    private var startTime = Date()
+    private var firstByteLogged = false
+
+    init(id: String, connection: NWConnection) {
+        self.id = id
+        self.connection = connection
+        self.callbackQueue.maxConcurrentOperationCount = 1
+        super.init()
+    }
+
+    func start(request: URLRequest) {
+        startTime = Date()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 45
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration, delegate: WelfareSSLBypassDelegate(), delegateQueue: callbackQueue)
+        self.session = session
+        session.dataTask(with: request).resume()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            print("❌ 福利JS分片代理上游响应无效: id=\(id)")
+            sendErrorAndClose(statusCode: 502, message: "Invalid Upstream Response")
+            completionHandler(.cancel)
+            return
+        }
+
+        statusCode = http.statusCode
+        let headers = http.allHeaderFields
+        let contentType = DoubanImageProxyServer.headerValue(headers, "Content-Type") ?? "application/octet-stream"
+        let contentLength = DoubanImageProxyServer.headerValue(headers, "Content-Length") ?? "\(response.expectedContentLength)"
+        let contentRange = DoubanImageProxyServer.headerValue(headers, "Content-Range") ?? "无"
+
+        print("📥 福利JS分片代理上游响应: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, contentType=\(contentType), contentLength=\(contentLength), contentRange=\(contentRange)")
+
+        let responseHeader = DoubanImageProxyServer.streamResponseHeader(statusCode: statusCode, headers: headers)
+        responseStarted = true
+        connection.send(content: responseHeader, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 福利JS分片代理响应头发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        receivedBytes += data.count
+        if !firstByteLogged {
+            firstByteLogged = true
+            print("🚀 福利JS分片代理首包: id=\(id), cost=\(elapsedMS())ms, bytes=\(data.count)")
+        }
+
+        connection.send(content: data, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error {
+                print("❌ 福利JS分片代理数据发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer {
+            session.invalidateAndCancel()
+            self.session = nil
+        }
+
+        if let error {
+            print("❌ 福利JS分片代理拉流失败: id=\(id), error=\(error.localizedDescription), receivedBytes=\(receivedBytes)")
+            if !responseStarted {
+                sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+                return
+            }
+        }
+
+        print("✅ 福利JS分片代理转发完成: id=\(id), status=\(statusCode), cost=\(elapsedMS())ms, bytes=\(receivedBytes)")
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
             self.connection.cancel()
         })

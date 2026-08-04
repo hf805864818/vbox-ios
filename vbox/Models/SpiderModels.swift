@@ -213,6 +213,8 @@ struct DetailContentResult: Codable {
 }
 
 struct SearchContentResult: Codable {
+    let page: Int?
+    let pagecount: Int?
     let list: [VodItem]?
 }
 

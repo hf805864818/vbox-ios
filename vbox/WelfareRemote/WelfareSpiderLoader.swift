@@ -112,7 +112,7 @@ final class WelfareSpiderLoader {
         }
 
         let type = platform.scriptType?.lowercased()
-        guard type == nil || type == "python" else {
+        guard type == nil || type == "python" || type == "javascript" else {
             throw WelfareSpiderLoaderError.unsupportedScriptType(platform.scriptType)
         }
 
