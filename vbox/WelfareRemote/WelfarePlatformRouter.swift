@@ -162,12 +162,18 @@ struct WelfarePlatformRouter {
 
     /// 福利专区专用 Spider 路由
     ///
-    /// 已实现原生 Swift Service 的平台直接走 FuliPlatformMainView，
-    /// 未实现的平台仍展示 WelfareSpiderHomeView（脚本缓存状态页）。
-    /// 新增福利 Spider 平台时：只需在此处加一个 case + 创建对应 Service 文件。
+    /// 优先级：
+    /// 1. 已实现原生 Swift Service 的平台（如 lusushequ）→ 原生 Service
+    /// 2. scriptType == "javascript" → WelfareJSSpiderService（通用 JS 引擎执行）
+    /// 3. 其他 → WelfareSpiderHomeView（脚本缓存状态页）
+    ///
+    /// 新增福利 Spider 平台时：
+    /// - JS 脚本平台：只需在远程源 JSON 中配置 scriptType="javascript" + api + sslBypass
+    /// - 原生平台：在此处加一个 case + 创建对应 Service 文件
     private func makeWelfareSpiderDestination(for platform: WelfarePlatform) -> AnyView {
         let key = platform.platformKey
 
+        // 已实现原生 Swift Service 的平台
         switch key {
         case "lusushequ":
             // 六速社区：已实现原生 Swift Service，复用自适应框架
@@ -176,11 +182,24 @@ struct WelfarePlatformRouter {
                 FuliPlatformMainView(platform: p, service: LusushequService.shared)
             )
         default:
-            // 未实现原生 Service 的平台：展示脚本缓存状态页
+            break
+        }
+
+        // JS 脚本类型 → 通用 JS 引擎执行
+        if platform.scriptType?.lowercased() == "javascript" {
+            let p = makeYBoxPlatform2(from: platform)
             return AnyView(
-                WelfareSpiderHomeView(platform: platform)
+                FuliPlatformMainView(
+                    platform: p,
+                    service: WelfareJSSpiderService.service(for: platform)
+                )
             )
         }
+
+        // 其他福利 Spider：使用通用加载页（显示脚本加载状态）
+        return AnyView(
+            WelfareSpiderHomeView(platform: platform)
+        )
     }
 
     /// 把远程 WelfarePlatform 转换为现有 YBoxPlatform2（YBoxHomeView 系列都吃这个类型）

@@ -134,10 +134,13 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     ///
     /// 仅当 serviceType == "welfare_spider" 时使用；普通福利平台和普通远程源不会读取该字段。
     let api: String?
-    /// 福利专区专用脚本类型，当前仅识别 "python"。
+    /// 福利专区专用脚本类型，当前识别 "python" 和 "javascript"。
     let scriptType: String?
     /// 福利专区专用脚本执行引擎标记，预留给后续运行时扩展。
     let engine: String?
+    /// JS Spider 是否需要 SSL 绕过（访问自签名证书服务器时启用）。
+    /// 仅当 scriptType == "javascript" 时生效。
+    let sslBypass: Bool?
     /// 是否允许进入普通首页。福利 Spider 默认不允许。
     let visibleInHome: Bool?
     /// 是否允许进入普通全局搜索。福利 Spider 默认不允许。
@@ -161,6 +164,7 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case api
         case scriptType
         case engine
+        case sslBypass
         case visibleInHome
         case visibleInGlobalSearch
         case visibleInNormalSpider

@@ -1,5 +1,21 @@
 import Foundation
 
+/// 通用 SSL 证书绕过 Delegate（用于福利 JS Spider 访问自签名证书服务器）
+final class WelfareSSLBypassDelegate: NSObject, URLSessionDelegate {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+}
+
 /// JS HTTP 桥接 — 提供蜘蛛脚本中的同步 HTTP 请求能力
 /// 蜘蛛脚本中的 http(url, options) 会调用到此桥接
 class JSHTTPBridge {
@@ -7,10 +23,24 @@ class JSHTTPBridge {
     // 超时设置
     var timeout: TimeInterval = 15
 
+    // SSL 绕过开关（福利 JS Spider 可能需要访问自签名证书服务器）
+    var sslBypass: Bool = false
+
     // Cookie 存储
     private var cookieStore: [String: [String: String]] = [:]
 
     init() {}
+
+    /// 创建 URLSession（根据 sslBypass 决定是否绕过 SSL 验证）
+    private func createSession() -> URLSession {
+        if sslBypass {
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = timeout
+            config.timeoutIntervalForResource = timeout + 10
+            return URLSession(configuration: config, delegate: WelfareSSLBypassDelegate(), delegateQueue: nil)
+        }
+        return URLSession.shared
+    }
 
     /// 同步 HTTP 请求（被JS引擎调用）
     /// - Parameters:
@@ -70,8 +100,9 @@ class JSHTTPBridge {
             request.setValue(referer, forHTTPHeaderField: "Referer")
         }
 
-        // 执行请求
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        // 执行请求（使用支持 SSL 绕过的 session）
+        let session = createSession()
+        let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
                 errorMsg = error.localizedDescription
             } else if let httpResponse = response as? HTTPURLResponse {
@@ -97,10 +128,14 @@ class JSHTTPBridge {
         let waitResult = semaphore.wait(timeout: .now() + timeout + 5)
         if waitResult == .timedOut {
             task.cancel()
+            if sslBypass { session.invalidateAndCancel() }
             result["content"] = "请求超时"
             result["status"] = 0
             return result
         }
+
+        // 清理临时 session（仅 SSL 绕过模式创建的独立 session 需要手动清理）
+        if sslBypass { session.finishTasksAndInvalidate() }
 
         // 构建返回
         if let errorMsg = errorMsg {
