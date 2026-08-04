@@ -127,7 +127,7 @@ struct ComicGalleryView: View {
 
                 TabView(selection: $currentIndex) {
                     ForEach(Array(images.enumerated()), id: \.offset) { idx, url in
-                        AsyncImage(url: URL(string: url)) { phase in
+                        AsyncImage(url: URL(string: url), transaction: .init(animation: .default)) { phase in
                             switch phase {
                             case .success(let image):
                                 image

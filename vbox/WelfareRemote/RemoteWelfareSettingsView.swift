@@ -516,6 +516,10 @@ struct RemoteWelfareSettingsView: View {
             HeiliaoService.shared.reprobe()
         case .xigua:
             XiguaService.shared.reprobe()
+        case .aidanVideo:
+            AidanVideoService.shared.reprobe()
+        case .aidanComic:
+            AidanComicService.shared.reprobe()
         case .mysteryMovie, .sihuVideo, .xcp, .sbAggregation, .fuliBase, .yboxSpecial, .yboxXjsp, .welfareSpider, .unknown:
             // 这些 Service 当前未暴露 reprobe()，域名已通过 WelfareDomainStore 持久化，
             // 下次进入页面会从 domain store 读取最新域名。
