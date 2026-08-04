@@ -45,9 +45,17 @@ protocol FuliPlatformService: ObservableObject {
     /// 获取播放地址（默认直接返回剧集 URL）
     func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult
 
+    /// 内容类型（决定列表点击后进入视频播放还是漫画浏览）
+    var contentCategory: FuliContentCategory { get }
+
     /// 域名管理
     func reprobe()
     func resetDomain()
+}
+
+// MARK: - 内容类型默认实现
+extension FuliPlatformService {
+    var contentCategory: FuliContentCategory { .video }
 }
 
 // MARK: - 默认实现（域名探测 + HTTP 工具）
@@ -186,6 +194,9 @@ class FuliBaseService: ObservableObject, FuliPlatformService {
 
     @Published var currentHost: String = ""
     @Published var isHostReady: Bool = false
+
+    /// 内容类型默认视频；漫画子类 override
+    var contentCategory: FuliContentCategory { .video }
 
     init(platformName: String, defaultHosts: [String]) {
         self.platformName = platformName

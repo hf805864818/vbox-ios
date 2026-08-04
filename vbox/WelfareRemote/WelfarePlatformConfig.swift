@@ -239,6 +239,8 @@ enum WelfareServiceType: String, CaseIterable {
     case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
     case sbAggregation = "sb_aggregation"      // 色播聚合
     case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本
+    case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10）
+    case aidanComic = "aidan_comic"            // 艾旦福利套图（CMS V10 图片类）
 
     /// 未知 serviceType：远程 JSON 中的 serviceType 在枚举中找不到时使用，
     /// 路由会显示 UnsupportedPlatformView 错误页，不会兜底到其他平台。
