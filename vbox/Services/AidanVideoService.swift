@@ -20,7 +20,7 @@ class AidanVideoService: FuliBaseService {
     override var contentCategory: FuliContentCategory { .video }
 
     // MARK: - 请求头
-    override func defaultHeaders(host: String) -> [String: String] {
+    func defaultHeaders(host: String) -> [String: String] {
         [
             "User-Agent": "Mozilla/5.0",
             "Referer": "\(host)/"
