@@ -84,10 +84,43 @@ struct WelfareHomeView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
+            .background(navigationProxy)
             .background(settings.usesVisualSkin ? Color.clear.ignoresSafeArea() : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear { loadOrder() }
         }
+    }
+
+    /// 统一的隐藏跳转入口。
+    /// 不再把 NavigationLink 放进每个 LazyVGrid 单元，避免隐藏导航控件参与网格布局导致图标错位。
+    private var navigationProxy: some View {
+        NavigationLink(
+            destination: Group {
+                if let platform = navigationPlatform {
+                    destinationView(for: platform)
+                } else {
+                    EmptyView()
+                }
+            },
+            isActive: Binding(
+                get: { navigatePlatformID != nil },
+                set: { active in
+                    if !active { navigatePlatformID = nil }
+                }
+            )
+        ) {
+            EmptyView()
+        }
+        .hidden()
+    }
+
+    private var navigationPlatform: YBoxPlatform2? {
+        for tab in WelfareTab.allCases {
+            if let platform = currentOrderedPlatforms(for: tab).first(where: { $0.id == navigatePlatformID }) {
+                return platform
+            }
+        }
+        return nil
     }
 
     // MARK: - 平台网格（长按进入排序）
@@ -125,14 +158,6 @@ struct WelfareHomeView: View {
                                 PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
                             .buttonStyle(.plain)
-                            .background(
-                                NavigationLink(
-                                    destination: destinationView(for: platform),
-                                    tag: platform.id,
-                                    selection: $navigatePlatformID
-                                ) { EmptyView() }
-                                .opacity(0)
-                            )
                             .onLongPressGesture(minimumDuration: 0.5) {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 navigatePlatformID = nil

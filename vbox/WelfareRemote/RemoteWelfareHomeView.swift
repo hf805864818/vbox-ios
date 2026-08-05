@@ -49,6 +49,7 @@ struct RemoteWelfareHomeView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
+            .background(navigationProxy)
             .background(settings.usesVisualSkin ? Color.clear.ignoresSafeArea() : Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationBarHidden(true)
             .onAppear {
@@ -56,6 +57,40 @@ struct RemoteWelfareHomeView: View {
                 loadOrder()
             }
         }
+    }
+
+    /// 统一隐藏跳转入口。
+    /// 不把 NavigationLink 放进 LazyVGrid 单元，避免隐藏链接占用网格格子造成图标错位。
+    private var navigationProxy: some View {
+        NavigationLink(
+            destination: Group {
+                if let platform = navigationPlatform {
+                    WelfarePlatformRouter.shared
+                        .makeDestinationView(for: platform, settings: settings)
+                        .environmentObject(settings)
+                } else {
+                    EmptyView()
+                }
+            },
+            isActive: Binding(
+                get: { navigatePlatformKey != nil },
+                set: { active in
+                    if !active { navigatePlatformKey = nil }
+                }
+            )
+        ) {
+            EmptyView()
+        }
+        .hidden()
+    }
+
+    private var navigationPlatform: WelfarePlatform? {
+        for tab in RemoteWelfareCategory.allCases {
+            if let platform = currentOrderedPlatforms(for: tab).first(where: { $0.platformKey == navigatePlatformKey }) {
+                return platform
+            }
+        }
+        return nil
     }
 
     // MARK: - Tab 切换栏
@@ -138,6 +173,7 @@ struct RemoteWelfareHomeView: View {
                             RemotePlatformSortableCard(
                                 platform: platform,
                                 index: index,
+                                totalCount: platforms.count,
                                 gradient: platformGradient(platform.name),
                                 onMove: { fromIdx, toIdx in
                                     movePlatform(from: fromIdx, to: toIdx, tab: tab)
@@ -147,17 +183,6 @@ struct RemoteWelfareHomeView: View {
                                 }
                             )
                         } else {
-                            NavigationLink(
-                                destination:
-                                    WelfarePlatformRouter.shared.makeDestinationView(
-                                        for: platform, settings: settings
-                                    )
-                                    .environmentObject(settings),
-                                tag: platform.platformKey,
-                                selection: $navigatePlatformKey
-                            ) { EmptyView() }
-                            .hidden()
-
                             Button {
                                 navigatePlatformKey = platform.platformKey
                             } label: {
@@ -300,6 +325,7 @@ struct RemotePlatformIconCard: View {
 struct RemotePlatformSortableCard: View {
     let platform: WelfarePlatform
     let index: Int
+    let totalCount: Int
     let gradient: [Color]
     let onMove: (Int, Int) -> Void
     let onEnterEditMode: () -> Void
@@ -364,7 +390,7 @@ struct RemotePlatformSortableCard: View {
                         let colOffset = Int((drag.translation.width / colW).rounded())
                         let rowOffset = Int((drag.translation.height / rowH).rounded())
                         let totalOffset = colOffset + rowOffset * cols
-                        let target = max(0, min(index + totalOffset, index))
+                        let target = max(0, min(index + totalOffset, max(totalCount - 1, 0)))
                         if totalOffset != 0 {
                             onMove(index, target)
                         }
