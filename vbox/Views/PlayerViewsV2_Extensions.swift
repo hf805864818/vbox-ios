@@ -29,6 +29,8 @@ struct GestureControlView: View {
                 .gesture(DragGesture(minimumDistance: 14)
                     .onChanged { value in
                         guard !playerState.isOrientationLocked else { return }
+                        // 修复: 弹窗显示时禁用手势，防止控制面板卡死
+                        if playerState.showSettings || playerState.showEpisodePicker || playerState.showQualityPicker || playerState.showDanmakuSettings || playerState.showEnginePicker || playerState.showDanmakuInput { return }
                         if !isDragging {
                             isDragging = true
                             startBrightness = playerState.brightness
