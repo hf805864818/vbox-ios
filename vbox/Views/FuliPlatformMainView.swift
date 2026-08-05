@@ -158,7 +158,7 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                     ) {
                         ForEach(videos) { video in
                             NavigationLink(destination: detailView(for: video)) {
-                                FuliVideoCard(video: video)
+                                FuliVideoCard(video: video, imageReferer: svc.imageReferer)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
@@ -271,7 +271,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                     ) {
                         ForEach(videos) { video in
                             NavigationLink(destination: searchDetailView(for: video)) {
-                                FuliVideoCard(video: video)
+                                FuliVideoCard(video: video, imageReferer: svc.imageReferer)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
@@ -328,6 +328,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
 // MARK: - 视频卡片
 struct FuliVideoCard: View {
     let video: FuliVideo
+    var imageReferer: String? = nil
 
     private var bottomLabel: String {
         var parts: [String] = []
@@ -340,16 +341,7 @@ struct FuliVideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: URL(string: video.vodPic)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.18))
-                            .overlay(Image(systemName: "play.rectangle.fill").foregroundColor(.white.opacity(0.5)))
-                    }
-                }
+                FuliCoverImage(urlString: video.vodPic, referer: imageReferer, contentMode: .fill)
                 .frame(height: 88)
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -379,5 +371,28 @@ struct FuliVideoCard: View {
                 .multilineTextAlignment(.leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct FuliCoverImage: View {
+    let urlString: String
+    let referer: String?
+    let contentMode: ContentMode
+
+    var body: some View {
+        if let referer = referer, !referer.isEmpty {
+            PlatformAsyncImage.sourceCover(urlString, referer: referer, contentMode: contentMode)
+        } else {
+            AsyncImage(url: URL(string: urlString)) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: contentMode)
+                default:
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.18))
+                        .overlay(Image(systemName: "play.rectangle.fill").foregroundColor(.white.opacity(0.5)))
+                }
+            }
+        }
     }
 }

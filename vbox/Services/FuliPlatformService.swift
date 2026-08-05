@@ -47,6 +47,8 @@ protocol FuliPlatformService: ObservableObject {
 
     /// 内容类型（决定列表点击后进入视频播放还是漫画浏览）
     var contentCategory: FuliContentCategory { get }
+    /// 封面图防盗链 Referer。默认 nil，只有需要的远程源注入。
+    var imageReferer: String? { get }
 
     /// 域名管理
     func reprobe()
@@ -56,6 +58,7 @@ protocol FuliPlatformService: ObservableObject {
 // MARK: - 内容类型默认实现
 extension FuliPlatformService {
     var contentCategory: FuliContentCategory { .video }
+    var imageReferer: String? { nil }
 }
 
 // MARK: - 默认实现（域名探测 + HTTP 工具）
@@ -197,6 +200,8 @@ class FuliBaseService: ObservableObject, FuliPlatformService {
 
     /// 内容类型默认视频；漫画子类 override
     var contentCategory: FuliContentCategory { .video }
+    /// 默认不注入图片 Referer；远程配置类服务可 override。
+    var imageReferer: String? { nil }
 
     init(platformName: String, defaultHosts: [String]) {
         self.platformName = platformName

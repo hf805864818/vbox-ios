@@ -128,6 +128,14 @@ struct WelfarePlatformRouter {
                 FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanComicService.shared)
             )
 
+        case .remoteCmsV10:
+            return AnyView(
+                FuliPlatformMainView(
+                    platform: makeYBoxPlatform2(from: platform),
+                    service: RemoteCMSV10Service.service(for: platform)
+                )
+            )
+
         // MARK: 福利专区专用远程 Spider
         case .welfareSpider:
             return makeWelfareSpiderDestination(for: platform)

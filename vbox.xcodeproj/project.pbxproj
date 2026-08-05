@@ -159,6 +159,7 @@
 		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
 		A10159 /* AidanComicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* AidanComicService.swift */; };
 		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
+		A10161 /* RemoteCMSV10Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10161 /* RemoteCMSV10Service.swift */; };
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
@@ -449,6 +450,7 @@
 		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
 		B10159 /* AidanComicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanComicService.swift; sourceTree = "<group>"; };
 		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
+		B10161 /* RemoteCMSV10Service.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCMSV10Service.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -804,6 +806,7 @@
 				B10157 /* CMSV10Helper.swift */,
 				B10158 /* AidanVideoService.swift */,
 				B10159 /* AidanComicService.swift */,
+				B10161 /* RemoteCMSV10Service.swift */,
 				XIGUA1000000000000000002 /* XiguaService.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
 			);
@@ -1180,6 +1183,7 @@
 				A10157 /* CMSV10Helper.swift in Sources */,
 				A10158 /* AidanVideoService.swift in Sources */,
 				A10159 /* AidanComicService.swift in Sources */,
+				A10161 /* RemoteCMSV10Service.swift in Sources */,
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

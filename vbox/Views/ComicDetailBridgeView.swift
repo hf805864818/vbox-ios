@@ -16,14 +16,10 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
         ZStack {
             VStack(spacing: 16) {
                 // 封面图
-                AsyncImage(url: URL(string: video.vodPic)) { phase in
-                    if let image = phase.image {
-                        image.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                    } else {
-                        Rectangle().fill(Color.gray.opacity(0.2))
-                            .aspectRatio(16 / 9, contentMode: .fit).cornerRadius(12)
-                    }
-                }
+                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, contentMode: .fit)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(12)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .center) {
                     if isLoading {
@@ -91,7 +87,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showGallery) {
                 if let images = detail?.episodes.first?.images {
-                    ComicGalleryView(images: images, title: detail?.vodName ?? "")
+                    ComicGalleryView(images: images, title: detail?.vodName ?? "", referer: svc.imageReferer)
                 }
             }
         }
@@ -116,6 +112,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
 struct ComicGalleryView: View {
     let images: [String]
     let title: String
+    let referer: String?
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex = 0
@@ -127,25 +124,7 @@ struct ComicGalleryView: View {
 
                 TabView(selection: $currentIndex) {
                     ForEach(Array(images.enumerated()), id: \.offset) { idx, url in
-                        AsyncImage(url: URL(string: url), transaction: .init(animation: .default)) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFit()
-                            case .failure:
-                                VStack(spacing: 8) {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 36)).foregroundColor(.orange)
-                                    Text("图片加载失败")
-                                        .font(.system(size: 13)).foregroundColor(.secondary)
-                                }
-                            default:
-                                ProgressView()
-                                    .scaleEffect(1.5)
-                                    .tint(.white)
-                            }
-                        }
+                        FuliCoverImage(urlString: url, referer: referer, contentMode: .fit)
                         .tag(idx)
                     }
                 }

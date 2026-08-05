@@ -520,6 +520,8 @@ struct RemoteWelfareSettingsView: View {
             AidanVideoService.shared.reprobe()
         case .aidanComic:
             AidanComicService.shared.reprobe()
+        case .remoteCmsV10:
+            RemoteCMSV10Service.service(for: platform).reprobe()
         case .mysteryMovie, .sihuVideo, .xcp, .sbAggregation, .fuliBase, .yboxSpecial, .yboxXjsp, .welfareSpider, .unknown:
             // 这些 Service 当前未暴露 reprobe()，域名已通过 WelfareDomainStore 持久化，
             // 下次进入页面会从 domain store 读取最新域名。
