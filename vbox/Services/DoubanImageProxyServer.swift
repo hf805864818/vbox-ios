@@ -704,10 +704,11 @@ final class DoubanImageProxyServer {
         return buffer.prefix(result)
     }
 
-    /// 重写六速社区 m3u8：将 key / map / TS 分片统一改写到六速专用本地代理
+    /// 重写六速社区 m3u8：仅修复 key URI。
     ///
-    /// 六速社区播放链路依赖专用代理携带 Referer/User-Agent 并绕过自签名证书。
-    /// 不能把 TS 分片裸露给 AVPlayer 直连，否则容易出现 AVFoundationErrorDomain -11850。
+    /// 对比历史可播放版本：六速社区的 TS 分片不走本地代理，播放器直接请求 CDN；
+    /// 只把 #EXT-X-KEY 里的相对 URI 修正为绝对地址。
+    /// 之前把 TS 也改写到 /lusushequ-segment，会让分片流转发进入本地代理，导致一直缓冲或 0 秒不播放。
     private func rewriteLusushequM3U8(_ text: String, baseURL: URL, id: String) -> String {
         // 计算 base 用于解析相对路径
         let finalURLString = baseURL.absoluteString
@@ -725,23 +726,16 @@ final class DoubanImageProxyServer {
         }
 
         return text.components(separatedBy: .newlines).map { line in
-            rewriteLusushequM3U8Line(line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("#EXT-X-KEY"), trimmed.contains("URI=\"") else {
+                return line
+            }
+            return rewriteLusushequKeyURI(in: line, schemeHostPort: schemeHostPort, basePath: basePath)
         }.joined(separator: "\n")
     }
 
-    private func rewriteLusushequM3U8Line(_ line: String, schemeHostPort: String, basePath: String, id: String) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return line }
-
-        if trimmed.hasPrefix("#") {
-            return rewriteLusushequURIAttributes(in: line, schemeHostPort: schemeHostPort, basePath: basePath, id: id)
-        }
-
-        return localLusushequSegmentURL(for: trimmed, schemeHostPort: schemeHostPort, basePath: basePath, id: id) ?? line
-    }
-
-    /// 将 #EXT-X-KEY / #EXT-X-MAP 等标签里的 URI 改写到本地代理
-    private func rewriteLusushequURIAttributes(in line: String, schemeHostPort: String, basePath: String, id: String) -> String {
+    /// 将 #EXT-X-KEY 行中的 URI 从相对路径转为绝对路径
+    private func rewriteLusushequKeyURI(in line: String, schemeHostPort: String, basePath: String) -> String {
         var result = line
         let pattern = #"URI="([^"]+)""#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return line }
@@ -752,41 +746,18 @@ final class DoubanImageProxyServer {
                   let uriRange = Range(match.range(at: 1), in: result),
                   let fullRange = Range(match.range(at: 0), in: result) else { continue }
             let uri = String(result[uriRange])
-            guard let local = localLusushequSegmentURL(for: uri, schemeHostPort: schemeHostPort, basePath: basePath, id: id) else {
-                continue
+            // 已经是绝对路径，不需要处理
+            if uri.hasPrefix("http://") || uri.hasPrefix("https://") { continue }
+            // 根相对路径 → 绝对路径
+            let absolute: String
+            if uri.hasPrefix("/") {
+                absolute = schemeHostPort + uri
+            } else {
+                absolute = basePath + uri
             }
-            result.replaceSubrange(fullRange, with: "URI=\"\(local)\"")
+            result.replaceSubrange(fullRange, with: "URI=\"\(absolute)\"")
         }
         return result
-    }
-
-    private func localLusushequSegmentURL(for raw: String, schemeHostPort: String, basePath: String, id: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let absolute: String
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            absolute = trimmed
-        } else if trimmed.hasPrefix("//") {
-            absolute = "https:" + trimmed
-        } else if trimmed.hasPrefix("/") {
-            absolute = schemeHostPort + trimmed
-        } else {
-            absolute = basePath + trimmed
-        }
-
-        guard URL(string: absolute) != nil else { return nil }
-
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = "127.0.0.1"
-        components.port = Int(port)
-        components.path = "/lusushequ-segment"
-        components.queryItems = [
-            URLQueryItem(name: "id", value: id),
-            URLQueryItem(name: "url", value: absolute)
-        ]
-        return components.url?.absoluteString
     }
 
     /// 代理六速社区 key/TS 请求（SSL 绕过 + 自定义 header）
