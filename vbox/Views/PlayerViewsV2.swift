@@ -4213,26 +4213,43 @@ struct PlayerContainerView: View {
         return NSClassFromString("AliPlayer") != nil
     }
 
+    private var isAnyControlPopupPresented: Bool {
+        playerState.showSettings ||
+        playerState.showEpisodePicker ||
+        playerState.showQualityPicker ||
+        playerState.showDanmakuSettings ||
+        playerState.showEnginePicker ||
+        playerState.showDanmakuInput
+    }
+
+    private var canAutoHideControls: Bool {
+        !isAnyControlPopupPresented &&
+        !playerState.isSeeking &&
+        !playerState.isOrientationLocked &&
+        playerState.showControls &&
+        playerState.isPlaying
+    }
+
     private func resetAutoHideTimer() {
         autoHideTask?.cancel()
-        // 弹窗打开时不自动隐藏
-        guard !playerState.showSettings,
-              !playerState.showEpisodePicker,
-              !playerState.showQualityPicker,
-              !playerState.showDanmakuSettings,
-              !playerState.showEnginePicker,
-              !playerState.showDanmakuInput,
-              !playerState.isSeeking,
-              !playerState.isOrientationLocked else { return }
-        guard playerState.showControls, playerState.isPlaying else { return }
+        guard canAutoHideControls else { return }
         autoHideTask = Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard self.canAutoHideControls else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    playerState.showControls = false
+                    self.playerState.showControls = false
                 }
             }
+        }
+    }
+
+    private func handleControlPopupChange(_ isPresented: Bool) {
+        if isPresented {
+            autoHideTask?.cancel()
+        } else {
+            resetAutoHideTimer()
         }
     }
     
@@ -4329,11 +4346,7 @@ struct PlayerContainerView: View {
             // 手势层
             GestureControlView(playerState: playerState) {
                 guard !playerState.isSeeking else { return }
-                guard !playerState.showSettings,
-                      !playerState.showEpisodePicker,
-                      !playerState.showQualityPicker,
-                      !playerState.showDanmakuSettings,
-                      !playerState.showEnginePicker else { return }
+                guard !isAnyControlPopupPresented else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     playerState.showControls.toggle()
                 }
@@ -4645,6 +4658,29 @@ struct PlayerContainerView: View {
             if newValue && playerState.showControls {
                 resetAutoHideTimer()
             }
+        }
+        .onChange(of: playerState.showSettings) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showEpisodePicker) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showQualityPicker) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showDanmakuSettings) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showEnginePicker) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showDanmakuInput) { handleControlPopupChange($0) }
+        .onChange(of: playerState.isSeeking) { isSeeking in
+            if isSeeking {
+                autoHideTask?.cancel()
+            } else {
+                resetAutoHideTimer()
+            }
+        }
+        .onChange(of: playerState.isOrientationLocked) { isLocked in
+            if isLocked {
+                autoHideTask?.cancel()
+            } else {
+                resetAutoHideTimer()
+            }
+        }
+        .onDisappear {
+            autoHideTask?.cancel()
         }
     }
 }
