@@ -66,7 +66,7 @@ struct WelfareHomeView: View {
                 // 编辑模式提示
                 if isEditMode {
                     HStack {
-                        Text("长按进入排序模式").font(.system(size: 12)).foregroundColor(.secondary)
+                        Text("长按卡片拖动排序").font(.system(size: 12)).foregroundColor(.secondary)
                         Spacer()
                         Button("完成") { withAnimation { isEditMode = false; saveOrder() } }
                             .font(.system(size: 14, weight: .semibold))
@@ -127,15 +127,13 @@ struct WelfareHomeView: View {
                                 PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
                             .buttonStyle(.plain)
-                            .simultaneousGesture(
-                                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    navigatePlatformID = nil
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        withAnimation { isEditMode = true }
-                                    }
+                            .onLongPressGesture(minimumDuration: 0.5) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                navigatePlatformID = nil
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    withAnimation { isEditMode = true }
                                 }
-                            )
+                            }
                         }
                     }
                 }
@@ -323,6 +321,7 @@ struct PlatformSortableCard: View {
     let onEnterEditMode: () -> Void
 
     @State private var offset = CGSize.zero
+    @State private var isPickedUp = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -335,22 +334,38 @@ struct PlatformSortableCard: View {
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(width: 72, height: 86)
-        .scaleEffect(offset != .zero ? 1.1 : 1.0)
+        .scaleEffect(isPickedUp ? 1.15 : 1.0)
+        .shadow(color: isPickedUp ? Color.black.opacity(0.3) : Color.clear, radius: 10, x: 0, y: 5)
         .offset(offset)
-        .zIndex(offset != .zero ? 999 : 0)
+        .zIndex(isPickedUp ? 999 : 0)
         .gesture(
-            DragGesture()
+            LongPressGesture(minimumDuration: 0.3)
+                .onEnded { _ in
+                    isPickedUp = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                .sequenced(before: DragGesture(minimumDistance: 0))
                 .onChanged { value in
-                    if offset == .zero { onEnterEditMode() }
-                    offset = value.translation
+                    switch value {
+                    case .second(_, let drag?):
+                        offset = drag.translation
+                    default:
+                        break
+                    }
                 }
                 .onEnded { value in
-                    let cols = 4
-                    let currentRow = index / cols; let currentCol = index % cols
-                    let newRow = currentRow + Int(round(value.translation.height / 102))
-                    let newCol = min(max(currentCol + Int(round(value.translation.width / 88)), 0), cols - 1)
-                    let newIndex = newRow * cols + newCol
-                    if newIndex >= 0, newIndex < 100, newIndex != index { onMove(index, newIndex) }
+                    if case .second(_, let drag?) = value {
+                        let cols = 4
+                        let currentRow = index / cols
+                        let currentCol = index % cols
+                        let newRow = currentRow + Int(round(drag.translation.height / 102))
+                        let newCol = min(max(currentCol + Int(round(drag.translation.width / 88)), 0), cols - 1)
+                        let newIndex = newRow * cols + newCol
+                        if newIndex >= 0, newIndex < 100, newIndex != index {
+                            onMove(index, newIndex)
+                        }
+                    }
+                    isPickedUp = false
                     withAnimation(.spring()) { offset = .zero }
                 }
         )

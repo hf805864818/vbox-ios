@@ -31,6 +31,87 @@ class JSHTTPBridge {
 
     init() {}
 
+    /// 按响应头、页面 meta 和常见中文编码兜底解码网页内容。
+    private func decodeText(_ data: Data, headers: [String: String]) -> String {
+        if let charset = responseCharset(from: headers),
+           let encoding = stringEncoding(for: charset),
+           let text = String(data: data, encoding: encoding) {
+            return text
+        }
+
+        if let utf8 = String(data: data, encoding: .utf8) {
+            let metaCharset = detectMetaCharset(in: utf8)
+            if let charset = metaCharset,
+               charset.lowercased() != "utf-8",
+               let encoding = stringEncoding(for: charset),
+               let redecoded = String(data: data, encoding: encoding) {
+                return redecoded
+            }
+            return utf8
+        }
+
+        let sample = String(data: data.prefix(4096), encoding: .ascii) ?? ""
+        if let charset = detectMetaCharset(in: sample),
+           let encoding = stringEncoding(for: charset),
+           let text = String(data: data, encoding: encoding) {
+            return text
+        }
+
+        let fallbackEncodings: [String.Encoding] = [.gbk, .gb2312, .big5, .isoLatin1]
+        for encoding in fallbackEncodings {
+            if let text = String(data: data, encoding: encoding), !text.isEmpty {
+                return text
+            }
+        }
+
+        return data.base64EncodedString()
+    }
+
+    private func responseCharset(from headers: [String: String]) -> String? {
+        for (key, value) in headers where key.lowercased() == "content-type" {
+            return value
+                .components(separatedBy: ";")
+                .compactMap { part -> String? in
+                    let pair = part.components(separatedBy: "=")
+                    guard pair.count == 2,
+                          pair[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "charset" else {
+                        return nil
+                    }
+                    return pair[1].trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                }
+                .first
+        }
+        return nil
+    }
+
+    private func detectMetaCharset(in text: String) -> String? {
+        let pattern = #"(?i)<meta[^>]+charset=["']?\s*([a-zA-Z0-9_\-]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return String(text[range])
+    }
+
+    private func stringEncoding(for charset: String) -> String.Encoding? {
+        switch charset.lowercased().replacingOccurrences(of: "_", with: "-") {
+        case "utf-8", "utf8":
+            return .utf8
+        case "gbk", "gb2312", "gb-2312", "gb18030", "gb-18030", "gb18030-2000":
+            return .gbk
+        case "big5", "big-5":
+            return .big5
+        case "iso-8859-1", "latin1", "latin-1":
+            return .isoLatin1
+        default:
+            let cfEncoding = CFStringConvertIANACharSetNameToEncoding(charset as CFString)
+            guard cfEncoding != kCFStringEncodingInvalidId else { return nil }
+            let nsEncoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding)
+            return String.Encoding(rawValue: nsEncoding)
+        }
+    }
+
     /// 创建 URLSession（根据 sslBypass 决定是否绕过 SSL 验证）
     private func createSession() -> URLSession {
         if sslBypass {
@@ -149,15 +230,7 @@ class JSHTTPBridge {
         result["headers"] = responseHeaders
 
         if let data = responseData {
-            // 尝试 UTF-8 解码
-            if let text = String(data: data, encoding: .utf8) {
-                result["content"] = text
-            } else if let text = String(data: data, encoding: .utf8) {
-                // GBK 编码尝试 — 可接入 gbk.js
-                result["content"] = text
-            } else {
-                result["content"] = data.base64EncodedString()
-            }
+            result["content"] = decodeText(data, headers: responseHeaders)
         }
 
         return result

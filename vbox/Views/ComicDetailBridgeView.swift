@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - 漫画/套图中转页
 // 点击漫画平台卡片后进入此页，加载详情并展示套图封面与基本信息，
-// 用户点击封面后进入 ComicGalleryView 横向浏览全部图片。
+// 用户点击封面后进入 ComicGalleryView 上下滑动浏览全部图片。
 struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
     @ObservedObject var svc: Service
     let video: FuliVideo
@@ -108,7 +108,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
     }
 }
 
-// MARK: - 漫画/套图浏览页
+// MARK: - 漫画/套图浏览页（上下滑动）
 struct ComicGalleryView: View {
     let images: [String]
     let title: String
@@ -116,37 +116,62 @@ struct ComicGalleryView: View {
     let sslBypass: Bool
 
     @Environment(\.dismiss) private var dismiss
-    @State private var currentIndex = 0
+    @State private var scrollOffset: CGFloat = 0
 
     var body: some View {
         NavigationView {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(images.enumerated()), id: \.offset) { idx, url in
-                        FuliCoverImage(urlString: url, referer: referer, sslBypass: sslBypass, contentMode: .fit)
-                        .tag(idx)
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 4) {
+                        ForEach(Array(images.enumerated()), id: \.offset) { idx, url in
+                            FuliCoverImage(urlString: url, referer: referer, sslBypass: sslBypass, contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .id(idx)
+                        }
                     }
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: ScrollOffsetKey.self, value: proxy.frame(in: .named("gallery")).minY)
+                    })
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .coordinateSpace(name: "gallery")
 
-                // 页码指示器
+                // 顶部渐变 + 页码指示器
                 VStack {
+                    HStack {
+                        Spacer()
+                        Text("\(currentImageIndex) / \(images.count)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Color.black.opacity(0.55))
+                            .cornerRadius(12)
+                            .padding(.trailing, 16)
+                            .padding(.top, 4)
+                    }
                     Spacer()
-                    Text("\(currentIndex + 1) / \(images.count)")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(14)
-                        .padding(.bottom, 20)
                 }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(trailing: Button("完成") { dismiss() }
                 .foregroundColor(.white))
+            .onPreferenceChange(ScrollOffsetKey.self) { value in
+                scrollOffset = -value
+            }
         }
+    }
+
+    private var currentImageIndex: Int {
+        let estimated = Int(scrollOffset / UIScreen.main.bounds.height) + 1
+        return max(1, min(estimated, images.count))
+    }
+}
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

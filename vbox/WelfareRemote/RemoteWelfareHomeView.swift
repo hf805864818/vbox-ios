@@ -159,15 +159,13 @@ struct RemoteWelfareHomeView: View {
                                 RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
                             .buttonStyle(.plain)
-                            .simultaneousGesture(
-                                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    navigatePlatformKey = nil
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        withAnimation { isEditMode = true }
-                                    }
+                            .onLongPressGesture(minimumDuration: 0.5) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                navigatePlatformKey = nil
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    withAnimation { isEditMode = true }
                                 }
-                            )
+                            }
                         }
                     }
                 }
@@ -302,6 +300,7 @@ struct RemotePlatformSortableCard: View {
     let onEnterEditMode: () -> Void
 
     @State private var offset: CGSize = .zero
+    @State private var isPickedUp = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -333,25 +332,39 @@ struct RemotePlatformSortableCard: View {
                 .lineLimit(1)
         }
         .frame(width: 72, height: 86)
+        .scaleEffect(isPickedUp ? 1.15 : 1.0)
+        .shadow(color: isPickedUp ? Color.black.opacity(0.3) : Color.clear, radius: 10, x: 0, y: 5)
         .offset(offset)
+        .zIndex(isPickedUp ? 999 : 0)
         .gesture(
-            DragGesture()
+            LongPressGesture(minimumDuration: 0.3)
+                .onEnded { _ in
+                    isPickedUp = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                .sequenced(before: DragGesture(minimumDistance: 0))
                 .onChanged { value in
-                    offset = value.translation
+                    switch value {
+                    case .second(_, let drag?):
+                        offset = drag.translation
+                    default:
+                        break
+                    }
                 }
                 .onEnded { value in
-                    // 4 列网格，按 72+16=88 宽度估算移动
-                    let cols = 4
-                    let colW: CGFloat = 88
-                    let rowH: CGFloat = 102
-                    let colOffset = Int((value.translation.width / colW).rounded())
-                    let rowOffset = Int((value.translation.height / rowH).rounded())
-                    let totalOffset = colOffset + rowOffset * cols
-                    let target = max(0, min(index + totalOffset, /* count unknown here */ index))
-                    // 通过 onMove 通知父 View（RemoteWelfareHomeView）执行实际位移
-                    if totalOffset != 0 {
-                        onMove(index, target)
+                    if case .second(_, let drag?) = value {
+                        let cols = 4
+                        let colW: CGFloat = 88
+                        let rowH: CGFloat = 102
+                        let colOffset = Int((drag.translation.width / colW).rounded())
+                        let rowOffset = Int((drag.translation.height / rowH).rounded())
+                        let totalOffset = colOffset + rowOffset * cols
+                        let target = max(0, min(index + totalOffset, index))
+                        if totalOffset != 0 {
+                            onMove(index, target)
+                        }
                     }
+                    isPickedUp = false
                     withAnimation(.spring()) { offset = .zero }
                 }
         )
