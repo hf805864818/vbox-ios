@@ -410,90 +410,11 @@ struct RemoteWelfareSettingsView: View {
     private func domainEditSheet(platform: WelfarePlatform) -> some View {
         NavigationView {
             Form {
-                Section(header: Text("平台")) {
-                    HStack {
-                        Image(systemName: platform.icon)
-                        Text(platform.name)
-                        Spacer()
-                        Text("[\(platform.platformKey)]")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Section(header: Text("添加新域名")) {
-                    TextField("https://example.com", text: $editDomain)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled(true)
-                    Button("添加域名") {
-                        addCustomDomain(for: platform)
-                    }
-                    .disabled(editDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                Section(header: Text("默认域名（按优先级）")) {
-                    ForEach(Array(platform.defaultHosts.enumerated()), id: \.offset) { idx, host in
-                        HStack {
-                            Text("\(idx + 1).")
-                                .foregroundColor(.secondary)
-                            Text(host)
-                                .font(.system(size: 13))
-                            Spacer()
-                            if currentDomain(for: platform) == host {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            }
-                        }
-                    }
-                }
-
-                Section(header: Text("自定义域名")) {
-                    if domainStore.domains(for: platform.name).isEmpty {
-                        Text("暂无自定义域名。添加后会显示在这里，可随时删除。")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(domainStore.domains(for: platform.name), id: \.self) { domain in
-                            HStack(spacing: 8) {
-                                Image(systemName: "link")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.accentColor)
-                                Text(domain)
-                                    .font(.system(size: 13, design: .monospaced))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Button(role: .destructive) {
-                                    removeCustomDomain(domain, for: platform)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 18))
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-
-                        Button(role: .destructive) {
-                            clearCustomDomains(for: platform)
-                        } label: {
-                            Text("全部删除自定义域名")
-                        }
-                    }
-                } footer: {
-                    Text("播放时会优先尝试自定义域名，再回退默认域名。")
-                        .font(.system(size: 11))
-                }
-
-                Section {
-                    Button("完成") {
-                        editingPlatform = nil
-                    }
-                    .frame(maxWidth: .infinity)
-                    .foregroundColor(.white)
-                    .listRowBackground(Color.accentColor)
-                }
+                domainEditPlatformSection(platform: platform)
+                domainEditAddSection(platform: platform)
+                domainEditDefaultHostsSection(platform: platform)
+                domainEditCustomDomainsSection(platform: platform)
+                domainEditDoneSection
             }
             .navigationTitle("编辑域名")
             .navigationBarTitleDisplayMode(.inline)
@@ -502,6 +423,108 @@ struct RemoteWelfareSettingsView: View {
                     Button("取消") { editingPlatform = nil }
                 }
             }
+        }
+    }
+
+    // MARK: - 域名编辑 Sheet 子视图（拆分以避免类型检查器超时）
+
+    @ViewBuilder
+    private func domainEditPlatformSection(platform: WelfarePlatform) -> some View {
+        Section(header: Text("平台")) {
+            HStack {
+                Image(systemName: platform.icon)
+                Text(platform.name)
+                Spacer()
+                Text("[\(platform.platformKey)]")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func domainEditAddSection(platform: WelfarePlatform) -> some View {
+        Section(header: Text("添加新域名")) {
+            TextField("https://example.com", text: $editDomain)
+                .keyboardType(.URL)
+                .autocapitalization(.none)
+                .autocorrectionDisabled(true)
+            Button("添加域名") {
+                addCustomDomain(for: platform)
+            }
+            .disabled(editDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private func domainEditDefaultHostsSection(platform: WelfarePlatform) -> some View {
+        Section(header: Text("默认域名（按优先级）")) {
+            ForEach(Array(platform.defaultHosts.enumerated()), id: \.offset) { idx, host in
+                HStack {
+                    Text("\(idx + 1).")
+                        .foregroundColor(.secondary)
+                    Text(host)
+                        .font(.system(size: 13))
+                    Spacer()
+                    if currentDomain(for: platform) == host {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func domainEditCustomDomainsSection(platform: WelfarePlatform) -> some View {
+        Section(header: Text("自定义域名")) {
+            if domainStore.domains(for: platform.name).isEmpty {
+                Text("暂无自定义域名。添加后会显示在这里，可随时删除。")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(domainStore.domains(for: platform.name), id: \.self) { domain in
+                    HStack(spacing: 8) {
+                        Image(systemName: "link")
+                            .font(.system(size: 12))
+                            .foregroundColor(.accentColor)
+                        Text(domain)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button(role: .destructive) {
+                            removeCustomDomain(domain, for: platform)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                Button(role: .destructive) {
+                    clearCustomDomains(for: platform)
+                } label: {
+                    Text("全部删除自定义域名")
+                }
+            }
+        } footer: {
+            Text("播放时会优先尝试自定义域名，再回退默认域名。")
+                .font(.system(size: 11))
+        }
+    }
+
+    @ViewBuilder
+    private var domainEditDoneSection: some View {
+        Section {
+            Button("完成") {
+                editingPlatform = nil
+            }
+            .frame(maxWidth: .infinity)
+            .foregroundColor(.white)
+            .listRowBackground(Color.accentColor)
         }
     }
 
