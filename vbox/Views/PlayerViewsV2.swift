@@ -743,6 +743,8 @@ class PlayerState: ObservableObject {
     private var quarkFallbackSource: String?
     private var quarkFallbackAttempted = false
     private var quarkFallbackTimeoutTask: Task<Void, Never>?
+    private var playbackSessionId = UUID()
+    private var playbackWatchdogTask: Task<Void, Never>?
     private var m3u8ProbeCache: [String: M3U8ProbeCacheEntry] = [:]
     private var currentBaiduLocalProxyURL: URL?
     private var currentBaiduStreamId: String?
@@ -1951,6 +1953,8 @@ class PlayerState: ObservableObject {
         currentTask = nil
         sceneRestorationTask?.cancel()
         sceneRestorationTask = nil
+        playbackSessionId = UUID()
+        stopPlaybackWatchdog()
         danmakuTask?.cancel()
         danmakuTask = nil
         savePlaybackProgress(force: true)
@@ -2325,7 +2329,12 @@ class PlayerState: ObservableObject {
     }
     
     private func playDriveVideo(url: String, headers: [String: String]) async {
+        guard !Task.isCancelled else {
+            log("[PlayerV2] 已取消的网盘播放任务，跳过播放器提交")
+            return
+        }
         let playStartTime = Date()
+        let sessionId = await MainActor.run { beginPlaybackSession() }
         await MainActor.run {
             isLoading = true
             loadingMessage = "正在缓冲首帧..."
@@ -2393,7 +2402,9 @@ class PlayerState: ObservableObject {
 
         guard let urlObj = createURL(from: finalURLString) else {
             await MainActor.run {
-                self.failPlayback("播放地址格式错误")
+                if self.playbackSessionId == sessionId {
+                    self.failPlayback("播放地址格式错误")
+                }
             }
             return
         }
@@ -2408,6 +2419,7 @@ class PlayerState: ObservableObject {
         await MainActor.run {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
+        guard await MainActor.run(body: { self.playbackSessionId == sessionId }) else { return }
 
         // 夸克直链和m3u8：优先 IJKPlayer，其次 MPV/MDK/VLC。
         // AliPlayer 对本地代理 URL（127.0.0.1:18080/quark-stream）兼容性差，自动模式下不优先选择，
@@ -2415,6 +2427,7 @@ class PlayerState: ObservableObject {
         if (isQuarkLocalProxy || isQuarkM3U8LocalProxy) && enginePreference == .auto {
             let proxyType = isQuarkLocalProxy ? "quark-stream" : "quark-m3u8"
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
                 compatibilityHint = isQuarkLocalProxy ? "夸克网盘直链" : "夸克网盘转码"
             }
@@ -2434,6 +2447,7 @@ class PlayerState: ObservableObject {
         } else if isUCLocalProxy && enginePreference == .auto {
             // UC网盘直链：优先 IJKPlayer，其次 MPV/MDK/VLC
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
                 compatibilityHint = "UC网盘直链"
             }
@@ -2453,6 +2467,7 @@ class PlayerState: ObservableObject {
         } else if isBaiduLocalProxy && enginePreference == .auto {
             // 百度原画：保持原有 MPV → MDK → VLC 降级链
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
                 compatibilityHint = "百度原画本地代理"
             }
@@ -2468,6 +2483,7 @@ class PlayerState: ObservableObject {
             }
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .system
                 compatibilityHint = nil
             }
@@ -2476,6 +2492,7 @@ class PlayerState: ObservableObject {
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: kind, engine: "AVPlayer", reason: reason)
         } else if enginePreference == .auto, shouldPreferIJK(for: urlObj) {
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
                 compatibilityHint = "夸克网盘直链"
             }
@@ -2483,6 +2500,7 @@ class PlayerState: ObservableObject {
             log("[Quark] 自动模式下夸克直链使用 IJKPlayer")
         } else if enginePreference == .auto, shouldPreferMPV(for: urlObj) {
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
                 compatibilityHint = compatibilityReason(for: resourceName) ?? "复杂封装"
             }
@@ -2490,11 +2508,13 @@ class PlayerState: ObservableObject {
         } else if enginePreference == .auto {
             logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "默认系统内核")
         }
+        guard await MainActor.run(body: { self.playbackSessionId == sessionId }) else { return }
 
         if shouldUseCompatibilityEngine {
             let engineName = preferredCompatibilityEngineName(for: urlObj)
             log("[PlayerV2] 使用 \(engineName) 兼容内核播放：\(compatibilityHint ?? "特殊格式")")
             await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
                 player?.pause()
                 player = nil
                 compatibilityEngineName = engineName
@@ -2503,6 +2523,7 @@ class PlayerState: ObservableObject {
                 detectVideoQuality(from: urlObj.absoluteString)
                 isPlaying = true
                 isLoading = false
+                stopPlaybackWatchdog()
             }
             return
         } else if playbackEngineMode == .compatibility {
@@ -2523,6 +2544,7 @@ class PlayerState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self else { return }
+                guard self.playbackSessionId == sessionId else { return }
                 switch status {
                 case .readyToPlay:
                     if isQuarkLocalProxy || isQuarkM3U8LocalProxy {
@@ -2593,9 +2615,11 @@ class PlayerState: ObservableObject {
             }
 
         let localFailureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
                     guard let self else { return }
+                    guard self.playbackSessionId == sessionId else { return }
                     self.log("[PlayerV2] ❌ 网盘播放中断: \(error.localizedDescription)")
                     if isBaiduLocalProxy && self.isHTTPForbidden(errorDesc: error.localizedDescription, underlyingDesc: "") {
                         self.log("[Baidu] ⚠️ 百度PCS播放中断疑似403，清理旧直链后重试一次")
@@ -2622,7 +2646,8 @@ class PlayerState: ObservableObject {
             quarkFallbackTimeoutTask?.cancel()
         }
         
-        await MainActor.run {
+        let didCommitPlayer = await MainActor.run { () -> Bool in
+            guard playbackSessionId == sessionId else { return false }
             if let observer = timeObserver { player?.removeTimeObserver(observer) }
             cleanupObservers()
             statusObserver = localStatusObserver
@@ -2638,11 +2663,15 @@ class PlayerState: ObservableObject {
                 isLoading = true
                 loadingMessage = "正在缓冲首帧..."
             }
+            startPlaybackWatchdog(for: sessionId)
+            return true
         }
+        guard didCommitPlayer else { return }
 
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
             guard let self else { return }
+            guard self.playbackSessionId == sessionId, self.player === p else { return }
             self.currentTime = time.seconds
             if let d = p.currentItem?.duration {
                 self.duration = d.seconds.isFinite ? d.seconds : 0
@@ -2660,6 +2689,7 @@ class PlayerState: ObservableObject {
         Task { @MainActor [weak self, weak p] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard let self, let p, self.player === p else { return }
+            guard self.playbackSessionId == sessionId else { return }
             guard self.isLoading, self.loadError == nil else { return }
             let isPlaying = p.rate > 0 || p.timeControlStatus == .playing
             let seconds = p.currentTime().seconds
@@ -3822,6 +3852,10 @@ class PlayerState: ObservableObject {
     }
     
     private func initPlayer(url: URL, noReferer: Bool = false, customHeaders: [String: String]? = nil) {
+        guard !Task.isCancelled else {
+            log("[PlayerV2] 已取消的播放任务，跳过播放器初始化")
+            return
+        }
         if !noReferer { hasRetriedNoReferer = false }
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         detectVideoQuality(from: url.absoluteString)
@@ -3837,8 +3871,16 @@ class PlayerState: ObservableObject {
             return
         }
 
+        let sessionId = beginPlaybackSession()
+
         if shouldRouteDirectURLToMPV(url) {
             log("[PlayerV2] 直链资源分流到 MPV-MoltenVK：\(url.pathExtension.lowercased())")
+            stopPlaybackWatchdog()
+            if let oldObserver = timeObserver {
+                player?.removeTimeObserver(oldObserver)
+                timeObserver = nil
+            }
+            cleanupObservers()
             player?.pause()
             player = nil
             compatibilityEngineName = "MPV-MoltenVK"
@@ -3938,6 +3980,7 @@ class PlayerState: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self = self else { return }
+                guard self.playbackSessionId == sessionId else { return }
                 switch status {
                 case .readyToPlay:
                     self.log("[PlayerV2] PlayerItem 准备就绪")
@@ -3982,9 +4025,11 @@ class PlayerState: ObservableObject {
         failureObserver = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
+                guard let self else { return }
+                guard self.playbackSessionId == sessionId else { return }
                 if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
-                    self?.log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
-                    self?.failPlayback("播放失败: \(error.localizedDescription)")
+                    self.log("[PlayerV2] ❌ 播放失败: \(error.localizedDescription)")
+                    self.failPlayback("播放失败: \(error.localizedDescription)")
                 }
             }
         
@@ -3992,15 +4037,18 @@ class PlayerState: ObservableObject {
         endObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.log("[PlayerV2] 播放结束")
+                guard let self else { return }
+                guard self.playbackSessionId == sessionId else { return }
+                self.log("[PlayerV2] 播放结束")
                 // 普通资源自动播放下一集
-                self?.playNextEpisodeIfAvailable()
+                self.playNextEpisodeIfAvailable()
             }
         
         self.player = p
         self.isPlaying = true
         self.isLoading = true
         self.loadingMessage = "正在缓冲首帧..."
+        startPlaybackWatchdog(for: sessionId)
         
         // 10秒超时保护：如果PlayerItem一直没就绪，显示错误
         let timeoutTask = Task { [weak self] in
@@ -4008,7 +4056,7 @@ class PlayerState: ObservableObject {
             guard let self = self else { return }
             // 🔧 修复: 检查 self.player === p，确保超时只销毁当前播放器
             // 旧代码只检查 self.player != nil，当播放器被替换后（重试/后台详情）仍会误杀新播放器
-            if await MainActor.run(body: { self.player != nil && self.player === p && self.loadError == nil }) {
+            if await MainActor.run(body: { self.playbackSessionId == sessionId && self.player != nil && self.player === p && self.loadError == nil }) {
                 let status = await MainActor.run { p.currentItem?.status }
                 let isActuallyPlaying = await MainActor.run { p.rate > 0 || p.timeControlStatus == .playing }
                 // 如果视频已经在播放或已就绪，不触发超时
@@ -4025,6 +4073,7 @@ class PlayerState: ObservableObject {
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: DispatchQueue.main) { [weak self] time in
             guard let self else { return }
+            guard self.playbackSessionId == sessionId, self.player === p else { return }
             self.currentTime = time.seconds
             if let itemDuration = p.currentItem?.duration {
                 self.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
@@ -4035,8 +4084,9 @@ class PlayerState: ObservableObject {
         
         // 延迟播放确保UI准备好
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.playbackSessionId == sessionId, self.player === p else { return }
             p.play()
-            self?.log("[PlayerV2] 播放器开始播放")
+            self.log("[PlayerV2] 播放器开始播放")
         }
 
         // 安全兜底：播放器已实际播放（有进度/在播放/已就绪）但 isLoading 仍为 true 时，清除 loading 状态。
@@ -4045,6 +4095,7 @@ class PlayerState: ObservableObject {
         Task { @MainActor [weak self, weak p] in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard let self, let p, self.player === p else { return }
+            guard self.playbackSessionId == sessionId else { return }
             guard self.isLoading, self.loadError == nil else { return }
             let isPlaying = p.rate > 0 || p.timeControlStatus == .playing
             let seconds = p.currentTime().seconds
@@ -4075,9 +4126,46 @@ class PlayerState: ObservableObject {
         endObserver = nil
     }
 
+    private func beginPlaybackSession() -> UUID {
+        playbackSessionId = UUID()
+        return playbackSessionId
+    }
+
+    private func startPlaybackWatchdog(for sessionId: UUID) {
+        playbackWatchdogTask?.cancel()
+        playbackWatchdogTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                guard self.playbackSessionId == sessionId else { return }
+                guard self.compatibilityURL == nil else { continue }
+                guard self.isLoading, self.loadError == nil else { continue }
+                guard let p = self.player, p.currentItem != nil else { continue }
+
+                let seconds = p.currentTime().seconds
+                let isPlaying = p.rate > 0 || p.timeControlStatus == .playing
+                let hasProgress = seconds.isFinite && seconds > 0
+                let itemStatus = p.currentItem?.status
+
+                if isPlaying || hasProgress || itemStatus == .readyToPlay {
+                    self.log("[PlayerV2] ⚠️ watchdog 检测到播放器已就绪/播放中但 isLoading 仍为 true，自动清除 loading 状态")
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    private func stopPlaybackWatchdog() {
+        playbackWatchdogTask?.cancel()
+        playbackWatchdogTask = nil
+    }
+
     func stopPlaybackForFailure() {
         quarkFallbackTimeoutTask?.cancel()
         quarkFallbackTimeoutTask = nil
+        playbackSessionId = UUID()
+        stopPlaybackWatchdog()
         cleanupObservers()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -4220,6 +4308,8 @@ struct PlayerContainerView: View {
                 .padding(.vertical, 20)
                 .background(Color.black.opacity(0.45))
                 .cornerRadius(14)
+                .allowsHitTesting(false)
+                .zIndex(10)
             }
             
             // 弹幕层
@@ -4233,6 +4323,7 @@ struct PlayerContainerView: View {
                     items: playerState.danmakuItems
                 )
                 .allowsHitTesting(false)
+                .zIndex(15)
             }
             
             // 手势层
@@ -4251,6 +4342,7 @@ struct PlayerContainerView: View {
                 }
             }
             .ignoresSafeArea()
+            .zIndex(20)
 
             // 控制层 - 锁屏时始终显示（仅锁屏按钮），非锁屏时受 showControls 控制
             if playerState.showControls || playerState.isOrientationLocked {
@@ -4259,6 +4351,7 @@ struct PlayerContainerView: View {
                     playerState: playerState,
                     video: video
                 )
+                .zIndex(30)
             }
 
             
@@ -4317,6 +4410,7 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .zIndex(40)
             // 弹窗 - 选集（竖屏全屏，横屏小弹窗）
             Group {
                 if playerState.isPortrait && playerState.showEpisodePicker {
@@ -4326,6 +4420,7 @@ struct PlayerContainerView: View {
                     LandscapeEpisodePickerOverlay(playerState: playerState, isPresented: $playerState.showEpisodePicker)
                 }
             }
+            .zIndex(40)
             // 侧边栏弹窗 - 清晰度
             Group {
                 if playerState.showQualityPicker {
@@ -4389,6 +4484,7 @@ struct PlayerContainerView: View {
                     }
                 }
             }
+            .zIndex(40)
             // 弹窗 - 弹幕设置（竖屏全屏，横屏小弹窗）
             Group {
                 if playerState.isPortrait && playerState.showDanmakuSettings {
@@ -4439,6 +4535,7 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .zIndex(40)
             // 弹幕输入弹窗
             Group {
                 if playerState.showDanmakuInput {
@@ -4491,6 +4588,7 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .zIndex(40)
             // 弹窗 - 播放内核（竖屏全屏，横屏小弹窗）
             Group {
                 if playerState.isPortrait && playerState.showEnginePicker {
@@ -4531,6 +4629,7 @@ struct PlayerContainerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .zIndex(40)
         }
         .onAppear {
             resetAutoHideTimer()
