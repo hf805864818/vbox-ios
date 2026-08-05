@@ -185,17 +185,14 @@ struct RemoteWelfareHomeView: View {
                         } else {
                             RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                                 .contentShape(Rectangle())
-                                .gesture(
-                                    LongPressGesture(minimumDuration: 0.5)
-                                        .onEnded { _ in
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                            navigatePlatformKey = nil
-                                            withAnimation { isEditMode = true }
-                                        }
-                                        .exclusively(before: TapGesture().onEnded {
-                                            navigatePlatformKey = platform.platformKey
-                                        })
-                                )
+                                .onTapGesture {
+                                    navigatePlatformKey = platform.platformKey
+                                }
+                                .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    navigatePlatformKey = nil
+                                    withAnimation { isEditMode = true }
+                                }
                         }
                     }
                 }
