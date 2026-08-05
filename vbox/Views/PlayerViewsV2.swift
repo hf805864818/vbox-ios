@@ -3026,6 +3026,28 @@ class PlayerState: ObservableObject {
                 }
             }
         }
+        // 修复: 启动第二个延迟检测（8秒），覆盖 5 秒内播放器被替换导致首帧检测被跳过、
+        // 而新播放器的 .readyToPlay 回调中 scheduleVideoTrackCheck 尚未触发的时序盲区。
+        // 8 秒足够 AVPlayer 完成首帧解码，且不会影响正常播放体验。
+        // 此检测仅在新播放器仍持有同一 item 时执行，不会误杀被替换的旧 item。
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            // 检查当前播放器的 item（可能是新替换的）是否仍无视频画面
+            guard let currentItem = self.player?.currentItem, self.loadError == nil else { return }
+            // 如果 item 已经被 scheduleVideoTrackCheck 的 5 秒检测处理过，跳过
+            guard currentItem === item else { return }
+            let size = currentItem.presentationSize
+            let seconds = self.player?.currentTime().seconds ?? 0
+            let hasVideoTrack = currentItem.tracks.contains { $0.assetTrack?.mediaType == .video }
+            // 只有确实有进度但无画面时才触发，避免误判
+            guard seconds > 2, !hasVideoTrack || (size.width <= 1 || size.height <= 1) else { return }
+            self.log("[PlayerV2] 首帧检测(8s补充)：进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))，视频轨=\(hasVideoTrack)")
+            if isQuarkLocalProxy {
+                self.failPlayback("该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
+            } else {
+                self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
+            }
+        }
     }
 
     private func switchAVPlayerVideoTrackFailureToMPV(url: URL, headers: [String: String]) {
@@ -3161,10 +3183,12 @@ class PlayerState: ObservableObject {
             let firstUrlClean = firstUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if !firstUrlClean.isEmpty {
                 log("[PlayerV2] 步骤1: 先尝试已有地址: \(firstUrlClean.prefix(80))...")
-                // 🔧 修复: 标记正在处理，防止后台详情任务并发启动第二个 handlePlayUrl
+                // 修复竞态: 标记正在处理，防止后台详情任务并发启动第二个 handlePlayUrl。
+                // 注意: isHandlingPlayUrl 不会在此处复位为 false，而是由后台详情 Task
+                // 检查完毕后才复位，关闭竞态窗口（原实现在 await 间隙已复位 false）。
                 await MainActor.run { self.isHandlingPlayUrl = true }
                 await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders)
-                await MainActor.run { self.isHandlingPlayUrl = false }
+                // 修复: 不在此处复位 isHandlingPlayUrl，延迟到后台详情检查之后
             }
         }
         
@@ -3185,18 +3209,25 @@ class PlayerState: ObservableObject {
                 }
                 if !newBest.isEmpty {
                     await MainActor.run {
-                        // 🔧 修复: 增加 !self.isHandlingPlayUrl 检查，防止第一个 handlePlayUrl
-                        // 仍在执行时后台详情并发启动第二个，导致两次 initPlayer 竞争
+                        // 修复: isHandlingPlayUrl 在第一个 handlePlayUrl 完成后仍为 true，
+                        // 直到此处检查完毕才复位，确保后台详情不会在竞态窗口内启动第二个 handlePlayUrl
                         if (self.player == nil || self.loadError != nil) && !self.isHandlingPlayUrl {
                             self.loadError = nil
                             Task { await self.handlePlayUrl(newBest, spider: spider, video: video) }
                         } else {
                             log("[PlayerV2] 步骤1: 已有播放器在运行或正在解析，跳过更新")
                         }
+                        // 修复: 现在安全复位，后台详情检查完毕，竞态窗口关闭
+                        self.isHandlingPlayUrl = false
                     }
+                } else {
+                    // 修复: newBest 为空时也要复位
+                    await MainActor.run { self.isHandlingPlayUrl = false }
                 }
             } else {
                 log("[PlayerV2] 步骤1: 后台详情无结果")
+                // 修复: 详情无结果时复位
+                await MainActor.run { self.isHandlingPlayUrl = false }
             }
         }
         
@@ -4173,8 +4204,15 @@ class PlayerState: ObservableObject {
         
         self.player = p
         self.isPlaying = true
-        self.isLoading = true
-        self.loadingMessage = "正在缓冲首帧..."
+        // 修复竞态：await/async 期间 playerItem.status 可能已变为 .readyToPlay，
+        // 观察者已在主队列回调中设置了 isLoading=false。
+        // 此处若盲目覆盖为 true，status 不再变化，观察者不会再次触发，
+        // 界面永久卡在"正在缓冲首帧..."（间歇性问题根因）。
+        // 仅在仍未就绪时才设为 loading 状态，与网盘路径（第2757行）保持一致。
+        if playerItem.status != .readyToPlay {
+            isLoading = true
+            loadingMessage = "正在缓冲首帧..."
+        }
         startPlaybackWatchdog(for: sessionId)
         
         // 10秒超时保护：如果PlayerItem一直没就绪，显示错误
@@ -5233,8 +5271,11 @@ struct PlayerProgressBar: View {
                     }
                 }
                 .contentShape(Rectangle())
+                // 修复: minimumDistance 从 0 改为 5，避免进度条的 DragGesture 在主线程繁忙时
+                // 抢占同层级 Button 的 tap 事件（minimumDistance:0 会将任何触摸都识别为拖拽开始）。
+                // 5pt 的最小拖拽距离不影响进度条拖拽体验，但给 SwiftUI 足够的判定空间区分 tap 和 drag。
                 .highPriorityGesture(
-                    DragGesture(minimumDistance: 0)
+                    DragGesture(minimumDistance: 5)
                         .onChanged { value in
                             guard playerState.duration > 0 else { return }
                             let x = max(0, min(value.location.x, geometry.size.width))
@@ -5249,6 +5290,13 @@ struct PlayerProgressBar: View {
                             playerState.seek(to: target)
                         }
                 )
+                // 修复: 补充 onTapGesture 处理点击进度条跳转（原 minimumDistance:0 靠拖拽模拟点击）
+                .onTapGesture { location in
+                    guard playerState.duration > 0 else { return }
+                    let x = max(0, min(location.x, geometry.size.width))
+                    let target = Double(x / geometry.size.width) * playerState.duration
+                    playerState.seek(to: target)
+                }
             }
             .frame(height: isPortrait ? 16 : 20)
 
