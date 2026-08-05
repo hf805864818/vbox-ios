@@ -265,6 +265,7 @@ class PlatformImageLoader {
     private func fetchAndProcess(url: URL, headers: [String: String], mode: PlatformImageMode, cacheKey: String) async -> UIImage? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
+        let sslBypass = headers["X-VBox-SSL-Bypass"] == "1"
 
         // 根据模式设置默认头
         switch mode {
@@ -274,6 +275,7 @@ class PlatformImageLoader {
             else { request.setValue("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36", forHTTPHeaderField: "User-Agent") }
             if let referer = headers["Referer"] { request.setValue(referer, forHTTPHeaderField: "Referer") }
             else { request.setValue("https://h4ivs.sm431.vip/", forHTTPHeaderField: "Referer") }
+            request.setValue("image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
 
         case .dailyBattle:
             // 每日大乱斗/大赛: 使用浏览器 UA
@@ -287,11 +289,21 @@ class PlatformImageLoader {
 
         // 应用额外头
         for (key, value) in headers {
+            if key == "X-VBox-SSL-Bypass" { continue }
             request.setValue(value, forHTTPHeaderField: key)
         }
 
         do {
-            let (data, response) = try await session.data(for: request)
+            let activeSession: URLSession
+            if sslBypass {
+                let config = URLSessionConfiguration.ephemeral
+                config.timeoutIntervalForRequest = 10
+                config.timeoutIntervalForResource = 15
+                activeSession = URLSession(configuration: config, delegate: WelfareSSLBypassDelegate(), delegateQueue: nil)
+            } else {
+                activeSession = session
+            }
+            let (data, response) = try await activeSession.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 return nil

@@ -16,7 +16,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
         ZStack {
             VStack(spacing: 16) {
                 // 封面图
-                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, contentMode: .fit)
+                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, sslBypass: svc.imageSSLBypass, contentMode: .fit)
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(Color.gray.opacity(0.2))
                     .cornerRadius(12)
@@ -87,7 +87,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showGallery) {
                 if let images = detail?.episodes.first?.images {
-                    ComicGalleryView(images: images, title: detail?.vodName ?? "", referer: svc.imageReferer)
+                    ComicGalleryView(images: images, title: detail?.vodName ?? "", referer: svc.imageReferer, sslBypass: svc.imageSSLBypass)
                 }
             }
         }
@@ -113,6 +113,7 @@ struct ComicGalleryView: View {
     let images: [String]
     let title: String
     let referer: String?
+    let sslBypass: Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex = 0
@@ -124,7 +125,7 @@ struct ComicGalleryView: View {
 
                 TabView(selection: $currentIndex) {
                     ForEach(Array(images.enumerated()), id: \.offset) { idx, url in
-                        FuliCoverImage(urlString: url, referer: referer, contentMode: .fit)
+                        FuliCoverImage(urlString: url, referer: referer, sslBypass: sslBypass, contentMode: .fit)
                         .tag(idx)
                     }
                 }

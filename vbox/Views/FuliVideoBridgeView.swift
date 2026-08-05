@@ -23,7 +23,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     var body: some View {
         ZStack {
             VStack(spacing: 16) {
-                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, contentMode: .fit)
+                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, sslBypass: svc.imageSSLBypass, contentMode: .fit)
                     .aspectRatio(16/9, contentMode: .fit)
                     .background(Color.gray.opacity(0.2))
                     .cornerRadius(12)
