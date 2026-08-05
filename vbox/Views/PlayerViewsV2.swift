@@ -22,33 +22,30 @@ extension Notification.Name {
 // 屏幕方向辅助类
 class OrientationHelper {
     static var currentOrientationMask: UIInterfaceOrientationMask = .all
+    private static var lastGeometryUpdateAt: Date = .distantPast
+    private static var pendingGeometryUpdate: DispatchWorkItem?
+    private static let geometryUpdateMinInterval: TimeInterval = 0.7
 
     static func lockOrientation(_ orientation: UIInterfaceOrientationMask) {
         currentOrientationMask = orientation
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
-            // 根据当前设备方向决定锁定哪个横屏方向
-            let currentDeviceOrientation = UIDevice.current.orientation
-            let targetOrientation: UIInterfaceOrientation
-            if orientation == .landscape {
-                if currentDeviceOrientation == .landscapeLeft {
-                    targetOrientation = .landscapeLeft
-                } else {
-                    targetOrientation = .landscapeRight
-                }
+        // 根据当前设备方向决定锁定哪个横屏方向
+        let currentDeviceOrientation = UIDevice.current.orientation
+        let targetOrientation: UIInterfaceOrientation
+        if orientation == .landscape {
+            if currentDeviceOrientation == .landscapeLeft {
+                targetOrientation = .landscapeLeft
             } else {
-                targetOrientation = .portrait
+                targetOrientation = .landscapeRight
             }
-            UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
-            UINavigationController.attemptRotationToDeviceOrientation()
+        } else {
+            targetOrientation = .portrait
         }
+        requestGeometryUpdate(orientation, targetOrientation: targetOrientation, force: true)
     }
 
     static func unlockOrientation() {
         currentOrientationMask = [.portrait, .landscapeLeft, .landscapeRight]
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: [.portrait, .landscapeLeft, .landscapeRight]))
-        }
+        requestGeometryUpdate([.portrait, .landscapeLeft, .landscapeRight])
     }
 
     static func rotateToLandscape() {
@@ -65,19 +62,62 @@ class OrientationHelper {
         @unknown default:
             targetOrientation = .landscapeRight
         }
-        UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            let mask: UIInterfaceOrientationMask = (targetOrientation == .landscapeLeft) ? .landscapeLeft : .landscapeRight
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
-        }
-        UINavigationController.attemptRotationToDeviceOrientation()
+        let mask: UIInterfaceOrientationMask = (targetOrientation == .landscapeLeft) ? .landscapeLeft : .landscapeRight
+        currentOrientationMask = mask
+        requestGeometryUpdate(mask, targetOrientation: targetOrientation)
     }
 
     /// 播放器进入时：允许左右双向横屏+竖屏，自动跟随手机方向
     static func allowAllOrientations() {
         currentOrientationMask = [.portrait, .landscapeLeft, .landscapeRight]
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: [.portrait, .landscapeLeft, .landscapeRight]))
+        requestGeometryUpdate([.portrait, .landscapeLeft, .landscapeRight])
+    }
+
+    private static func requestGeometryUpdate(
+        _ orientation: UIInterfaceOrientationMask,
+        targetOrientation: UIInterfaceOrientation? = nil,
+        force: Bool = false
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                requestGeometryUpdate(orientation, targetOrientation: targetOrientation, force: force)
+            }
+            return
+        }
+
+        // App 非活跃时不要触发 scene 几何更新，避免前后台切换过程中卡在 scene-update。
+        guard UIApplication.shared.applicationState == .active else {
+            pendingGeometryUpdate?.cancel()
+            pendingGeometryUpdate = nil
+            return
+        }
+
+        let performUpdate = {
+            guard UIApplication.shared.applicationState == .active,
+                  let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+            pendingGeometryUpdate = nil
+            lastGeometryUpdateAt = Date()
+            if let targetOrientation {
+                UIDevice.current.setValue(targetOrientation.rawValue, forKey: "orientation")
+            }
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
+            if targetOrientation != nil {
+                UINavigationController.attemptRotationToDeviceOrientation()
+            }
+        }
+
+        let elapsed = Date().timeIntervalSince(lastGeometryUpdateAt)
+        if force || elapsed >= geometryUpdateMinInterval {
+            pendingGeometryUpdate?.cancel()
+            performUpdate()
+        } else {
+            pendingGeometryUpdate?.cancel()
+            let workItem = DispatchWorkItem(block: performUpdate)
+            pendingGeometryUpdate = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + (geometryUpdateMinInterval - elapsed),
+                execute: workItem
+            )
         }
     }
 }
@@ -474,6 +514,7 @@ struct VideoPlayerViewV2: View {
             // 错误提示（附带调试日志）
             if let error = playerState.loadError {
                 ErrorViewWithLogs(error: error, logs: playerState.debugLogs, onRetry: { playerState.retry(video: video) })
+                    .zIndex(100)
             }
 
             // 调试日志浮层（开关控制，加载中+播放中都显示）
@@ -529,9 +570,8 @@ struct VideoPlayerViewV2: View {
             }
         }
         .onDisappear {
-            // 恢复竖屏
+            // 恢复竖屏；不要立刻再 unlock，避免连续触发 scene 几何更新。
             OrientationHelper.lockOrientation(.portrait)
-            OrientationHelper.unlockOrientation()
             playerState.cleanup()
             NotificationCenter.default.removeObserver(self, name: .vboxPiPRestoreFullScreen, object: nil)
             NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
@@ -541,17 +581,8 @@ struct VideoPlayerViewV2: View {
             case .background, .inactive:
                 playerState.handleSceneBackground()
             case .active:
-                // 关闭系统画中画 + 异步恢复播放（带超时保护）
-                if playerState.isPiPActive {
-                    #if canImport(Libmpv)
-                    MPVPiPManager.shared.stopPiP()
-                    #endif
-                    #if canImport(swift_mdk)
-                    MDKPipManager.shared.stopPiP()
-                    #endif
-                    playerState.isPiPActive = false
-                }
-                playerState.handleSceneForeground()
+                // 回前台时只登记恢复任务，不在 scene-update 回调里同步停止 PiP 或恢复播放。
+                playerState.handleSceneForeground(shouldStopPiP: playerState.isPiPActive)
             @unknown default:
                 break
             }
@@ -1885,6 +1916,7 @@ class PlayerState: ObservableObject {
     func handleSceneBackground() {
         sceneRestorationTask?.cancel()
         sceneRestorationTask = nil
+        isRestoringFromBackground = false
         currentTask?.cancel()
         currentTask = nil
         player?.pause()
@@ -1928,16 +1960,29 @@ class PlayerState: ObservableObject {
     }
 
     /// 回到前台时调用：异步恢复播放器，带超时保护
-    func handleSceneForeground() {
+    func handleSceneForeground(shouldStopPiP: Bool = false) {
         guard !isRestoringFromBackground else { return }
         isRestoringFromBackground = true
         sceneRestorationTask?.cancel()
         sceneRestorationTask = Task { [weak self] in
             guard let self = self else { return }
-            // 给场景更新 2 秒宽限期，避免主线程阻塞触发 watchdog
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            // 给场景更新留出宽限期，避免在 scene-update 回调内同步处理播放器/PiP 触发 watchdog。
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.isRestoringFromBackground = false
+                if shouldStopPiP || self.isPiPActive {
+                    #if canImport(Libmpv)
+                    MPVPiPManager.shared.stopPiP()
+                    #endif
+                    #if canImport(swift_mdk)
+                    MDKPipManager.shared.stopPiP()
+                    #endif
+                    PiPHelper.shared.stopPiP()
+                    self.isPiPActive = false
+                    self.log("[PlayerV2] 回到前台，已延迟关闭 PiP")
+                }
                 // 只恢复播放，不做任何重解析/网络请求
                 if self.player?.currentItem != nil, self.player?.rate == 0 {
                     self.player?.play()
@@ -1953,6 +1998,7 @@ class PlayerState: ObservableObject {
         currentTask = nil
         sceneRestorationTask?.cancel()
         sceneRestorationTask = nil
+        isRestoringFromBackground = false
         playbackSessionId = UUID()
         stopPlaybackWatchdog()
         danmakuTask?.cancel()
@@ -3002,6 +3048,7 @@ class PlayerState: ObservableObject {
         loadError = nil
         isLoading = true
         isPlaying = false
+        showControls = true
         setupPlayer(video: video)
     }
     
@@ -4178,7 +4225,7 @@ class PlayerState: ObservableObject {
         compatibilityHeaders = [:]
         isPlaying = false
         isSeeking = false
-        showControls = true
+        showControls = false
         showSettings = false
         showEpisodePicker = false
         showQualityPicker = false
@@ -4222,7 +4269,12 @@ struct PlayerContainerView: View {
         playerState.showDanmakuInput
     }
 
+    private var hasPlaybackError: Bool {
+        playerState.loadError != nil
+    }
+
     private var canAutoHideControls: Bool {
+        !hasPlaybackError &&
         !isAnyControlPopupPresented &&
         !playerState.isSeeking &&
         !playerState.isOrientationLocked &&
@@ -4343,22 +4395,24 @@ struct PlayerContainerView: View {
                 .zIndex(15)
             }
             
-            // 手势层
-            GestureControlView(playerState: playerState) {
-                guard !playerState.isSeeking else { return }
-                guard !isAnyControlPopupPresented else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    playerState.showControls.toggle()
+            // 手势层：错误弹窗显示时禁用，避免触摸穿透导致控制栏被再次唤出。
+            if !hasPlaybackError {
+                GestureControlView(playerState: playerState) {
+                    guard !playerState.isSeeking else { return }
+                    guard !isAnyControlPopupPresented else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        playerState.showControls.toggle()
+                    }
+                    if playerState.showControls {
+                        resetAutoHideTimer()
+                    }
                 }
-                if playerState.showControls {
-                    resetAutoHideTimer()
-                }
+                .ignoresSafeArea()
+                .zIndex(20)
             }
-            .ignoresSafeArea()
-            .zIndex(20)
 
-            // 控制层 - 锁屏时始终显示（仅锁屏按钮），非锁屏时受 showControls 控制
-            if playerState.showControls || playerState.isOrientationLocked {
+            // 控制层：失败态交给错误弹窗接管，不再显示底部控制栏和锁屏按钮。
+            if !hasPlaybackError && (playerState.showControls || playerState.isOrientationLocked) {
                 PlayerControlsView(
                     player: player,
                     playerState: playerState,
@@ -4374,6 +4428,14 @@ struct PlayerContainerView: View {
                 if playerState.isPortrait && playerState.showSettings {
                     // 竖屏：倍数弹窗固定在进度条上方，屏幕右侧
                     GeometryReader { geo in
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    playerState.showSettings = false
+                                }
+                            }
+
                         PlayerSettingsPanelV2(
                             isPresented: $playerState.showSettings,
                             speed: $playerState.playbackSpeed,
@@ -4659,6 +4721,16 @@ struct PlayerContainerView: View {
                 resetAutoHideTimer()
             }
         }
+        .onChange(of: playerState.loadError) { error in
+            if error != nil {
+                autoHideTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    playerState.showControls = false
+                }
+            } else if playerState.showControls {
+                resetAutoHideTimer()
+            }
+        }
         .onChange(of: playerState.showSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.showEpisodePicker) { handleControlPopupChange($0) }
         .onChange(of: playerState.showQualityPicker) { handleControlPopupChange($0) }
@@ -4736,6 +4808,9 @@ struct ErrorView: View {
             }
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.82).ignoresSafeArea())
+        .contentShape(Rectangle())
     }
 }
 
@@ -4783,6 +4858,9 @@ struct ErrorViewWithLogs: View {
             }
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.82).ignoresSafeArea())
+        .contentShape(Rectangle())
     }
 }
 
@@ -4798,6 +4876,7 @@ struct PlayerTopBarView: View {
     // 时间+电量
     @State private var currentDate = Date()
     @State private var batteryLevel: Float = UIDevice.current.batteryLevel
+    @State private var batteryState: UIDevice.BatteryState = UIDevice.current.batteryState
     private let timeTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     // 名称滚动
@@ -4885,6 +4964,10 @@ struct PlayerTopBarView: View {
                         HStack(spacing: 2) {
                             Image(systemName: batteryIcon)
                                 .font(.system(size: 11))
+                            if isBatteryCharging {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                            }
                             Text(batteryString)
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                         }
@@ -4928,10 +5011,12 @@ struct PlayerTopBarView: View {
             .onReceive(timeTimer) { _ in
                 currentDate = Date()
                 batteryLevel = UIDevice.current.batteryLevel
+                batteryState = UIDevice.current.batteryState
             }
             .onAppear {
                 UIDevice.current.isBatteryMonitoringEnabled = true
                 batteryLevel = UIDevice.current.batteryLevel
+                batteryState = UIDevice.current.batteryState
             }
         }
     }
@@ -4949,6 +5034,10 @@ struct PlayerTopBarView: View {
         if level <= 0.1 { return .red.opacity(0.8) }
         if level <= 0.2 { return .orange.opacity(0.8) }
         return .white.opacity(0.7)
+    }
+
+    private var isBatteryCharging: Bool {
+        batteryState == .charging || batteryState == .full
     }
 }
 
@@ -4969,30 +5058,36 @@ struct VideoNameScrollingText: View {
         let needsScroll = textWidth > maxWidth
 
         if needsScroll {
-            Text(name)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.9))
-                .lineLimit(1)
-                .fixedSize()
-                .frame(width: maxWidth, alignment: .leading)
-                .clipped()
-                .overlay(alignment: .trailing) {
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black]),
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: 20)
-                }
-                .offset(x: animate ? -(textWidth - maxWidth + 20) : maxWidth)
-                .animation(
-                    .linear(duration: max(4.0, textWidth / 30.0))
+            ZStack(alignment: .leading) {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .offset(x: animate ? -(textWidth + 24) : maxWidth)
+            }
+            .frame(width: maxWidth, alignment: .leading)
+            .clipped()
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.08),
+                        .init(color: .black, location: 0.92),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .animation(
+                .linear(duration: max(4.0, textWidth / 30.0))
                     .delay(2)
                     .repeatForever(autoreverses: false),
-                    value: animate
-                )
-                .onAppear { animate = true }
-                .padding(.leading, 8)
+                value: animate
+            )
+            .onAppear { animate = true }
+            .padding(.leading, 8)
         } else {
             Text(name)
                 .font(.system(size: 13, weight: .medium))

@@ -7,6 +7,7 @@ struct GestureControlView: View {
     @ObservedObject var playerState: PlayerState
     @State private var startBrightness: Double = 0.5
     @State private var startVolume: Double = 0.5
+    @State private var startSeekTime: Double = 0
     @State private var gestureMode: GestureMode?
     @State private var isDragging = false
     let onTap: () -> Void
@@ -14,6 +15,7 @@ struct GestureControlView: View {
     private enum GestureMode {
         case brightness
         case volume
+        case seek
         case ignored
     }
 
@@ -31,15 +33,33 @@ struct GestureControlView: View {
                             isDragging = true
                             startBrightness = playerState.brightness
                             startVolume = playerState.volume
+                            startSeekTime = playerState.currentTime
                             let vertical = abs(value.translation.height)
                             let horizontal = abs(value.translation.width)
-                            if vertical < 18 || horizontal > vertical * 0.75 {
+                            if !playerState.isPortrait,
+                               playerState.duration.isFinite,
+                               playerState.duration > 0,
+                               horizontal > 24,
+                               horizontal > vertical * 1.15 {
+                                gestureMode = .seek
+                                playerState.showControls = true
+                                playerState.isSeeking = true
+                                playerState.seekPreviewTime = playerState.currentTime
+                            } else if vertical < 18 || horizontal > vertical * 0.75 {
                                 gestureMode = .ignored
                             } else {
                                 gestureMode = value.startLocation.x < geo.size.width / 2 ? .brightness : .volume
                             }
                         }
                         guard gestureMode != .ignored else { return }
+                        if gestureMode == .seek {
+                            let maxSeekDelta = min(max(playerState.duration * 0.12, 60), 300)
+                            let deltaSeconds = Double(value.translation.width / max(geo.size.width, 1)) * maxSeekDelta
+                            let target = max(0, min(playerState.duration, startSeekTime + deltaSeconds))
+                            playerState.seekPreviewTime = target
+                            playerState.currentTime = target
+                            return
+                        }
                         let half = geo.size.width / 2
                         let sensitivity = max(0.45, min(0.9, geo.size.height / 700))
                         let delta = -value.translation.height / geo.size.height * sensitivity
@@ -52,6 +72,9 @@ struct GestureControlView: View {
                         }
                     }
                     .onEnded { _ in
+                        if gestureMode == .seek {
+                            playerState.seek(to: playerState.seekPreviewTime)
+                        }
                         isDragging = false
                         gestureMode = nil
                     }
