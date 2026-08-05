@@ -2953,21 +2953,26 @@ class PlayerState: ObservableObject {
         fallbackURL: URL,
         fallbackHeaders: [String: String]
     ) {
-        // 对百度和夸克本地代理都进行首帧检测
-        guard isBaiduLocalProxy || isQuarkLocalProxy else { return }
+        // 修复: 移除仅限百度/夸克的 guard，对所有 AVPlayer 路径执行首帧检测
+        // 普通 m3u8/蜘蛛资源也可能遇到视频编码不兼容导致有声音无画面
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard self.player?.currentItem === item, self.loadError == nil else { return }
             let size = item.presentationSize
             let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
             let seconds = self.player?.currentTime().seconds ?? 0
-            self.log("[PlayerV2] 首帧检测：耗时=\(elapsed)ms，进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))")
-            if seconds > 2, size.width <= 1 || size.height <= 1 {
+            // 修复: 增加 AVPlayerItem.tracks 视频轨检查，更快发现无视频轨的情况
+            let hasVideoTrack = item.tracks.contains { $0.assetTrack?.mediaType == .video }
+            self.log("[PlayerV2] 首帧检测：耗时=\(elapsed)ms，进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))，视频轨=\(hasVideoTrack)")
+            if !hasVideoTrack || (seconds > 2 && (size.width <= 1 || size.height <= 1)) {
                 if isQuarkLocalProxy {
                     self.log("[PlayerV2] ⚠️ 夸克视频有播放进度但无画面，疑似文件已被和谐或转码失败")
                     self.failPlayback("该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
+                } else if isBaiduLocalProxy {
+                    self.log("[PlayerV2] ⚠️ 百度视频有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
+                    self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
                 } else {
-                    self.log("[PlayerV2] ⚠️ 有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
+                    self.log("[PlayerV2] ⚠️ 普通/蜘蛛资源有播放进度但无视频画面，疑似编码不兼容")
                     self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
                 }
             }
@@ -3949,7 +3954,21 @@ class PlayerState: ObservableObject {
         cleanupObservers()
         player?.pause()
         player = nil
-        
+
+        // 修复: 清理兼容内核残留状态，防止 MPV/VLC 视图遮挡 AVPlayer 画面
+        // 当用户从 MKV(兼容内核) 切换到普通 m3u8/蜘蛛资源时，
+        // 如果 compatibilityURL 未清理，PlayerContainerView 仍渲染兼容内核视图，
+        // AVPlayer 在后台播放音频但画面被遮挡，表现为"有声音无画面"
+        if compatibilityURL != nil {
+            log("[PlayerV2] 清理兼容内核残留状态，切换到 AVPlayer 系统内核")
+            compatibilityURL = nil
+            compatibilityHeaders = [:]
+            compatibilityHint = nil
+            playbackEngineMode = .system
+            NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
+            NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
+        }
+
         // 配置Asset选项（针对m3u8切片优化）
         var assetOptions: [String: Any] = [:]
         
@@ -4010,6 +4029,9 @@ class PlayerState: ObservableObject {
             assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = headers
         }
         
+        // 修复: 捕获最终 HTTP 头，供首帧检测失败时传递给 MPV 兜底
+        let finalHeaders = (assetOptions["AVURLAssetHTTPHeaderFieldsKey"] as? [String: String]) ?? [:]
+        
         // 创建Asset和PlayerItem
         let asset = AVURLAsset(url: url, options: assetOptions)
         let playerItem = AVPlayerItem(asset: asset)
@@ -4033,6 +4055,15 @@ class PlayerState: ObservableObject {
                     self.log("[PlayerV2] PlayerItem 准备就绪")
                     self.isLoading = false
                     self.loadError = nil
+                    // 修复: 对普通/蜘蛛资源也执行首帧检测，防止有声音无画面
+                    self.scheduleVideoTrackCheck(
+                        for: playerItem,
+                        startedAt: Date(),
+                        isBaiduLocalProxy: false,
+                        isQuarkLocalProxy: false,
+                        fallbackURL: url,
+                        fallbackHeaders: finalHeaders
+                    )
                     if self.currentTime > 10 {
                         let resume = self.currentTime
                         self.log("[Progress] 自动跳转到上次进度：\(self.formatDuration(resume))")
@@ -4186,7 +4217,9 @@ class PlayerState: ObservableObject {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.playbackSessionId == sessionId else { return }
-                guard self.compatibilityURL == nil else { continue }
+                // 修复: 移除 compatibilityURL guard，改为依赖 self.player 检查
+                // 原 guard (compatibilityURL == nil) 在 Fix 清理 compatibilityURL 后已不需要
+                // 当使用兼容内核时 self.player 为 nil，下一行 guard 会自动跳过
                 guard self.isLoading, self.loadError == nil else { continue }
                 guard let p = self.player, p.currentItem != nil else { continue }
 
@@ -5946,7 +5979,8 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             }
             core.onStateChange = { [weak self, weak playerState] state in
                 guard let self, let playerState else { return }
-                guard playerState.compatibilityURL != nil else { return }
+                // 修复: 增加 playbackEngineMode 双重检查，防止 AVPlayer 播放时 MPV 残留回调干扰状态
+                guard playerState.compatibilityURL != nil, playerState.playbackEngineMode == .compatibility else { return }
                 playerState.currentTime = state.currentTime
                 if state.duration.isFinite, state.duration > 0 {
                     playerState.duration = state.duration
