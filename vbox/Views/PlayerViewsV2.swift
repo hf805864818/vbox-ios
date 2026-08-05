@@ -499,6 +499,9 @@ struct VideoPlayerViewV2: View {
     @StateObject private var playerState = PlayerState()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    // 修复: 存储 PiP 观察者 token，onDisappear 时用 token 移除
+    @State private var pipRestoreObserver: NSObjectProtocol?
+    @State private var pipToggleObserver: NSObjectProtocol?
 
     var body: some View {
         ZStack {
@@ -562,10 +565,14 @@ struct VideoPlayerViewV2: View {
             playerState.setupPlayer(video: video)
             
             // 监听PiP恢复全屏和暂停/播放通知
-            NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { _ in
-                playerState.isPiPActive = false
+            // 修复: 存储 token 并使用 weak 引用，防止 playerState 泄漏
+            if let old = pipRestoreObserver { NotificationCenter.default.removeObserver(old) }
+            if let old = pipToggleObserver { NotificationCenter.default.removeObserver(old) }
+            pipRestoreObserver = NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { [weak playerState] _ in
+                playerState?.isPiPActive = false
             }
-            NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { _ in
+            pipToggleObserver = NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak playerState] _ in
+                guard let playerState else { return }
                 playerState.togglePlayback(player: playerState.player)
             }
         }
@@ -573,8 +580,9 @@ struct VideoPlayerViewV2: View {
             // 恢复竖屏；不要立刻再 unlock，避免连续触发 scene 几何更新。
             OrientationHelper.lockOrientation(.portrait)
             playerState.cleanup()
-            NotificationCenter.default.removeObserver(self, name: .vboxPiPRestoreFullScreen, object: nil)
-            NotificationCenter.default.removeObserver(self, name: .vboxPiPTogglePlayPause, object: nil)
+            // 修复: 使用 token 移除观察者，removeObserver(self,...) 对 block-based 观察者无效
+            if let obs = pipRestoreObserver { NotificationCenter.default.removeObserver(obs) }
+            if let obs = pipToggleObserver { NotificationCenter.default.removeObserver(obs) }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
@@ -776,10 +784,14 @@ class PlayerState: ObservableObject {
     private var quarkFallbackTimeoutTask: Task<Void, Never>?
     private var playbackSessionId = UUID()
     private var playbackWatchdogTask: Task<Void, Never>?
+    /// 修复: seek 完成回调超时保护任务，防止 isSeeking 永久为 true
+    private var seekTimeoutTask: Task<Void, Never>?
     private var m3u8ProbeCache: [String: M3U8ProbeCacheEntry] = [:]
     private var currentBaiduLocalProxyURL: URL?
     private var currentBaiduStreamId: String?
     private var baiduCacheObserver: NSObjectProtocol?
+    /// 修复: 存储 cloudDriveLog 观察者 token，防止泄漏
+    private var cloudDriveLogObserver: NSObjectProtocol?
     private var lastBaiduProgressReportAt: Date = .distantPast
 
     private enum M3U8PlaylistKind: String {
@@ -1120,15 +1132,40 @@ class PlayerState: ObservableObject {
         loadingMessage = "正在跳转到 \(formatDuration(target))..."
         isLoading = true
         log("[PlayerV2] 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
+
+        // 修复: 取消上一次 seek 超时保护任务（连续拖拽场景）
+        seekTimeoutTask?.cancel()
+
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             Task { @MainActor in
                 guard let self else { return }
+                // 修复: seek 完成回调触发，取消超时保护任务
+                self.seekTimeoutTask?.cancel()
+                self.seekTimeoutTask = nil
                 self.currentTime = target
                 self.isSeeking = false
                 self.isLoading = false
                 if finished, self.isPlaying {
                     self.player?.play()
                 }
+            }
+        }
+
+        // 修复: 启动 seek 超时保护，3 秒内若完成回调未触发则强制重置状态
+        // 防止 AVPlayer 在某些流媒体（如部分 HLS）上 seek 完成回调永不触发，
+        // 导致 isSeeking 永久为 true、控制面板卡死。
+        // 此超时不影响网盘播放：网盘 seek 正常情况下在 1 秒内完成。
+        seekTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            guard self.isSeeking else { return }
+            self.log("[PlayerV2] ⚠️ seek 完成回调超时(3s)，强制重置 isSeeking 状态")
+            self.isSeeking = false
+            self.isLoading = false
+            self.currentTime = target
+            if self.isPlaying {
+                self.player?.play()
             }
         }
     }
@@ -1600,12 +1637,13 @@ class PlayerState: ObservableObject {
         let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
         if Thread.isMainThread {
             debugLogs.append(short)
-            if debugLogs.count > 500 { debugLogs.removeFirst(debugLogs.count - 500) }
+            // 修复: 批量删除降低频率，原 removeFirst(count-500) 每条日志都触发 O(n) 操作
+            if debugLogs.count > 600 { debugLogs.removeFirst(100) }
         } else {
             DispatchQueue.main.async { [weak self] in
                 self?.debugLogs.append(short)
-                if self?.debugLogs.count ?? 0 > 500 {
-                    self?.debugLogs.removeFirst((self?.debugLogs.count ?? 500) - 500)
+                if (self?.debugLogs.count ?? 0) > 600 {
+                    self?.debugLogs.removeFirst(100)
                 }
             }
         }
@@ -1895,7 +1933,11 @@ class PlayerState: ObservableObject {
         loadDanmaku(for: video, fileName: video.vodName)
 
         // 监听 CloudDriveManager 的日志广播，显示在播放器 Debug Overlay
-        NotificationCenter.default.addObserver(
+        // 修复: 存储观察者 token，setupPlayer 可能被多次调用（重试），先移除旧观察者
+        if let oldObserver = cloudDriveLogObserver {
+            NotificationCenter.default.removeObserver(oldObserver)
+        }
+        cloudDriveLogObserver = NotificationCenter.default.addObserver(
             forName: .cloudDriveLog,
             object: nil,
             queue: .main
@@ -2001,6 +2043,9 @@ class PlayerState: ObservableObject {
         isRestoringFromBackground = false
         playbackSessionId = UUID()
         stopPlaybackWatchdog()
+        // 修复: 清理 seek 超时保护任务
+        seekTimeoutTask?.cancel()
+        seekTimeoutTask = nil
         danmakuTask?.cancel()
         danmakuTask = nil
         savePlaybackProgress(force: true)
@@ -2030,7 +2075,11 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
-        NotificationCenter.default.removeObserver(self, name: .cloudDriveLog, object: nil)
+        // 修复: 使用 token 移除观察者，removeObserver(self,...) 对 block-based 观察者无效
+        if let obs = cloudDriveLogObserver {
+            NotificationCenter.default.removeObserver(obs)
+            cloudDriveLogObserver = nil
+        }
         // 清理 PiP 控制器（异步到主线程，避免 @MainActor 隔离冲突）
         Task { @MainActor in
             #if canImport(Libmpv)
@@ -4246,6 +4295,9 @@ class PlayerState: ObservableObject {
         quarkFallbackTimeoutTask = nil
         playbackSessionId = UUID()
         stopPlaybackWatchdog()
+        // 修复: 清理 seek 超时保护任务
+        seekTimeoutTask?.cancel()
+        seekTimeoutTask = nil
         cleanupObservers()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
