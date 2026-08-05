@@ -477,7 +477,7 @@ struct RemoteWelfareSettingsView: View {
 
     @ViewBuilder
     private func domainEditCustomDomainsSection(platform: WelfarePlatform) -> some View {
-        Section(header: Text("自定义域名")) {
+        Section {
             if domainStore.domains(for: platform.name).isEmpty {
                 Text("暂无自定义域名。添加后会显示在这里，可随时删除。")
                     .font(.system(size: 13))
@@ -510,6 +510,8 @@ struct RemoteWelfareSettingsView: View {
                     Text("全部删除自定义域名")
                 }
             }
+        } header: {
+            Text("自定义域名")
         } footer: {
             Text("播放时会优先尝试自定义域名，再回退默认域名。")
                 .font(.system(size: 11))
