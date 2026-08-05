@@ -23,14 +23,10 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     var body: some View {
         ZStack {
             VStack(spacing: 16) {
-                AsyncImage(url: URL(string: video.vodPic)) { phase in
-                    if let img = phase.image {
-                        img.resizable().aspectRatio(contentMode: .fit).cornerRadius(12)
-                    } else {
-                        Rectangle().fill(Color.gray.opacity(0.2))
-                            .aspectRatio(16/9, contentMode: .fit).cornerRadius(12)
-                    }
-                }
+                FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, contentMode: .fit)
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(12)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .center) {
                     if isLoading {

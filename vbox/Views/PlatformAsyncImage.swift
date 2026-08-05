@@ -104,16 +104,17 @@ extension PlatformAsyncImage {
     /// - Parameters:
     ///   - urlString: 图片 URL
     ///   - referer: 源站 Referer（如 "https://www.91panta.cn/"），nil 则不注入
-    static func sourceCover(_ urlString: String, referer: String?) -> PlatformAsyncImage {
+    static func sourceCover(_ urlString: String, referer: String?, contentMode: ContentMode = .fill) -> PlatformAsyncImage {
         let finalURL: String
         if let ref = referer, !ref.isEmpty {
             // 使用 @key=value 格式与 parseHeaderSuffix 匹配
             let ua = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36"
-            finalURL = "\(urlString)@User-Agent=\(ua)@Referer=\(ref)"
+            let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
+            finalURL = "\(urlString)@User-Agent=\(ua)@Referer=\(normalizedRef)"
         } else {
             finalURL = urlString
         }
-        return PlatformAsyncImage(urlString: finalURL, mode: .mysteryMovie)
+        return PlatformAsyncImage(urlString: finalURL, mode: .mysteryMovie, contentMode: contentMode)
     }
 }
 

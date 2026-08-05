@@ -147,6 +147,26 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let visibleInGlobalSearch: Bool?
     /// 是否允许注册到普通 Spider 源池。福利 Spider 默认不允许。
     let visibleInNormalSpider: Bool?
+    /// 远程 CMS V10 API 类型标记，当前识别 "cms_v10"。
+    let apiKind: String?
+    /// CMS V10 API 路径，默认 "/api.php/provide/vod/"。
+    let apiPath: String?
+    /// 需要展示的大分类 ID，如艾旦福利视频为 5，福利图片为 33。
+    let rootTypeId: String?
+    /// 大分类显示名称，用于生成“全部”分类。
+    let rootTypeName: String?
+    /// 子分类发现方式，当前支持 "type_id_1"。
+    let childDiscovery: String?
+    /// 内容类型：video / comic。
+    let contentType: String?
+    /// 详情处理模式：video / comic_images。
+    let detailMode: String?
+    /// 图片防盗链 Referer。
+    let imageReferer: String?
+    /// 远程源自定义请求头，仅通用远程 Service 使用。
+    let headers: [String: String]?
+    /// 条目过滤规则。
+    let itemRule: WelfareRemoteItemRule?
 
     var id: String { platformKey }
 
@@ -168,6 +188,16 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case visibleInHome
         case visibleInGlobalSearch
         case visibleInNormalSpider
+        case apiKind
+        case apiPath
+        case rootTypeId
+        case rootTypeName
+        case childDiscovery
+        case contentType
+        case detailMode
+        case imageReferer
+        case headers
+        case itemRule
     }
 
     /// 获取当前第一个可用域名
@@ -180,6 +210,12 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     var allowsNormalSpiderRegistration: Bool {
         visibleInNormalSpider ?? false
     }
+}
+
+/// 远程通用福利源条目过滤规则。
+struct WelfareRemoteItemRule: Codable, Equatable {
+    /// vod_play_url 规则：required / empty / any。
+    let vodPlayUrl: String?
 }
 
 // MARK: - 分类枚举（与 WelfareHomeView 中的 WelfareTab 对齐）
@@ -241,6 +277,7 @@ enum WelfareServiceType: String, CaseIterable {
     case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本
     case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10）
     case aidanComic = "aidan_comic"            // 艾旦福利套图（CMS V10 图片类）
+    case remoteCmsV10 = "remote_cms_v10"        // 远程可配置 CMS V10 福利源
 
     /// 未知 serviceType：远程 JSON 中的 serviceType 在枚举中找不到时使用，
     /// 路由会显示 UnsupportedPlatformView 错误页，不会兜底到其他平台。
