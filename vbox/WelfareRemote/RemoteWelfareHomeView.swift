@@ -183,19 +183,19 @@ struct RemoteWelfareHomeView: View {
                                 }
                             )
                         } else {
-                            Button {
-                                navigatePlatformKey = platform.platformKey
-                            } label: {
-                                RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
-                            }
-                            .buttonStyle(.plain)
-                            .onLongPressGesture(minimumDuration: 0.5) {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                navigatePlatformKey = nil
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    withAnimation { isEditMode = true }
-                                }
-                            }
+                            RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    LongPressGesture(minimumDuration: 0.5)
+                                        .onEnded { _ in
+                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            navigatePlatformKey = nil
+                                            withAnimation { isEditMode = true }
+                                        }
+                                        .exclusively(before: TapGesture().onEnded {
+                                            navigatePlatformKey = platform.platformKey
+                                        })
+                                )
                         }
                     }
                 }
