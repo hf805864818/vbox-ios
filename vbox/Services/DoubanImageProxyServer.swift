@@ -2227,7 +2227,7 @@ private final class WelfareHTTP11Downloader {
                 { _, _, complete in complete(true) }, DispatchQueue.global())
             params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
         } else {
-            params = NWParameters(tcp: tcpOptions)
+            params = NWParameters(tls: nil, tcp: tcpOptions)
         }
 
         guard let portValue = NWEndpoint.Port(rawValue: UInt16(port)) else {
@@ -2505,7 +2505,7 @@ private final class WelfareHTTP11StreamForwarder {
                 { _, _, complete in complete(true) }, DispatchQueue.global())
             params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
         } else {
-            params = NWParameters(tcp: tcpOptions)
+            params = NWParameters(tls: nil, tcp: tcpOptions)
         }
 
         guard let portValue = NWEndpoint.Port(rawValue: UInt16(port)) else {
