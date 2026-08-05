@@ -1870,17 +1870,6 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         })
     }
 
-    private func tryHTTP11Fallback() {
-        guard let url = fallbackURL else {
-            sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
-            return
-        }
-        print("🔄 福利JS分片代理尝试 HTTP/1.1 回退: id=\(id), url=\(url.absoluteString)")
-        WelfareHTTP11StreamForwarder(id: id, connection: connection).start(
-            url: url, headers: fallbackHeaders, method: fallbackMethod, range: fallbackRange
-        )
-    }
-
     private func elapsedMS() -> Int {
         Int(Date().timeIntervalSince(startTime) * 1000)
     }
@@ -1924,19 +1913,6 @@ private final class LusushequStreamForwarder: NSObject, URLSessionDataDelegate {
 
     func start(request: URLRequest) {
         startTime = Date()
-
-        // 保存请求信息用于 HTTP/1.1 回退
-        fallbackURL = request.url
-        fallbackMethod = request.httpMethod ?? "GET"
-        fallbackRange = request.value(forHTTPHeaderField: "Range")
-        if let allHeaders = request.allHTTPHeaderFields {
-            for (key, value) in allHeaders {
-                let lower = key.lowercased()
-                if lower == "host" || lower == "connection" || lower == "accept-encoding" { continue }
-                fallbackHeaders[key] = value
-            }
-        }
-
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
@@ -2057,6 +2033,20 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
 
     func start(request: URLRequest) {
         startTime = Date()
+
+        // 保存请求信息用于 HTTP/1.1 回退
+        fallbackURL = request.url
+        fallbackMethod = request.httpMethod ?? "GET"
+        fallbackRange = request.value(forHTTPHeaderField: "Range")
+        fallbackHeaders = [:]
+        if let allHeaders = request.allHTTPHeaderFields {
+            for (key, value) in allHeaders {
+                let lower = key.lowercased()
+                if lower == "host" || lower == "connection" || lower == "accept-encoding" { continue }
+                fallbackHeaders[key] = value
+            }
+        }
+
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
@@ -2130,6 +2120,17 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
             self.connection.cancel()
         })
+    }
+
+    private func tryHTTP11Fallback() {
+        guard let url = fallbackURL else {
+            sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+            return
+        }
+        print("🔄 福利JS分片代理尝试 HTTP/1.1 回退: id=\(id), url=\(url.absoluteString)")
+        WelfareHTTP11StreamForwarder(id: id, connection: connection).start(
+            url: url, headers: fallbackHeaders, method: fallbackMethod, range: fallbackRange
+        )
     }
 
     private func elapsedMS() -> Int {
@@ -2215,22 +2216,26 @@ private final class WelfareHTTP11Downloader {
         request += "Accept-Encoding: identity\r\n"
         request += "Connection: close\r\n\r\n"
 
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.connectionTimeout = Int(timeout)
+
         let params: NWParameters
         if isTLS {
             let tlsOptions = NWProtocolTLS.Options()
             sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, "http/1.1")
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions,
                 { _, _, complete in complete(true) }, DispatchQueue.global())
-            let tcpOptions = NWProtocolTCP.Options()
-            tcpOptions.connectionTimeout = Int(timeout)
             params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
         } else {
-            let tcpOptions = NWProtocolTCP.Options()
-            tcpOptions.connectionTimeout = Int(timeout)
             params = NWParameters(tcp: tcpOptions)
         }
 
-        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        guard let portValue = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            completion(nil, 0, [:], NSError(domain: "WelfareHTTP11", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "无效端口"]))
+            return
+        }
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: portValue, using: params)
         self.connection = conn
 
         let work = DispatchWorkItem { [weak self] in
@@ -2489,22 +2494,25 @@ private final class WelfareHTTP11StreamForwarder {
         }
         request += "Connection: close\r\n\r\n"
 
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.connectionTimeout = 15
+
         let params: NWParameters
         if isTLS {
             let tlsOptions = NWProtocolTLS.Options()
             sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, "http/1.1")
             sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions,
                 { _, _, complete in complete(true) }, DispatchQueue.global())
-            let tcpOptions = NWProtocolTCP.Options()
-            tcpOptions.connectionTimeout = 15
             params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
         } else {
-            let tcpOptions = NWProtocolTCP.Options()
-            tcpOptions.connectionTimeout = 15
             params = NWParameters(tcp: tcpOptions)
         }
 
-        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        guard let portValue = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            sendErrorAndClose(statusCode: 502, message: "Invalid Port")
+            return
+        }
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: portValue, using: params)
         self.upstreamConnection = conn
 
         let work = DispatchWorkItem { [weak self] in
