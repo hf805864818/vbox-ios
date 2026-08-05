@@ -119,26 +119,30 @@ struct WelfareHomeView: View {
                                 onEnterEditMode: { withAnimation { isEditMode = true } }
                             )
                         } else {
-                            NavigationLink(
-                                destination: destinationView(for: platform),
-                                tag: platform.id,
-                                selection: $navigatePlatformID
-                            ) { EmptyView() }
-                            .hidden()
+                            ZStack {
+                                NavigationLink(
+                                    destination: destinationView(for: platform),
+                                    tag: platform.id,
+                                    selection: $navigatePlatformID
+                                ) { EmptyView() }
+                                .opacity(0)
+                                .frame(width: 0, height: 0)
 
-                            Button {
-                                navigatePlatformID = platform.id
-                            } label: {
-                                PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
-                            }
-                            .buttonStyle(.plain)
-                            .onLongPressGesture(minimumDuration: 0.5) {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                navigatePlatformID = nil
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    withAnimation { isEditMode = true }
+                                Button {
+                                    navigatePlatformID = platform.id
+                                } label: {
+                                    PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
+                                }
+                                .buttonStyle(.plain)
+                                .onLongPressGesture(minimumDuration: 0.5) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    navigatePlatformID = nil
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        withAnimation { isEditMode = true }
+                                    }
                                 }
                             }
+                            .frame(width: 72, height: 86)
                         }
                     }
                 }
