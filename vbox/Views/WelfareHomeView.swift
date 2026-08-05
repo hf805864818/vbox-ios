@@ -154,17 +154,14 @@ struct WelfareHomeView: View {
                         } else {
                             PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                                 .contentShape(Rectangle())
-                                .gesture(
-                                    LongPressGesture(minimumDuration: 0.5)
-                                        .onEnded { _ in
-                                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                            navigatePlatformID = nil
-                                            withAnimation { isEditMode = true }
-                                        }
-                                        .exclusively(before: TapGesture().onEnded {
-                                            navigatePlatformID = platform.id
-                                        })
-                                )
+                                .onTapGesture {
+                                    navigatePlatformID = platform.id
+                                }
+                                .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    navigatePlatformID = nil
+                                    withAnimation { isEditMode = true }
+                                }
                                 .frame(width: 72, height: 86)
                         }
                     }
