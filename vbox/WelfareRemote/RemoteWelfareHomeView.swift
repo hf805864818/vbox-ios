@@ -155,7 +155,12 @@ struct RemoteWelfareHomeView: View {
                                     .environmentObject(settings),
                                 tag: platform.platformKey,
                                 selection: $navigatePlatformKey
-                            ) {
+                            ) { EmptyView() }
+                            .hidden()
+
+                            Button {
+                                navigatePlatformKey = platform.platformKey
+                            } label: {
                                 RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
                             .buttonStyle(.plain)

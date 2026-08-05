@@ -123,7 +123,12 @@ struct WelfareHomeView: View {
                                 destination: destinationView(for: platform),
                                 tag: platform.id,
                                 selection: $navigatePlatformID
-                            ) {
+                            ) { EmptyView() }
+                            .hidden()
+
+                            Button {
+                                navigatePlatformID = platform.id
+                            } label: {
                                 PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
                             }
                             .buttonStyle(.plain)
