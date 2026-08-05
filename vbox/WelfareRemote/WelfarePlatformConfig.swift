@@ -161,6 +161,10 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let contentType: String?
     /// 详情处理模式：video / comic_images。
     let detailMode: String?
+    /// HTML 图文列表路径模板，如 "/arttype/{typeId}{pageSuffix}.html"。
+    let articleListPath: String?
+    /// HTML 图文详情路径模板，如 "/artdetail-{id}.html"。
+    let articleDetailPath: String?
     /// 图片防盗链 Referer。
     let imageReferer: String?
     /// 远程源自定义请求头，仅通用远程 Service 使用。
@@ -195,6 +199,8 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case childDiscovery
         case contentType
         case detailMode
+        case articleListPath
+        case articleDetailPath
         case imageReferer
         case headers
         case itemRule

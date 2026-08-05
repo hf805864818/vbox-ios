@@ -31,10 +31,19 @@ final class RemoteCMSV10Service: FuliBaseService {
         platform.imageReferer
     }
 
+    private var isArticleHTMLMode: Bool {
+        (platform.detailMode ?? "").lowercased() == "article_html"
+            || (platform.apiKind ?? "").lowercased() == "mac_art_html"
+    }
+
     func defaultHeaders(host: String) -> [String: String] {
         var headers: [String: String] = [
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36",
-            "Accept": "application/json,text/plain,*/*",
+            "User-Agent": isArticleHTMLMode
+                ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+                : "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36",
+            "Accept": isArticleHTMLMode
+                ? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                : "application/json,text/plain,*/*",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Referer": "\(host.hasSuffix("/") ? host : "\(host)/")"
         ]
@@ -56,6 +65,10 @@ final class RemoteCMSV10Service: FuliBaseService {
 
     override func fetchHomeContent() async -> FuliHomeResult {
         await ensureHostReady()
+        if isArticleHTMLMode {
+            return await fetchArticleHomeContent()
+        }
+
         do {
             let data = try await fetchJSON("\(apiBase)?ac=list")
             let categories = await parseCategories(from: data)
@@ -72,6 +85,10 @@ final class RemoteCMSV10Service: FuliBaseService {
 
     override func fetchCategoryContent(category: FuliCategory, subCategory: FuliCategory?, page: Int) async -> FuliCategoryResult {
         await ensureHostReady()
+        if isArticleHTMLMode {
+            return await fetchArticleCategoryContent(category: category, subCategory: subCategory, page: page)
+        }
+
         let tid = subCategory?.typeId ?? category.typeId
 
         do {
@@ -101,6 +118,10 @@ final class RemoteCMSV10Service: FuliBaseService {
 
     override func fetchDetail(vodId: String) async -> FuliDetail {
         await ensureHostReady()
+        if isArticleHTMLMode {
+            return await fetchArticleDetail(vodId: vodId)
+        }
+
         do {
             let data = try await fetchJSON("\(apiBase)?ac=detail&ids=\(vodId)")
             guard let list = data["list"] as? [[String: Any]],
@@ -116,6 +137,10 @@ final class RemoteCMSV10Service: FuliBaseService {
 
     override func fetchSearch(keyword: String, page: Int) async -> FuliSearchResult {
         await ensureHostReady()
+        if isArticleHTMLMode {
+            return FuliSearchResult(videos: [], page: page, hasMore: false)
+        }
+
         do {
             let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             let data = try await fetchJSON("\(apiBase)?ac=detail&wd=\(encoded)&pg=\(page)")
@@ -130,6 +155,56 @@ final class RemoteCMSV10Service: FuliBaseService {
     override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         let direct = episode.url.contains(".m3u8") || episode.url.contains(".mp4") || episode.url.contains(".ts")
         return FuliPlayerResult(url: episode.url, headers: defaultHeaders(host: currentHost), parse: direct ? 0 : 1)
+    }
+
+    private func fetchArticleHomeContent() async -> FuliHomeResult {
+        do {
+            let rootId = platform.rootTypeId ?? "33"
+            let html = try await fetchHTML(articleListURL(typeId: rootId, page: 1))
+            let children = parseArticleCategories(from: html, rootId: rootId)
+            setCachedChildren(children)
+            let rootName = platform.rootTypeName ?? platform.name
+            let category = FuliCategory(typeId: rootId, typeName: rootName, subCategories: children)
+            let videos = parseArticleList(from: html)
+            return FuliHomeResult(categories: [category], videos: videos)
+        } catch {
+            print("[\(platformName)] HTML 图文首页失败: \(error)")
+            return .empty
+        }
+    }
+
+    private func fetchArticleCategoryContent(category: FuliCategory, subCategory: FuliCategory?, page: Int) async -> FuliCategoryResult {
+        let tid = subCategory?.typeId ?? category.typeId
+        do {
+            let html = try await fetchHTML(articleListURL(typeId: tid, page: page))
+            let videos = parseArticleList(from: html)
+            return FuliCategoryResult(videos: videos, page: page, hasMore: articleHasMore(from: html, page: page))
+        } catch {
+            print("[\(platformName)] HTML 图文分类失败: \(error)")
+            return FuliCategoryResult(videos: [], page: page, hasMore: false)
+        }
+    }
+
+    private func fetchArticleDetail(vodId: String) async -> FuliDetail {
+        do {
+            let html = try await fetchHTML(articleDetailURL(id: vodId))
+            let title = parseFirstText(from: html, pattern: #"<h1[^>]*>([\s\S]*?)</h1>"#)
+                ?? parseFirstText(from: html, pattern: #"<title[^>]*>([\s\S]*?)</title>"#)
+                ?? ""
+            let images = parseImageURLs(from: html)
+            let pic = images.first ?? ""
+            return FuliDetail(
+                vodId: vodId,
+                vodName: title,
+                vodPic: pic,
+                vodContent: nil,
+                playFrom: platformName,
+                episodes: [FuliEpisode(name: "浏览套图", url: pic, images: images)]
+            )
+        } catch {
+            print("[\(platformName)] HTML 图文详情失败: \(error)")
+            return emptyDetail(vodId: vodId)
+        }
     }
 
     private func parseCategories(from json: [String: Any]) async -> [FuliCategory] {
@@ -318,6 +393,120 @@ final class RemoteCMSV10Service: FuliBaseService {
             if !pic.isEmpty { images.append(pic) }
         }
         return images
+    }
+
+    private func articleListURL(typeId: String, page: Int) -> String {
+        let pageSuffix = page <= 1 ? "" : "-\(page)"
+        let template = platform.articleListPath ?? "/arttype/{typeId}{pageSuffix}.html"
+        let path = template
+            .replacingOccurrences(of: "{typeId}", with: typeId)
+            .replacingOccurrences(of: "{page}", with: "\(page)")
+            .replacingOccurrences(of: "{pageSuffix}", with: pageSuffix)
+        return absoluteURL(path)
+    }
+
+    private func articleDetailURL(id: String) -> String {
+        let template = platform.articleDetailPath ?? "/artdetail-{id}.html"
+        let path = template.replacingOccurrences(of: "{id}", with: id)
+        return absoluteURL(path)
+    }
+
+    private func absoluteURL(_ path: String) -> String {
+        if path.hasPrefix("http://") || path.hasPrefix("https://") { return path }
+        return currentHost + (path.hasPrefix("/") ? path : "/\(path)")
+    }
+
+    private func parseArticleCategories(from html: String, rootId: String) -> [FuliCategory] {
+        let pattern = #"<a[^>]+href=["'][^"']*/arttype/(\d+)(?:-\d+)?\.html["'][^>]*>([\s\S]*?)</a>"#
+        var result: [FuliCategory] = []
+        var seen = Set<String>()
+        for match in regexMatches(pattern: pattern, in: html) {
+            guard match.count >= 3 else { continue }
+            let id = match[1]
+            let name = cleanHTMLText(match[2])
+            guard id != rootId, !id.isEmpty, !name.isEmpty, !seen.contains(id) else { continue }
+            seen.insert(id)
+            result.append(FuliCategory(typeId: id, typeName: name))
+        }
+        return result
+    }
+
+    private func parseArticleList(from html: String) -> [FuliVideo] {
+        let pattern = #"<a[^>]+href=["'][^"']*/artdetail-(\d+)\.html["'][^>]*>([\s\S]*?)</a>"#
+        var result: [FuliVideo] = []
+        var seen = Set<String>()
+        for match in regexMatches(pattern: pattern, in: html) {
+            guard match.count >= 3 else { continue }
+            let id = match[1]
+            let title = cleanHTMLText(match[2])
+            guard !id.isEmpty, !title.isEmpty, !seen.contains(id) else { continue }
+            seen.insert(id)
+            let pic = nearbyArticleImage(for: id, in: html) ?? ""
+            result.append(FuliVideo(vodId: id, vodName: title, vodPic: pic, vodRemarks: "套图"))
+        }
+        return result
+    }
+
+    private func nearbyArticleImage(for id: String, in html: String) -> String? {
+        guard let idRange = html.range(of: "artdetail-\(id).html") else { return nil }
+        let lower = html.index(idRange.lowerBound, offsetBy: -1200, limitedBy: html.startIndex) ?? html.startIndex
+        let upper = html.index(idRange.upperBound, offsetBy: 1200, limitedBy: html.endIndex) ?? html.endIndex
+        let block = String(html[lower..<upper])
+        return parseImageURLs(from: block).first
+    }
+
+    private func articleHasMore(from html: String, page: Int) -> Bool {
+        html.contains("arttype/") && html.contains("-\(page + 1).html")
+    }
+
+    private func parseImageURLs(from html: String) -> [String] {
+        let pattern = #"<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["']([^"']+)["']"#
+        var result: [String] = []
+        var seen = Set<String>()
+        for match in regexMatches(pattern: pattern, in: html) {
+            guard match.count >= 2 else { continue }
+            let url = normalizeUrl(match[1], host: currentHost)
+            guard !url.isEmpty, isLikelyContentImage(url), !seen.contains(url) else { continue }
+            seen.insert(url)
+            result.append(url)
+        }
+        return result
+    }
+
+    private func isLikelyContentImage(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        guard lower.contains(".jpg") || lower.contains(".jpeg") || lower.contains(".png") || lower.contains(".webp") else {
+            return false
+        }
+        return !lower.contains("logo") && !lower.contains("icon") && !lower.contains("avatar")
+    }
+
+    private func parseFirstText(from html: String, pattern: String) -> String? {
+        regexMatches(pattern: pattern, in: html).first.flatMap { match in
+            guard match.count >= 2 else { return nil }
+            let text = cleanHTMLText(match[1])
+            return text.isEmpty ? nil : text
+        }
+    }
+
+    private func regexMatches(pattern: String, in text: String) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { match in
+            (0..<match.numberOfRanges).compactMap { index in
+                guard let range = Range(match.range(at: index), in: text) else { return nil }
+                return String(text[range])
+            }
+        }
+    }
+
+    private func cleanHTMLText(_ html: String) -> String {
+        let withoutTags = html.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        return withoutTags
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func fetchJSON(_ urlString: String) async throws -> [String: Any] {
