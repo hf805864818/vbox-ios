@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Compression
+import Security
 
 extension Notification.Name {
     static let vboxBaiduStreamCacheProgress = Notification.Name("vbox.baidu.stream.cache.progress")
@@ -795,6 +796,13 @@ final class DoubanImageProxyServer {
     // 与六速社区专用代理功能相同，但使用通用 SSL 绕过 Delegate，
     // 适用于任何需要 SSL 绕过的福利 JS Spider 平台。
 
+    /// HTTP/1.1 下载（用于 JSHTTPBridge 回退，解决 HTTP/2 PROTOCOL_ERROR）
+    static func downloadHTTP11(url: URL, headers: [String: String], timeout: TimeInterval = 15,
+                               completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        let downloader = WelfareHTTP11Downloader(id: "jsbridge", timeout: timeout)
+        downloader.download(url: url, headers: headers, completion: completion)
+    }
+
     func proxiedWelfareJSM3U8URL(for sourceURL: String, headers: [String: String]) -> URL? {
         guard let targetURL = URL(string: sourceURL) else {
             return URL(string: sourceURL)
@@ -895,9 +903,10 @@ final class DoubanImageProxyServer {
             }
 
             if let error {
-                print("❌ 福利JS m3u8 拉取失败: id=\(id), err=\(error.localizedDescription)")
-                self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
+                print("❌ 福利JS m3u8 拉取失败(URLSession): id=\(id), err=\(error.localizedDescription)")
+                // 尝试 HTTP/1.1 回退（解决部分 CDN HTTP/2 PROTOCOL_ERROR）
                 sslSession.invalidateAndCancel()
+                self.fetchWelfareJSM3U8ViaHTTP11(item: item, id: id, on: connection)
                 return
             }
 
@@ -935,6 +944,40 @@ final class DoubanImageProxyServer {
             self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
             sslSession.invalidateAndCancel()
         }.resume()
+    }
+
+    /// HTTP/1.1 回退：当 URLSession 因 HTTP/2 PROTOCOL_ERROR 失败时，使用 NWConnection 强制 HTTP/1.1
+    private func fetchWelfareJSM3U8ViaHTTP11(item: StreamItem, id: String, on connection: NWConnection) {
+        print("🔄 福利JS m3u8 尝试 HTTP/1.1 回退: id=\(id), url=\(item.url.absoluteString)")
+        let downloader = WelfareHTTP11Downloader(id: id, timeout: 20)
+        downloader.download(url: item.url, headers: item.headers) { [weak self] data, status, headers, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("❌ 福利JS m3u8 HTTP/1.1 回退也失败: id=\(id), err=\(error.localizedDescription)")
+                self.sendNoStore(statusCode: 502, body: Data("Bad M3U8 Gateway".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            guard let data = data, !data.isEmpty else {
+                print("❌ 福利JS m3u8 HTTP/1.1 内容为空: id=\(id), status=\(status)")
+                self.sendNoStore(statusCode: 502, body: Data("Empty M3U8".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            let contentEncoding = headers["content-encoding"] ?? ""
+            let text = self.decompressM3U8Text(data: data, contentEncoding: contentEncoding)
+
+            guard let text = text, !text.isEmpty, text.contains("#EXTM3U") else {
+                print("❌ 福利JS m3u8 HTTP/1.1 内容无效: id=\(id), status=\(status), prefix=\(text?.prefix(80) ?? "")")
+                self.sendNoStore(statusCode: 502, body: Data("Invalid M3U8".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            let rewritten = self.rewriteWelfareJSM3U8(text, baseURL: item.url, id: id)
+            print("✅ 福利JS m3u8 HTTP/1.1 已重写: id=\(id), status=\(status), bytes=\(rewritten.count)")
+            self.sendNoStore(statusCode: 200, body: Data(rewritten.utf8), contentType: "application/vnd.apple.mpegurl", on: connection)
+        }
     }
 
     /// 重写福利 JS Spider m3u8：将 key URI 和 TS 分片路径替换为本地代理 URL
@@ -1827,6 +1870,17 @@ private final class StreamForwarder: NSObject, URLSessionDataDelegate {
         })
     }
 
+    private func tryHTTP11Fallback() {
+        guard let url = fallbackURL else {
+            sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+            return
+        }
+        print("🔄 福利JS分片代理尝试 HTTP/1.1 回退: id=\(id), url=\(url.absoluteString)")
+        WelfareHTTP11StreamForwarder(id: id, connection: connection).start(
+            url: url, headers: fallbackHeaders, method: fallbackMethod, range: fallbackRange
+        )
+    }
+
     private func elapsedMS() -> Int {
         Int(Date().timeIntervalSince(startTime) * 1000)
     }
@@ -1870,6 +1924,19 @@ private final class LusushequStreamForwarder: NSObject, URLSessionDataDelegate {
 
     func start(request: URLRequest) {
         startTime = Date()
+
+        // 保存请求信息用于 HTTP/1.1 回退
+        fallbackURL = request.url
+        fallbackMethod = request.httpMethod ?? "GET"
+        fallbackRange = request.value(forHTTPHeaderField: "Range")
+        if let allHeaders = request.allHTTPHeaderFields {
+            for (key, value) in allHeaders {
+                let lower = key.lowercased()
+                if lower == "host" || lower == "connection" || lower == "accept-encoding" { continue }
+                fallbackHeaders[key] = value
+            }
+        }
+
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
@@ -1975,6 +2042,12 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
     private var startTime = Date()
     private var firstByteLogged = false
 
+    // 保存原始请求信息，用于 HTTP/1.1 回退
+    private var fallbackURL: URL?
+    private var fallbackHeaders: [String: String] = [:]
+    private var fallbackMethod: String = "GET"
+    private var fallbackRange: String?
+
     init(id: String, connection: NWConnection) {
         self.id = id
         self.connection = connection
@@ -2045,9 +2118,10 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
         }
 
         if let error {
-            print("❌ 福利JS分片代理拉流失败: id=\(id), error=\(error.localizedDescription), receivedBytes=\(receivedBytes)")
+            print("❌ 福利JS分片代理拉流失败(URLSession): id=\(id), error=\(error.localizedDescription), receivedBytes=\(receivedBytes)")
             if !responseStarted {
-                sendErrorAndClose(statusCode: 502, message: "Bad Gateway")
+                // 尝试 HTTP/1.1 回退（解决部分 CDN HTTP/2 PROTOCOL_ERROR）
+                tryHTTP11Fallback()
                 return
             }
         }
@@ -2071,6 +2145,635 @@ private final class WelfareJSStreamForwarder: NSObject, URLSessionDataDelegate {
         response.append(body)
         connection.send(content: response, completion: .contentProcessed { _ in
             self.connection.cancel()
+        })
+    }
+}
+
+// MARK: - HTTP/1.1 强制客户端 (解决部分 CDN HTTP/2 PROTOCOL_ERROR)
+
+/// 使用 NWConnection 强制 HTTP/1.1 的下载器
+/// 通过 ALPN 只通告 "http/1.1" 来避免 HTTP/2 协议协商
+private final class WelfareHTTP11Downloader {
+
+    private var connection: NWConnection?
+    private var allData = Data()
+    private var headerParsed = false
+    private var headerBuffer = Data()
+    private var statusCode = 0
+    private var responseHeaders: [String: String] = [:]
+    private var redirectCount = 0
+    private let maxRedirects = 5
+    private var timeoutWork: DispatchWorkItem?
+
+    let id: String
+    let timeout: TimeInterval
+
+    init(id: String, timeout: TimeInterval = 20) {
+        self.id = id
+        self.timeout = timeout
+    }
+
+    func download(url: URL, headers: [String: String],
+                  completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        connectAndFetch(url: url, headers: headers, completion: completion)
+    }
+
+    private func connectAndFetch(url: URL, headers: [String: String],
+                                 completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        allData = Data()
+        headerParsed = false
+        headerBuffer = Data()
+        statusCode = 0
+        responseHeaders = [:]
+
+        guard let host = url.host else {
+            completion(nil, 0, [:], NSError(domain: "WelfareHTTP11", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "无效URL"]))
+            return
+        }
+
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        let isTLS = url.scheme == "https"
+
+        var path = url.path
+        if let query = url.query, !query.isEmpty { path += "?\(query)" }
+        if path.isEmpty { path = "/" }
+
+        var request = "GET \(path) HTTP/1.1\r\n"
+        request += "Host: \(host)"
+        if let p = url.port, (isTLS && p != 443) || (!isTLS && p != 80) {
+            request += ":\(p)"
+        }
+        request += "\r\n"
+
+        for (key, value) in headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "connection" || lower == "accept-encoding" || lower == "transfer-encoding" { continue }
+            request += "\(key): \(value)\r\n"
+        }
+        request += "Accept: */*\r\n"
+        request += "Accept-Encoding: identity\r\n"
+        request += "Connection: close\r\n\r\n"
+
+        let params: NWParameters
+        if isTLS {
+            let tlsOptions = NWProtocolTLS.Options()
+            sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, "http/1.1")
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions,
+                { _, _, complete in complete(true) }, DispatchQueue.global())
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.connectionTimeout = Int(timeout)
+            params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
+        } else {
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.connectionTimeout = Int(timeout)
+            params = NWParameters(tcp: tcpOptions)
+        }
+
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        self.connection = conn
+
+        let work = DispatchWorkItem { [weak self] in
+            print("⏱️ HTTP11下载超时: id=\(self?.id ?? "")")
+            self?.connection?.cancel()
+        }
+        timeoutWork = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 5, execute: work)
+
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                print("🔗 HTTP11连接就绪: id=\(self.id), host=\(host):\(port)")
+                self.sendRequest(request, url: url, headers: headers, completion: completion)
+            case .failed(let error):
+                self.timeoutWork?.cancel()
+                print("❌ HTTP11连接失败: id=\(self.id), err=\(error.localizedDescription)")
+                completion(nil, 0, [:], error)
+            case .cancelled:
+                self.timeoutWork?.cancel()
+                if self.statusCode == 0 {
+                    completion(nil, 0, [:], NSError(domain: "WelfareHTTP11", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "连接已取消或超时"]))
+                }
+            default:
+                break
+            }
+        }
+
+        conn.start(queue: .global())
+    }
+
+    private func sendRequest(_ request: String, url: URL, headers: [String: String],
+                             completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        connection?.send(content: Data(request.utf8), completion: .contentProcessed { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                self.cleanup()
+                completion(nil, 0, [:], error)
+            } else {
+                self.receiveData(url: url, headers: headers, completion: completion)
+            }
+        })
+    }
+
+    private func receiveData(url: URL, headers: [String: String],
+                             completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                self.cleanup()
+                if self.headerParsed {
+                    self.finish(completion: completion)
+                } else {
+                    completion(nil, 0, [:], error)
+                }
+                return
+            }
+
+            if let data = data, !data.isEmpty {
+                if !self.headerParsed {
+                    self.headerBuffer.append(data)
+                    if let bodyData = self.tryParseHeaders() {
+                        self.headerParsed = true
+
+                        if [301, 302, 303, 307, 308].contains(self.statusCode),
+                           let location = self.responseHeaders["location"] {
+                            self.redirectCount += 1
+                            self.cleanup()
+                            if self.redirectCount <= self.maxRedirects,
+                               let redirectURL = self.resolveRedirect(location, from: url) {
+                                print("🔄 HTTP11重定向: \(self.statusCode) -> \(redirectURL.absoluteString)")
+                                self.connectAndFetch(url: redirectURL, headers: headers, completion: completion)
+                                return
+                            }
+                        }
+
+                        if !bodyData.isEmpty {
+                            self.allData.append(bodyData)
+                        }
+                    }
+                } else {
+                    self.allData.append(data)
+                }
+            }
+
+            if isComplete {
+                self.cleanup()
+                self.finish(completion: completion)
+            } else {
+                self.receiveData(url: url, headers: headers, completion: completion)
+            }
+        }
+    }
+
+    private func tryParseHeaders() -> Data? {
+        guard let text = String(data: headerBuffer, encoding: .isoLatin1) else { return nil }
+        guard let headerEnd = text.range(of: "\r\n\r\n") else { return nil }
+
+        let headerText = String(text[..<headerEnd.lowerBound])
+        let bodyStart = String(text[headerEnd.upperBound...])
+        let bodyData = bodyStart.data(using: .isoLatin1) ?? Data()
+
+        let lines = headerText.components(separatedBy: "\r\n")
+        if let firstLine = lines.first {
+            let parts = firstLine.components(separatedBy: " ")
+            if parts.count >= 2 {
+                statusCode = Int(parts[1]) ?? 0
+            }
+        }
+
+        for i in 1..<lines.count {
+            let line = lines[i]
+            if let colonRange = line.range(of: ":") {
+                let key = String(line[..<colonRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let value = String(line[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                responseHeaders[key.lowercased()] = value
+            }
+        }
+
+        return bodyData
+    }
+
+    private func resolveRedirect(_ location: String, from url: URL) -> URL? {
+        if location.hasPrefix("http://") || location.hasPrefix("https://") {
+            return URL(string: location)
+        }
+        if location.hasPrefix("/") {
+            var components = URLComponents()
+            components.scheme = url.scheme
+            components.host = url.host
+            components.port = url.port
+            components.path = location
+            return components.url
+        }
+        return URL(string: url.deletingLastPathComponent().appendingPathComponent(location).absoluteString)
+    }
+
+    private func finish(completion: @escaping (Data?, Int, [String: String], Error?) -> Void) {
+        if responseHeaders["transfer-encoding"]?.lowercased().contains("chunked") == true {
+            allData = Self.dechunk(allData)
+        }
+        print("✅ HTTP11下载完成: id=\(id), status=\(statusCode), bytes=\(allData.count)")
+        completion(allData, statusCode, responseHeaders, nil)
+    }
+
+    private static func dechunk(_ data: Data) -> Data {
+        var result = Data()
+        let bytes = [UInt8](data)
+        var pos = 0
+
+        while pos < bytes.count {
+            var lineEnd = pos
+            while lineEnd < bytes.count - 1 && !(bytes[lineEnd] == 0x0D && bytes[lineEnd + 1] == 0x0A) {
+                lineEnd += 1
+            }
+            if lineEnd >= bytes.count - 1 { break }
+
+            let sizeStr = String(bytes: bytes[pos..<lineEnd], encoding: .ascii) ?? "0"
+            let chunkSize = Int(sizeStr.components(separatedBy: ";")[0].trimmingCharacters(in: .whitespaces), radix: 16) ?? 0
+            pos = lineEnd + 2
+
+            if chunkSize == 0 { break }
+
+            let take = min(chunkSize, bytes.count - pos)
+            result.append(contentsOf: bytes[pos..<(pos + take)])
+            pos += take + 2
+        }
+
+        return result
+    }
+
+    private func cleanup() {
+        timeoutWork?.cancel()
+        timeoutWork = nil
+        connection?.cancel()
+        connection = nil
+    }
+
+    func cancel() { cleanup() }
+}
+
+/// 使用 NWConnection 强制 HTTP/1.1 的流式转发器
+/// 用于 TS 分片等大文件的流式代理
+private final class WelfareHTTP11StreamForwarder {
+
+    private let id: String
+    private let clientConnection: NWConnection
+    private var upstreamConnection: NWConnection?
+    private var headerParsed = false
+    private var headerBuffer = Data()
+    private var statusCode = 0
+    private var responseHeaders: [String: String] = [:]
+    private var responseStarted = false
+    private var receivedBytes = 0
+    private var startTime = Date()
+    private var firstByteLogged = false
+    private var isChunked = false
+    private var chunkBuffer = Data()
+    private var chunkState: Int = -1
+    private var chunkRemaining: Int = 0
+    private var redirectCount = 0
+    private var timeoutWork: DispatchWorkItem?
+
+    init(id: String, connection: NWConnection) {
+        self.id = id
+        self.clientConnection = connection
+    }
+
+    func start(url: URL, headers: [String: String], method: String, range: String?) {
+        startTime = Date()
+        connectAndStream(url: url, headers: headers, method: method, range: range)
+    }
+
+    private func connectAndStream(url: URL, headers: [String: String], method: String, range: String?) {
+        headerParsed = false
+        headerBuffer = Data()
+        statusCode = 0
+        responseHeaders = [:]
+        responseStarted = false
+        isChunked = false
+        chunkBuffer = Data()
+        chunkState = -1
+        chunkRemaining = 0
+
+        guard let host = url.host else {
+            sendErrorAndClose(statusCode: 502, message: "Invalid URL")
+            return
+        }
+
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        let isTLS = url.scheme == "https"
+
+        var path = url.path
+        if let query = url.query, !query.isEmpty { path += "?\(query)" }
+        if path.isEmpty { path = "/" }
+
+        var request = "\(method) \(path) HTTP/1.1\r\n"
+        request += "Host: \(host)"
+        if let p = url.port, (isTLS && p != 443) || (!isTLS && p != 80) {
+            request += ":\(p)"
+        }
+        request += "\r\n"
+
+        for (key, value) in headers {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "connection" || lower == "accept-encoding" || lower == "transfer-encoding" || lower == "range" { continue }
+            request += "\(key): \(value)\r\n"
+        }
+        request += "Accept: */*\r\n"
+        request += "Accept-Encoding: identity\r\n"
+        if let range = range {
+            request += "Range: \(range)\r\n"
+        }
+        request += "Connection: close\r\n\r\n"
+
+        let params: NWParameters
+        if isTLS {
+            let tlsOptions = NWProtocolTLS.Options()
+            sec_protocol_options_add_tls_application_protocol(tlsOptions.securityProtocolOptions, "http/1.1")
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions,
+                { _, _, complete in complete(true) }, DispatchQueue.global())
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.connectionTimeout = 15
+            params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
+        } else {
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.connectionTimeout = 15
+            params = NWParameters(tcp: tcpOptions)
+        }
+
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        self.upstreamConnection = conn
+
+        let work = DispatchWorkItem { [weak self] in
+            print("⏱️ HTTP11流超时: id=\(self?.id ?? "")")
+            self?.upstreamConnection?.cancel()
+        }
+        timeoutWork = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + 45, execute: work)
+
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                print("🔗 HTTP11流连接就绪: id=\(self.id), host=\(host):\(port)")
+                self.sendRequest(request, url: url, headers: headers, method: method, range: range)
+            case .failed(let error):
+                self.timeoutWork?.cancel()
+                print("❌ HTTP11流连接失败: id=\(self.id), err=\(error.localizedDescription)")
+                if !self.responseStarted {
+                    self.sendErrorAndClose(statusCode: 502, message: "Bad Gateway: \(error.localizedDescription)")
+                }
+            case .cancelled:
+                self.timeoutWork?.cancel()
+                if !self.responseStarted {
+                    self.sendErrorAndClose(statusCode: 502, message: "Connection Cancelled")
+                }
+            default:
+                break
+            }
+        }
+
+        conn.start(queue: .global())
+    }
+
+    private func sendRequest(_ request: String, url: URL, headers: [String: String], method: String, range: String?) {
+        upstreamConnection?.send(content: Data(request.utf8), completion: .contentProcessed { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                self.cleanup()
+                if !self.responseStarted {
+                    self.sendErrorAndClose(statusCode: 502, message: "Send Failed: \(error.localizedDescription)")
+                }
+            } else {
+                self.receiveData(url: url, headers: headers, method: method, range: range)
+            }
+        })
+    }
+
+    private func receiveData(url: URL, headers: [String: String], method: String, range: String?) {
+        upstreamConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                self.cleanup()
+                if self.responseStarted {
+                    print("✅ HTTP11流完成(中断): id=\(self.id), bytes=\(self.receivedBytes), err=\(error.localizedDescription)")
+                    self.clientConnection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
+                        self.clientConnection.cancel()
+                    })
+                } else {
+                    self.sendErrorAndClose(statusCode: 502, message: "Receive Failed: \(error.localizedDescription)")
+                }
+                return
+            }
+
+            if let data = data, !data.isEmpty {
+                if !self.headerParsed {
+                    self.headerBuffer.append(data)
+                    if let bodyData = self.tryParseHeaders() {
+                        self.headerParsed = true
+
+                        if [301, 302, 303, 307, 308].contains(self.statusCode),
+                           let location = self.responseHeaders["location"] {
+                            self.redirectCount += 1
+                            self.cleanup()
+                            if self.redirectCount <= 5,
+                               let redirectURL = self.resolveRedirect(location, from: url) {
+                                print("🔄 HTTP11流重定向: \(self.statusCode) -> \(redirectURL.absoluteString)")
+                                self.connectAndStream(url: redirectURL, headers: headers, method: method, range: range)
+                                return
+                            }
+                        }
+
+                        self.sendResponseHeader()
+
+                        if !bodyData.isEmpty {
+                            self.processBodyData(bodyData)
+                        }
+                    }
+                } else {
+                    self.processBodyData(data)
+                }
+            }
+
+            if isComplete {
+                self.cleanup()
+                print("✅ HTTP11流转发完成: id=\(self.id), status=\(self.statusCode), bytes=\(self.receivedBytes), cost=\(self.elapsedMS())ms")
+                self.clientConnection.send(content: nil, contentContext: .defaultMessage, isComplete: true, completion: .contentProcessed { _ in
+                    self.clientConnection.cancel()
+                })
+            } else {
+                self.receiveData(url: url, headers: headers, method: method, range: range)
+            }
+        }
+    }
+
+    private func tryParseHeaders() -> Data? {
+        guard let text = String(data: headerBuffer, encoding: .isoLatin1) else { return nil }
+        guard let headerEnd = text.range(of: "\r\n\r\n") else { return nil }
+
+        let headerText = String(text[..<headerEnd.lowerBound])
+        let bodyStart = String(text[headerEnd.upperBound...])
+        let bodyData = bodyStart.data(using: .isoLatin1) ?? Data()
+
+        let lines = headerText.components(separatedBy: "\r\n")
+        if let firstLine = lines.first {
+            let parts = firstLine.components(separatedBy: " ")
+            if parts.count >= 2 {
+                statusCode = Int(parts[1]) ?? 0
+            }
+        }
+
+        for i in 1..<lines.count {
+            let line = lines[i]
+            if let colonRange = line.range(of: ":") {
+                let key = String(line[..<colonRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let value = String(line[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                responseHeaders[key.lowercased()] = value
+            }
+        }
+
+        isChunked = responseHeaders["transfer-encoding"]?.lowercased().contains("chunked") ?? false
+
+        return bodyData
+    }
+
+    private func sendResponseHeader() {
+        let contentType = responseHeaders["content-type"] ?? "application/octet-stream"
+        let contentLength = responseHeaders["content-length"]
+        let contentRange = responseHeaders["content-range"]
+        let acceptRanges = responseHeaders["accept-ranges"] ?? "bytes"
+        let reason = DoubanImageProxyServer.reasonPhrase(for: statusCode)
+
+        var header = "HTTP/1.1 \(statusCode) \(reason)\r\nContent-Type: \(contentType)\r\nAccept-Ranges: \(acceptRanges)\r\nCache-Control: no-store\r\nConnection: close\r\n"
+        if let contentLength = contentLength {
+            header += "Content-Length: \(contentLength)\r\n"
+        }
+        if let contentRange = contentRange {
+            header += "Content-Range: \(contentRange)\r\n"
+        }
+        header += "\r\n"
+
+        responseStarted = true
+        clientConnection.send(content: Data(header.utf8), contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error = error {
+                print("❌ HTTP11流响应头发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+    }
+
+    private func processBodyData(_ data: Data) {
+        if isChunked {
+            chunkBuffer.append(data)
+            processChunked()
+        } else {
+            forwardToClient(data)
+        }
+    }
+
+    private func processChunked() {
+        let bytes = [UInt8](chunkBuffer)
+        var pos = 0
+        var consumed = 0
+
+        while pos < bytes.count {
+            if chunkState == -1 {
+                var lineEnd = pos
+                while lineEnd < bytes.count - 1 && !(bytes[lineEnd] == 0x0D && bytes[lineEnd + 1] == 0x0A) {
+                    lineEnd += 1
+                }
+                if lineEnd >= bytes.count - 1 { break }
+
+                let sizeStr = String(bytes: bytes[pos..<lineEnd], encoding: .ascii) ?? "0"
+                let chunkSize = Int(sizeStr.components(separatedBy: ";")[0].trimmingCharacters(in: .whitespaces), radix: 16) ?? 0
+                pos = lineEnd + 2
+
+                if chunkSize == 0 {
+                    chunkBuffer = Data()
+                    return
+                }
+
+                chunkState = 0
+                chunkRemaining = chunkSize
+            }
+
+            if chunkState >= 0 {
+                let take = min(chunkRemaining, bytes.count - pos)
+                if take > 0 {
+                    forwardToClient(Data(bytes[pos..<(pos + take)]))
+                }
+                pos += take
+                chunkRemaining -= take
+                consumed = pos
+
+                if chunkRemaining == 0 {
+                    if pos + 2 <= bytes.count {
+                        pos += 2
+                        consumed = pos
+                    }
+                    chunkState = -1
+                } else {
+                    break
+                }
+            }
+        }
+
+        if consumed > 0 && consumed < chunkBuffer.count {
+            chunkBuffer = chunkBuffer.subdata(in: consumed..<chunkBuffer.count)
+        } else if consumed >= chunkBuffer.count {
+            chunkBuffer = Data()
+        }
+    }
+
+    private func forwardToClient(_ data: Data) {
+        receivedBytes += data.count
+        if !firstByteLogged {
+            firstByteLogged = true
+            print("🚀 HTTP11流首包: id=\(id), cost=\(elapsedMS())ms, bytes=\(data.count)")
+        }
+        clientConnection.send(content: data, contentContext: .defaultMessage, isComplete: false, completion: .contentProcessed { error in
+            if let error = error {
+                print("❌ HTTP11流数据发送失败: id=\(self.id), error=\(error)")
+            }
+        })
+    }
+
+    private func resolveRedirect(_ location: String, from url: URL) -> URL? {
+        if location.hasPrefix("http://") || location.hasPrefix("https://") {
+            return URL(string: location)
+        }
+        if location.hasPrefix("/") {
+            var components = URLComponents()
+            components.scheme = url.scheme
+            components.host = url.host
+            components.port = url.port
+            components.path = location
+            return components.url
+        }
+        return URL(string: url.deletingLastPathComponent().appendingPathComponent(location).absoluteString)
+    }
+
+    private func cleanup() {
+        timeoutWork?.cancel()
+        timeoutWork = nil
+        upstreamConnection?.cancel()
+        upstreamConnection = nil
+    }
+
+    private func elapsedMS() -> Int {
+        Int(Date().timeIntervalSince(startTime) * 1000)
+    }
+
+    private func sendErrorAndClose(statusCode: Int, message: String) {
+        let body = Data(message.utf8)
+        let header = "HTTP/1.1 \(statusCode) \(DoubanImageProxyServer.reasonPhrase(for: statusCode))\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        var response = Data(header.utf8)
+        response.append(body)
+        clientConnection.send(content: response, completion: .contentProcessed { _ in
+            self.clientConnection.cancel()
         })
     }
 }

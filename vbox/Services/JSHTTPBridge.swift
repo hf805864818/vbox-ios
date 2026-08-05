@@ -220,6 +220,10 @@ class JSHTTPBridge {
 
         // 构建返回
         if let errorMsg = errorMsg {
+            // 尝试 HTTP/1.1 回退（解决部分服务器 HTTP/2 PROTOCOL_ERROR）
+            if method == "GET", let fallbackResult = tryHTTP11Fallback(url: requestURL, request: request) {
+                return fallbackResult
+            }
             result["content"] = errorMsg
             result["status"] = responseStatus
             return result
@@ -234,5 +238,44 @@ class JSHTTPBridge {
         }
 
         return result
+    }
+
+    /// HTTP/1.1 回退：当 URLSession 因 HTTP/2 PROTOCOL_ERROR 失败时，使用 NWConnection 强制 HTTP/1.1
+    private func tryHTTP11Fallback(url: URL, request: URLRequest) -> [String: Any]? {
+        var headers: [String: String] = [:]
+        for (key, value) in request.allHTTPHeaderFields ?? [:] {
+            let lower = key.lowercased()
+            if lower == "host" || lower == "connection" || lower == "accept-encoding" { continue }
+            headers[key] = value
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var fallbackResult: [String: Any]? = nil
+
+        DoubanImageProxyServer.downloadHTTP11(url: url, headers: headers, timeout: timeout) { [weak self] data, status, respHeaders, error in
+            if let error = error {
+                print("[JSHTTPBridge] HTTP/1.1 回退也失败: \(error.localizedDescription)")
+                fallbackResult = nil
+            } else if let data = data {
+                let content = self?.decodeText(data, headers: respHeaders) ?? ""
+                fallbackResult = [
+                    "ok": status >= 200 && status < 300,
+                    "status": status,
+                    "content": content,
+                    "url": url.absoluteString,
+                    "headers": respHeaders
+                ] as [String: Any]
+                print("[JSHTTPBridge] HTTP/1.1 回退成功: status=\(status), bytes=\(data.count)")
+            }
+            semaphore.signal()
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout + 5)
+        if waitResult == .timedOut {
+            print("[JSHTTPBridge] HTTP/1.1 回退超时")
+            return nil
+        }
+
+        return fallbackResult
     }
 }
