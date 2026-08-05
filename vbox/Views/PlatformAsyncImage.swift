@@ -104,13 +104,14 @@ extension PlatformAsyncImage {
     /// - Parameters:
     ///   - urlString: 图片 URL
     ///   - referer: 源站 Referer（如 "https://www.91panta.cn/"），nil 则不注入
-    static func sourceCover(_ urlString: String, referer: String?, contentMode: ContentMode = .fill) -> PlatformAsyncImage {
+    static func sourceCover(_ urlString: String, referer: String?, sslBypass: Bool = false, contentMode: ContentMode = .fill) -> PlatformAsyncImage {
         let finalURL: String
         if let ref = referer, !ref.isEmpty {
             // 使用 @key=value 格式与 parseHeaderSuffix 匹配
             let ua = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36"
             let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
-            finalURL = "\(urlString)@User-Agent=\(ua)@Referer=\(normalizedRef)"
+            let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
+            finalURL = "\(urlString)@User-Agent=\(ua)@Referer=\(normalizedRef)\(sslFlag)"
         } else {
             finalURL = urlString
         }

@@ -49,6 +49,8 @@ protocol FuliPlatformService: ObservableObject {
     var contentCategory: FuliContentCategory { get }
     /// 封面图防盗链 Referer。默认 nil，只有需要的远程源注入。
     var imageReferer: String? { get }
+    /// 封面图是否需要 SSL 绕过。默认 false，只有需要的远程源启用。
+    var imageSSLBypass: Bool { get }
 
     /// 域名管理
     func reprobe()
@@ -59,6 +61,7 @@ protocol FuliPlatformService: ObservableObject {
 extension FuliPlatformService {
     var contentCategory: FuliContentCategory { .video }
     var imageReferer: String? { nil }
+    var imageSSLBypass: Bool { false }
 }
 
 // MARK: - 默认实现（域名探测 + HTTP 工具）
@@ -202,6 +205,8 @@ class FuliBaseService: ObservableObject, FuliPlatformService {
     var contentCategory: FuliContentCategory { .video }
     /// 默认不注入图片 Referer；远程配置类服务可 override。
     var imageReferer: String? { nil }
+    /// 默认不绕过图片 SSL；远程配置类服务可 override。
+    var imageSSLBypass: Bool { false }
 
     init(platformName: String, defaultHosts: [String]) {
         self.platformName = platformName

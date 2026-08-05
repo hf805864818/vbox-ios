@@ -158,7 +158,7 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                     ) {
                         ForEach(videos) { video in
                             NavigationLink(destination: detailView(for: video)) {
-                                FuliVideoCard(video: video, imageReferer: svc.imageReferer)
+                                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
@@ -271,7 +271,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                     ) {
                         ForEach(videos) { video in
                             NavigationLink(destination: searchDetailView(for: video)) {
-                                FuliVideoCard(video: video, imageReferer: svc.imageReferer)
+                                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
@@ -329,6 +329,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
 struct FuliVideoCard: View {
     let video: FuliVideo
     var imageReferer: String? = nil
+    var imageSSLBypass: Bool = false
 
     private var bottomLabel: String {
         var parts: [String] = []
@@ -341,7 +342,7 @@ struct FuliVideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomLeading) {
-                FuliCoverImage(urlString: video.vodPic, referer: imageReferer, contentMode: .fill)
+                FuliCoverImage(urlString: video.vodPic, referer: imageReferer, sslBypass: imageSSLBypass, contentMode: .fill)
                 .frame(height: 88)
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -377,11 +378,12 @@ struct FuliVideoCard: View {
 struct FuliCoverImage: View {
     let urlString: String
     let referer: String?
+    var sslBypass: Bool = false
     let contentMode: ContentMode
 
     var body: some View {
         if let referer = referer, !referer.isEmpty {
-            PlatformAsyncImage.sourceCover(urlString, referer: referer, contentMode: contentMode)
+            PlatformAsyncImage.sourceCover(urlString, referer: referer, sslBypass: sslBypass, contentMode: contentMode)
         } else {
             AsyncImage(url: URL(string: urlString)) { phase in
                 switch phase {

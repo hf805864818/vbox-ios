@@ -31,6 +31,10 @@ final class RemoteCMSV10Service: FuliBaseService {
         platform.imageReferer
     }
 
+    override var imageSSLBypass: Bool {
+        platform.imageSSLBypass ?? false
+    }
+
     private var isArticleHTMLMode: Bool {
         (platform.detailMode ?? "").lowercased() == "article_html"
             || (platform.apiKind ?? "").lowercased() == "mac_art_html"

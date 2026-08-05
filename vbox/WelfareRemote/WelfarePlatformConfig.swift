@@ -167,6 +167,8 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let articleDetailPath: String?
     /// 图片防盗链 Referer。
     let imageReferer: String?
+    /// 图片请求是否需要 SSL 绕过。
+    let imageSSLBypass: Bool?
     /// 远程源自定义请求头，仅通用远程 Service 使用。
     let headers: [String: String]?
     /// 条目过滤规则。
@@ -202,6 +204,7 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case articleListPath
         case articleDetailPath
         case imageReferer
+        case imageSSLBypass
         case headers
         case itemRule
     }
