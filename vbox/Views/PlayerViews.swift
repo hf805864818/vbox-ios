@@ -349,7 +349,19 @@ struct VideoDetailView: View {
         guard rawCloudLinks.isEmpty, !isLoadingPan else { return }
         isLoadingPan = true
         Task {
-            if let result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId) {
+            // 路由分发：
+            // 路径A — 云源：vodId 是 HTTP URL → resolveCloudPlay（现有逻辑，不变）
+            // 路径B — JS蜘蛛网盘源：vodId 非 URL 但有 engineKey → resolveCloudPlayFromSpider（新增）
+            let result: (links: [(url: String, name: String)], siteName: String)?
+            if video.vodId.hasPrefix("http") {
+                result = await SpiderManager.shared.resolveCloudPlay(from: video.vodId)
+            } else if let engineKey = video.engineKey {
+                result = await SpiderManager.shared.resolveCloudPlayFromSpider(ids: video.vodId, engineKey: engineKey)
+            } else {
+                result = nil
+            }
+
+            if let result {
                 // 1. 预处理：识别每个链接的网盘类型，按排序优先级排列
                 let parsed = result.links.enumerated().map { index, link in
                     let dt = CloudDriveManager.detectDrive(from: link.url)
@@ -358,7 +370,7 @@ struct VideoDetailView: View {
                 }
                 // 按排序顺序排列 rawCloudLinks
                 let sorted = sortRawCloudLinks(parsed)
-                
+
                 await MainActor.run {
                     rawCloudLinks = sorted
                     // 设置所有网盘为 loading 状态
@@ -373,7 +385,7 @@ struct VideoDetailView: View {
 
                 // 2. 按网盘分组，保持排序顺序
                 let grouped = groupRawLinks(sorted)
-                
+
                 // 3. 第一个网盘同步等待
                 if let first = grouped.first {
                     let expanded = await expandSingleDrive(driveName: first.drive, links: first.links)
@@ -384,7 +396,7 @@ struct VideoDetailView: View {
                             selectedCloudDrive = first.drive
                         }
                     }
-                    
+
                     // 4. 后续网盘依次后台预加载
                     for group in grouped.dropFirst() {
                         let expanded = await expandSingleDrive(driveName: group.drive, links: group.links)

@@ -3305,6 +3305,77 @@ globalThis.__JS_SPIDER__ = _spider;
 
     func clearCloudPlayCache() {
         cloudPlayCache.removeAll()
+        spiderCloudPlayCache.removeAll()
+    }
+
+    // MARK: - JS 蜘蛛网盘源解析
+    // 网盘蜘蛛源约定：vod_remarks 以 "☁️" 开头标识网盘资源，
+    // detailContent 的 vod_play_url 返回 JSON 数组 [{"url":"网盘链接","name":"网盘名"}]
+    // 本方法调用 JS detailContent 并解析 JSON 数组，与 resolveCloudPlay 并列，互不干扰
+
+    private var spiderCloudPlayCache: [String: (links: [(url: String, name: String)], siteName: String, expiresAt: Date)] = [:]
+
+    func resolveCloudPlayFromSpider(ids: String, engineKey: String) async -> (links: [(url: String, name: String)], siteName: String)? {
+        let cacheKey = "\(engineKey):\(ids)"
+        if let cached = spiderCloudPlayCache[cacheKey], cached.expiresAt > Date(), !cached.links.isEmpty {
+            print("[SpiderManager] resolveCloudPlayFromSpider 命中缓存: \(cached.links.count) 条")
+            return (cached.links, cached.siteName)
+        }
+
+        guard let engine = engines[engineKey] else {
+            print("[SpiderManager] resolveCloudPlayFromSpider: 引擎未找到 engineKey=\(engineKey)")
+            return nil
+        }
+
+        print("[SpiderManager] resolveCloudPlayFromSpider: ids=\(ids) engineKey=\(engineKey)")
+
+        let idsCopy = ids
+        let detailResult: VodItem? = await withGCDTimeout(operation: "spiderCloud[\(engineKey)]") {
+            do {
+                return try engine.callDetailContent(ids: idsCopy).list?.first
+            } catch {
+                print("[SpiderManager] resolveCloudPlayFromSpider JS调用异常: \(error.localizedDescription)")
+                return nil
+            }
+        }
+
+        guard let item = detailResult else {
+            print("[SpiderManager] resolveCloudPlayFromSpider: JS detailContent 返回空")
+            return nil
+        }
+
+        guard let playUrl = item.vodPlayUrl, !playUrl.isEmpty, playUrl.hasPrefix("[") else {
+            print("[SpiderManager] resolveCloudPlayFromSpider: vod_play_url 不是 JSON 数组格式")
+            return nil
+        }
+
+        guard let data = playUrl.data(using: .utf8),
+              let linksArray = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] else {
+            print("[SpiderManager] resolveCloudPlayFromSpider: JSON 解析失败")
+            return nil
+        }
+
+        var cloudLinks: [(url: String, name: String)] = []
+        for link in linksArray {
+            guard let url = link["url"], !url.isEmpty else { continue }
+            let name = link["name"] ?? "网盘资源"
+            cloudLinks.append((url: url, name: name))
+        }
+
+        guard !cloudLinks.isEmpty else {
+            print("[SpiderManager] resolveCloudPlayFromSpider: 解析后无有效链接")
+            return nil
+        }
+
+        let siteName = item.vodRemarks?.replacingOccurrences(of: "☁️", with: "") ?? "网盘"
+        spiderCloudPlayCache[cacheKey] = (cloudLinks, siteName, Date().addingTimeInterval(5 * 60))
+        if spiderCloudPlayCache.count > 100 {
+            let now = Date()
+            spiderCloudPlayCache = spiderCloudPlayCache.filter { $0.value.expiresAt > now }
+        }
+
+        print("[SpiderManager] resolveCloudPlayFromSpider 成功: \(cloudLinks.count) 条链接, siteName=\(siteName)")
+        return (cloudLinks, siteName)
     }
 
     private func parseCloudHTML(html: String, extraPanHosts: [String]? = nil, extraPanNames: [String: String]? = nil) async -> (links: [(url: String, name: String)], siteName: String)? {
