@@ -1794,7 +1794,10 @@ globalThis.__JS_SPIDER__ = _spider;
                                 if let items = r.items, !items.isEmpty {
                                     var tagged = items
                                     let name = siteNameMap[r.key] ?? r.key
-                                    for i in 0..<tagged.count { tagged[i].vodRemarks = name }
+                                    for i in 0..<tagged.count {
+                                        let original = tagged[i].vodRemarks ?? ""
+                                        tagged[i].vodRemarks = original.hasPrefix("☁️") ? "☁️" + name : name
+                                    }
                                     log("✅ QuickJS[\(r.key)] +\(tagged.count)条")
                                     onBatch(tagged)
                                 } else if let err = r.error {
@@ -1823,7 +1826,8 @@ globalThis.__JS_SPIDER__ = _spider;
                             var tagged = items
                             let name = siteNameMap[r.key] ?? r.key
                             for i in 0..<tagged.count {
-                                tagged[i].vodRemarks = name
+                                let original = tagged[i].vodRemarks ?? ""
+                                tagged[i].vodRemarks = original.hasPrefix("☁️") ? "☁️" + name : name
                                 tagged[i].engineKey = r.key
                             }
                             log("✅ QuickJS[\(r.key)] +\(tagged.count)条")
