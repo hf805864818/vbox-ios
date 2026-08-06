@@ -347,7 +347,7 @@ struct DailyBattleSearchTab: View {
     }
 }
 
-// MARK: - 播放器页面（对接 VideoDetailView，与香蕉秀统一播放体验）
+// MARK: - 播放器页面（直接对接 VideoPlayerViewV2，与香蕉秀统一播放体验）
 
 struct DailyBattlePlayerView: View {
     let vodId: String
@@ -385,7 +385,7 @@ struct DailyBattlePlayerView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .onAppear { loadDetail() }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+            if let vod = vodItem { VideoPlayerViewV2(video: vod) }
         }
     }
 
