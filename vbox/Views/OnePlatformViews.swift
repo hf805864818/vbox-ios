@@ -618,11 +618,7 @@ struct OneVideoDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem {
-                NavigationView {
-                    VideoDetailView(video: vod)
-                }
-            }
+            if let vod = vodItem { VideoPlayerViewV2(video: vod) }
         }
         .onAppear { loadDetail() }
     }

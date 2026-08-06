@@ -283,7 +283,7 @@ struct SihuVideoDetailView: View {
             if playSources.isEmpty { loadDetail() }
         }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+            if let vod = vodItem { VideoPlayerViewV2(video: vod) }
         }
     }
 

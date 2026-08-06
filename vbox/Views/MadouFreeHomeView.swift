@@ -254,7 +254,7 @@ struct MadouFreePlayerView: View {
         .navigationTitle("播放").navigationBarTitleDisplayMode(.inline)
         .onAppear { loadPlayURL() }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let vod = vodItem { VideoDetailView(video: vod) }
+            if let vod = vodItem { VideoPlayerViewV2(video: vod) }
         }
     }
 

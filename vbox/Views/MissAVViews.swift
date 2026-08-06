@@ -214,10 +214,10 @@ struct MissAVPlayerRouterView: View {
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showPlayer) {
             if let vod = resolvedVod {
-                VideoDetailView(video: vod)
+                VideoPlayerViewV2(video: vod)
             } else {
                 // 兜底：用原始视频信息
-                VideoDetailView(video: video)
+                VideoPlayerViewV2(video: video)
             }
         }
         .task {
