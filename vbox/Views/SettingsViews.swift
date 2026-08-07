@@ -14,7 +14,6 @@ struct SettingsView: View {
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
     @AppStorage("custom_danmaku_source_enabled") private var customDanmakuSourceEnabled = false
     @AppStorage("custom_danmaku_source_url") private var customDanmakuSourceURL = ""
-    @AppStorage("show_debug_overlay") private var showDebugOverlay = false
     @AppStorage("show_search_debug") private var showSearchDebug = false
     @State private var showCacheAlert = false
     @State private var cacheSize: String = "256 MB"
@@ -201,7 +200,6 @@ struct SettingsView: View {
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
 
-            SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
             SettingsToggleRow(title: "搜索调试面板", isOn: $showSearchDebug)
         }
     }
