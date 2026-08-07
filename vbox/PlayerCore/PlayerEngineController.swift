@@ -144,7 +144,8 @@ final class PlayerEngineController: ObservableObject {
         case .system:
             return AVPlayerEngine()
         case .vlc:
-            return VLCPlayerEngine()
+            // VLCPlayerEngine 已移除（死代码），VLC 播放由 VLCPlayerRepresentableV2 直接处理
+            return UnsupportedPlayerEngine(type: .vlc, name: "VLC")
         case .mpvKit:
             return MPVPlayerEngine(backendType: .mpvKit)
         case .libmpv:

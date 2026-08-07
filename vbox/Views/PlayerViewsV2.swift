@@ -6644,6 +6644,7 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
         private var progressTimer: Timer?
         private weak var playerState: PlayerState?
         private var didFinish = false
+        private var drawableView: UIView?
         var currentURL: URL?
 
         init(playerState: PlayerState) {
@@ -6670,6 +6671,12 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
                     self?.mediaPlayer.rate = Float(speed)
                 }
             )
+            observers.append(
+                NotificationCenter.default.addObserver(forName: .vboxVideoGravityChanged, object: nil, queue: .main) { [weak self] note in
+                    guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+                    self?.applyVideoGravity(mode)
+                }
+            )
         }
 
         deinit {
@@ -6679,7 +6686,12 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
             currentURL = url
+            drawableView = view
             mediaPlayer.drawable = view
+            // 初始化时应用当前拉伸模式
+            if let mode = playerState?.videoGravity {
+                applyVideoGravity(mode)
+            }
             let media = VLCMedia(url: url)
             var options: [AnyHashable: Any] = [:]
             // 增加网络缓存，减少夸克/百度直链播放时的卡顿（默认300ms太小）
@@ -6701,11 +6713,25 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             startProgressTimer()
         }
 
+        private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+            guard let view = drawableView else { return }
+            switch mode {
+            case .aspectFill:
+                view.contentMode = .scaleAspectFill
+            case .aspectFit:
+                view.contentMode = .scaleAspectFit
+            case .resize:
+                view.contentMode = .scaleToFill
+            }
+            view.clipsToBounds = true
+        }
+
         func stop() {
             progressTimer?.invalidate()
             progressTimer = nil
             mediaPlayer.stop()
             mediaPlayer.drawable = nil
+            drawableView = nil
             currentURL = nil
         }
 
