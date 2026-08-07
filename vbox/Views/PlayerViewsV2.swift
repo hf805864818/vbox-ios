@@ -1687,7 +1687,7 @@ class PlayerState: ObservableObject {
         }
     }
 
-    private func formatDuration(_ time: Double) -> String {
+    func formatDuration(_ time: Double) -> String {
         guard time.isFinite, time >= 0 else { return "00:00" }
         let hours = Int(time) / 3600
         let minutes = (Int(time) % 3600) / 60
