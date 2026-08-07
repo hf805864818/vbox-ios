@@ -513,6 +513,7 @@ struct VideoPlayerViewV2: View {
                 playerState: playerState,
                 video: video
             )
+            .persistentSystemOverlays(.hidden)
             
             // 错误提示（附带调试日志）
             if let error = playerState.loadError {
@@ -4378,6 +4379,9 @@ struct PlayerContainerView: View {
 
     // 5秒无触摸自动隐藏控制栏
     @State private var autoHideTask: Task<Void, Never>?
+    // 锁定按钮独立自动隐藏（3秒）
+    @State private var lockButtonVisible = true
+    @State private var lockButtonAutoHideTask: Task<Void, Never>?
 
     private var isAliPlayerBuildAvailable: Bool {
         return NSClassFromString("AliPlayer") != nil
@@ -4420,6 +4424,20 @@ struct PlayerContainerView: View {
         }
     }
 
+    /// 锁定按钮独立自动隐藏（3秒），与主控制栏的 autoHideTimer 解耦
+    private func resetLockButtonAutoHide() {
+        lockButtonAutoHideTask?.cancel()
+        lockButtonAutoHideTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    self.lockButtonVisible = false
+                }
+            }
+        }
+    }
+
     private func handleControlPopupChange(_ isPresented: Bool) {
         if isPresented {
             autoHideTask?.cancel()
@@ -4436,6 +4454,7 @@ struct PlayerContainerView: View {
                     #if canImport(swift_mdk)
                     MDKPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                         .ignoresSafeArea()
+                        .allowsHitTesting(false)
                     #else
                     CompatibilityUnavailableView(engineName: "MDK", message: "当前构建未包含 MDK，请等待兼容内核构建包")
                     #endif
@@ -4443,6 +4462,7 @@ struct PlayerContainerView: View {
                     #if canImport(Libmpv)
                     LibmpvMoltenVKPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                         .ignoresSafeArea()
+                        .allowsHitTesting(false)
                     #else
                     CompatibilityUnavailableView(engineName: "MPV-MoltenVK", message: "当前构建未包含 Libmpv")
                     #endif
@@ -4450,6 +4470,7 @@ struct PlayerContainerView: View {
                     #if canImport(IJKMediaFrameworkWithSSL)
                     IJKPlayerRepresentable(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                         .ignoresSafeArea()
+                        .allowsHitTesting(false)
                     #else
                     CompatibilityUnavailableView(engineName: "IJKPlayer", message: "当前构建未包含 IJKPlayer")
                     #endif
@@ -4470,6 +4491,7 @@ struct PlayerContainerView: View {
                         onSeekDone: { playerState.isSeeking = false }
                     )
                         .ignoresSafeArea()
+                        .allowsHitTesting(false)
                     } else {
                     CompatibilityUnavailableView(engineName: "AliPlayer", message: "当前构建未包含 AliyunPlayer")
                     }
@@ -4477,6 +4499,7 @@ struct PlayerContainerView: View {
                 #if canImport(MobileVLCKit)
                 VLCPlayerRepresentableV2(url: url, headers: playerState.compatibilityHeaders, playerState: playerState)
                     .ignoresSafeArea()
+                    .allowsHitTesting(false)
                 #else
                 CompatibilityUnavailableView(engineName: "VLC", message: "当前构建未包含 VLC，请等待兼容内核构建包")
                 #endif
@@ -4484,6 +4507,7 @@ struct PlayerContainerView: View {
             } else if let player = player {
                 AVPlayerControllerRepresentableV2(player: player, videoGravity: playerState.videoGravity)
                     .ignoresSafeArea()
+                    .allowsHitTesting(false)
             }
             
             // 加载层：播放器初始化后到首帧出现前也持续显示，避免黑屏无反馈
@@ -4523,11 +4547,19 @@ struct PlayerContainerView: View {
                 GestureControlView(playerState: playerState) {
                     guard !playerState.isSeeking else { return }
                     guard !isAnyControlPopupPresented else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        playerState.showControls.toggle()
-                    }
-                    if playerState.showControls {
-                        resetAutoHideTimer()
+                    if playerState.isOrientationLocked {
+                        // 锁定状态：点击屏幕只显示锁定按钮，3秒后自动隐藏
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            lockButtonVisible = true
+                        }
+                        resetLockButtonAutoHide()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            playerState.showControls.toggle()
+                        }
+                        if playerState.showControls {
+                            resetAutoHideTimer()
+                        }
                     }
                 }
                 .ignoresSafeArea()
@@ -4539,7 +4571,8 @@ struct PlayerContainerView: View {
                 PlayerControlsView(
                     player: player,
                     playerState: playerState,
-                    video: video
+                    video: video,
+                    showLockButton: lockButtonVisible
                 )
                 .zIndex(30)
             }
@@ -4870,12 +4903,17 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.isOrientationLocked) { isLocked in
             if isLocked {
                 autoHideTask?.cancel()
+                lockButtonVisible = true
+                resetLockButtonAutoHide()
             } else {
+                lockButtonAutoHideTask?.cancel()
+                lockButtonVisible = false
                 resetAutoHideTimer()
             }
         }
         .onDisappear {
             autoHideTask?.cancel()
+            lockButtonAutoHideTask?.cancel()
         }
     }
 }
@@ -5603,13 +5641,14 @@ struct PlayerControlsView: View {
     let player: AVPlayer?
     @ObservedObject var playerState: PlayerState
     let video: VodItem
+    let showLockButton: Bool
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack {
             PlayerTopBarView(
                 isPortrait: playerState.isPortrait,
-                videoName: video.vodName,
+                videoName: playerState.episodeItems.isEmpty ? video.vodName : (playerState.currentEpisodeIndex < playerState.episodeItems.count ? playerState.episodeItems[playerState.currentEpisodeIndex].name : video.vodName),
                 playerState: playerState,
                 onTogglePiP: { togglePiP() },
                 onDismiss: { dismiss() }
@@ -5636,7 +5675,7 @@ struct PlayerControlsView: View {
         // 锁定按钮覆盖层（固定在左侧屏幕边缘垂直居中，不受VStack布局影响）
         .overlay(
             Group {
-                if !playerState.isPortrait {
+                if !playerState.isPortrait && (!playerState.isOrientationLocked || showLockButton) {
                     GeometryReader { geometry in
                         Button(action: {
                             playerState.isOrientationLocked.toggle()
