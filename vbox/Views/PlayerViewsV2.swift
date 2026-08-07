@@ -5124,7 +5124,7 @@ struct PlayerContainerView: View {
                         showDebugOverlay: $playerState.showDebugOverlay
                     )
                     .environmentObject(settings)
-                    .position(x: geo.size.width - 16 - 75, y: 72)
+                    .position(x: geo.size.width - 70.5, y: 155)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .scale(scale: 0.8)),
                         removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -7592,23 +7592,23 @@ struct ToolsQuickMenuV2: View {
                     showSkipSettings = true
                 }
             }) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "forward.end.frame")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(textColor.opacity(0.8))
-                        .frame(width: 20)
+                        .frame(width: 16)
                     Text("片头片尾")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(textColor)
                         .lineLimit(1)
-                        .fixedSize()
-                    Spacer(minLength: 4)
+                    Spacer(minLength: 2)
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(textColor.opacity(0.4))
+                        .frame(width: 36, alignment: .trailing)
                 }
-                .padding(.horizontal, 12)
-                .frame(width: 150, height: 38)
+                .padding(.horizontal, 8)
+                .frame(width: 115, height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -7652,24 +7652,24 @@ struct ToolsToggleRow: View {
     let textColor: Color
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 14))
+                .font(.system(size: 13))
                 .foregroundColor(textColor.opacity(0.8))
-                .frame(width: 20)
+                .frame(width: 16)
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(textColor)
                 .lineLimit(1)
-                .fixedSize()
-            Spacer(minLength: 4)
+            Spacer(minLength: 2)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .tint(Color(hex: "00BE06"))
-                .scaleEffect(0.8)
+                .scaleEffect(0.7)
+                .frame(width: 36, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
-        .frame(width: 150, height: 38)
+        .padding(.horizontal, 8)
+        .frame(width: 115, height: 38)
         .contentShape(Rectangle())
     }
 }
