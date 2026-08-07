@@ -2796,11 +2796,13 @@ class PlayerState: ObservableObject {
         p.play()
 
         // 跳过片头：网盘资源首次播放
-        if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
-            let skip = Double(self.skipIntroSeconds)
-            self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
-            p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
-            self.currentTime = skip
+        await MainActor.run {
+            if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
+                let skip = Double(self.skipIntroSeconds)
+                self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
+                p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
+                self.currentTime = skip
+            }
         }
 
         // 安全兜底：播放器已实际播放（有进度/在播放）但 isLoading 仍为 true 时，清除 loading 状态。
