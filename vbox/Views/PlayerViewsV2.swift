@@ -714,6 +714,12 @@ class PlayerState: ObservableObject {
     @Published var showDanmakuSettings = false
     @Published var showEnginePicker = false
     @Published var showDanmakuInput = false
+    @Published var showToolsMenu = false
+    @AppStorage("skip_intro_enabled") var skipIntroEnabled = false
+    @AppStorage("skip_intro_seconds") var skipIntroSeconds = 0
+    @AppStorage("skip_outro_enabled") var skipOutroEnabled = false
+    @AppStorage("skip_outro_seconds") var skipOutroSeconds = 0
+    @Published var skipOutroTriggered = false  // 防止跳过片尾重复触发
     @Published var currentDanmakuEpisodeId: Int? = nil
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
@@ -2433,6 +2439,7 @@ class PlayerState: ObservableObject {
         let sessionId = await MainActor.run { beginPlaybackSession() }
         await MainActor.run {
             isLoading = true
+            skipOutroTriggered = false
             loadingMessage = "正在缓冲首帧..."
         }
         let finalURLString: String
@@ -2659,6 +2666,13 @@ class PlayerState: ObservableObject {
                         fallbackURL: urlObj,
                         fallbackHeaders: assetHeaders
                     )
+                    // 跳过片头：网盘资源首次播放
+                    if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
+                        let skip = Double(self.skipIntroSeconds)
+                        self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
+                        p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
+                        self.currentTime = skip
+                    }
                 case .failed:
                     let nsError = playerItem.error as? NSError
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
@@ -2775,6 +2789,14 @@ class PlayerState: ObservableObject {
             if isBaiduLocalProxy {
                 self.prefetchNextBaiduFileNearEnd(current: self.currentTime, duration: self.duration)
                 self.reportBaiduCacheProgressIfNeeded()
+            }
+            // 跳过片尾：网盘资源接近结尾时自动播放下一集
+            if self.skipOutroEnabled, self.skipOutroSeconds > 0, !self.skipOutroTriggered,
+               self.duration > 0, self.currentTime > 0,
+               self.currentTime >= self.duration - Double(self.skipOutroSeconds) {
+                self.skipOutroTriggered = true
+                self.log("[PlayerV2] ⏩ 网盘跳过片尾 \(self.formatDuration(Double(self.skipOutroSeconds)))，自动播放下一集")
+                self.playNextEpisode()
             }
         }
 
@@ -3990,6 +4012,7 @@ class PlayerState: ObservableObject {
             return
         }
         if !noReferer { hasRetriedNoReferer = false }
+        skipOutroTriggered = false
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         detectVideoQuality(from: url.absoluteString)
 
@@ -4149,6 +4172,11 @@ class PlayerState: ObservableObject {
                         let resume = self.currentTime
                         self.log("[Progress] 自动跳转到上次进度：\(self.formatDuration(resume))")
                         p.seek(to: CMTime(seconds: resume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    } else if self.skipIntroEnabled, self.skipIntroSeconds > 0 {
+                        let skip = Double(self.skipIntroSeconds)
+                        self.log("[PlayerV2] ⏩ 跳过片头 \(self.formatDuration(skip))")
+                        p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
+                        self.currentTime = skip
                     }
                 case .failed:
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
@@ -4246,6 +4274,14 @@ class PlayerState: ObservableObject {
             }
             self.updateDanmaku(at: time.seconds)
             self.savePlaybackProgress()
+            // 跳过片尾：普通/蜘蛛资源接近结尾时自动播放下一集
+            if self.skipOutroEnabled, self.skipOutroSeconds > 0, !self.skipOutroTriggered,
+               self.duration > 0, self.currentTime > 0,
+               self.currentTime >= self.duration - Double(self.skipOutroSeconds) {
+                self.skipOutroTriggered = true
+                self.log("[PlayerV2] ⏩ 跳过片尾 \(self.formatDuration(Double(self.skipOutroSeconds)))，自动播放下一集")
+                self.playNextEpisode()
+            }
         }
         
         // 延迟播放确保UI准备好
@@ -4393,7 +4429,8 @@ struct PlayerContainerView: View {
         playerState.showQualityPicker ||
         playerState.showDanmakuSettings ||
         playerState.showEnginePicker ||
-        playerState.showDanmakuInput
+        playerState.showDanmakuInput ||
+        playerState.showToolsMenu
     }
 
     private var hasPlaybackError: Bool {
@@ -4861,6 +4898,34 @@ struct PlayerContainerView: View {
                 }
             }
             .zIndex(40)
+
+            // 更多功能菜单弹窗（横屏：固定在右上角按钮下方）
+            if !playerState.isPortrait && playerState.showToolsMenu {
+                GeometryReader { geo in
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showToolsMenu = false
+                            }
+                        }
+                    ToolsMenuPanelV2(
+                        isPresented: $playerState.showToolsMenu,
+                        skipIntroEnabled: $playerState.skipIntroEnabled,
+                        skipIntroSeconds: $playerState.skipIntroSeconds,
+                        skipOutroEnabled: $playerState.skipOutroEnabled,
+                        skipOutroSeconds: $playerState.skipOutroSeconds
+                    )
+                    .environmentObject(settings)
+                    .position(x: geo.size.width - 98, y: 72)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.8)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
+                    ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(40)
+            }
         }
         .onAppear {
             resetAutoHideTimer()
@@ -4893,6 +4958,7 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.showDanmakuSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.showEnginePicker) { handleControlPopupChange($0) }
         .onChange(of: playerState.showDanmakuInput) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showToolsMenu) { handleControlPopupChange($0) }
         .onChange(of: playerState.isSeeking) { isSeeking in
             if isSeeking {
                 autoHideTask?.cancel()
@@ -5080,6 +5146,7 @@ struct PlayerTopBarView: View {
                     playerState.showSettings = false
                     playerState.showQualityPicker = false
                     playerState.showEnginePicker = false
+                    playerState.showToolsMenu = false
                     // 短暂延迟后恢复允许所有方向，用户可自由旋转回竖屏
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         OrientationHelper.allowAllOrientations()
@@ -5160,6 +5227,17 @@ struct PlayerTopBarView: View {
                             Image(systemName: playerState.videoGravity.icon)
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: {
+                            playerState.showToolsMenu.toggle()
+                        }) {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(playerState.showToolsMenu ? Color(hex: "00BE06") : .white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -7176,6 +7254,119 @@ struct DanmakuSettingsPanelV2: View {
                 )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - 更多功能菜单面板（横屏，含片头片尾跳过设置 + 滚轮 + 震动）
+struct ToolsMenuPanelV2: View {
+    @Binding var isPresented: Bool
+    @Binding var skipIntroEnabled: Bool
+    @Binding var skipIntroSeconds: Int
+    @Binding var skipOutroEnabled: Bool
+    @Binding var skipOutroSeconds: Int
+    @EnvironmentObject private var settings: AppSettings
+
+    private var panelBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.82)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 菜单项1：跳过片头
+            ToolsMenuRow(
+                icon: "forward.fill",
+                title: "跳过片头",
+                isOn: $skipIntroEnabled,
+                totalSeconds: $skipIntroSeconds
+            )
+            Divider().background(Color.white.opacity(0.1))
+
+            // 菜单项2：跳过片尾
+            ToolsMenuRow(
+                icon: "backward.fill",
+                title: "跳过片尾",
+                isOn: $skipOutroEnabled,
+                totalSeconds: $skipOutroSeconds
+            )
+        }
+        .padding(.vertical, 6)
+        .frame(width: 180)
+        .background(panelBackground)
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+    }
+}
+
+// MARK: - 单行菜单项（含开关 + 滚轮时间选择器 + 震动反馈）
+struct ToolsMenuRow: View {
+    let icon: String
+    let title: String
+    @Binding var isOn: Bool
+    @Binding var totalSeconds: Int
+
+    private let impactFeedback = UISelectionFeedbackGenerator()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 标题行：图标 + 名称 + 开关
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(isOn ? Color(hex: "00BE06") : .white.opacity(0.6))
+                    .frame(width: 20)
+
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+
+                Spacer()
+
+                Toggle("", isOn: $isOn)
+                    .toggleStyle(SwitchToggleStyle(tint: Color(hex: "00BE06")))
+                    .scaleEffect(0.8)
+                    .frame(width: 44)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+
+            // 滚轮选择器：开关打开时展开
+            if isOn {
+                HStack(spacing: 0) {
+                    Picker("分", selection: Binding(
+                        get: { totalSeconds / 60 },
+                        set: { totalSeconds = $0 * 60 + totalSeconds % 60 }
+                    )) {
+                        ForEach(0...10, id: \.self) { m in
+                            Text("\(m)分").tag(m)
+                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(width: 70)
+                    .onChange(of: totalSeconds / 60) { _ in
+                        impactFeedback.selectionChanged()
+                    }
+
+                    Picker("秒", selection: Binding(
+                        get: { totalSeconds % 60 },
+                        set: { totalSeconds = (totalSeconds / 60) * 60 + $0 }
+                    )) {
+                        ForEach(0..<60, id: \.self) { s in
+                            Text("\(s)秒").tag(s)
+                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(width: 70)
+                    .onChange(of: totalSeconds % 60) { _ in
+                        impactFeedback.selectionChanged()
+                    }
+                }
+                .frame(height: 100)
+                .padding(.bottom, 4)
+            }
+        }
     }
 }
 
