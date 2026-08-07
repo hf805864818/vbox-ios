@@ -7351,15 +7351,17 @@ struct ToolsQuickMenuV2: View {
                     showSkipSettings = true
                 }
             }) {
-                VStack(spacing: 4) {
+                HStack(spacing: 8) {
                     Image(systemName: "forward.end.frame")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)
+                        .frame(width: 22)
                     Text("片头片尾")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                    Spacer()
                 }
-                .frame(width: 56, height: 52)
+                .frame(width: 130, height: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -7482,11 +7484,14 @@ struct ToolsMenuRow: View {
                         set: { totalSeconds = $0 * 60 + totalSeconds % 60 }
                     )) {
                         ForEach(0...10, id: \.self) { m in
-                            Text("\(m)分").tag(m)
+                            Text("\(m)分")
+                                .foregroundColor(.white)
+                                .tag(m)
                         }
                     }
                     .pickerStyle(.wheel)
                     .frame(width: 70)
+                    .colorScheme(.dark)
                     .onChange(of: totalSeconds / 60) { _ in
                         impactFeedback.selectionChanged()
                     }
@@ -7496,11 +7501,14 @@ struct ToolsMenuRow: View {
                         set: { totalSeconds = (totalSeconds / 60) * 60 + $0 }
                     )) {
                         ForEach(0..<60, id: \.self) { s in
-                            Text("\(s)秒").tag(s)
+                            Text("\(s)秒")
+                                .foregroundColor(.white)
+                                .tag(s)
                         }
                     }
                     .pickerStyle(.wheel)
                     .frame(width: 70)
+                    .colorScheme(.dark)
                     .onChange(of: totalSeconds % 60) { _ in
                         impactFeedback.selectionChanged()
                     }
