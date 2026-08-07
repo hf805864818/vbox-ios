@@ -734,6 +734,8 @@ class PlayerState: ObservableObject {
     @Published var skipOutroEnabled = false
     @Published var skipOutroSeconds = 0
     @Published var skipOutroTriggered = false  // 防止跳过片尾重复触发
+    @Published var skipIntroTriggered = false  // 防止跳过片头重复触发
+    @Published var isSwitchingEpisode = false  // 防止兼容内核 Timer 重入导致连续切集
     @Published var currentDanmakuEpisodeId: Int? = nil
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
@@ -1125,10 +1127,16 @@ class PlayerState: ObservableObject {
 
     /// 切换百度多文件中的指定文件播放
     func switchBaiduFile(index: Int) {
-        guard index >= 0, index < baiduFileList.count else { return }
+        guard index >= 0, index < baiduFileList.count else {
+            isSwitchingEpisode = false
+            return
+        }
         let file = baiduFileList[index]
         let url = baiduShareURL
-        guard !url.isEmpty else { return }
+        guard !url.isEmpty else {
+            isSwitchingEpisode = false
+            return
+        }
         
         currentTask?.cancel()
         currentTask = Task { [weak self] in
@@ -1215,6 +1223,7 @@ class PlayerState: ObservableObject {
         let next = currentEpisodeIndex + 1
         guard next < baiduFileList.count else {
             log("[Baidu] 已经是最后一集")
+            isSwitchingEpisode = false
             return
         }
         switchBaiduFile(index: next)
@@ -1230,6 +1239,12 @@ class PlayerState: ObservableObject {
     
     /// 播放下一集（通用）
     func playNextEpisode() {
+        // 防重入：兼容内核 Timer 在切集完成前可能再次触发
+        guard !isSwitchingEpisode else {
+            log("[PlayerV2] ⚠️ 正在切集中，跳过重复的 playNextEpisode 调用")
+            return
+        }
+        isSwitchingEpisode = true
         if !episodeItems.isEmpty {
             switchToEpisode(index: currentEpisodeIndex + 1)
         } else {
@@ -1560,6 +1575,7 @@ class PlayerState: ObservableObject {
         skipOutroEnabled = UserDefaults.standard.bool(forKey: "\(p)_outro_enabled")
         skipOutroSeconds = UserDefaults.standard.integer(forKey: "\(p)_outro_seconds")
         skipOutroTriggered = false
+        skipIntroTriggered = false
         log("[PlayerV2] 加载片头片尾设置: 片头=\(skipIntroEnabled ? "开" : "关")(\(skipIntroSeconds)s) 片尾=\(skipOutroEnabled ? "开" : "关")(\(skipOutroSeconds)s)")
     }
 
@@ -1696,6 +1712,8 @@ class PlayerState: ObservableObject {
         await MainActor.run {
             currentEpisodeIndex = index
             skipOutroTriggered = false
+            skipIntroTriggered = false
+            isSwitchingEpisode = false
             if let video = currentVideo {
                 loadDanmaku(for: video, fileName: file.name)
                 restorePlaybackProgress(for: video)
@@ -2565,6 +2583,8 @@ class PlayerState: ObservableObject {
         await MainActor.run {
             isLoading = true
             skipOutroTriggered = false
+            skipIntroTriggered = false
+            isSwitchingEpisode = false
             loadingMessage = "正在缓冲首帧..."
         }
         let finalURLString: String
@@ -2751,6 +2771,7 @@ class PlayerState: ObservableObject {
                 detectVideoQuality(from: urlObj.absoluteString)
                 isPlaying = true
                 isLoading = false
+                isSwitchingEpisode = false
                 stopPlaybackWatchdog()
             }
             return
@@ -2782,6 +2803,18 @@ class PlayerState: ObservableObject {
                     let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
                     self.log("[PlayerV2] 网盘 PlayerItem 准备就绪，耗时=\(elapsed)ms，画面=\(Int(size.width))x\(Int(size.height))")
                     self.isLoading = false
+                    // 恢复上次播放进度 或 跳过片头
+                    if self.currentTime > 10, let p = self.player {
+                        let resume = self.currentTime
+                        self.log("[Progress] 网盘自动跳转到上次进度：\(self.formatDuration(resume))")
+                        p.seek(to: CMTime(seconds: resume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    } else if self.skipIntroEnabled, self.skipIntroSeconds > 0, !self.skipIntroTriggered, let p = self.player {
+                        self.skipIntroTriggered = true
+                        let skip = Double(self.skipIntroSeconds)
+                        self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
+                        p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
+                        self.currentTime = skip
+                    }
                     // 对夸克/百度本地代理都执行首帧黑屏检测（红色封面/和谐文件会返回尺寸为0）
                     self.scheduleVideoTrackCheck(
                         for: playerItem,
@@ -2866,6 +2899,16 @@ class PlayerState: ObservableObject {
                 }
             }
 
+        // 监听播放正常结束（网盘 AVPlayer 回退路径）
+        let localEndObserver = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard self.playbackSessionId == sessionId else { return }
+                self.log("[PlayerV2] 网盘播放结束")
+                self.playNextEpisodeIfAvailable()
+            }
+
         let p = AVPlayer(playerItem: playerItem)
         p.automaticallyWaitsToMinimizeStalling = !(isBaiduLocalProxy || isQuarkLocalProxy || isQuarkM3U8LocalProxy)
         if isQuarkLocalProxy {
@@ -2880,6 +2923,7 @@ class PlayerState: ObservableObject {
             cleanupObservers()
             statusObserver = localStatusObserver
             failureObserver = localFailureObserver
+            endObserver = localEndObserver
             player?.pause()
             player = p
             isPlaying = true
@@ -2919,16 +2963,6 @@ class PlayerState: ObservableObject {
         }
 
         p.play()
-
-        // 跳过片头：网盘资源首次播放
-        await MainActor.run {
-            if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
-                let skip = Double(self.skipIntroSeconds)
-                self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
-                p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
-                self.currentTime = skip
-            }
-        }
 
         // 安全兜底：播放器已实际播放（有进度/在播放）但 isLoading 仍为 true 时，清除 loading 状态。
         // 覆盖观察者回调因各种极端时序未被处理的边界情况。
@@ -3223,6 +3257,7 @@ class PlayerState: ObservableObject {
         compatibilityHint = "系统内核无视频画面"
         isPlaying = true
         isLoading = true
+        isSwitchingEpisode = false
         loadingMessage = "正在切换 MPV-MoltenVK..."
     }
 
@@ -4011,10 +4046,14 @@ class PlayerState: ObservableObject {
     
     /// 通用切集方法（支持所有资源类型）
     func switchToEpisode(index: Int) {
-        guard index >= 0, index < episodeItems.count else { return }
+        guard index >= 0, index < episodeItems.count else {
+            isSwitchingEpisode = false
+            return
+        }
         let episode = episodeItems[index]
         currentEpisodeIndex = index
         skipOutroTriggered = false
+        skipIntroTriggered = false
         log("[PlayerV2] 切集: \(episode.name) (index=\(index), type=\(episode.sourceType))")
         
         currentTask?.cancel()
@@ -4040,7 +4079,10 @@ class PlayerState: ObservableObject {
                 } else {
                     // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
                     log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
-                    guard let video = self.currentVideo else { return }
+                    guard let video = self.currentVideo else {
+                        await MainActor.run { self.isSwitchingEpisode = false }
+                        return
+                    }
                     // 设置 loading 状态，与其他切集路径（百度/夸克/UC）保持一致
                     await MainActor.run {
                         self.isLoading = true
@@ -4081,10 +4123,16 @@ class PlayerState: ObservableObject {
     /// 播放夸克网盘指定集数
     private func playQuarkEpisode(episode: EpisodeItem) async {
         guard let quarkIdx = episode.quarkFileIndex,
-              quarkIdx < quarkFileList.count else { return }
+              quarkIdx < quarkFileList.count else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
         let file = quarkFileList[quarkIdx]
         let shareURL = quarkShareURL
-        guard !shareURL.isEmpty else { return }
+        guard !shareURL.isEmpty else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
         
         log("[Quark] 切集播放: \(file.fileName)")
         await MainActor.run { isLoading = true }
@@ -4106,13 +4154,19 @@ class PlayerState: ObservableObject {
     /// 播放 UC 网盘指定集数
     private func playUCEpisode(episode: EpisodeItem) async {
         guard let ucFid = episode.ucFileFid,
-              let ucShareToken = episode.ucShareFidToken else { return }
+              let ucShareToken = episode.ucShareFidToken else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
         
         log("[UC] 切集播放: \(episode.name) (fid=\(ucFid))")
         await MainActor.run { isLoading = true }
         
         guard let token = CloudDriveManager.shared.tokens(for: .uc).first else {
-            await MainActor.run { self.failPlayback("未配置UC网盘 Token") }
+            await MainActor.run { 
+                self.failPlayback("未配置UC网盘 Token")
+                self.isSwitchingEpisode = false
+            }
             return
         }
         
@@ -4142,6 +4196,8 @@ class PlayerState: ObservableObject {
         }
         if !noReferer { hasRetriedNoReferer = false }
         skipOutroTriggered = false
+        skipIntroTriggered = false
+        isSwitchingEpisode = false
         log("[PlayerV2] 初始化播放器: \(url.absoluteString.prefix(100))...")
         detectVideoQuality(from: url.absoluteString)
 
@@ -4175,6 +4231,7 @@ class PlayerState: ObservableObject {
             compatibilityHint = "MKV / 复杂封装"
             isPlaying = true
             isLoading = true
+            isSwitchingEpisode = false
             loadingMessage = "正在启动 MPV-MoltenVK..."
             return
         }
@@ -4301,7 +4358,8 @@ class PlayerState: ObservableObject {
                         let resume = self.currentTime
                         self.log("[Progress] 自动跳转到上次进度：\(self.formatDuration(resume))")
                         p.seek(to: CMTime(seconds: resume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-                    } else if self.skipIntroEnabled, self.skipIntroSeconds > 0 {
+                    } else if self.skipIntroEnabled, self.skipIntroSeconds > 0, !self.skipIntroTriggered {
+                        self.skipIntroTriggered = true
                         let skip = Double(self.skipIntroSeconds)
                         self.log("[PlayerV2] ⏩ 跳过片头 \(self.formatDuration(skip))")
                         p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
@@ -4524,6 +4582,8 @@ class PlayerState: ObservableObject {
         showToolsMenu = false
         showSkipSettings = false
         skipOutroTriggered = false
+        skipIntroTriggered = false
+        isSwitchingEpisode = false
         NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
         NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
     }
@@ -5045,7 +5105,7 @@ struct PlayerContainerView: View {
             }
             .zIndex(40)
 
-            // 更多功能竖条菜单（横屏：固定在右上角按钮下方）
+            // 更多功能竖条菜单（横屏：固定在右上角三点按钮下方）
             if !playerState.isPortrait && playerState.showToolsMenu {
                 GeometryReader { geo in
                     Color.black.opacity(0.001)
@@ -5064,7 +5124,7 @@ struct PlayerContainerView: View {
                         showDebugOverlay: $playerState.showDebugOverlay
                     )
                     .environmentObject(settings)
-                    .position(x: geo.size.width - 38, y: 88)
+                    .position(x: geo.size.width - 16 - 75, y: 72)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .scale(scale: 0.8)),
                         removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -6401,6 +6461,34 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 playerState.reportBaiduCacheProgressIfNeeded()
                 playerState.isLoading = state.isBuffering
                 playerState.isPlaying = state.isPlaying
+
+                // 跳过片头：MPV 首次播放且进度极小
+                if playerState.skipIntroEnabled, playerState.skipIntroSeconds > 0,
+                   !playerState.skipIntroTriggered, !playerState.isSwitchingEpisode,
+                   state.currentTime < 2, state.duration > Double(playerState.skipIntroSeconds) {
+                    playerState.skipIntroTriggered = true
+                    let skip = Double(playerState.skipIntroSeconds)
+                    playerState.log("[PlayerV2] ⏩ MPV 跳过片头 \(playerState.formatDuration(skip))")
+                    self.core.seek(to: skip)
+                }
+
+                // 跳过片尾：接近结尾时自动播放下一集
+                if playerState.skipOutroEnabled, playerState.skipOutroSeconds > 0,
+                   !playerState.skipOutroTriggered, !playerState.isSwitchingEpisode,
+                   state.duration > 0, state.currentTime > 0,
+                   state.currentTime >= state.duration - Double(playerState.skipOutroSeconds) {
+                    playerState.skipOutroTriggered = true
+                    playerState.log("[PlayerV2] ⏩ MPV 跳过片尾 \(playerState.formatDuration(Double(playerState.skipOutroSeconds)))，自动播放下一集")
+                    playerState.playNextEpisode()
+                }
+
+                // 播放结束：MPV eofReached 事件
+                if state.isEnded, !playerState.isSwitchingEpisode {
+                    playerState.isPlaying = false
+                    playerState.log("[PlayerV2] MPV 播放结束")
+                    playerState.playNextEpisodeIfAvailable()
+                }
+
                 if let error = state.errorMessage {
                     self.cancelInitTimeout()
                     playerState.failPlayback(error)
@@ -6631,19 +6719,41 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             progressTimer?.invalidate()
             progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 guard let self else { return }
+                guard let playerState = self.playerState else { return }
                 let current = Double(self.mediaPlayer.time.intValue) / 1000.0
                 let total = Double(self.mediaPlayer.media?.length.intValue ?? 0) / 1000.0
                 guard current.isFinite, total.isFinite, total > 0 else { return }
 
-                self.playerState?.currentTime = max(0, current)
-                self.playerState?.duration = max(0, total)
-                self.playerState?.reportBaiduCacheProgressIfNeeded()
+                playerState.currentTime = max(0, current)
+                playerState.duration = max(0, total)
+                playerState.reportBaiduCacheProgressIfNeeded()
 
+                // 跳过片头：VLC 首次播放且进度极小
+                if playerState.skipIntroEnabled, playerState.skipIntroSeconds > 0,
+                   !playerState.skipIntroTriggered, !playerState.isSwitchingEpisode,
+                   current < 2, total > Double(playerState.skipIntroSeconds) {
+                    playerState.skipIntroTriggered = true
+                    let skip = Double(playerState.skipIntroSeconds)
+                    playerState.log("[PlayerV2] ⏩ VLC 跳过片头 \(playerState.formatDuration(skip))")
+                    self.seek(to: skip)
+                }
+
+                // 跳过片尾：接近结尾时自动播放下一集
+                if playerState.skipOutroEnabled, playerState.skipOutroSeconds > 0,
+                   !playerState.skipOutroTriggered, !playerState.isSwitchingEpisode,
+                   current >= max(0, total - Double(playerState.skipOutroSeconds)) {
+                    playerState.skipOutroTriggered = true
+                    playerState.log("[PlayerV2] ⏩ VLC 跳过片尾 \(playerState.formatDuration(Double(playerState.skipOutroSeconds)))，自动播放下一集")
+                    playerState.playNextEpisode()
+                }
+
+                // 播放结束：自然播放到末尾
                 if !self.didFinish, current >= max(0, total - 0.8), total > 1 {
                     self.didFinish = true
-                    self.playerState?.isPlaying = false
-                    self.playerState?.currentTime = total
-                    self.playerState?.log("[PlayerV2] VLC 播放结束")
+                    playerState.isPlaying = false
+                    playerState.currentTime = total
+                    playerState.log("[PlayerV2] VLC 播放结束")
+                    playerState.playNextEpisodeIfAvailable()
                 }
             }
         }
@@ -7498,7 +7608,7 @@ struct ToolsQuickMenuV2: View {
                         .foregroundColor(textColor.opacity(0.4))
                 }
                 .padding(.horizontal, 12)
-                .frame(width: 160, height: 38)
+                .frame(width: 150, height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -7559,7 +7669,7 @@ struct ToolsToggleRow: View {
                 .scaleEffect(0.8)
         }
         .padding(.horizontal, 12)
-        .frame(width: 160, height: 38)
+        .frame(width: 150, height: 38)
         .contentShape(Rectangle())
     }
 }

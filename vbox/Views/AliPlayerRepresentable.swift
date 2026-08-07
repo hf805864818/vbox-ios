@@ -124,6 +124,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
         var containerView: UIView?
         weak var timer: Timer?
         var observers: [NSObjectProtocol] = []
+        private var didFinish = false
 
         init(_ parent: AliPlayerRepresentable) {
             self.parent = parent
@@ -190,17 +191,49 @@ struct AliPlayerRepresentable: UIViewRepresentable {
 
         func startTimer() {
             stopTimer()
+            didFinish = false
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
                 guard let self = self, let player = self.player else { return }
                 let pos = Double(player.currentPosition()) / 1000.0
                 let dur = Double(player.duration()) / 1000.0
                 DispatchQueue.main.async {
+                    let playerState = self.parent.playerState
                     self.parent.onTimeUpdate?(pos)
                     if dur > 0 {
                         self.parent.onDurationChange?(dur)
                     }
                     let buf = Double(player.bufferedPosition()) / 1000.0
                     self.parent.onBufferUpdate?(buf)
+
+                    // 跳过片头：AliPlayer 首次播放且进度极小
+                    if playerState.skipIntroEnabled, playerState.skipIntroSeconds > 0,
+                       !playerState.skipIntroTriggered, !playerState.isSwitchingEpisode,
+                       pos < 2, dur > Double(playerState.skipIntroSeconds) {
+                        playerState.skipIntroTriggered = true
+                        let skipMs = Int64(playerState.skipIntroSeconds * 1000)
+                        playerState.log("[PlayerV2] ⏩ AliPlayer 跳过片头 \(playerState.formatDuration(Double(playerState.skipIntroSeconds)))")
+                        player.seek(toTime: skipMs, seekMode: 1)
+                    }
+
+                    // 跳过片尾：接近结尾时自动播放下一集
+                    if playerState.skipOutroEnabled, playerState.skipOutroSeconds > 0,
+                       !playerState.skipOutroTriggered, !playerState.isSwitchingEpisode,
+                       dur > 0, pos > 0,
+                       pos >= dur - Double(playerState.skipOutroSeconds) {
+                        playerState.skipOutroTriggered = true
+                        playerState.log("[PlayerV2] ⏩ AliPlayer 跳过片尾 \(playerState.formatDuration(Double(playerState.skipOutroSeconds)))，自动播放下一集")
+                        playerState.playNextEpisode()
+                    }
+
+                    // 播放结束：自然播放到末尾
+                    if !self.didFinish, dur > 1, pos >= max(0, dur - 0.8) {
+                        self.didFinish = true
+                        playerState.isPlaying = false
+                        playerState.log("[PlayerV2] AliPlayer 播放结束")
+                        if !playerState.isSwitchingEpisode {
+                            playerState.playNextEpisodeIfAvailable()
+                        }
+                    }
                 }
             }
         }

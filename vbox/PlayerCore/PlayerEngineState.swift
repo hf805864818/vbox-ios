@@ -4,6 +4,7 @@ import Foundation
 struct PlayerEngineState {
     var isPlaying: Bool
     var isBuffering: Bool
+    var isEnded: Bool
     var currentTime: Double
     var duration: Double
     var bufferedTime: Double
@@ -14,6 +15,7 @@ struct PlayerEngineState {
     init(
         isPlaying: Bool = false,
         isBuffering: Bool = false,
+        isEnded: Bool = false,
         currentTime: Double = 0,
         duration: Double = 0,
         bufferedTime: Double = 0,
@@ -23,6 +25,7 @@ struct PlayerEngineState {
     ) {
         self.isPlaying = isPlaying
         self.isBuffering = isBuffering
+        self.isEnded = isEnded
         self.currentTime = currentTime
         self.duration = duration
         self.bufferedTime = bufferedTime
