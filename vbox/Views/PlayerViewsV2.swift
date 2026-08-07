@@ -5345,50 +5345,57 @@ struct PlayerTopBarView: View {
             .padding(.top, 4)
         } else {
             // 横屏状态：返回键 + 资源名称 + 居中时间电量 + 右侧功能按钮
-            HStack(spacing: 0) {
-                if !playerState.isOrientationLocked {
-                    Button(action: { onDismiss() }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-
-                    // 资源名称（自动滚动长名称，固定宽度避免撑破布局）
-                    VideoNameScrollingText(name: videoName, maxWidth: 120)
-                        .frame(width: 120, alignment: .leading)
-                }
-
-                Spacer()
-
-                // 居中：时间 + 电量
-                if !playerState.isOrientationLocked {
-                    HStack(spacing: 6) {
-                        Text(timeString)
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.8))
-
-                        HStack(spacing: 2) {
-                            Image(systemName: batteryIcon)
-                                .font(.system(size: 11))
-                            if isBatteryCharging {
-                                Image(systemName: "bolt.fill")
-                                    .font(.system(size: 8, weight: .bold))
-                            }
-                            Text(batteryString)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+            // 使用 ZStack 让时间电量真正居中，不受左右按钮宽度变化影响
+            ZStack {
+                // 左侧：返回键 + 资源名称
+                HStack(spacing: 0) {
+                    if !playerState.isOrientationLocked {
+                        Button(action: { onDismiss() }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
-                        .foregroundColor(batteryColor)
+                        .buttonStyle(PlainButtonStyle())
+
+                        // 资源名称（自动滚动长名称，固定宽度避免撑破布局）
+                        VideoNameScrollingText(name: videoName, maxWidth: 120)
+                            .frame(width: 120, alignment: .leading)
+                    }
+                    Spacer()
+                }
+
+                // 居中：时间 + 电量（用 Spacer 强制居中，不受左右按钮宽度变化影响）
+                if !playerState.isOrientationLocked {
+                    HStack(spacing: 0) {
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Text(timeString)
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.8))
+
+                            HStack(spacing: 2) {
+                                Image(systemName: batteryIcon)
+                                    .font(.system(size: 11))
+                                if isBatteryCharging {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 8, weight: .bold))
+                                }
+                                Text(batteryString)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            }
+                            .foregroundColor(batteryColor)
+                        }
+                        Spacer()
                     }
                 }
 
-                Spacer()
-
-                if !playerState.isOrientationLocked {
-                    // 右侧：小窗口/投屏/屏幕拉伸
-                    HStack(spacing: 0) {
+                // 右侧：小窗口/投屏/屏幕拉伸/三点菜单
+                HStack(spacing: 0) {
+                    Spacer()
+                    if !playerState.isOrientationLocked {
+                        HStack(spacing: 0) {
                         if playerState.pipEnabled {
                             Button(action: { onTogglePiP() }) {
                                 Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
@@ -5426,6 +5433,7 @@ struct PlayerTopBarView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
+                        }
                     }
                 }
             }
