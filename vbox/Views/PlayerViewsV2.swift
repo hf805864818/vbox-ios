@@ -4952,7 +4952,7 @@ struct PlayerContainerView: View {
                         showToolsMenu: $playerState.showToolsMenu
                     )
                     .environmentObject(settings)
-                    .position(x: geo.size.width - 50, y: 80)
+                    .position(x: geo.size.width - 38, y: 88)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .scale(scale: 0.8)),
                         removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -7344,36 +7344,32 @@ struct ToolsQuickMenuV2: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 功能项：片头片尾
+            // 功能项：片头片尾（竖条布局：图标在上，文字在下）
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showToolsMenu = false
                     showSkipSettings = true
                 }
             }) {
-                HStack(spacing: 8) {
+                VStack(spacing: 4) {
                     Image(systemName: "forward.end.frame")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 22)
                     Text("片头片尾")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                    Spacer()
                 }
-                .frame(width: 130, height: 44)
+                .frame(width: 60, height: 56)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
-
-            Divider().background(Color.white.opacity(0.1))
 
             // 后续可在此追加更多功能按钮...
         }
         .padding(.vertical, 4)
         .background(menuBackground)
-        .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
     }
 }
 
