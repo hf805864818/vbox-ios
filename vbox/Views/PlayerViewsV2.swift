@@ -2666,13 +2666,6 @@ class PlayerState: ObservableObject {
                         fallbackURL: urlObj,
                         fallbackHeaders: assetHeaders
                     )
-                    // 跳过片头：网盘资源首次播放
-                    if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
-                        let skip = Double(self.skipIntroSeconds)
-                        self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
-                        p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
-                        self.currentTime = skip
-                    }
                 case .failed:
                     let nsError = playerItem.error as? NSError
                     let errorDesc = playerItem.error?.localizedDescription ?? "未知错误"
@@ -2801,6 +2794,14 @@ class PlayerState: ObservableObject {
         }
 
         p.play()
+
+        // 跳过片头：网盘资源首次播放
+        if self.skipIntroEnabled, self.skipIntroSeconds > 0, self.currentTime < 2 {
+            let skip = Double(self.skipIntroSeconds)
+            self.log("[PlayerV2] ⏩ 网盘跳过片头 \(self.formatDuration(skip))")
+            p.seek(to: CMTime(seconds: skip, preferredTimescale: 600))
+            self.currentTime = skip
+        }
 
         // 安全兜底：播放器已实际播放（有进度/在播放）但 isLoading 仍为 true 时，清除 loading 状态。
         // 覆盖观察者回调因各种极端时序未被处理的边界情况。
