@@ -23,7 +23,7 @@ struct GestureControlView: View {
         GeometryReader { geo in
             Color.clear.contentShape(Rectangle())
                 .onTapGesture {
-                    guard !playerState.isOrientationLocked else { return }
+                    // 锁定状态下也允许 tap，由父视图决定是否显示锁定按钮
                     onTap()
                 }
                 .gesture(DragGesture(minimumDistance: 14)
