@@ -7662,11 +7662,12 @@ struct ToolsQuickMenuV2: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(textColor)
                         .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 2)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(textColor.opacity(0.4))
-                        .frame(width: 36, alignment: .trailing)
+                        .frame(width: 28, alignment: .trailing)
                 }
                 .padding(.horizontal, 8)
                 .frame(width: 115, height: 38)
@@ -7722,16 +7723,39 @@ struct ToolsToggleRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(textColor)
                 .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 2)
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .tint(Color(hex: "00BE06"))
-                .scaleEffect(0.7)
-                .frame(width: 36, alignment: .trailing)
+            // 自定义紧凑开关：系统 Toggle 的 scaleEffect 不影响布局尺寸，
+            // 仍占 ~51pt 导致文字被挤压。用自定义控件真正控制在 28pt。
+            CompactToggle(isOn: $isOn)
         }
         .padding(.horizontal, 8)
         .frame(width: 115, height: 38)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - 紧凑开关（替代系统 Toggle + scaleEffect）
+struct CompactToggle: View {
+    @Binding var isOn: Bool
+
+    private let knobSize: CGFloat = 12
+    private let trackWidth: CGFloat = 28
+    private let trackHeight: CGFloat = 16
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: trackHeight / 2)
+                .fill(isOn ? Color(hex: "00BE06") : Color.white.opacity(0.25))
+                .frame(width: trackWidth, height: trackHeight)
+            Circle()
+                .fill(Color.white)
+                .frame(width: knobSize, height: knobSize)
+                .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 0.5)
+                .offset(x: isOn ? (trackWidth - knobSize) / 2 - 1 : -(trackWidth - knobSize) / 2 + 1)
+                .animation(.easeInOut(duration: 0.15), value: isOn)
+        }
+        .onTapGesture { isOn.toggle() }
     }
 }
 
