@@ -12,11 +12,26 @@ struct LogVarDanmakuItem: Identifiable, Codable {
 
 class LogVarDanmakuService: ObservableObject {
     static let shared = LogVarDanmakuService()
-    private let baseURL = "https://uzdm.616222.xyz"
+    /// 默认弹幕源
+    private static let defaultBaseURL = "https://uzdm.616222.xyz"
     private let session: URLSession
     private var cache: [String: [LogVarDanmakuItem]] = [:]
     private var matchCache: [String: Int] = [:]
     private let maxRetries = 3
+
+    /// 当前生效的弹幕源地址：用户开启自定义源时使用自定义URL，否则使用默认源
+    private var baseURL: String {
+        let enabled = UserDefaults.standard.bool(forKey: "custom_danmaku_source_enabled")
+        if enabled {
+            let customURL = UserDefaults.standard.string(forKey: "custom_danmaku_source_url") ?? ""
+            let trimmed = customURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                // 去掉末尾的斜杠
+                return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+            }
+        }
+        return Self.defaultBaseURL
+    }
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -29,7 +44,7 @@ class LogVarDanmakuService: ObservableObject {
         let key = keyword.trimmingCharacters(in: .whitespaces)
         if let c = matchCache[key] { return c }
         guard let e = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let u = URL(string: "\(baseURL)/87654321/search/anime?keyword=\(e)") else { return nil }
+              let u = URL(string: "\(baseURL)/api/v2/search/anime?keyword=\(e)") else { return nil }
         do {
             let (d, _) = try await session.data(from: u)
             if let root = try JSONSerialization.jsonObject(with: d) as? [String: Any],
@@ -78,8 +93,24 @@ class LogVarDanmakuService: ObservableObject {
     func fetchDanmaku(animeId: Int, episode: Int) async -> [LogVarDanmakuItem] {
         let ck = "\(animeId)_\(episode)"
         if let c = cache[ck] { return c }
-        guard let u = URL(string: "\(baseURL)/87654321/danmaku/\(animeId)/\(episode)?withSegment=true") else { return [] }
-        return await fetchDanmaku(url: u, cacheKey: ck)
+        // 通过 bangumi 接口获取剧集列表，找到对应集数的 episodeId
+        guard let bangumiURL = URL(string: "\(baseURL)/api/v2/bangumi/\(animeId)") else { return [] }
+        do {
+            let (data, _) = try await session.data(from: bangumiURL)
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let bangumi = root["bangumi"] as? [String: Any],
+                  let episodes = bangumi["episodes"] as? [[String: Any]] else { return [] }
+            // 按集数匹配 episodeId
+            let targetEpisode = episodes.first { ep in
+                let epNum = ep["episodeNumber"] as? Int ?? Int(ep["episodeNumber"] as? String ?? "0") ?? 0
+                return epNum == episode
+            } ?? episodes.first  // 找不到精确匹配时用第一条
+            guard let episodeId = targetEpisode?["episodeId"] as? Int else { return [] }
+            return await fetchDanmaku(episodeId: episodeId)
+        } catch {
+            print("[Danmaku] bangumi fetch: \(error)")
+            return []
+        }
     }
 
     func fetchDanmaku(episodeId: Int) async -> [LogVarDanmakuItem] {

@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var autoPlayNext = true
     @State private var playInBackground = true
     @State private var usePictureInPicture = true
+    @AppStorage("custom_danmaku_source_enabled") private var customDanmakuSourceEnabled = false
+    @AppStorage("custom_danmaku_source_url") private var customDanmakuSourceURL = ""
     @AppStorage("show_debug_overlay") private var showDebugOverlay = false
     @AppStorage("show_search_debug") private var showSearchDebug = false
     @State private var showCacheAlert = false
@@ -161,6 +163,47 @@ struct SettingsView: View {
 
     private var playbackSettingsSection: some View {
         SettingsSection(title: "播放设置") {
+            // 弹幕源设置
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "00BEFF"))
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("自定义弹幕源")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.primary)
+                        Text(customDanmakuSourceEnabled ? "已开启 — 使用自定义弹幕API地址" : "关闭 — 使用默认弹幕源")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $customDanmakuSourceEnabled)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                if customDanmakuSourceEnabled {
+                    Divider().background(Color.secondary.opacity(0.15))
+                    HStack(spacing: 12) {
+                        Image(systemName: "link")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .frame(width: 28)
+                        TextField("", text: $customDanmakuSourceURL, prompt: Text("https://your-danmu-api.com").foregroundColor(.secondary.opacity(0.5)))
+                            .font(.system(size: 14))
+                            .foregroundColor(.primary)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
+
             SettingsToggleRow(title: "自动播放下一个", isOn: $autoPlayNext)
             SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
             SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
