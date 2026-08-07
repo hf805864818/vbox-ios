@@ -638,7 +638,19 @@ class PlayerState: ObservableObject {
         3: 65280,    // 绿色 #00FF00
         4: 255,      // 蓝色 #0000FF
         5: 16711680, // 红色 #FF0000
-        6: 16761035  // 粉色 #FF69B4
+        6: 16761035, // 粉色 #FF69B4
+        7: 0         // 随机颜色（特殊标记，实际颜色在赋值时随机选取）
+    ]
+    /// 随机颜色候选列表（排除白色，因为白色在浅色背景上不可见）
+    static let randomColorPool: [Int] = [
+        16776960, // 黄色
+        65280,    // 绿色
+        255,      // 蓝色
+        16711680, // 红色
+        16761035, // 粉色
+        16753920, // 橙色 #FF8C00
+        65535,    // 青色 #00FFFF
+        10025886  // 紫色 #9932CC
     ]
 
     enum PlaybackEngineMode: String {
@@ -1458,7 +1470,7 @@ class PlayerState: ObservableObject {
                 content: item.content,
                 time: max(time, item.time),
                 lane: assignedLane,
-                color: danmakuColorMode == 0 ? item.color : Self.presetColors[danmakuColorMode] ?? item.color,
+                color: danmakuColorMode == 0 ? item.color : (danmakuColorMode == 7 ? Self.randomColorPool.randomElement() ?? item.color : Self.presetColors[danmakuColorMode] ?? item.color),
                 duration: duration
             )
         }
@@ -1475,7 +1487,7 @@ class PlayerState: ObservableObject {
 
         let baseDuration = 8.0
         let duration = baseDuration / max(danmakuSpeed, 0.25)
-        let color = danmakuColorMode == 0 ? 16777215 : (Self.presetColors[danmakuColorMode] ?? 16777215)
+        let color = danmakuColorMode == 0 ? 16777215 : (danmakuColorMode == 7 ? Self.randomColorPool.randomElement() ?? 16777215 : Self.presetColors[danmakuColorMode] ?? 16777215)
         let time = currentTime
         // 用一个较大的随机 ID 避免和服务器弹幕 ID 冲突
         let localId = Int.random(in: 1_000_000...9_999_999)
@@ -6646,8 +6658,8 @@ struct DanmakuSettingsViewV2: View {
     private let areaValues: [Double] = [0.25, 0.5, 0.75, 1.0]
     private let speedLabels = ["0.5x 慢", "0.75x", "1.0x 正常", "1.5x", "2.0x 快"]
     private let speedValues: [Double] = [0.5, 0.75, 1.0, 1.5, 2.0]
-    private let colorLabels = ["原始", "白色", "黄色", "绿色", "蓝色", "红色", "粉色"]
-    private let colorValues: [Int] = [0, 1, 2, 3, 4, 5, 6]
+    private let colorLabels = ["原始", "白色", "黄色", "绿色", "蓝色", "红色", "粉色", "随机"]
+    private let colorValues: [Int] = [0, 1, 2, 3, 4, 5, 6, 7]
 
     var body: some View {
         NavigationView {
@@ -7170,7 +7182,8 @@ struct DanmakuSettingsPanelV2: View {
         (3, 65280,    "绿色"),
         (4, 255,      "蓝色"),
         (5, 16711680, "红色"),
-        (6, 16761035, "粉色")
+        (6, 16761035, "粉色"),
+        (7, 0,        "随机")
     ]
 
     /// 自适应皮肤的面板背景色
@@ -7376,7 +7389,7 @@ struct DanmakuSettingsPanelV2: View {
                                 } label: {
                                     HStack(spacing: 4) {
                                         Circle()
-                                            .fill(Color(hexRGB: option.color))
+                                            .fill(option.mode == 7 ? AnyShapeStyle(LinearGradient(colors: [.red, .yellow, .green, .blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(Color(hexRGB: option.color)))
                                             .frame(width: 16, height: 16)
                                         Text(option.label)
                                             .font(.system(size: 11))
@@ -7411,7 +7424,7 @@ struct DanmakuSettingsPanelV2: View {
             colorMode = option.mode
         } label: {
             Circle()
-                .fill(Color(hexRGB: option.color))
+                .fill(option.mode == 7 ? AnyShapeStyle(LinearGradient(colors: [.red, .yellow, .green, .blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(Color(hexRGB: option.color)))
                 .frame(width: 28, height: 28)
                 .overlay(
                     Circle()
