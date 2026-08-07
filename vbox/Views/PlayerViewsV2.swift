@@ -7699,6 +7699,7 @@ struct ToolsQuickMenuV2: View {
             // 调试信息浮层
             ToolsToggleRow(icon: "ladybug.fill", title: "调试浮层", isOn: $showDebugOverlay, textColor: textColor)
         }
+        .frame(width: 115)
         .padding(.vertical, 4)
         .background(menuBackground)
         .cornerRadius(14)
