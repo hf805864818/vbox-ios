@@ -12,9 +12,6 @@ struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
     @StateObject private var remoteSourceManager = RemoteSourceConfigManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
-    @State private var autoPlayNext = true
-    @State private var playInBackground = true
-    @State private var usePictureInPicture = true
     @AppStorage("custom_danmaku_source_enabled") private var customDanmakuSourceEnabled = false
     @AppStorage("custom_danmaku_source_url") private var customDanmakuSourceURL = ""
     @AppStorage("show_debug_overlay") private var showDebugOverlay = false
@@ -204,9 +201,6 @@ struct SettingsView: View {
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.7))
 
-            SettingsToggleRow(title: "自动播放下一个", isOn: $autoPlayNext)
-            SettingsToggleRow(title: "后台播放", isOn: $playInBackground)
-            SettingsToggleRow(title: "画中画", isOn: $usePictureInPicture)
             SettingsToggleRow(title: "调试信息浮层", isOn: $showDebugOverlay)
             SettingsToggleRow(title: "搜索调试面板", isOn: $showSearchDebug)
         }

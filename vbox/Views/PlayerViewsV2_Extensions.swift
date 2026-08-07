@@ -122,6 +122,8 @@ private class DanmakuLayerPool {
         if let reused = available.popLast() {
             textLayer = reused
             textLayer.isHidden = false
+            // 清除复用layer上的旧动画
+            textLayer.removeAllAnimations()
         } else {
             textLayer = CATextLayer()
             textLayer.contentsScale = UIScreen.main.scale
@@ -136,6 +138,7 @@ private class DanmakuLayerPool {
 
     func releaseAll() {
         for (_, textLayer) in inUse {
+            textLayer.removeAllAnimations()
             textLayer.isHidden = true
             if available.count < maxPoolSize {
                 available.append(textLayer)
@@ -149,6 +152,7 @@ private class DanmakuLayerPool {
     func releaseUnused(visibleIDs: Set<Int>) {
         let toRelease = inUse.filter { !visibleIDs.contains($0.key) }
         for (id, textLayer) in toRelease {
+            textLayer.removeAllAnimations()
             textLayer.isHidden = true
             if available.count < maxPoolSize {
                 available.append(textLayer)
@@ -164,16 +168,18 @@ private class DanmakuLayerPool {
     }
 }
 
-// MARK: - UIKit 原生弹幕渲染视图，使用对象池复用 + 增量更新
+// MARK: - UIKit 原生弹幕渲染视图，使用 CABasicAnimation 实现60fps平滑滚动
 class DanmakuUIView: UIView {
     var danmakuArea: Double = 0.25
     var danmakuFontSize: CGFloat = 16
     var danmakuOpacity: Double = 1.0
 
     private var layerPool = DanmakuLayerPool()
-    private var lastItems: [DanmakuRenderItem] = []
-    private var lastTime: Double = -1
+    /// 记录已添加动画的item ID，避免重复添加
+    private var animatedItemIDs = Set<Int>()
     private var cachedFont: UIFont?
+    /// 记录每个item的创建时间（用于计算动画偏移）
+    private var itemStartTimes: [Int: Double] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -184,19 +190,13 @@ class DanmakuUIView: UIView {
     }
 
     func updateItems(_ items: [DanmakuRenderItem], currentTime: Double) {
-        let sameItems = items.count == lastItems.count && items.map(\.id) == lastItems.map(\.id)
-        // 降低刷新频率到 20fps，减少 CPU 占用；item 变化时立即刷新
-        guard !sameItems || abs(currentTime - lastTime) > 0.05 else { return }
-        lastItems = items
-        lastTime = currentTime
-
         let screenW = bounds.width
         guard screenW > 0 else { return }
 
         let laneHeight = danmakuFontSize + 22
         let maxAreaHeight = bounds.height * danmakuArea
 
-        // 缓存字体，避免每帧创建
+        // 缓存字体
         if cachedFont == nil || cachedFont?.pointSize != danmakuFontSize {
             cachedFont = UIFont.systemFont(ofSize: danmakuFontSize, weight: .semibold)
         }
@@ -211,15 +211,13 @@ class DanmakuUIView: UIView {
             let yPos = CGFloat(item.lane) * laneHeight + 20
             guard yPos < maxAreaHeight && progress >= 0 && progress < 1 else { continue }
 
-            let textWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
-            let xPos = screenW - progress * (screenW + textWidth)
-
             visibleIDs.insert(item.id)
 
+            let textWidth = max(80, CGFloat(item.content.count) * danmakuFontSize * (item.content.isASCII ? 0.6 : 0.72))
             let textLayer = layerPool.acquire(id: item.id, fontSize: danmakuFontSize, opacity: danmakuOpacity)
 
-            // 只有内容变化时才更新文字和样式
-            if textLayer.string as? String != item.content {
+            // 设置文字内容和样式（仅在首次添加时）
+            if !animatedItemIDs.contains(item.id) {
                 textLayer.string = item.content
                 textLayer.font = cachedFont
                 textLayer.fontSize = danmakuFontSize
@@ -230,20 +228,58 @@ class DanmakuUIView: UIView {
                     alpha: danmakuOpacity
                 )
                 textLayer.foregroundColor = color.cgColor
-            }
 
-            // 每帧只更新位置，禁用隐式动画避免卡顿
-            textLayer.frame = CGRect(x: xPos, y: yPos, width: textWidth + 40, height: danmakuFontSize + 10)
+                let layerWidth = textWidth + 40
+                let layerHeight = danmakuFontSize + 10
+                textLayer.bounds = CGRect(x: 0, y: 0, width: layerWidth, height: layerHeight)
 
-            if textLayer.superlayer == nil {
-                self.layer.addSublayer(textLayer)
+                // position 是 layer 的中心点，不是左上角
+                // 起始：左边缘对齐屏幕右边缘（完全在屏外右侧）
+                let startPos = CGPoint(x: screenW + layerWidth / 2, y: yPos + layerHeight / 2)
+                // 结束：右边缘对齐屏幕左边缘（完全在屏外左侧）
+                let endPos = CGPoint(x: -layerWidth / 2, y: yPos + layerHeight / 2)
+
+                // 设置模型位置为起始位置（动画结束后会回到此处，但此时 layer 已被移除）
+                textLayer.position = startPos
+
+                if textLayer.superlayer == nil {
+                    self.layer.addSublayer(textLayer)
+                }
+
+                // 创建位置动画：由 Core Animation 在 GPU 上以 60fps 自动插值
+                let animation = CABasicAnimation(keyPath: "position")
+                animation.fromValue = NSValue(cgPoint: startPos)
+                animation.toValue = NSValue(cgPoint: endPos)
+                animation.duration = item.duration
+                // 如果弹幕应该在过去某时刻出现，用 beginTime 偏移让动画从正确位置开始
+                animation.beginTime = CACurrentMediaTime() - (currentTime - item.time)
+                animation.isRemovedOnCompletion = true
+                animation.fillMode = .removed
+
+                textLayer.add(animation, forKey: "danmaku_scroll")
+
+                animatedItemIDs.insert(item.id)
             }
         }
 
         CATransaction.commit()
 
-        // 释放不可见的 layer 回对象池，不销毁
+        // 清理不再可见的item
+        let removedIDs = animatedItemIDs.subtracting(visibleIDs)
+        for id in removedIDs {
+            animatedItemIDs.remove(id)
+        }
         layerPool.releaseUnused(visibleIDs: visibleIDs)
+    }
+
+    /// 清除所有弹幕（切换视频时调用）
+    func clearAll() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layerPool.releaseAll()
+        animatedItemIDs.removeAll()
+        itemStartTimes.removeAll()
+        CATransaction.commit()
     }
 }
 

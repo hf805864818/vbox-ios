@@ -735,6 +735,16 @@ class PlayerState: ObservableObject {
     @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
     @Published var isOrientationLocked = false
     @Published var isPiPActive = false
+    // 三个播放器设置开关，持久化到 UserDefaults
+    @Published var autoPlayNext: Bool = UserDefaults.standard.object(forKey: "player_auto_play_next") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoPlayNext, forKey: "player_auto_play_next") }
+    }
+    @Published var backgroundPlay: Bool = UserDefaults.standard.object(forKey: "player_background_play") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(backgroundPlay, forKey: "player_background_play") }
+    }
+    @Published var pipEnabled: Bool = UserDefaults.standard.object(forKey: "player_pip_enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(pipEnabled, forKey: "player_pip_enabled") }
+    }
     @Published var videoGravity: VideoGravityMode = .aspectFill {
         didSet {
             if oldValue != videoGravity {
@@ -1120,6 +1130,9 @@ class PlayerState: ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        // 清理弹幕状态：拖拽后需要重新发射目标时间附近的弹幕
+        emittedDanmakuIDs.removeAll()
+        danmakuItems = []
         if compatibilityURL != nil {
             guard duration.isFinite, duration > 0 else { return }
             let target = max(0, min(seconds, duration))
@@ -1211,6 +1224,10 @@ class PlayerState: ObservableObject {
 
     /// 如果有下一集则自动播放（用于播放结束回调）
     func playNextEpisodeIfAvailable() {
+        guard autoPlayNext else {
+            log("[PlayerV2] 自动播放下一集已关闭")
+            return
+        }
         guard hasNextEpisode else {
             log("[PlayerV2] 已播放到最后一集")
             return
@@ -1361,17 +1378,13 @@ class PlayerState: ObservableObject {
 
     func updateDanmaku(at time: Double) {
         guard showDanmaku, !allDanmakuItems.isEmpty, time.isFinite else { return }
-        // 限制刷新频率约 20fps，避免频繁计算和 UI 刷新导致卡顿
-        if lastDanmakuUpdateTime > 0, time - lastDanmakuUpdateTime < 0.05 {
-            return
-        }
         lastDanmakuUpdateTime = time
-        // 缩小时间窗口并限制单次发射量，避免瞬间大量弹幕涌入导致重叠/卡顿
-        let windowStart = max(0, time - 0.05)
+        // 时间窗口必须覆盖观察器间隔（0.5s），否则大量弹幕会被漏掉
+        let windowStart = max(0, time - 0.55)
         let windowEnd = time + 0.1
         let newItems = allDanmakuItems
             .filter { $0.time >= windowStart && $0.time <= windowEnd && !emittedDanmakuIDs.contains($0.id) }
-            .prefix(2)
+            .prefix(8)
 
         guard !newItems.isEmpty || !danmakuItems.isEmpty else { return }
         for item in newItems {
@@ -1448,7 +1461,71 @@ class PlayerState: ObservableObject {
         }
         danmakuItems = (danmakuItems + appended)
             .filter { time - $0.time < $0.duration }
-            .suffix(15) // 限制同时渲染的弹幕数量，避免卡顿
+            .suffix(40) // 限制同时渲染的弹幕数量，避免卡顿
+    }
+
+    // MARK: - 发送弹幕
+    /// 发送弹幕：先本地立即显示，再异步提交到服务器
+    func sendDanmaku(text: String) {
+        let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+
+        let baseDuration = 8.0
+        let duration = baseDuration / max(danmakuSpeed, 0.25)
+        let color = danmakuColorMode == 0 ? 16777215 : (Self.presetColors[danmakuColorMode] ?? 16777215)
+        let time = currentTime
+        // 用一个较大的随机 ID 避免和服务器弹幕 ID 冲突
+        let localId = Int.random(in: 1_000_000...9_999_999)
+
+        // 本地立即显示：找一条空闲轨道
+        let laneHeight = danmakuFontSize + 22
+        let areaHeight = isPortrait ? 400.0 * danmakuArea : 220.0 * danmakuArea
+        let maxLanes = max(4, Int(areaHeight / Double(laneHeight)))
+        var assignedLane = 0
+        var foundLane = false
+        for lane in 0..<maxLanes {
+            if let lastInfo = laneOccupancy[lane] {
+                if time - lastInfo.time >= 1.8 { assignedLane = lane; foundLane = true; break }
+            } else {
+                assignedLane = lane; foundLane = true; break
+            }
+        }
+        // 所有轨道都被占用时，选最久未使用的轨道
+        if !foundLane {
+            var oldestTime = Double.infinity
+            for (lane, info) in laneOccupancy {
+                if info.time < oldestTime { oldestTime = info.time; assignedLane = lane }
+            }
+        }
+        laneOccupancy[assignedLane] = (time: time, contentLength: content.count)
+
+        let renderItem = DanmakuRenderItem(
+            id: localId,
+            content: content,
+            time: time,
+            lane: assignedLane,
+            color: color,
+            duration: duration
+        )
+        danmakuItems.append(renderItem)
+
+        // 异步提交到服务器
+        guard let episodeId = currentDanmakuEpisodeId else {
+            log("[Danmaku] 发送失败：未匹配到剧集 episodeId")
+            return
+        }
+        Task {
+            let success = await LogVarDanmakuService.shared.sendDanmaku(
+                episodeId: episodeId,
+                content: content,
+                time: time,
+                mode: 1,
+                color: color
+            )
+            await MainActor.run {
+                self.log(success ? "[Danmaku] 弹幕发送成功：\(content)" : "[Danmaku] 弹幕发送失败：\(content)")
+            }
+        }
     }
 
     private func playbackProgressKey(for video: VodItem) -> String {
@@ -1991,15 +2068,18 @@ class PlayerState: ObservableObject {
 
     // MARK: - 场景生命周期保护（防止 watchdog 超时杀进程）
 
-    /// 进入后台时调用：暂停播放器，取消耗时任务
+    /// 进入后台时调用：根据设置决定是否暂停播放器，取消耗时任务
     func handleSceneBackground() {
         sceneRestorationTask?.cancel()
         sceneRestorationTask = nil
         isRestoringFromBackground = false
         currentTask?.cancel()
         currentTask = nil
-        player?.pause()
-        isPlaying = false
+        // 后台播放开关：开启时不暂停播放器，音频继续在后台播放
+        if !backgroundPlay {
+            player?.pause()
+            isPlaying = false
+        }
         // 进度保存移到后台队列，避免 SQLite 操作阻塞主线程触发 watchdog
         let videoToSave = currentVideo
         let timeToSave = currentTime
@@ -2035,7 +2115,7 @@ class PlayerState: ObservableObject {
             DatabaseManager.shared.addOrUpdateHistory(record)
         }
         lastProgressSaveAt = Date()
-        log("[PlayerV2] 进入后台，已暂停播放器并取消任务")
+        log(backgroundPlay ? "[PlayerV2] 进入后台，后台播放已开启，播放器继续运行" : "[PlayerV2] 进入后台，已暂停播放器并取消任务")
     }
 
     /// 回到前台时调用：异步恢复播放器，带超时保护
@@ -4455,6 +4535,9 @@ struct PlayerContainerView: View {
     // 锁定按钮独立自动隐藏（3秒）
     @State private var lockButtonVisible = true
     @State private var lockButtonAutoHideTask: Task<Void, Never>?
+    // 弹幕输入文本
+    @State private var danmakuInputText: String = ""
+    @FocusState private var danmakuInputFocused: Bool
 
     private var isAliPlayerBuildAvailable: Bool {
         return NSClassFromString("AliPlayer") != nil
@@ -4849,6 +4932,8 @@ struct PlayerContainerView: View {
                         Color.black.opacity(0.3)
                             .ignoresSafeArea()
                             .onTapGesture {
+                                danmakuInputText = ""
+                                danmakuInputFocused = false
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     playerState.showDanmakuInput = false
                                 }
@@ -4856,7 +4941,7 @@ struct PlayerContainerView: View {
 
                         VStack(spacing: 0) {
                             HStack(spacing: 12) {
-                                TextField("发送弹幕...", text: .constant(""))
+                                TextField("发送弹幕...", text: $danmakuInputText)
                                     .font(.system(size: 15))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 16)
@@ -4866,10 +4951,17 @@ struct PlayerContainerView: View {
                                             .fill(Color.white.opacity(0.15))
                                     )
                                     .textFieldStyle(PlainTextFieldStyle())
+                                    .focused($danmakuInputFocused)
 
                                 Button(action: {
-                                    // TODO: 对接弹幕发送功能
-                                    playerState.showDanmakuInput = false
+                                    let text = danmakuInputText
+                                    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                    playerState.sendDanmaku(text: text)
+                                    danmakuInputText = ""
+                                    danmakuInputFocused = false
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        playerState.showDanmakuInput = false
+                                    }
                                 }) {
                                     Text("发送")
                                         .font(.system(size: 15, weight: .medium))
@@ -4882,6 +4974,7 @@ struct PlayerContainerView: View {
                                         )
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .disabled(danmakuInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
                             .padding(.horizontal, 20)
                             .padding(.vertical, 16)
@@ -4949,7 +5042,10 @@ struct PlayerContainerView: View {
                         }
                     ToolsQuickMenuV2(
                         showSkipSettings: $playerState.showSkipSettings,
-                        showToolsMenu: $playerState.showToolsMenu
+                        showToolsMenu: $playerState.showToolsMenu,
+                        autoPlayNext: $playerState.autoPlayNext,
+                        backgroundPlay: $playerState.backgroundPlay,
+                        pipEnabled: $playerState.pipEnabled
                     )
                     .environmentObject(settings)
                     .position(x: geo.size.width - 38, y: 88)
@@ -5277,15 +5373,17 @@ struct PlayerTopBarView: View {
                 if !playerState.isOrientationLocked {
                     // 右侧：小窗口/投屏/屏幕拉伸
                     HStack(spacing: 0) {
-                        Button(action: { onTogglePiP() }) {
-                            Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                        if playerState.pipEnabled {
+                            Button(action: { onTogglePiP() }) {
+                                Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(!playerState.isPiPSupported)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .disabled(!playerState.isPiPSupported)
 
                         AirPlayViewV2()
                             .frame(width: 44, height: 44)
@@ -7333,6 +7431,9 @@ struct DanmakuSettingsPanelV2: View {
 struct ToolsQuickMenuV2: View {
     @Binding var showSkipSettings: Bool
     @Binding var showToolsMenu: Bool
+    @Binding var autoPlayNext: Bool
+    @Binding var backgroundPlay: Bool
+    @Binding var pipEnabled: Bool
     @EnvironmentObject private var settings: AppSettings
 
     private var menuBackground: Color {
@@ -7340,6 +7441,10 @@ struct ToolsQuickMenuV2: View {
             return Color(uiColor: .secondarySystemBackground).opacity(0.92)
         }
         return Color.black.opacity(0.82)
+    }
+
+    private var textColor: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .label) : .white
     }
 
     var body: some View {
@@ -7354,22 +7459,66 @@ struct ToolsQuickMenuV2: View {
                 VStack(spacing: 4) {
                     Image(systemName: "forward.end.frame")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(textColor)
                     Text("片头片尾")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.85))
+                        .foregroundColor(textColor.opacity(0.85))
                 }
                 .frame(width: 60, height: 56)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
 
-            // 后续可在此追加更多功能按钮...
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
+            // 自动播放下一个
+            ToolsToggleRow(icon: "play.circle.fill", title: "自动播放", isOn: $autoPlayNext, textColor: textColor)
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
+            // 后台播放
+            ToolsToggleRow(icon: "speaker.wave.2.fill", title: "后台播放", isOn: $backgroundPlay, textColor: textColor)
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
+            // 画中画
+            ToolsToggleRow(icon: "pip.fill", title: "画中画", isOn: $pipEnabled, textColor: textColor)
         }
         .padding(.vertical, 4)
         .background(menuBackground)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+    }
+}
+
+// MARK: - 菜单内 Toggle 行（图标 + 标题 + 开关）
+struct ToolsToggleRow: View {
+    let icon: String
+    let title: String
+    @Binding var isOn: Bool
+    let textColor: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(textColor.opacity(0.8))
+                .frame(width: 20)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(textColor)
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .tint(Color(hex: "00BE06"))
+                .scaleEffect(0.8)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 130, height: 38)
+        .contentShape(Rectangle())
     }
 }
 
