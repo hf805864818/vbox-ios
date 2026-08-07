@@ -1692,6 +1692,11 @@ struct SearchResultsView: View {
     @State private var selectedVideo: VodItem? = nil
 
     /// 按源分组（规范化源名称避免重复分组）
+    /// 排序三级优先级：
+    ///   1. 网盘资源（vodRemarks 带 ☁️，非 JS 蜘蛛）— engineKey == nil
+    ///   2. JS 蜘蛛网盘资源（vodRemarks 带 ☁️，JS 蜘蛛）— engineKey != nil
+    ///   3. 切片/站源/JS普通蜘蛛（vodRemarks 无 ☁️）
+    ///   同级内按结果数量降序
     private var grouped: [(source: String, videos: [VodItem])] {
         var dict: [String: [VodItem]] = [:]
         for video in results {
@@ -1701,10 +1706,18 @@ struct SearchResultsView: View {
             if dict[source] == nil { dict[source] = [] }
             dict[source]?.append(video)
         }
+        /// 计算来源的排序层级：1=网盘原生, 2=JS蜘蛛网盘, 3=其他
+        func sourceTier(_ source: String, videos: [VodItem]) -> Int {
+            let isCloud = source.hasPrefix("☁️")
+            let isJSSpider = videos.contains { $0.engineKey != nil }
+            if isCloud && !isJSSpider { return 1 }
+            if isCloud && isJSSpider { return 2 }
+            return 3
+        }
         return dict.map { (source: $0.key, videos: $0.value) }.sorted {
-            let aCloud = $0.source.hasPrefix("☁️")
-            let bCloud = $1.source.hasPrefix("☁️")
-            if aCloud != bCloud { return aCloud }
+            let aTier = sourceTier($0.source, videos: $0.videos)
+            let bTier = sourceTier($1.source, videos: $1.videos)
+            if aTier != bTier { return aTier < bTier }
             return $0.videos.count > $1.videos.count
         }
     }
