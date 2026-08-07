@@ -1843,7 +1843,7 @@ struct SourceNameLabel: View {
     let isSelected: Bool
 
     private var hasCloudIcon: Bool {
-        name.contains("☁️") || name.contains("云") || name.contains("资源")
+        name.contains("☁️")
     }
 
     private var cleanName: String {
