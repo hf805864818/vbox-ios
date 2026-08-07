@@ -171,7 +171,6 @@
 		A12007 /* AVPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12007 /* AVPlayerEngine.swift */; };
 		A12008 /* UnsupportedPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12008 /* UnsupportedPlayerEngine.swift */; };
 		A12009 /* PlayerEngineController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12009 /* PlayerEngineController.swift */; };
-		A12010 /* VLCPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12010 /* VLCPlayerEngine.swift */; };
 		A12011 /* MPVBackendType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12011 /* MPVBackendType.swift */; };
 		A12012 /* MPVBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12012 /* MPVBackend.swift */; };
 		A12013 /* MPVUnavailableBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12013 /* MPVUnavailableBackend.swift */; };
@@ -467,7 +466,6 @@
 		B12007 /* AVPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerEngine.swift; sourceTree = "<group>"; };
 		B12008 /* UnsupportedPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedPlayerEngine.swift; sourceTree = "<group>"; };
 		B12009 /* PlayerEngineController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineController.swift; sourceTree = "<group>"; };
-		B12010 /* VLCPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerEngine.swift; sourceTree = "<group>"; };
 		B12011 /* MPVBackendType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackendType.swift; sourceTree = "<group>"; };
 		B12012 /* MPVBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVBackend.swift; sourceTree = "<group>"; };
 		B12013 /* MPVUnavailableBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVUnavailableBackend.swift; sourceTree = "<group>"; };
@@ -920,7 +918,6 @@
 				B12007 /* AVPlayerEngine.swift */,
 				B12008 /* UnsupportedPlayerEngine.swift */,
 				B12009 /* PlayerEngineController.swift */,
-				B12010 /* VLCPlayerEngine.swift */,
 				B12011 /* MPVBackendType.swift */,
 				B12012 /* MPVBackend.swift */,
 				B12013 /* MPVUnavailableBackend.swift */,
@@ -1041,7 +1038,6 @@
 				A12007 /* AVPlayerEngine.swift in Sources */,
 				A12008 /* UnsupportedPlayerEngine.swift in Sources */,
 				A12009 /* PlayerEngineController.swift in Sources */,
-				A12010 /* VLCPlayerEngine.swift in Sources */,
 				A12011 /* MPVBackendType.swift in Sources */,
 				A12012 /* MPVBackend.swift in Sources */,
 				A12013 /* MPVUnavailableBackend.swift in Sources */,

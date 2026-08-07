@@ -7,6 +7,8 @@ import AVFoundation
 extension Notification.Name {
     /// 请求当前 MDK 播放器启动画中画并进入后台小窗
     static let vboxMDKRequestStartPiP = Notification.Name("vbox.mdk.requestStartPiP")
+    /// 请求当前 MDK 播放器停止画中画
+    static let vboxMDKRequestStopPiP = Notification.Name("vbox.mdk.requestStopPiP")
 }
 
 // MARK: - SwiftUI Representable
@@ -107,6 +109,15 @@ struct MDKPlayerRepresentable: UIViewRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 self?.engine.startPiP()
+            })
+
+            // 来自 PlayerViewsV2 的 PiP 停止请求
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxMDKRequestStopPiP,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.engine.stopPiP()
             })
         }
 

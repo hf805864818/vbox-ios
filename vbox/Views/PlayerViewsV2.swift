@@ -2167,9 +2167,13 @@ class PlayerState: ObservableObject {
                 if shouldStopPiP || self.isPiPActive {
                     #if canImport(Libmpv)
                     MPVPiPManager.shared.stopPiP()
+                    NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: false)
                     #endif
                     #if canImport(swift_mdk)
                     MDKPipManager.shared.stopPiP()
+                    if self.compatibilityEngineName.contains("MDK") {
+                        NotificationCenter.default.post(name: .vboxMDKRequestStopPiP, object: nil)
+                    }
                     #endif
                     PiPHelper.shared.stopPiP()
                     self.isPiPActive = false
@@ -6043,29 +6047,60 @@ struct PlayerControlsView: View {
     private func togglePiP() {
         if playerState.isPiPActive {
             // 当前正在画中画：停止
+            let engineName = playerState.compatibilityEngineName
             #if canImport(Libmpv)
             MPVPiPManager.shared.stopPiP()
+            // 确保 MPV 帧捕获停止（即使 PiP 控制器未完全启动也要停止）
+            NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: false)
             #endif
             #if canImport(swift_mdk)
             MDKPipManager.shared.stopPiP()
+            // 通知 MDK 引擎停止帧捕获
+            if engineName.contains("MDK") {
+                NotificationCenter.default.post(name: .vboxMDKRequestStopPiP, object: nil)
+            }
             #endif
             PiPHelper.shared.stopPiP()
             playerState.isPiPActive = false
         } else {
-            // 启动系统画中画并返回桌面
+            // 启动画中画并返回桌面
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-            // 所有内核统一尝试系统画中画（桌面小窗口），失败不再回退截图浮窗。
-            // 兼容内核通过 AVURLAsset + 私有 header 字段复用当前播放 headers，让 AVPlayer 也能播放本地代理 URL。
-            if let compatURL = playerState.compatibilityURL {
-                let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
-                if let asset = try? AVURLAsset(url: compatURL, options: avOptions) {
-                    let avPlayerForPiP = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                    avPlayerForPiP.play()
-                    PiPHelper.shared.setupPiP(for: avPlayerForPiP)
-                    playerState.log("[PlayerV2] 兼容内核尝试走 AVPlayer 系统画中画：\(compatURL.absoluteString.prefix(80))")
+            let engineName = playerState.compatibilityEngineName
+
+            if playerState.compatibilityURL != nil {
+                // 兼容内核（网盘资源）：根据引擎类型选择 PiP 方案
+                if engineName.contains("MDK") {
+                    // MDK：使用专用帧桥接 PiP（AVSampleBufferDisplayLayer）
+                    #if canImport(swift_mdk)
+                    NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
+                    playerState.log("[PlayerV2] MDK 内核启动帧桥接画中画")
+                    #endif
+                } else if engineName.contains("MPV") {
+                    // MPV：使用专用帧桥接 PiP
+                    // 1. startPiP() 初始化 PiP 控制器（若未就绪则设置 pipStartRetries，等首帧后自动启动）
+                    // 2. 发送 .vboxPiPStatusChanged(object: true) 触发 MPV 核心开始帧捕获
+                    //    帧捕获后首帧入队会自动初始化 PiP 控制器并启动 PiP
+                    #if canImport(Libmpv)
+                    MPVPiPManager.shared.startPiP()
+                    NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
+                    playerState.log("[PlayerV2] MPV 内核启动帧桥接画中画")
+                    #endif
                 } else {
-                    playerState.log("[PlayerV2] 兼容内核系统画中画不可用（无法创建 AVURLAsset）")
+                    // IJK / VLC / AliPlayer：无专用帧桥接 PiP，回退到 AVPlayer 系统画中画
+                    // 注意：本地代理 URL (127.0.0.1) 在后台可能被挂起，此回退方案可能失效
+                    if let compatURL = playerState.compatibilityURL {
+                        let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
+                        let asset = AVURLAsset(url: compatURL, options: avOptions)
+                        let avPlayerForPiP = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                        // 尝试跳转到当前播放进度
+                        if playerState.currentTime > 0 {
+                            avPlayerForPiP.seek(to: CMTime(seconds: playerState.currentTime, preferredTimescale: 600))
+                        }
+                        avPlayerForPiP.play()
+                        PiPHelper.shared.setupPiP(for: avPlayerForPiP)
+                        playerState.log("[PlayerV2] \(engineName) 回退 AVPlayer 系统画中画（本地代理可能不支持）：\(compatURL.absoluteString.prefix(80))")
+                    }
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
