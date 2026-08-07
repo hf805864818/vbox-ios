@@ -523,7 +523,7 @@ struct VideoPlayerViewV2: View {
 
             // 调试日志浮层（开关控制，加载中+播放中都显示）
             // 放在返回键下方，左右避开按钮区域
-            if UserDefaults.standard.bool(forKey: "show_debug_overlay") && !playerState.debugLogs.isEmpty {
+            if playerState.showDebugOverlay && !playerState.debugLogs.isEmpty {
                 VStack {
                     HStack(alignment: .top, spacing: 0) {
                         // 左侧返回按钮预留区
@@ -744,6 +744,9 @@ class PlayerState: ObservableObject {
     }
     @Published var pipEnabled: Bool = UserDefaults.standard.object(forKey: "player_pip_enabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(pipEnabled, forKey: "player_pip_enabled") }
+    }
+    @Published var showDebugOverlay: Bool = UserDefaults.standard.bool(forKey: "show_debug_overlay") {
+        didSet { UserDefaults.standard.set(showDebugOverlay, forKey: "show_debug_overlay") }
     }
     @Published var videoGravity: VideoGravityMode = .aspectFill {
         didSet {
@@ -5045,7 +5048,8 @@ struct PlayerContainerView: View {
                         showToolsMenu: $playerState.showToolsMenu,
                         autoPlayNext: $playerState.autoPlayNext,
                         backgroundPlay: $playerState.backgroundPlay,
-                        pipEnabled: $playerState.pipEnabled
+                        pipEnabled: $playerState.pipEnabled,
+                        showDebugOverlay: $playerState.showDebugOverlay
                     )
                     .environmentObject(settings)
                     .position(x: geo.size.width - 38, y: 88)
@@ -7434,6 +7438,7 @@ struct ToolsQuickMenuV2: View {
     @Binding var autoPlayNext: Bool
     @Binding var backgroundPlay: Bool
     @Binding var pipEnabled: Bool
+    @Binding var showDebugOverlay: Bool
     @EnvironmentObject private var settings: AppSettings
 
     private var menuBackground: Color {
@@ -7486,6 +7491,12 @@ struct ToolsQuickMenuV2: View {
 
             // 画中画
             ToolsToggleRow(icon: "pip.fill", title: "画中画", isOn: $pipEnabled, textColor: textColor)
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
+            // 调试信息浮层
+            ToolsToggleRow(icon: "ladybug.fill", title: "调试浮层", isOn: $showDebugOverlay, textColor: textColor)
         }
         .padding(.vertical, 4)
         .background(menuBackground)
