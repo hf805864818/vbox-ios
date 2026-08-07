@@ -59,6 +59,10 @@ final class MDKRenderView: MTKView {
     private var videoGravity: PlayerState.VideoGravityMode = .aspectFill
     private var gravityObserver: NSObjectProtocol?
 
+    /// 缓存的渲染管线状态（拉伸模式下用 blit，不需要）
+    private var scaledPipelineState: MTLRenderPipelineState?
+    private var scaledSamplerState: MTLSamplerState?
+
     var isPiPEnabled: Bool { pipEnabled }
 
     init(frame: CGRect) {
@@ -406,10 +410,6 @@ extension MDKRenderView: MTKViewDelegate {
 
     // MARK: - 带宽高比的纹理缩放渲染
 
-    /// 缓存的渲染管线状态（拉伸模式下用 blit，不需要）
-    private var scaledPipelineState: MTLRenderPipelineState?
-    private var scaledSamplerState: MTLSamplerState?
-
     private func getScaledPipelineState() -> MTLRenderPipelineState? {
         if let state = scaledPipelineState { return state }
         guard let device = device, let library = makeShaderLibrary() else { return nil }
@@ -516,13 +516,13 @@ extension MDKRenderView: MTKViewDelegate {
                 if videoAspect > viewAspect {
                     // 视频更宽，左右裁剪
                     let scale = viewH / videoH
-                    let drawW = videoW * scale / viewW
+                    let drawW = Float(videoW * scale / viewW)
                     rect.x = (1 - drawW) / 2
                     rect.z = drawW
                 } else {
                     // 视频更高，上下裁剪
                     let scale = viewW / videoW
-                    let drawH = videoH * scale / viewH
+                    let drawH = Float(videoH * scale / viewH)
                     rect.y = (1 - drawH) / 2
                     rect.w = drawH
                 }
@@ -531,13 +531,13 @@ extension MDKRenderView: MTKViewDelegate {
                 if videoAspect > viewAspect {
                     // 视频更宽，上下留黑边
                     let scale = viewW / videoW
-                    let drawH = videoH * scale / viewH
+                    let drawH = Float(videoH * scale / viewH)
                     rect.y = (1 - drawH) / 2
                     rect.w = drawH
                 } else {
                     // 视频更高，左右留黑边
                     let scale = viewH / videoH
-                    let drawW = videoW * scale / viewW
+                    let drawW = Float(videoW * scale / viewW)
                     rect.x = (1 - drawW) / 2
                     rect.z = drawW
                 }
