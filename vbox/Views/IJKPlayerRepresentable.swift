@@ -161,8 +161,13 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
                 object: player,
                 queue: .main
             ) { [weak self] _ in
-                self?.playerState?.isPlaying = false
-                self?.playerState?.isLoading = false
+                guard let self, let playerState = self.playerState else { return }
+                playerState.isPlaying = false
+                playerState.isLoading = false
+                if !playerState.isSwitchingEpisode {
+                    playerState.log("[PlayerV2] IJK 播放结束")
+                    playerState.playNextEpisodeIfAvailable()
+                }
             })
 
             observers.append(NotificationCenter.default.addObserver(
@@ -276,6 +281,26 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
                 playerState.updateDanmaku(at: current)
                 playerState.savePlaybackProgress()
                 playerState.reportBaiduCacheProgressIfNeeded()
+
+                // 跳过片头：IJK 首次播放且进度极小
+                if playerState.skipIntroEnabled, playerState.skipIntroSeconds > 0,
+                   !playerState.skipIntroTriggered, !playerState.isSwitchingEpisode,
+                   current < 2, duration > Double(playerState.skipIntroSeconds) {
+                    playerState.skipIntroTriggered = true
+                    let skip = Double(playerState.skipIntroSeconds)
+                    playerState.log("[PlayerV2] ⏩ IJK 跳过片头 \(playerState.formatDuration(skip))")
+                    player.currentPlaybackTime = TimeInterval(skip)
+                }
+
+                // 跳过片尾：接近结尾时自动播放下一集
+                if playerState.skipOutroEnabled, playerState.skipOutroSeconds > 0,
+                   !playerState.skipOutroTriggered, !playerState.isSwitchingEpisode,
+                   duration > 0, current > 0,
+                   current >= duration - Double(playerState.skipOutroSeconds) {
+                    playerState.skipOutroTriggered = true
+                    playerState.log("[PlayerV2] ⏩ IJK 跳过片尾 \(playerState.formatDuration(Double(playerState.skipOutroSeconds)))，自动播放下一集")
+                    playerState.playNextEpisode()
+                }
             }
         }
     }

@@ -341,6 +341,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         applyPlaybackOptions(for: url, profile: explicitProfile)
         command("loadfile", args: [url.absoluteString, "replace"])
         state.errorMessage = nil
+        state.isEnded = false
         log("MoltenVK加载：\(url.absoluteString)")
         emitState()
     }
@@ -349,6 +350,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard !isShuttingDown else { return }
         setFlag(MPVKitProperty.pause, false)
         state.isPlaying = true
+        state.isEnded = false
         emitState()
     }
 
@@ -563,6 +565,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             case MPVKitProperty.eofReached:
                 if let ended = self.readFlag(property.data), ended {
                     self.state.isPlaying = false
+                    self.state.isEnded = true
                 }
             case MPVKitProperty.videoWidth:
                 if let value = UnsafePointer<Int64>(OpaquePointer(property.data))?.pointee {
