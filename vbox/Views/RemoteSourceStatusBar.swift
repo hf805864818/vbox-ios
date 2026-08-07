@@ -15,9 +15,9 @@ struct RemoteSourceStatusBar: View {
         case .loadedRemote(let version):
             return ("checkmark.icloud.fill", "远程源已更新 v\(version)", .white, Color.green, Color.green.opacity(0.6))
         case .loadedCache(let version):
-            return ("tray.and.arrow.down.fill", "远程源失败，已用缓存 v\(version)", .white, Color.orange, Color.orange.opacity(0.6))
+            return ("tray.and.arrow.down.fill", "远程暂无更新资源，已用缓存 v\(version)", .white, Color.orange, Color.orange.opacity(0.6))
         case .failed(let message):
-            return ("exclamationmark.triangle.fill", "远程源失败：\(message)", .white, Color.red, Color.red.opacity(0.6))
+            return ("exclamationmark.triangle.fill", "远程源失败请手动更新，已用缓存 v\(remoteSourceManager.lastConfigVersion)", .white, Color.red, Color.red.opacity(0.6))
         }
     }
 

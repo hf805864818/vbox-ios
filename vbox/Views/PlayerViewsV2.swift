@@ -715,10 +715,12 @@ class PlayerState: ObservableObject {
     @Published var showEnginePicker = false
     @Published var showDanmakuInput = false
     @Published var showToolsMenu = false
-    @AppStorage("skip_intro_enabled") var skipIntroEnabled = false
-    @AppStorage("skip_intro_seconds") var skipIntroSeconds = 0
-    @AppStorage("skip_outro_enabled") var skipOutroEnabled = false
-    @AppStorage("skip_outro_seconds") var skipOutroSeconds = 0
+    @Published var showSkipSettings = false
+    // 片头片尾设置：按视频 vodId 独立存储，同一剧集所有集数共享
+    @Published var skipIntroEnabled = false
+    @Published var skipIntroSeconds = 0
+    @Published var skipOutroEnabled = false
+    @Published var skipOutroSeconds = 0
     @Published var skipOutroTriggered = false  // 防止跳过片尾重复触发
     @Published var currentDanmakuEpisodeId: Int? = nil
     @Published var loadingMessage = "正在解析播放地址..."
@@ -1453,6 +1455,32 @@ class PlayerState: ObservableObject {
         "playback_progress_v2_\(video.vodId)_\(currentEpisodeIndex)"
     }
 
+    // MARK: - 片头片尾设置（按视频 vodId 独立存储）
+    private func skipSettingsPrefix(for video: VodItem) -> String {
+        "skip_\(video.vodId)"
+    }
+
+    /// 加载当前视频的片头片尾设置（同一剧集所有集数共享）
+    func loadSkipSettings(for video: VodItem) {
+        let p = skipSettingsPrefix(for: video)
+        skipIntroEnabled = UserDefaults.standard.bool(forKey: "\(p)_intro_enabled")
+        skipIntroSeconds = UserDefaults.standard.integer(forKey: "\(p)_intro_seconds")
+        skipOutroEnabled = UserDefaults.standard.bool(forKey: "\(p)_outro_enabled")
+        skipOutroSeconds = UserDefaults.standard.integer(forKey: "\(p)_outro_seconds")
+        skipOutroTriggered = false
+        log("[PlayerV2] 加载片头片尾设置: 片头=\(skipIntroEnabled ? "开" : "关")(\(skipIntroSeconds)s) 片尾=\(skipOutroEnabled ? "开" : "关")(\(skipOutroSeconds)s)")
+    }
+
+    /// 保存当前视频的片头片尾设置
+    func saveSkipSettings() {
+        guard let video = currentVideo else { return }
+        let p = skipSettingsPrefix(for: video)
+        UserDefaults.standard.set(skipIntroEnabled, forKey: "\(p)_intro_enabled")
+        UserDefaults.standard.set(skipIntroSeconds, forKey: "\(p)_intro_seconds")
+        UserDefaults.standard.set(skipOutroEnabled, forKey: "\(p)_outro_enabled")
+        UserDefaults.standard.set(skipOutroSeconds, forKey: "\(p)_outro_seconds")
+    }
+
     private func restorePlaybackProgress(for video: VodItem) {
         let key = playbackProgressKey(for: video)
         let saved = UserDefaults.standard.double(forKey: key)
@@ -1575,6 +1603,7 @@ class PlayerState: ObservableObject {
         log("[Baidu] ②\(reason)第\(episodeNo)集：\(file.name)，主路链→原有链路兜底...")
         await MainActor.run {
             currentEpisodeIndex = index
+            skipOutroTriggered = false
             if let video = currentVideo {
                 loadDanmaku(for: video, fileName: file.name)
                 restorePlaybackProgress(for: video)
@@ -1937,6 +1966,7 @@ class PlayerState: ObservableObject {
         brightness = UIScreen.main.brightness
         volume = Double(AVAudioSession.sharedInstance().outputVolume)
         restorePlaybackProgress(for: video)
+        loadSkipSettings(for: video)
         loadDanmaku(for: video, fileName: video.vodName)
 
         // 监听 CloudDriveManager 的日志广播，显示在播放器 Debug Overlay
@@ -3889,6 +3919,7 @@ class PlayerState: ObservableObject {
         guard index >= 0, index < episodeItems.count else { return }
         let episode = episodeItems[index]
         currentEpisodeIndex = index
+        skipOutroTriggered = false
         log("[PlayerV2] 切集: \(episode.name) (index=\(index), type=\(episode.sourceType))")
         
         currentTask?.cancel()
@@ -4395,6 +4426,9 @@ class PlayerState: ObservableObject {
         showDanmakuSettings = false
         showEnginePicker = false
         showDanmakuInput = false
+        showToolsMenu = false
+        showSkipSettings = false
+        skipOutroTriggered = false
         NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
         NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
     }
@@ -4433,7 +4467,8 @@ struct PlayerContainerView: View {
         playerState.showDanmakuSettings ||
         playerState.showEnginePicker ||
         playerState.showDanmakuInput ||
-        playerState.showToolsMenu
+        playerState.showToolsMenu ||
+        playerState.showSkipSettings
     }
 
     private var hasPlaybackError: Bool {
@@ -4902,7 +4937,7 @@ struct PlayerContainerView: View {
             }
             .zIndex(40)
 
-            // 更多功能菜单弹窗（横屏：固定在右上角按钮下方）
+            // 更多功能竖条菜单（横屏：固定在右上角按钮下方）
             if !playerState.isPortrait && playerState.showToolsMenu {
                 GeometryReader { geo in
                     Color.black.opacity(0.001)
@@ -4912,15 +4947,12 @@ struct PlayerContainerView: View {
                                 playerState.showToolsMenu = false
                             }
                         }
-                    ToolsMenuPanelV2(
-                        isPresented: $playerState.showToolsMenu,
-                        skipIntroEnabled: $playerState.skipIntroEnabled,
-                        skipIntroSeconds: $playerState.skipIntroSeconds,
-                        skipOutroEnabled: $playerState.skipOutroEnabled,
-                        skipOutroSeconds: $playerState.skipOutroSeconds
+                    ToolsQuickMenuV2(
+                        showSkipSettings: $playerState.showSkipSettings,
+                        showToolsMenu: $playerState.showToolsMenu
                     )
                     .environmentObject(settings)
-                    .position(x: geo.size.width - 98, y: 72)
+                    .position(x: geo.size.width - 50, y: 80)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .scale(scale: 0.8)),
                         removal: .opacity.combined(with: .scale(scale: 0.9))
@@ -4928,6 +4960,38 @@ struct PlayerContainerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(40)
+            }
+
+            // 片头片尾设置面板（横屏：居中显示）
+            if !playerState.isPortrait && playerState.showSkipSettings {
+                GeometryReader { geo in
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showSkipSettings = false
+                            }
+                        }
+                    SkipSettingsPanelV2(
+                        isPresented: $playerState.showSkipSettings,
+                        skipIntroEnabled: $playerState.skipIntroEnabled,
+                        skipIntroSeconds: $playerState.skipIntroSeconds,
+                        skipOutroEnabled: $playerState.skipOutroEnabled,
+                        skipOutroSeconds: $playerState.skipOutroSeconds
+                    )
+                    .environmentObject(settings)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .onChange(of: playerState.skipIntroEnabled) { _ in playerState.saveSkipSettings() }
+                    .onChange(of: playerState.skipIntroSeconds) { _ in playerState.saveSkipSettings() }
+                    .onChange(of: playerState.skipOutroEnabled) { _ in playerState.saveSkipSettings() }
+                    .onChange(of: playerState.skipOutroSeconds) { _ in playerState.saveSkipSettings() }
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
+                    ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(41)
             }
         }
         .onAppear {
@@ -4962,6 +5026,7 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.showEnginePicker) { handleControlPopupChange($0) }
         .onChange(of: playerState.showDanmakuInput) { handleControlPopupChange($0) }
         .onChange(of: playerState.showToolsMenu) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showSkipSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.isSeeking) { isSeeking in
             if isSeeking {
                 autoHideTask?.cancel()
@@ -5150,6 +5215,7 @@ struct PlayerTopBarView: View {
                     playerState.showQualityPicker = false
                     playerState.showEnginePicker = false
                     playerState.showToolsMenu = false
+                    playerState.showSkipSettings = false
                     // 短暂延迟后恢复允许所有方向，用户可自由旋转回竖屏
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         OrientationHelper.allowAllOrientations()
@@ -5236,11 +5302,12 @@ struct PlayerTopBarView: View {
                         .buttonStyle(PlainButtonStyle())
 
                         Button(action: {
+                            playerState.showSkipSettings = false
                             playerState.showToolsMenu.toggle()
                         }) {
                             Image(systemName: "ellipsis.circle")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(playerState.showToolsMenu ? Color(hex: "00BE06") : .white)
+                                .foregroundColor((playerState.showToolsMenu || playerState.showSkipSettings) ? Color(hex: "00BE06") : .white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -5869,6 +5936,8 @@ struct PlayerControlsView: View {
             playerState.showSettings = false
             playerState.showQualityPicker = false
             playerState.showEnginePicker = false
+            playerState.showToolsMenu = false
+            playerState.showSkipSettings = false
         }
     }
 
@@ -7260,8 +7329,54 @@ struct DanmakuSettingsPanelV2: View {
     }
 }
 
-// MARK: - 更多功能菜单面板（横屏，含片头片尾跳过设置 + 滚轮 + 震动）
-struct ToolsMenuPanelV2: View {
+// MARK: - 更多功能竖条菜单（横屏，可扩展功能按钮）
+struct ToolsQuickMenuV2: View {
+    @Binding var showSkipSettings: Bool
+    @Binding var showToolsMenu: Bool
+    @EnvironmentObject private var settings: AppSettings
+
+    private var menuBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.82)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 功能项：片头片尾
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolsMenu = false
+                    showSkipSettings = true
+                }
+            }) {
+                VStack(spacing: 4) {
+                    Image(systemName: "forward.end.frame")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("片头片尾")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .frame(width: 56, height: 52)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().background(Color.white.opacity(0.1))
+
+            // 后续可在此追加更多功能按钮...
+        }
+        .padding(.vertical, 4)
+        .background(menuBackground)
+        .cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+    }
+}
+
+// MARK: - 片头片尾设置面板（横屏，居中弹窗）
+struct SkipSettingsPanelV2: View {
     @Binding var isPresented: Bool
     @Binding var skipIntroEnabled: Bool
     @Binding var skipIntroSeconds: Int
@@ -7278,6 +7393,30 @@ struct ToolsMenuPanelV2: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("片头片尾")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPresented = false
+                    }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            Divider().background(Color.white.opacity(0.1))
+
             // 菜单项1：跳过片头
             ToolsMenuRow(
                 icon: "forward.fill",
@@ -7296,10 +7435,10 @@ struct ToolsMenuPanelV2: View {
             )
         }
         .padding(.vertical, 6)
-        .frame(width: 180)
+        .frame(width: 200)
         .background(panelBackground)
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
     }
 }
 
