@@ -7454,22 +7454,30 @@ struct ToolsQuickMenuV2: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 功能项：片头片尾（竖条布局：图标在上，文字在下）
+            // 功能项：片头片尾（横向布局，与其他行统一）
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showToolsMenu = false
                     showSkipSettings = true
                 }
             }) {
-                VStack(spacing: 4) {
+                HStack(spacing: 8) {
                     Image(systemName: "forward.end.frame")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(textColor)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.8))
+                        .frame(width: 20)
                     Text("片头片尾")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(textColor.opacity(0.85))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(textColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.4))
                 }
-                .frame(width: 60, height: 56)
+                .padding(.horizontal, 12)
+                .frame(width: 160, height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -7521,14 +7529,16 @@ struct ToolsToggleRow: View {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(textColor)
-            Spacer()
+                .lineLimit(1)
+                .fixedSize()
+            Spacer(minLength: 4)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .tint(Color(hex: "00BE06"))
                 .scaleEffect(0.8)
         }
-        .padding(.horizontal, 10)
-        .frame(width: 130, height: 38)
+        .padding(.horizontal, 12)
+        .frame(width: 160, height: 38)
         .contentShape(Rectangle())
     }
 }
