@@ -49,6 +49,21 @@ final class DoubanImageProxyServer {
         cache.totalCostLimit = 80 * 1024 * 1024
     }
 
+    /// 根据本地代理 URL 查找上游流信息（供转封装代理使用）
+    /// - Returns: (upstreamURL, headers, provider)，失败返回 nil
+    func upstreamInfo(for localURL: URL?) -> (url: URL, headers: [String: String], provider: String)? {
+        guard let localURL,
+              localURL.host == "127.0.0.1",
+              let components = URLComponents(url: localURL, resolvingAgainstBaseURL: false),
+              let id = components.queryItems?.first(where: { $0.name == "id" })?.value
+        else { return nil }
+
+        return queue.sync {
+            guard let item = streamItems[id] else { return nil }
+            return (item.url, item.headers, item.provider)
+        }
+    }
+
     func start() {
         queue.async { [weak self] in
             guard let self, self.listener == nil else { return }
