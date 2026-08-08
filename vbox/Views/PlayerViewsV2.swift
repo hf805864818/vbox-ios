@@ -8214,7 +8214,7 @@ struct ToolsQuickMenuV2: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(textColor.opacity(0.8))
-                        .frame(width: 16)
+                        .frame(width: 18)
                     Text("搜索弹幕")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(textColor)
@@ -8227,7 +8227,7 @@ struct ToolsQuickMenuV2: View {
                         .frame(width: 28, alignment: .trailing)
                 }
                 .padding(.horizontal, 8)
-                .frame(width: 115, height: 38)
+                .frame(width: 135, height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -8243,10 +8243,10 @@ struct ToolsQuickMenuV2: View {
                 }
             }) {
                 HStack(spacing: 6) {
-                    Image(systemName: "forward.end.frame")
+                    Image(systemName: "film.fill")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(textColor.opacity(0.8))
-                        .frame(width: 16)
+                        .frame(width: 18)
                     Text("片头片尾")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(textColor)
@@ -8259,7 +8259,7 @@ struct ToolsQuickMenuV2: View {
                         .frame(width: 28, alignment: .trailing)
                 }
                 .padding(.horizontal, 8)
-                .frame(width: 115, height: 38)
+                .frame(width: 135, height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
@@ -8290,7 +8290,7 @@ struct ToolsQuickMenuV2: View {
         }
         .padding(.vertical, 4)
         }
-        .frame(width: 115)
+        .frame(width: 135)
         .frame(maxHeight: 280)
         .background(menuBackground)
         .cornerRadius(14)
@@ -8310,7 +8310,7 @@ struct ToolsToggleRow: View {
             Image(systemName: icon)
                 .font(.system(size: 13))
                 .foregroundColor(textColor.opacity(0.8))
-                .frame(width: 16)
+                .frame(width: 18)
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(textColor)
@@ -8319,10 +8319,13 @@ struct ToolsToggleRow: View {
             Spacer(minLength: 2)
             // 自定义紧凑开关：系统 Toggle 的 scaleEffect 不影响布局尺寸，
             // 仍占 ~51pt 导致文字被挤压。用自定义控件真正控制在 28pt。
+            // 添加显式 .frame(width: 28) 确保在 HStack 中占据固定宽度，
+            // 避免 ZStack 尺寸推导不一致导致开关位置偏移。
             CompactToggle(isOn: $isOn)
+                .frame(width: 28, height: 16)
         }
         .padding(.horizontal, 8)
-        .frame(width: 115, height: 38)
+        .frame(width: 135, height: 38)
         .contentShape(Rectangle())
     }
 }
