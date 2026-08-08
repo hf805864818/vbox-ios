@@ -52,6 +52,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         #endif
     }
 
+    /// 同步当前画面拉伸模式到渲染视图
+    func syncVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        renderView?.syncVideoGravity(mode)
+    }
+
     func load(route: PlaybackRoute) {
         #if canImport(swift_mdk)
         didFinish = false
@@ -211,8 +216,9 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
 
     func stopPiP() {
         #if canImport(swift_mdk)
-        DispatchQueue.main.async { [weak self] in
-            self?.renderView?.setPiPEnabled(false)
+        // 同步关闭帧捕获，避免回调继续向已停止的 PiP 管理器推帧导致死锁
+        renderView?.setPiPEnabled(false)
+        DispatchQueue.main.async {
             MDKPipManager.shared.stopPiP()
         }
         #endif

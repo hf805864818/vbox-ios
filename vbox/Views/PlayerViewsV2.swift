@@ -192,12 +192,12 @@ class PiPHelper: NSObject {
     func setupPiP(for player: AVPlayer) {
         // 清理旧的 PiP 控制器
         cleanupPiPController()
-        
+
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
             print("[PiP] 当前设备不支持画中画")
             return
         }
-        
+
         // 激活音频会话（iOS 要求必须有活跃音频会话才能启动 PiP）
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -205,29 +205,32 @@ class PiPHelper: NSObject {
         } catch {
             print("[PiP] 音频会话激活失败: \(error.localizedDescription)")
         }
-        
+
         // 优先使用 AVPlayerViewController 内部的 playerLayer（已挂载在视图层级中）
         let playerLayer: AVPlayerLayer
         if let existingLayer = pipPlayerLayer {
             playerLayer = existingLayer
             print("[PiP] 复用 AVPlayerViewController 内部的 playerLayer")
         } else {
-            // 回退：创建独立的 playerLayer，使用标准 16:9 尺寸避免 PiP 画面异常
+            // 回退：创建独立的 playerLayer
             let newLayer = AVPlayerLayer(player: player)
             newLayer.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
             newLayer.videoGravity = .resizeAspect
             pipPlayerLayer = newLayer
             playerLayer = newLayer
-            print("[PiP] 创建独立 playerLayer（回退方案）")
+            // 关键修复：将 playerLayer 挂载到隐藏 UIWindow，
+            // 否则 AVPictureInPictureController 的 isPictureInPicturePossible 永远为 false
+            mountPlayerLayerToHiddenWindow(playerLayer)
+            print("[PiP] 创建独立 playerLayer 并挂载到隐藏 UIWindow")
         }
-        
+
         let pipContentSource = AVPictureInPictureController.ContentSource(playerLayer: playerLayer)
-        
+
         pipController = AVPictureInPictureController(contentSource: pipContentSource)
         pipController?.delegate = self
-        
+
         pipStartRetries = 0
-        
+
         pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible, options: .new) { [weak self] _, change in
             DispatchQueue.main.async {
                 if let isPossible = change.newValue, isPossible {
@@ -237,7 +240,7 @@ class PiPHelper: NSObject {
                 NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: nil)
             }
         }
-        
+
         // 先检查是否已经可以启动
         if pipController?.isPictureInPicturePossible == true {
             tryStartPiP()
@@ -270,7 +273,7 @@ class PiPHelper: NSObject {
         pipController?.stopPictureInPicture()
         cleanupPiPController()
     }
-    
+
     private func cleanupPiPController() {
         pipController?.stopPictureInPicture()
         if pipStatusObserver != nil {
@@ -278,6 +281,39 @@ class PiPHelper: NSObject {
         }
         pipController = nil
         // 注意：不释放 pipPlayerLayer，因为它属于 AVPlayerViewController 的视图层级
+    }
+
+    /// 将 AVPlayerLayer 挂载到隐藏 UIWindow（参照 MDK/MPV PiP 管理器实现）
+    /// AVPictureInPictureController.ContentSource(playerLayer:) 要求 playerLayer 必须在视图层级中
+    private func mountPlayerLayerToHiddenWindow(_ layer: AVPlayerLayer) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else {
+            print("[PiP] 警告：无法获取 UIWindowScene，playerLayer 未挂载")
+            return
+        }
+
+        // 如果已有隐藏窗口，直接复用
+        if let existingWindow = floatingWindow {
+            if let containerView = existingWindow.rootViewController?.view.subviews.first {
+                containerView.layer.addSublayer(layer)
+                return
+            }
+        }
+
+        let window = UIWindow(windowScene: scene)
+        window.windowLevel = UIWindow.Level(rawValue: -1)
+        window.backgroundColor = .clear
+        window.isHidden = false
+        window.alpha = 0.01
+        window.isUserInteractionEnabled = false
+
+        let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        containerView.layer.addSublayer(layer)
+        window.rootViewController = UIViewController()
+        window.rootViewController?.view.addSubview(containerView)
+
+        floatingWindow = window
+        print("[PiP] playerLayer 已挂载到隐藏 UIWindow")
     }
     
     var isPiPPossible: Bool {
@@ -6067,28 +6103,30 @@ struct PlayerControlsView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
             let engineName = playerState.compatibilityEngineName
+            // 判断使用哪种 PiP 等待策略
+            var useFrameBridgedPiP = false  // MDK/MPV 帧桥接 PiP：需要等待启动
+            var useAVPlayerPiP = false      // VLC/IJK/AVPlayer 系统画中画：需要等待 isPiPPossible
 
             if playerState.compatibilityURL != nil {
                 // 兼容内核（网盘资源）：根据引擎类型选择 PiP 方案
                 if engineName.contains("MDK") {
                     // MDK：使用专用帧桥接 PiP（AVSampleBufferDisplayLayer）
+                    useFrameBridgedPiP = true
                     #if canImport(swift_mdk)
                     NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
                     playerState.log("[PlayerV2] MDK 内核启动帧桥接画中画")
                     #endif
                 } else if engineName.contains("MPV") {
                     // MPV：使用专用帧桥接 PiP
-                    // 1. startPiP() 初始化 PiP 控制器（若未就绪则设置 pipStartRetries，等首帧后自动启动）
-                    // 2. 发送 .vboxPiPStatusChanged(object: true) 触发 MPV 核心开始帧捕获
-                    //    帧捕获后首帧入队会自动初始化 PiP 控制器并启动 PiP
+                    useFrameBridgedPiP = true
                     #if canImport(Libmpv)
                     MPVPiPManager.shared.startPiP()
                     NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
                     playerState.log("[PlayerV2] MPV 内核启动帧桥接画中画")
                     #endif
                 } else {
-                    // IJK / VLC / AliPlayer：无专用帧桥接 PiP，回退到 AVPlayer 系统画中画
-                    // 注意：本地代理 URL (127.0.0.1) 在后台可能被挂起，此回退方案可能失效
+                    // IJK / VLC / AliPlayer：回退到 AVPlayer 系统画中画
+                    useAVPlayerPiP = true
                     if let compatURL = playerState.compatibilityURL {
                         let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
                         let asset = AVURLAsset(url: compatURL, options: avOptions)
@@ -6099,20 +6137,66 @@ struct PlayerControlsView: View {
                         }
                         avPlayerForPiP.play()
                         PiPHelper.shared.setupPiP(for: avPlayerForPiP)
-                        playerState.log("[PlayerV2] \(engineName) 回退 AVPlayer 系统画中画（本地代理可能不支持）：\(compatURL.absoluteString.prefix(80))")
+                        playerState.log("[PlayerV2] \(engineName) 回退 AVPlayer 系统画中画：\(compatURL.absoluteString.prefix(80))")
                     }
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
+                useAVPlayerPiP = true
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
 
             playerState.isPiPActive = true
 
-            // 返回桌面（等同于按下 Home 键），PiP 小窗留在屏幕上
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            // 根据引擎类型选择不同的进入后台策略
+            if useFrameBridgedPiP {
+                // MDK/MPV 帧桥接 PiP：等待 PiP 实际启动后再进入后台
+                let deadline = Date().addingTimeInterval(5.0)
+                waitForPiPAndGoBackground(deadline: deadline)
+            } else if useAVPlayerPiP {
+                // AVPlayer 系统画中画：等待 isPiPPossible 后进入后台
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                }
+            } else {
+                // 兜底：固定延迟
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                }
             }
+        }
+    }
+
+    /// 轮询等待帧桥接 PiP 启动后再进入后台，避免 PiP 窗口不出现
+    private func waitForPiPAndGoBackground(deadline: Date) {
+        #if canImport(swift_mdk)
+        if MDKPipManager.shared.isPipActive {
+            playerState.log("[PlayerV2] MDK PiP 已启动，进入后台")
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            return
+        }
+        #endif
+        #if canImport(Libmpv)
+        if MPVPiPManager.shared.isPipActive {
+            playerState.log("[PlayerV2] MPV PiP 已启动，进入后台")
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            return
+        }
+        #endif
+
+        if Date() < deadline {
+            // 强制推一帧（不依赖 display link / render callback）
+            #if canImport(Libmpv)
+            LibmpvMoltenVKPlayerCore.shared.forceCaptureFrame()
+            #endif
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.waitForPiPAndGoBackground(deadline: deadline)
+            }
+        } else {
+            // 超时：PiP 启动失败，仍然进入后台
+            playerState.log("[PlayerV2] PiP 启动超时，强制进入后台")
+            playerState.isPiPActive = false
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
         }
     }
 
@@ -6750,15 +6834,28 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
 
         private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
             guard let view = drawableView else { return }
-            switch mode {
-            case .aspectFill:
-                view.contentMode = .scaleAspectFill
-            case .aspectFit:
-                view.contentMode = .scaleAspectFit
-            case .resize:
-                view.contentMode = .scaleToFill
-            }
             view.clipsToBounds = true
+            // VLC 内部使用 OpenGL ES 直接渲染到 layer，UIView.contentMode 无效。
+            // 必须通过 VLCMediaPlayer 的 videoAspectRatio 属性控制画面比例。
+            switch mode {
+            case .aspectFit:
+                // 适应：保持宽高比，留黑边（VLC 默认行为）
+                mediaPlayer.videoAspectRatio = nil
+                mediaPlayer.scaleFactor = 0
+            case .aspectFill:
+                // 填充：保持宽高比但放大裁剪
+                // 设置 scaleFactor > 1 实现放大裁剪效果
+                mediaPlayer.videoAspectRatio = nil
+                let viewAspect = view.bounds.width / max(view.bounds.height, 1)
+                mediaPlayer.scaleFactor = Float(viewAspect > 1 ? viewAspect : 1.0 / viewAspect)
+            case .resize:
+                // 拉伸：强制视频适配视图宽高比（不保持宽高比）
+                let w = Int(view.bounds.width)
+                let h = max(Int(view.bounds.height), 1)
+                mediaPlayer.videoAspectRatio = "\(w):\(h)"
+                mediaPlayer.scaleFactor = 0
+            }
+            print("[VLC] 屏幕拉伸模式切换为：\(mode.rawValue)")
         }
 
         func stop() {

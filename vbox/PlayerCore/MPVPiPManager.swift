@@ -225,7 +225,15 @@ final class MPVPiPManager: NSObject {
     /// - Parameters:
     ///   - pixelBuffer: 从离屏 FBO glReadPixels 获取的 CVPixelBuffer（必须使用 CVPixelBufferPool 创建）
     ///   - presentationTime: 帧的呈现时间
-    func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
+    /// nonisolated：允许从非主线程调用，内部切到主线程执行。
+    nonisolated func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
+                      presentationTime: CMTime) {
+        Task { @MainActor [weak self] in
+            self?.enqueueFrameInternal(pixelBuffer, presentationTime: presentationTime)
+        }
+    }
+
+    private func enqueueFrameInternal(_ pixelBuffer: CVPixelBuffer,
                       presentationTime: CMTime) {
         // 关键修复：首帧到达时如果 PiP 控制器尚未初始化，先用实际帧尺寸初始化，
         // 否则 guard 会在 isPiPReady=false 时直接返回，导致 PiP 永远收不到帧。
