@@ -216,7 +216,15 @@ final class MDKPipManager: NSObject {
     /// - Parameters:
     ///   - pixelBuffer: 从 MDK VideoFrame 获取的 CVPixelBuffer
     ///   - presentationTime: 帧的呈现时间
-    func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
+    /// nonisolated：允许从 MDK 后台解码线程调用，内部切到主线程执行。
+    nonisolated func enqueueFrame(_ pixelBuffer: CVPixelBuffer,
+                      presentationTime: CMTime) {
+        Task { @MainActor [weak self] in
+            self?.enqueueFrameInternal(pixelBuffer, presentationTime: presentationTime)
+        }
+    }
+
+    private func enqueueFrameInternal(_ pixelBuffer: CVPixelBuffer,
                       presentationTime: CMTime) {
         guard isPiPReady, let displayLayer else { return }
 

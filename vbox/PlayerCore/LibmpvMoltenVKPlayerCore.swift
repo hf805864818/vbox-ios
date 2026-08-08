@@ -60,17 +60,10 @@ final class LibmpvMoltenVKRenderView: UIView {
     }
 
     private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
-        switch mode {
-        case .aspectFill:
-            metalLayer.contentsGravity = .resizeAspectFill
-            self.contentMode = .scaleAspectFill
-        case .aspectFit:
-            metalLayer.contentsGravity = .resizeAspect
-            self.contentMode = .scaleAspectFit
-        case .resize:
-            metalLayer.contentsGravity = .resize
-            self.contentMode = .scaleToFill
-        }
+        // 通过 MPV 属性控制画面拉伸（运行时切换，必须用 mpv_set_property_string）
+        // contentsGravity 对 CAMetalLayer 无效，因为 drawableSize == layer 尺寸
+        LibmpvMoltenVKPlayerCore.shared.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
+        LibmpvMoltenVKPlayerCore.shared.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
         print("[MPV-MoltenVK] 屏幕拉伸模式切换为：\(mode.rawValue)")
     }
 }
@@ -84,8 +77,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     /// PiP 帧捕获开关
     private var isPipCapturing = false
-    /// 帧捕获 CADisplayLink
-    private var captureDisplayLink: CADisplayLink?
+    /// 帧捕获定时器（DispatchSourceTimer，后台仍可触发）
+    private var captureTimer: DispatchSourceTimer?
     /// 帧捕获计数器（节流用）
     private var frameCaptureCounter: Int = 0
     /// 帧捕获间隔（每 N 帧捕获一次）
@@ -134,30 +127,35 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     deinit {
         teardown()
-        captureDisplayLink?.invalidate()
+        captureTimer?.cancel()
     }
 
     // MARK: - PiP 帧捕获控制
 
     /// 启动 PiP 帧捕获（Metal 纹理 blit 模式）
+    /// 使用 DispatchSourceTimer 替代 CADisplayLink，确保 App 进入后台后仍能持续推帧
     func startPiPCapture() {
         guard !isPipCapturing else { return }
         isPipCapturing = true
         frameCaptureCounter = 0
 
-        if captureDisplayLink == nil {
-            captureDisplayLink = CADisplayLink(target: self, selector: #selector(captureFrameTick))
-            captureDisplayLink?.preferredFramesPerSecond = 10  // 10fps 足够 PiP
-            captureDisplayLink?.add(to: .main, forMode: .common)
+        if captureTimer == nil {
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now(), repeating: .milliseconds(100))  // 10fps
+            timer.setEventHandler { [weak self] in
+                self?.captureFrameTick()
+            }
+            timer.resume()
+            captureTimer = timer
         }
-        log("[PiP] 帧捕获已启动（Metal blit 模式）")
+        log("[PiP] 帧捕获已启动（DispatchSourceTimer + Metal blit 模式）")
     }
 
     /// 停止 PiP 帧捕获
     func stopPiPCapture() {
         isPipCapturing = false
-        captureDisplayLink?.invalidate()
-        captureDisplayLink = nil
+        captureTimer?.cancel()
+        captureTimer = nil
         frameCaptureCounter = 0
         pipPixelBuffer = nil
         pipMetalTexture = nil
@@ -166,8 +164,17 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         log("[PiP] 帧捕获已停止")
     }
 
-    /// CADisplayLink 回调：定期捕获帧（切到 @MainActor 执行，因为涉及 UI/Metal/PiPManager）
-    @objc private func captureFrameTick(_ displayLink: CADisplayLink) {
+    /// 强制捕获一帧（不依赖定时器，App 进入后台前调用）
+    func forceCaptureFrame() {
+        guard isPipCapturing, !isShuttingDown else { return }
+        guard state.width > 0, state.height > 0 else { return }
+        Task { @MainActor [weak self] in
+            self?.captureFrameViaMetalBlit()
+        }
+    }
+
+    /// 定时器回调：定期捕获帧
+    private func captureFrameTick() {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
 
@@ -697,6 +704,16 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         check(mpv_set_option_string(handle, name, value), context: name)
+    }
+
+    /// 运行时设置 MPV 属性（mpv_initialize 之后使用，setOption 仅在初始化前有效）
+    func setMPVProperty(_ name: String, _ value: String) {
+        guard !isShuttingDown else { return }
+        guard let handle = mpv else { return }
+        let result = mpv_set_property_string(handle, name, value)
+        if result < 0 {
+            log("[MPV] set_property(\(name)=\(value)) 失败：\(String(cString: mpv_error_string(result)))")
+        }
     }
 
     private func setFlag(_ name: String, _ value: Bool) {

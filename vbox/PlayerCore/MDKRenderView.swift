@@ -55,9 +55,10 @@ final class MDKRenderView: MTKView {
     private var hasSetupRenderAPI = false
     private var currentSize: CGSize = .zero
 
-    /// 当前画面拉伸模式
+    /// 当前画面拉伸模式（默认 .aspectFill，attach 时会从 PlayerState 同步真实值）
     private var videoGravity: PlayerState.VideoGravityMode = .aspectFill
     private var gravityObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
 
     /// 缓存的渲染管线状态（拉伸模式下用 blit，不需要）
     private var scaledPipelineState: MTLRenderPipelineState?
@@ -104,6 +105,16 @@ final class MDKRenderView: MTKView {
         ) { [weak self] note in
             guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
             self?.videoGravity = mode
+            self?.setNeedsDisplay()
+        }
+
+        // 回到前台时强制重绘，修复 PiP 返回后画面卡住
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.setNeedsDisplay()
         }
     }
 
@@ -111,11 +122,20 @@ final class MDKRenderView: MTKView {
         if let observer = gravityObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         scaledPipelineState = nil
         scaledSamplerState = nil
         pipTexture = nil
         renderTexture = nil
         pipPixelBuffer = nil
+    }
+
+    /// 同步当前画面拉伸模式（由 MDKPlayerEngine.attach 调用）
+    func syncVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        videoGravity = mode
+        setNeedsDisplay()
     }
 
     #if canImport(swift_mdk)
@@ -345,9 +365,8 @@ final class MDKRenderView: MTKView {
 
         cmdBuffer.addCompletedHandler { _ in
             let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 1000)
-            DispatchQueue.main.async {
-                MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
-            }
+            // 直接在回调线程入队，避免后台主线程被挂起导致帧不入队
+            MDKPipManager.shared.enqueueFrame(pb, presentationTime: pts)
         }
         cmdBuffer.commit()
     }
@@ -371,7 +390,23 @@ extension MDKRenderView: MTKViewDelegate {
 
         // 先让 MDK 把当前视频帧渲染到离屏纹理；返回值 < 0 表示尚无可用帧
         let pts = player.renderVideo(vid: nil)
-        guard pts >= 0 else { return }
+
+        if pts < 0 {
+            // 无可用帧（切集/加载中）：清空 drawable 为黑色，
+            // 避免显示未初始化的脏纹理（红色/洋红）
+            let rpd = MTLRenderPassDescriptor()
+            rpd.colorAttachments[0].texture = drawable.texture
+            rpd.colorAttachments[0].loadAction = .clear
+            rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            rpd.colorAttachments[0].storeAction = .store
+            if let cmdBuffer = queue.makeCommandBuffer(),
+               let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+                encoder.endEncoding()
+                cmdBuffer.present(drawable)
+                cmdBuffer.commit()
+            }
+            return
+        }
 
         guard let cmdBuffer = queue.makeCommandBuffer() else { return }
 
