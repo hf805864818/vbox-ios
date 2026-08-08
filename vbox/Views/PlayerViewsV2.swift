@@ -6889,9 +6889,15 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
                 }
             case .resize:
                 // 拉伸：强制视频适配视图宽高比（不保持宽高比）
+                // VLC videoAspectRatio 接受 UnsafeMutablePointer<CChar>，需要手动管理内存
                 let w = Int(view.bounds.width)
                 let h = max(Int(view.bounds.height), 1)
-                mediaPlayer.videoAspectRatio = "\(w):\(h)"
+                let ratioStr = "\(w):\(h)"
+                ratioStr.withCString { cStr in
+                    // VLC 内部会 strdup，这里传一份可变副本
+                    let mutable = strdup(cStr)
+                    mediaPlayer.videoAspectRatio = mutable
+                }
                 mediaPlayer.scaleFactor = 0
             }
             print("[VLC] 屏幕拉伸模式切换为：\(mode.rawValue)")

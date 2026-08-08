@@ -479,15 +479,26 @@ extension ViewCapturePiPManager: AVPictureInPictureSampleBufferPlaybackDelegate 
         // 截图模式不支持播放/暂停控制，空实现即可
     }
 
-    nonisolated func pictureInPictureControllerTimeRangeForPlayback(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) -> CMTimeRange {
-        return CMTimeRange(start: .positiveInfinity, duration: .positiveInfinity)
+    nonisolated func pictureInPictureControllerIsPlaybackPaused(
+        _ pictureInPictureController: AVPictureInPictureController) -> Bool {
+        return false
     }
 
-    nonisolated func pictureInPictureControllerIsPlaybackPaused(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) -> Bool {
+    nonisolated func pictureInPictureControllerTimeRangeForPlayback(
+        _ pictureInPictureController: AVPictureInPictureController) -> CMTimeRange {
+        return CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
+    }
+
+    nonisolated func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        skipByInterval skipInterval: CMTime,
+        completion completionHandler: @escaping () -> Void) {
+        // 截图模式不支持跳转，直接回调
+        completionHandler()
+    }
+
+    nonisolated func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(
+        _ pictureInPictureController: AVPictureInPictureController) -> Bool {
         return false
     }
 }
