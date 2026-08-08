@@ -214,7 +214,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             diagLogCounter = 0
             let seq = renderView.metalLayer.drawableSequence
             let hasDrawable = renderView.metalLayer.lastDrawable != nil
-            log("[PiP] 诊断：drawableSeq=\(seq), lastCaptured=\(lastCapturedSequence), hasDrawable=\(hasDrawable), isBg=\(UIApplication.shared.applicationState != .active)")
+            let isPlaying = state.isPlaying
+            log("[PiP] 诊断：drawableSeq=\(seq), lastCaptured=\(lastCapturedSequence), hasDrawable=\(hasDrawable), isPlaying=\(isPlaying), isBg=\(UIApplication.shared.applicationState != .active)")
         }
 
         frameCaptureCounter += 1
@@ -230,11 +231,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     /// 源：MPVKitMetalLayer 最近一次返回的 drawable texture
     /// 目标：CVPixelBuffer backed Metal texture（每帧从 pool 获取新缓冲，避免重用冲突）
     ///
-    /// 关键修复：
+    /// 关键设计：
     /// 1. 每帧从 pool 获取新的 CVPixelBuffer，不复用单个 buffer（避免 display layer
     ///    读取旧帧时被新帧 blit 覆写导致画面冻结）
-    /// 2. 使用 addCompletedHandler 等待 GPU blit 完成后再 enqueue（避免读到半成品数据）
-    /// 3. 通过 drawableSequence 跳过重复帧（MPV 后台可能停止渲染，drawable 不更新）
+    /// 2. commit 后立即 enqueue（不用 addCompletedHandler，因为后台 Metal 命令缓冲区
+    ///    可能永远不完成，导致闭包泄漏 pixelBuffer、命令队列堆积、主线程阻塞）
+    /// 3. drawableSequence 仅用于诊断日志，不跳过帧（后台时 MPV 可能不渲染新帧，
+    ///    但仍需推送旧帧保持 PiP 画面存活）
     /// 4. 每帧创建新的 CVMetalTexture（因为 pixelBuffer 每帧不同，不能缓存 texture）
     @MainActor
     private func captureFrameViaMetalBlit() {
@@ -261,13 +264,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         let height = sourceTexture.height
         guard width > 0, height > 0 else { return }
 
-        // 跳过重复帧：如果 drawable 序列号未变，说明 MPV 没有渲染新帧
-        let currentSeq = metalLayer.drawableSequence
-        if lastCapturedSequence == currentSeq {
-            return
-        }
-        lastCapturedSequence = currentSeq
-
         // 每帧获取新的 pixelBuffer（从 pool 或手动创建），避免重用导致数据竞争
         guard let pixelBuffer = createPiPPixelBuffer(width: width, height: height) else { return }
         guard CVPixelBufferGetWidth(pixelBuffer) == width,
@@ -290,7 +286,10 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard let destinationTexture = CVMetalTextureGetTexture(cvTexture) else { return }
 
         guard let commandBuffer = pipCommandQueue.makeCommandBuffer(),
-              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
+              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
+            // 命令缓冲区创建失败（可能命令队列积压），跳过本帧
+            return
+        }
 
         let sourceSize = MTLSize(width: width, height: height, depth: 1)
         blitEncoder.copy(from: sourceTexture,
@@ -303,18 +302,21 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
                          destinationLevel: 0,
                          destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
         blitEncoder.endEncoding()
-
-        let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
-
-        // 关键修复：等待 blit 完成后再入队，避免 display layer 读到未完成的数据。
-        // cvTexture 被 closure 捕获，在 blit 完成前保持存活（其 backing IOSurface 不会被释放）。
-        commandBuffer.addCompletedHandler { _ in
-            withExtendedLifetime(cvTexture) {
-                MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
-            }
-        }
         commandBuffer.commit()
 
+        // 同步等待 blit 完成（确保 pixelBuffer 中的数据完整后再 enqueue）。
+        // waitUntilCompleted 在主线程上会短暂阻塞，但 Metal blit 操作极快（<1ms），
+        // 远比 addCompletedHandler 的异步回调安全可靠（后者在后台可能永远不触发）。
+        commandBuffer.waitUntilCompleted()
+
+        // blit 完成后立即入队，cvTexture 通过 withExtendedLifetime 保持存活直到 enqueue 完成
+        let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
+        withExtendedLifetime(cvTexture) {
+            MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+        }
+
+        let currentSeq = metalLayer.drawableSequence
+        lastCapturedSequence = currentSeq
         if !hasLoggedFirstBlitFrame {
             hasLoggedFirstBlitFrame = true
             log("[PiP] 首帧 Metal blit 已推送：\(width)x\(height)，drawableSeq=\(currentSeq)")
