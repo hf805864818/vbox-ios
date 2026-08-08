@@ -48,7 +48,10 @@ final class LibmpvMoltenVKRenderView: UIView {
         metalLayer.framebufferOnly = false  // 必须为 false 才能读取像素
         metalLayer.backgroundColor = UIColor.black.cgColor
         layer.addSublayer(metalLayer)
-        applyVideoGravity(.aspectFill)
+        // 不在 configure() 中调用 applyVideoGravity：
+        // applyVideoGravity 内部访问 LibmpvMoltenVKPlayerCore.shared，
+        // 而单例初始化期间正在创建本视图，会导致 dispatch_once 递归死锁崩溃。
+        // gravity 模式将在 attach() 完成后由 syncVideoGravity 或通知触发设置。
         gravityObserver = NotificationCenter.default.addObserver(
             forName: .vboxVideoGravityChanged,
             object: nil,
@@ -65,6 +68,11 @@ final class LibmpvMoltenVKRenderView: UIView {
         LibmpvMoltenVKPlayerCore.shared.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
         LibmpvMoltenVKPlayerCore.shared.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
         print("[MPV-MoltenVK] 屏幕拉伸模式切换为：\(mode.rawValue)")
+    }
+
+    /// 由外部（attach 后）调用，同步初始 gravity 模式
+    func syncVideoGravity(_ mode: PlayerState.VideoGravityMode) {
+        applyVideoGravity(mode)
     }
 }
 

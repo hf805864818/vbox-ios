@@ -6189,8 +6189,12 @@ struct PlayerControlsView: View {
 
         if Date() < deadline {
             // 强制推一帧（不依赖 display link / render callback）
+            // 仅在 MPV 引擎且有活跃播放时才访问 MPV 单例，
+            // 避免 MDK 引擎下首次访问触发单例初始化递归死锁
             #if canImport(Libmpv)
-            LibmpvMoltenVKPlayerCore.shared.forceCaptureFrame()
+            if playerState.compatibilityEngineName.contains("MPV") && LibmpvMoltenVKPlayerCore.shared.hasActivePlayback {
+                LibmpvMoltenVKPlayerCore.shared.forceCaptureFrame()
+            }
             #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self.waitForPiPAndGoBackground(deadline: deadline)

@@ -60,9 +60,9 @@ final class MDKRenderView: MTKView {
     private var gravityObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
 
-    /// 缓存的渲染管线状态（拉伸模式下用 blit，不需要）
-    private var scaledPipelineState: MTLRenderPipelineState?
-    private var scaledSamplerState: MTLSamplerState?
+    /// 视频原始尺寸（由 MDKPlayerEngine.pollProgress 更新），用于计算 setAspectRatio 参数
+    private var videoWidth: Int = 0
+    private var videoHeight: Int = 0
 
     var isPiPEnabled: Bool { pipEnabled }
 
@@ -105,6 +105,7 @@ final class MDKRenderView: MTKView {
         ) { [weak self] note in
             guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
             self?.videoGravity = mode
+            self?.applyGravityToPlayer()
             self?.setNeedsDisplay()
         }
 
@@ -125,8 +126,6 @@ final class MDKRenderView: MTKView {
         if let observer = foregroundObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        scaledPipelineState = nil
-        scaledSamplerState = nil
         pipTexture = nil
         renderTexture = nil
         pipPixelBuffer = nil
@@ -135,8 +134,50 @@ final class MDKRenderView: MTKView {
     /// 同步当前画面拉伸模式（由 MDKPlayerEngine.attach 调用）
     func syncVideoGravity(_ mode: PlayerState.VideoGravityMode) {
         videoGravity = mode
+        applyGravityToPlayer()
         setNeedsDisplay()
     }
+
+    /// 更新视频原始尺寸（由 MDKPlayerEngine.pollProgress 调用）
+    func updateVideoSize(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        guard width != videoWidth || height != videoHeight else { return }
+        videoWidth = width
+        videoHeight = height
+        // 视频尺寸变化后需要重新应用 gravity 模式
+        applyGravityToPlayer()
+    }
+
+    /// 通过 MDK 原生 setAspectRatio API 控制画面拉伸。
+    /// renderTexture 与 drawable 尺寸一致，MDK 在纹理内部完成宽高比适配，
+    /// 因此 draw() 只需简单 blit，不需要 Metal shader 管线。
+    #if canImport(swift_mdk)
+    private func applyGravityToPlayer() {
+        guard let player = player else { return }
+        switch videoGravity {
+        case .resize:
+            // 拉伸：忽略宽高比，填满整个纹理
+            player.setAspectRatio(0)
+        case .aspectFit:
+            // 适应：保持宽高比，留黑边
+            // value > 0 = frame expand inside viewport
+            if videoWidth > 0 && videoHeight > 0 {
+                let ar = Float(videoWidth) / Float(videoHeight)
+                player.setAspectRatio(ar)
+            }
+        case .aspectFill:
+            // 填充：保持宽高比，裁剪超出部分
+            // value < 0 = frame expand outside and crop
+            if videoWidth > 0 && videoHeight > 0 {
+                let ar = Float(videoWidth) / Float(videoHeight)
+                player.setAspectRatio(-ar)
+            }
+        }
+        print("[MDK] setAspectRatio: \(videoGravity.rawValue), video=\(videoWidth)x\(videoHeight)")
+    }
+    #else
+    private func applyGravityToPlayer() {}
+    #endif
 
     #if canImport(swift_mdk)
     func attach(player: Player) {
@@ -410,29 +451,21 @@ extension MDKRenderView: MTKViewDelegate {
 
         guard let cmdBuffer = queue.makeCommandBuffer() else { return }
 
-        if videoGravity == .resize {
-            // 拉伸模式：直接 blit 整个纹理到 drawable（填满屏幕，不保持比例）
-            guard let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
-            blit.copy(
-                from: renderTex,
-                sourceSlice: 0,
-                sourceLevel: 0,
-                sourceOrigin: MTLOriginMake(0, 0, 0),
-                sourceSize: MTLSizeMake(renderTex.width, renderTex.height, 1),
-                to: drawable.texture,
-                destinationSlice: 0,
-                destinationLevel: 0,
-                destinationOrigin: MTLOriginMake(0, 0, 0)
-            )
-            blit.endEncoding()
-        } else {
-            // 填充/适应模式：用渲染管线缩放，保持视频宽高比
-            blitTextureToDrawable(
-                cmdBuffer: cmdBuffer,
-                source: renderTex,
-                destination: drawable.texture
-            )
-        }
+        // MDK 已通过 setAspectRatio 在 renderTexture 内部完成宽高比适配，
+        // 直接 blit 到 drawable 即可，不需要 Metal shader 管线
+        guard let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
+        blit.copy(
+            from: renderTex,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOriginMake(0, 0, 0),
+            sourceSize: MTLSizeMake(renderTex.width, renderTex.height, 1),
+            to: drawable.texture,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOriginMake(0, 0, 0)
+        )
+        blit.endEncoding()
 
         cmdBuffer.present(drawable)
         cmdBuffer.commit()
@@ -441,156 +474,5 @@ extension MDKRenderView: MTKViewDelegate {
         if pipEnabled {
             capturePiPFrameLocked(queue: queue)
         }
-    }
-
-    // MARK: - 带宽高比的纹理缩放渲染
-
-    private func getScaledPipelineState() -> MTLRenderPipelineState? {
-        if let state = scaledPipelineState { return state }
-        guard let device = device, let library = makeShaderLibrary() else { return nil }
-
-        let desc = MTLRenderPipelineDescriptor()
-        desc.vertexFunction = library.makeFunction(name: "mdk_gravity_vertex")
-        desc.fragmentFunction = library.makeFunction(name: "mdk_gravity_fragment")
-        desc.colorAttachments[0].pixelFormat = colorPixelFormat
-
-        guard let state = try? device.makeRenderPipelineState(descriptor: desc) else { return nil }
-        scaledPipelineState = state
-        return state
-    }
-
-    private func getSamplerState() -> MTLSamplerState? {
-        if let state = scaledSamplerState { return state }
-        guard let device = device else { return nil }
-        let desc = MTLSamplerDescriptor()
-        desc.minFilter = .linear
-        desc.magFilter = .linear
-        desc.sAddressMode = .clampToEdge
-        desc.tAddressMode = .clampToEdge
-        guard let state = device.makeSamplerState(descriptor: desc) else { return nil }
-        scaledSamplerState = state
-        return state
-    }
-
-    /// 动态创建 Metal shader library（内嵌源码，不依赖外部 .metal 文件）
-    private func makeShaderLibrary() -> MTLLibrary? {
-        guard let device = device else { return nil }
-        let source = """
-        #include <metal_stdlib>
-        using namespace metal;
-
-        struct VertexOut {
-            float4 position [[position]];
-            float2 uv;
-        };
-
-        vertex VertexOut mdk_gravity_vertex(uint vid [[vertex_id]],
-                                             constant float4 *rect [[buffer(0)]]) {
-            // 两个三角形覆盖 rect 区域（x, y, w, h 均为 0~1 归一化坐标）
-            float2 positions[6] = {
-                {rect[0].x, rect[0].y},
-                {rect[0].x + rect[0].z, rect[0].y},
-                {rect[0].x, rect[0].y + rect[0].w},
-                {rect[0].x, rect[0].y + rect[0].w},
-                {rect[0].x + rect[0].z, rect[0].y},
-                {rect[0].x + rect[0].z, rect[0].y + rect[0].w},
-            };
-            float2 uvs[6] = {
-                {0, 0}, {1, 0}, {0, 1},
-                {0, 1}, {1, 0}, {1, 1},
-            };
-            float2 pos = positions[vid];
-            float2 uv = uvs[vid];
-            // Metal 坐标系：y 轴向上，翻转
-            VertexOut out;
-            out.position = float4(pos.x * 2 - 1, -(pos.y * 2 - 1), 0, 1);
-            out.uv = uv;
-            return out;
-        }
-
-        fragment float4 mdk_gravity_fragment(VertexOut in [[stage_in]],
-                                              texture2d<float> tex [[texture(0)]],
-                                              sampler smp [[sampler(0)]]) {
-            return tex.sample(smp, in.uv);
-        }
-        """
-        return try? device.makeLibrary(source: source, options: nil)
-    }
-
-    /// 用渲染管线将 source 纹理按宽高比缩放绘制到 destination
-    private func blitTextureToDrawable(cmdBuffer: MTLCommandBuffer,
-                                        source: MTLTexture,
-                                        destination: MTLTexture) {
-        guard let pipelineState = getScaledPipelineState(),
-              let samplerState = getSamplerState() else {
-            // 降级：直接 blit
-            guard let blit = cmdBuffer.makeBlitCommandEncoder() else { return }
-            blit.copy(from: source, sourceSlice: 0, sourceLevel: 0,
-                      sourceOrigin: MTLOriginMake(0, 0, 0),
-                      sourceSize: MTLSizeMake(source.width, source.height, 1),
-                      to: destination, destinationSlice: 0, destinationLevel: 0,
-                      destinationOrigin: MTLOriginMake(0, 0, 0))
-            blit.endEncoding()
-            return
-        }
-
-        // 计算目标区域（归一化 0~1），保持视频宽高比
-        let videoW = CGFloat(source.width)
-        let videoH = CGFloat(source.height)
-        let viewW = CGFloat(destination.width)
-        let viewH = CGFloat(destination.height)
-
-        var rect = SIMD4<Float>(0, 0, 1, 1) // x, y, w, h
-
-        if videoW > 0 && videoH > 0 && viewW > 0 && viewH > 0 {
-            let videoAspect = videoW / videoH
-            let viewAspect = viewW / viewH
-
-            if videoGravity == .aspectFill {
-                // 填充：视频填满屏幕，可能裁剪
-                if videoAspect > viewAspect {
-                    // 视频更宽，左右裁剪
-                    let scale = viewH / videoH
-                    let drawW = Float(videoW * scale / viewW)
-                    rect.x = (1 - drawW) / 2
-                    rect.z = drawW
-                } else {
-                    // 视频更高，上下裁剪
-                    let scale = viewW / videoW
-                    let drawH = Float(videoH * scale / viewH)
-                    rect.y = (1 - drawH) / 2
-                    rect.w = drawH
-                }
-            } else {
-                // 适应：视频完整显示，可能有黑边
-                if videoAspect > viewAspect {
-                    // 视频更宽，上下留黑边
-                    let scale = viewW / videoW
-                    let drawH = Float(videoH * scale / viewH)
-                    rect.y = (1 - drawH) / 2
-                    rect.w = drawH
-                } else {
-                    // 视频更高，左右留黑边
-                    let scale = viewH / videoH
-                    let drawW = Float(videoW * scale / viewW)
-                    rect.x = (1 - drawW) / 2
-                    rect.z = drawW
-                }
-            }
-        }
-
-        let rpd = MTLRenderPassDescriptor()
-        rpd.colorAttachments[0].texture = destination
-        rpd.colorAttachments[0].loadAction = .clear
-        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        rpd.colorAttachments[0].storeAction = .store
-
-        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) else { return }
-        encoder.setRenderPipelineState(pipelineState)
-        encoder.setFragmentTexture(source, index: 0)
-        encoder.setFragmentSamplerState(samplerState, index: 0)
-        encoder.setVertexBytes(&rect, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
-        encoder.endEncoding()
     }
 }

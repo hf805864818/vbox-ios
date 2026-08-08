@@ -251,6 +251,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         if let video = player.mediaInfo.video.first {
             state.width = Int(video.codec.width)
             state.height = Int(video.codec.height)
+            // 同步视频原始尺寸到渲染视图，用于 setAspectRatio 计算
+            renderView?.updateVideoSize(width: state.width, height: state.height)
         }
 
         onEvent?(.progress(current: state.currentTime, duration: state.duration))
