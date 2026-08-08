@@ -8290,7 +8290,8 @@ struct ToolsQuickMenuV2: View {
         }
         .padding(.vertical, 4)
         }
-        .frame(width: 115, maxHeight: 280)
+        .frame(width: 115)
+        .frame(maxHeight: 280)
         .background(menuBackground)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
