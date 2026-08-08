@@ -6767,12 +6767,25 @@ struct PlayerControlsView: View {
                     playerState.log("[PlayerV2] MDK 内核启动帧桥接画中画")
                     #endif
                 } else if engineName.contains("MPV") {
-                    // MPV：使用专用帧桥接 PiP
-                    useFrameBridgedPiP = true
+                    // MPV：优先尝试 AVPlayer 代理 PiP（解决后台 GPU 冻结），
+                    // 失败则回退到帧桥接 PiP（AVSampleBufferDisplayLayer）
                     #if canImport(Libmpv)
-                    MPVPiPManager.shared.startPiP()
-                    NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
-                    playerState.log("[PlayerV2] MPV 内核启动帧桥接画中画")
+                    if let url = playerState.compatibilityURL {
+                        // P1 修复：使用 AVPlayer 原生 PiP 绕过 iOS 后台 GPU 限制
+                        MPVAVPlayerPiPProxy.shared.startProxyPiP(
+                            url: url,
+                            headers: playerState.compatibilityHeaders,
+                            currentPosition: playerState.currentTime
+                        )
+                        useAVPlayerPiP = true
+                        playerState.log("[PlayerV2] MPV 内核启动 AVPlayer 代理画中画")
+                    } else {
+                        // 无 URL 则回退到帧桥接 PiP
+                        useFrameBridgedPiP = true
+                        MPVPiPManager.shared.startPiP()
+                        NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
+                        playerState.log("[PlayerV2] MPV 内核启动帧桥接画中画")
+                    }
                     #endif
                 } else {
                     // IJK / VLC / AliPlayer：使用视图截图帧桥接 PiP

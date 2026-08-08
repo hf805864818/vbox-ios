@@ -171,6 +171,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
 
+        // P0 修复：播放暂停时跳过帧捕获，避免主线程阻塞导致返回 App 时卡死。
+        // 当用户在 PiP 窗口按暂停按钮 → vboxPiPTogglePlayPause 通知
+        // → playerState.togglePlayback() → core.pause() → state.isPlaying = false
+        // 此时 captureTimer 仍在运行但不再捕获帧，画面停留在最后一帧。
+        // 用户按播放按钮后 state.isPlaying 恢复为 true，帧捕获自动恢复。
+        guard state.isPlaying else { return }
+
         // 诊断日志：每 30 次回调（约 3 秒）输出一次状态
         diagLogCounter += 1
         if diagLogCounter >= 30 {

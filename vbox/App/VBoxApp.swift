@@ -17,6 +17,7 @@ struct VBoxApp: App {
         // 强制加载 AliyunPlayer 动态框架，使 NSClassFromString("AliPlayer") 在运行时可用
         loadAliyunPlayerIfNeeded()
         DoubanImageProxyServer.shared.start()
+        RemuxProxyServer.shared.start()  // 转封装代理（PiP 用，端口 18081）
         // 触发数据库初始化（建表 + 数据迁移）
         let _ = DatabaseManager.shared
     }
