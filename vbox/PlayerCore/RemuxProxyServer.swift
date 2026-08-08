@@ -112,9 +112,13 @@ final class RemuxProxyServer {
     /// 注册一个待转封装的上游流
     /// - Returns: 本地代理 URL，AVPlayer 直接播放此 URL
     func registerStream(url: URL, headers: [String: String] = [:], provider: String = "generic") -> URL? {
-        guard isRunning else {
-            print("[RemuxProxy] 服务器未启动，无法注册流")
-            return nil
+        if !isRunning {
+            start()
+            guard listener != nil else {
+                print("[RemuxProxy] 服务器未启动，无法注册流")
+                return nil
+            }
+            print("[RemuxProxy] 服务器启动中，先注册流等待 AVPlayer 请求")
         }
 
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")

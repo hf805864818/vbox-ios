@@ -538,6 +538,8 @@ struct VideoPlayerViewV2: View {
     // 修复: 存储 PiP 观察者 token，onDisappear 时用 token 移除
     @State private var pipRestoreObserver: NSObjectProtocol?
     @State private var pipToggleObserver: NSObjectProtocol?
+    @State private var avPlayerPiPStatusObserver: NSObjectProtocol?
+    @State private var avPlayerPiPFallbackObserver: NSObjectProtocol?
 
     var body: some View {
         ZStack {
@@ -605,12 +607,31 @@ struct VideoPlayerViewV2: View {
             // 修复: 存储 token 并使用 weak 引用，防止 playerState 泄漏
             if let old = pipRestoreObserver { NotificationCenter.default.removeObserver(old) }
             if let old = pipToggleObserver { NotificationCenter.default.removeObserver(old) }
+            if let old = avPlayerPiPStatusObserver { NotificationCenter.default.removeObserver(old) }
+            if let old = avPlayerPiPFallbackObserver { NotificationCenter.default.removeObserver(old) }
             pipRestoreObserver = NotificationCenter.default.addObserver(forName: .vboxPiPRestoreFullScreen, object: nil, queue: .main) { [weak playerState] _ in
                 playerState?.isPiPActive = false
             }
-            pipToggleObserver = NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak playerState] _ in
+            pipToggleObserver = NotificationCenter.default.addObserver(forName: .vboxPiPTogglePlayPause, object: nil, queue: .main) { [weak playerState] note in
                 guard let playerState else { return }
+                if let playing = note.object as? Bool {
+                    if let player = playerState.player {
+                        playing ? player.play() : player.pause()
+                    }
+                    playerState.isPlaying = playing
+                    return
+                }
                 playerState.togglePlayback(player: playerState.player)
+            }
+            avPlayerPiPStatusObserver = NotificationCenter.default.addObserver(forName: .vboxAVPlayerPiPStatusChanged, object: nil, queue: .main) { [weak playerState] note in
+                guard let playerState, let active = note.object as? Bool else { return }
+                playerState.isPiPActive = active
+            }
+            avPlayerPiPFallbackObserver = NotificationCenter.default.addObserver(forName: .vboxAVPlayerPiPFallback, object: nil, queue: .main) { [weak playerState] _ in
+                guard let playerState else { return }
+                playerState.isPiPActive = false
+                playerState.currentPiPStrategy = .backgroundAudioOnly
+                playerState.log("[PlayerV2] AVPlayer 代理/转封装画中画失败，已降级为后台声音，避免冻屏")
             }
         }
         .onDisappear {
@@ -620,6 +641,8 @@ struct VideoPlayerViewV2: View {
             // 修复: 使用 token 移除观察者，removeObserver(self,...) 对 block-based 观察者无效
             if let obs = pipRestoreObserver { NotificationCenter.default.removeObserver(obs) }
             if let obs = pipToggleObserver { NotificationCenter.default.removeObserver(obs) }
+            if let obs = avPlayerPiPStatusObserver { NotificationCenter.default.removeObserver(obs) }
+            if let obs = avPlayerPiPFallbackObserver { NotificationCenter.default.removeObserver(obs) }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
@@ -714,6 +737,32 @@ class PlayerState: ObservableObject {
         case compatibility = "兼容内核"
     }
 
+    enum PiPStrategy: Equatable {
+        case system              // AVPlayer 原生系统画中画
+        case avPlayerProxy       // 兼容内核播放 + AVPlayer 代理/转封装画中画
+        case frameBridged        // 兼容内核帧桥接画中画
+        case backgroundAudioOnly // 不启动假画中画，仅退后台保留声音
+        case unavailable
+
+        var supportsVisualPiP: Bool {
+            switch self {
+            case .system, .avPlayerProxy, .frameBridged:
+                return true
+            case .backgroundAudioOnly, .unavailable:
+                return false
+            }
+        }
+
+        var allowsControl: Bool {
+            switch self {
+            case .system, .avPlayerProxy, .frameBridged, .backgroundAudioOnly:
+                return true
+            case .unavailable:
+                return false
+            }
+        }
+    }
+
     enum PlaybackEnginePreference: String, CaseIterable, Identifiable {
         case auto = "自动"
         case system = "系统"
@@ -732,11 +781,11 @@ class PlayerState: ObservableObject {
             case .system:
                 return "强制使用 AVPlayer，适合普通 MP4"
             case .mdk:
-                return "MDK 内核，Metal 硬解，支持系统画中画"
+                return "MDK 内核，优先稳定播放，后台默认保留声音"
             case .vlc:
                 return "优先使用 VLC，不支持系统画中画"
             case .mpv:
-                return "MPV 内核，支持系统画中画"
+                return "MPV 内核，复杂网盘资源优先使用代理画中画"
             case .ijk:
                 return "IJKPlayer 内核，适合网盘直链"
             case .ali:
@@ -837,6 +886,7 @@ class PlayerState: ObservableObject {
     @Published var compatibilityURL: URL?
     @Published var compatibilityHeaders: [String: String] = [:]
     @Published var compatibilityEngineName: String = "VLC"
+    @Published var currentPiPStrategy: PiPStrategy = .system
     @Published var enginePreference: PlaybackEnginePreference = .auto
     @Published var baiduFileList: [BaiduFileItem] = [] // 百度多文件列表
     @Published var baiduShareURL: String = ""    // 百度分享链接
@@ -965,19 +1015,31 @@ class PlayerState: ObservableObject {
 
     /// 当前使用的兼容内核是否支持系统级画中画
     var isCurrentCompatibilityEngineSupportsPiP: Bool {
-        guard playbackEngineMode == .compatibility else { return true }
-        // MDK / MPV / IJK 支持帧桥接 PiP，VLC 不支持
-        let engineName = compatibilityEngineName
-        return engineName.contains("MDK") || engineName.contains("MPV") || engineName.contains("mpv") || engineName.contains("IJK")
+        currentPiPStrategy.supportsVisualPiP
     }
 
-    /// 当前引擎是否支持系统级画中画（用于 UI 按钮状态）
+    /// 当前画中画按钮是否可用。
+    /// 对百度复杂格式等不稳定路线，按钮仍可退后台播放声音，但不会标记为可视 PiP。
     var isPiPSupported: Bool {
-        // 所有引擎都支持某种形式的画中画：
-        // AVPlayer → 原生 PiP
-        // MPV → 帧桥接 PiP
-        // VLC → 浮动窗口
-        return true
+        currentPiPStrategy.allowsControl && (currentPiPStrategy != .backgroundAudioOnly || backgroundPlay)
+    }
+
+    var pipButtonSystemImage: String {
+        if isPiPActive { return "pip.exit" }
+        return currentPiPStrategy == .backgroundAudioOnly ? "speaker.wave.2.fill" : "pip.enter"
+    }
+
+    private func compatibilityPiPStrategy(engineName: String, url: URL?) -> PiPStrategy {
+        let isBaiduProxy = url?.host == "127.0.0.1" && (url?.path.contains("baidu-stream") ?? false)
+        if isBaiduProxy {
+            // 百度复杂资源由兼容内核保证主播放，同时用 AVPlayer 代理/转封装承载系统 PiP。
+            // 这样绕开后台 GPU/截图链路冻帧问题，又尽量保留真正画中画。
+            return .avPlayerProxy
+        }
+        if engineName.contains("MPV") || engineName.contains("mpv") {
+            return .frameBridged
+        }
+        return .backgroundAudioOnly
     }
 
     var currentEngineButtonTitle: String {
@@ -1091,6 +1153,9 @@ class PlayerState: ObservableObject {
         let lower = fileName.lowercased()
         let rules: [(String, String)] = [
             (".mkv", "MKV 封装"),
+            (".flv", "FLV 封装"),
+            (".avi", "AVI 封装"),
+            (".rmvb", "RMVB 封装"),
             ("hevc", "HEVC/H.265"),
             ("h265", "HEVC/H.265"),
             ("x265", "HEVC/H.265"),
@@ -1100,6 +1165,15 @@ class PlayerState: ObservableObject {
             ("高码率", "高码率视频")
         ]
         return rules.first(where: { lower.contains($0.0) })?.1
+    }
+
+    private func shouldTryBaiduAVPlayerFirst(resourceName: String, playlistKind: PlaylistKind?) -> Bool {
+        if playlistKind != nil { return true }
+        let lower = resourceName.lowercased()
+        let nativeExtensions = [".mp4", ".m4v", ".mov", ".m3u8"]
+        if nativeExtensions.contains(where: { lower.contains($0) }) { return true }
+        if lower.contains("m3u8") { return true }
+        return compatibilityReason(for: resourceName) == nil
     }
 
     func cycleVideoGravity() {
@@ -2268,6 +2342,7 @@ class PlayerState: ObservableObject {
                     }
                     #endif
                     PiPHelper.shared.stopPiP()
+                    MPVAVPlayerPiPProxy.shared.stopProxyPiP()
                     self.isPiPActive = false
                     self.log("[PlayerV2] 回到前台，已延迟关闭 PiP")
                 }
@@ -2321,6 +2396,7 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
+        currentPiPStrategy = .system
         // 修复: 使用 token 移除观察者，removeObserver(self,...) 对 block-based 观察者无效
         if let obs = cloudDriveLogObserver {
             NotificationCenter.default.removeObserver(obs)
@@ -2335,6 +2411,7 @@ class PlayerState: ObservableObject {
             MDKPipManager.shared.cleanupPiPController()
             #endif
             ViewCapturePiPManager.shared.cleanupPiP()
+            MPVAVPlayerPiPProxy.shared.stopProxyPiP()
         }
     }
     
@@ -3137,6 +3214,9 @@ class PlayerState: ObservableObject {
         let isUCLocalProxy = urlObj.host == "127.0.0.1" && urlObj.path.contains("uc-stream")
         let isCloudLocalProxy = urlObj.host == "127.0.0.1"
             && (urlObj.path.contains("ali-stream") || isUCLocalProxy || urlObj.path.contains("115-stream") || urlObj.path.contains("xunlei-stream"))
+        let shouldFallbackBaiduAVPlayerToCompatibility = isBaiduLocalProxy
+            && enginePreference == .auto
+            && shouldTryBaiduAVPlayerFirst(resourceName: resourceName, playlistKind: playlistKind)
         await MainActor.run {
             bindBaiduCacheProgress(for: isBaiduLocalProxy ? urlObj : nil)
         }
@@ -3186,27 +3266,43 @@ class PlayerState: ObservableObject {
                 log("[UC] IJK/MPV/MDK 均不可用，uc-stream 降级使用 VLC")
             }
         } else if isBaiduLocalProxy && enginePreference == .auto {
-            // 百度原画：保持原有 MPV → MDK → VLC 降级链
-            await MainActor.run {
-                guard playbackSessionId == sessionId else { return }
-                playbackEngineMode = .compatibility
-                compatibilityHint = "百度原画本地代理"
-            }
-            if isMPVBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 本地代理原画流")
-                log("[Baidu] 自动模式下百度本地代理优先使用 MPV-MoltenVK")
-            } else if isMDKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream 本地代理原画流（MPV 不可用）")
-                log("[Baidu] MPV 不可用，降级使用 MDK")
-            } else if isVLCBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu-stream MPV/MDK 均不可用降级 VLC")
-                log("[Baidu] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
+            if shouldTryBaiduAVPlayerFirst(resourceName: resourceName, playlistKind: playlistKind) {
+                await MainActor.run {
+                    guard playbackSessionId == sessionId else { return }
+                    playbackEngineMode = .system
+                    compatibilityHint = nil
+                    currentPiPStrategy = .system
+                    loadingMessage = "正在尝试系统内核..."
+                }
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "百度资源格式可尝试系统内核，失败自动回兼容内核")
+                log("[Baidu] 自动模式优先尝试 AVPlayer，失败将回退原兼容内核链路")
+            } else {
+                // 百度复杂封装/疑似软解资源：保留原 MPV → MDK → VLC 兼容播放链路
+                let reason = compatibilityReason(for: resourceName) ?? "百度原画本地代理"
+                let baiduCompatibilityEngine = preferredCompatibilityEngineName(for: urlObj)
+                await MainActor.run {
+                    guard playbackSessionId == sessionId else { return }
+                    playbackEngineMode = .compatibility
+                    compatibilityHint = reason
+                    currentPiPStrategy = compatibilityPiPStrategy(engineName: baiduCompatibilityEngine, url: urlObj)
+                }
+                if isMPVBuildAvailable {
+                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream \(reason)")
+                    log("[Baidu] 复杂格式保留原兼容链路，优先使用 MPV-MoltenVK")
+                } else if isMDKBuildAvailable {
+                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream \(reason)（MPV 不可用）")
+                    log("[Baidu] MPV 不可用，降级使用 MDK")
+                } else if isVLCBuildAvailable {
+                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu-stream MPV/MDK 均不可用降级 VLC")
+                    log("[Baidu] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
+                }
             }
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
                 guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .system
                 compatibilityHint = nil
+                currentPiPStrategy = .system
             }
             let kind = playlistKind ?? .unknown
             let reason = kind == .fmp4 ? "#EXT-X-MAP/.m4s" : (kind == .ts ? "TS切片" : "m3u8未探测到fMP4特征")
@@ -3241,6 +3337,7 @@ class PlayerState: ObservableObject {
                 compatibilityEngineName = engineName
                 compatibilityURL = urlObj
                 compatibilityHeaders = urlObj.host == "127.0.0.1" ? [:] : headers
+                currentPiPStrategy = compatibilityPiPStrategy(engineName: engineName, url: urlObj)
                 detectVideoQuality(from: urlObj.absoluteString)
                 isPlaying = true
                 isLoading = false
@@ -3329,7 +3426,10 @@ class PlayerState: ObservableObject {
                     }
                     if self.isUnsupportedMediaError(nsError, errorDesc: errorDesc, underlyingDesc: underlyingDesc) {
                         self.log("[PlayerV2] ⚠️ 当前资源疑似 AVPlayer 不支持，建议后续使用兼容内核")
-                        if isQuarkLocalProxy {
+                        if shouldFallbackBaiduAVPlayerToCompatibility {
+                            self.switchBaiduAVPlayerFailureToCompatibility(url: urlObj, headers: assetHeaders, reason: "系统内核不支持当前百度格式")
+                            return
+                        } else if isQuarkLocalProxy {
                             if self.switchToQuarkFallback(reason: "系统内核不支持原画格式") { return }
                         } else {
                             Task { @MainActor in
@@ -3337,6 +3437,10 @@ class PlayerState: ObservableObject {
                             }
                             return
                         }
+                    }
+                    if shouldFallbackBaiduAVPlayerToCompatibility {
+                        self.switchBaiduAVPlayerFailureToCompatibility(url: urlObj, headers: assetHeaders, reason: "系统内核播放失败")
+                        return
                     }
                     Task { @MainActor in
                         self.failPlayback("网盘播放失败: \(errorDesc)")
@@ -3364,6 +3468,8 @@ class PlayerState: ObservableObject {
                     } else if isQuarkLocalProxy && self.isQuarkConnectionLost(error: error as NSError, errorDesc: error.localizedDescription, underlyingDesc: "") {
                         self.log("[Quark] ⚠️ 夸克播放中断疑似连接丢失，准备切换 m3u8 兜底")
                         self.switchToQuarkFallback(reason: "原画播放中断")
+                    } else if shouldFallbackBaiduAVPlayerToCompatibility {
+                        self.switchBaiduAVPlayerFailureToCompatibility(url: urlObj, headers: assetHeaders, reason: "系统内核播放中断")
                     } else {
                         Task { @MainActor in
                             self.failPlayback("网盘播放失败: \(error.localizedDescription)")
@@ -3399,6 +3505,7 @@ class PlayerState: ObservableObject {
             endObserver = localEndObserver
             player?.pause()
             player = p
+            currentPiPStrategy = .system
             isPlaying = true
             // 修复竞态：await MainActor.run 挂起期间，本地代理响应极快可能导致
             // playerItem.status 已变为 .readyToPlay，观察者已在主队列回调中设置了 isLoading=false。
@@ -3436,6 +3543,17 @@ class PlayerState: ObservableObject {
         }
 
         p.play()
+
+        if shouldFallbackBaiduAVPlayerToCompatibility {
+            Task { @MainActor [weak self, weak p] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, let p, self.player === p else { return }
+                guard self.playbackSessionId == sessionId, self.loadError == nil else { return }
+                guard p.currentItem?.status != .readyToPlay else { return }
+                self.log("[Baidu] AVPlayer 3秒内未就绪，回退原兼容内核")
+                self.switchBaiduAVPlayerFailureToCompatibility(url: urlObj, headers: assetHeaders, reason: "系统内核启动超时")
+            }
+        }
 
         // 安全兜底：播放器已实际播放（有进度/在播放）但 isLoading 仍为 true 时，清除 loading 状态。
         // 覆盖观察者回调因各种极端时序未被处理的边界情况。
@@ -3677,7 +3795,7 @@ class PlayerState: ObservableObject {
                     self.failPlayback("该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
                 } else if isBaiduLocalProxy {
                     self.log("[PlayerV2] ⚠️ 百度视频有播放进度但画面尺寸为0，疑似视频轨/编码不兼容")
-                    self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
+                    self.switchBaiduAVPlayerFailureToCompatibility(url: fallbackURL, headers: fallbackHeaders, reason: "系统内核无视频画面")
                 } else {
                     self.log("[PlayerV2] ⚠️ 普通/蜘蛛资源有播放进度但无视频画面，疑似编码不兼容")
                     self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
@@ -3702,10 +3820,45 @@ class PlayerState: ObservableObject {
             self.log("[PlayerV2] 首帧检测(8s补充)：进度=\(String(format: "%.1f", seconds))s，画面=\(Int(size.width))x\(Int(size.height))，视频轨=\(hasVideoTrack)")
             if isQuarkLocalProxy {
                 self.failPlayback("该视频在夸克网盘中已失效（可能被和谐或转码失败），请尝试其他资源")
+            } else if isBaiduLocalProxy {
+                self.switchBaiduAVPlayerFailureToCompatibility(url: fallbackURL, headers: fallbackHeaders, reason: "系统内核无视频画面")
             } else {
                 self.switchAVPlayerVideoTrackFailureToMPV(url: fallbackURL, headers: fallbackHeaders)
             }
         }
+    }
+
+    private func switchBaiduAVPlayerFailureToCompatibility(url: URL, headers: [String: String], reason: String) {
+        guard enginePreference == .auto else {
+            log("[Baidu] 当前为手动系统内核策略，不自动切换兼容内核")
+            return
+        }
+        guard isMPVBuildAvailable || isMDKBuildAvailable || isIJKBuildAvailable || isVLCBuildAvailable else {
+            log("[Baidu] 当前构建没有可用兼容内核，保留系统内核")
+            return
+        }
+
+        let engineName = preferredCompatibilityEngineName(for: url)
+        log("[Baidu] AVPlayer 优先尝试失败，回退兼容内核 \(engineName)：\(reason)")
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        cleanupObservers()
+        stopPlaybackWatchdog()
+        player?.pause()
+        player = nil
+        compatibilityEngineName = engineName
+        compatibilityURL = url
+        compatibilityHeaders = url.host == "127.0.0.1" ? [:] : headers
+        currentPiPStrategy = compatibilityPiPStrategy(engineName: engineName, url: url)
+        detectVideoQuality(from: url.absoluteString)
+        playbackEngineMode = .compatibility
+        compatibilityHint = reason
+        isPlaying = true
+        isLoading = false
+        isSwitchingEpisode = false
+        loadError = nil
     }
 
     private func switchAVPlayerVideoTrackFailureToMPV(url: URL, headers: [String: String]) {
@@ -3725,6 +3878,7 @@ class PlayerState: ObservableObject {
         compatibilityEngineName = "MPV-MoltenVK"
         compatibilityURL = url
         compatibilityHeaders = headers
+        currentPiPStrategy = compatibilityPiPStrategy(engineName: "MPV-MoltenVK", url: url)
         detectVideoQuality(from: url.absoluteString)
         playbackEngineMode = .compatibility
         compatibilityHint = "系统内核无视频画面"
@@ -4881,6 +5035,7 @@ class PlayerState: ObservableObject {
             compatibilityEngineName = "MPV-MoltenVK"
             compatibilityURL = url
             compatibilityHeaders = [:]
+            currentPiPStrategy = compatibilityPiPStrategy(engineName: "MPV-MoltenVK", url: url)
             playbackEngineMode = .compatibility
             compatibilityHint = "MKV / 复杂封装"
             isPlaying = true
@@ -4908,6 +5063,7 @@ class PlayerState: ObservableObject {
             compatibilityURL = nil
             compatibilityHeaders = [:]
             compatibilityHint = nil
+            currentPiPStrategy = .system
             playbackEngineMode = .system
             NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
             NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
@@ -5073,6 +5229,7 @@ class PlayerState: ObservableObject {
             }
         
         self.player = p
+        self.currentPiPStrategy = .system
         self.isPlaying = true
         // 修复竞态：await/async 期间 playerItem.status 可能已变为 .readyToPlay，
         // 观察者已在主队列回调中设置了 isLoading=false。
@@ -5171,6 +5328,8 @@ class PlayerState: ObservableObject {
 
     private func beginPlaybackSession() -> UUID {
         playbackSessionId = UUID()
+        isPiPActive = false
+        currentPiPStrategy = .system
         return playbackSessionId
     }
 
@@ -5224,6 +5383,7 @@ class PlayerState: ObservableObject {
         player = nil
         compatibilityURL = nil
         compatibilityHeaders = [:]
+        currentPiPStrategy = .system
         isPlaying = false
         isSeeking = false
         showControls = false
@@ -6146,7 +6306,7 @@ struct PlayerTopBarView: View {
                         HStack(spacing: 0) {
                         if playerState.pipEnabled {
                             Button(action: { onTogglePiP() }) {
-                                Image(systemName: playerState.isPiPActive ? "pip.exit" : "pip.enter")
+                                Image(systemName: playerState.pipButtonSystemImage)
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(playerState.isPiPSupported ? .white : .white.opacity(0.3))
                                     .frame(width: 44, height: 44)
@@ -6746,26 +6906,41 @@ struct PlayerControlsView: View {
             #endif
             // 停止 IJK/VLC/AliPlayer 视图截图 PiP
             ViewCapturePiPManager.shared.stopPiP()
+            MPVAVPlayerPiPProxy.shared.stopProxyPiP()
             PiPHelper.shared.stopPiP()
             playerState.isPiPActive = false
         } else {
             // 启动画中画并返回桌面
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
+            guard playerState.isPiPSupported else {
+                playerState.log("[PlayerV2] 当前资源不支持画中画或后台播放")
+                return
+            }
+
             let engineName = playerState.compatibilityEngineName
             // 判断使用哪种 PiP 等待策略
             var useFrameBridgedPiP = false  // MDK/MPV/视图截图 帧桥接 PiP：需要等待启动
             var useAVPlayerPiP = false      // AVPlayer 系统画中画：需要等待 isPiPPossible
+            var useAudioOnlyBackground = false
 
             if playerState.compatibilityURL != nil {
                 // 兼容内核（网盘资源）：根据引擎类型选择 PiP 方案
-                if engineName.contains("MDK") {
-                    // MDK：使用专用帧桥接 PiP（AVSampleBufferDisplayLayer）
-                    useFrameBridgedPiP = true
-                    #if canImport(swift_mdk)
-                    NotificationCenter.default.post(name: .vboxMDKRequestStartPiP, object: nil)
-                    playerState.log("[PlayerV2] MDK 内核启动帧桥接画中画")
-                    #endif
+                if playerState.currentPiPStrategy == .avPlayerProxy, let url = playerState.compatibilityURL {
+                    MPVAVPlayerPiPProxy.shared.startProxyPiP(
+                        url: url,
+                        headers: playerState.compatibilityHeaders,
+                        currentPosition: playerState.currentTime
+                    )
+                    useAVPlayerPiP = true
+                    playerState.log("[PlayerV2] 启动 AVPlayer 代理/转封装画中画")
+                } else if playerState.currentPiPStrategy == .backgroundAudioOnly {
+                    useAudioOnlyBackground = true
+                    playerState.log("[PlayerV2] 当前兼容内核不启动动态 PiP，改为后台声音模式")
+                } else if engineName.contains("MDK") {
+                    // MDK 依赖后台帧桥接，iOS 后台容易冻结小窗；默认改为后台声音，避免假 PiP 卡死。
+                    useAudioOnlyBackground = true
+                    playerState.log("[PlayerV2] MDK 兼容内核不默认启动动态 PiP，改为后台声音模式")
                 } else if engineName.contains("MPV") {
                     // MPV：优先尝试 AVPlayer 代理 PiP（解决后台 GPU 冻结），
                     // 失败则回退到帧桥接 PiP（AVSampleBufferDisplayLayer）
@@ -6788,15 +6963,9 @@ struct PlayerControlsView: View {
                     }
                     #endif
                 } else {
-                    // IJK / VLC / AliPlayer：使用视图截图帧桥接 PiP
-                    // 不再创建新 AVPlayer 播放本地代理 URL（会失败），改为截图当前播放器视图
-                    useFrameBridgedPiP = true
-                    if let playerView = findCurrentPlayerView() {
-                        ViewCapturePiPManager.shared.startPiP(sourceView: playerView)
-                        playerState.log("[PlayerV2] \(engineName) 视图截图帧桥接画中画")
-                    } else {
-                        playerState.log("[PlayerV2] \(engineName) 未找到播放器视图，PiP 不可用")
-                    }
+                    // IJK / VLC / AliPlayer 的截图 PiP 后台会停在最后一帧；默认改为后台声音，避免冻屏。
+                    useAudioOnlyBackground = true
+                    playerState.log("[PlayerV2] \(engineName) 不默认启动截图 PiP，改为后台声音模式")
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
@@ -6804,7 +6973,7 @@ struct PlayerControlsView: View {
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
 
-            playerState.isPiPActive = true
+            playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP
 
             // 根据引擎类型选择不同的进入后台策略
             if useFrameBridgedPiP {
@@ -6815,6 +6984,14 @@ struct PlayerControlsView: View {
                 // AVPlayer 系统画中画：等待 isPiPPossible 后进入后台
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                }
+            } else if useAudioOnlyBackground {
+                if playerState.backgroundPlay {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                    }
+                } else {
+                    playerState.log("[PlayerV2] 后台播放未开启，保持在应用内播放")
                 }
             } else {
                 // 兜底：固定延迟
@@ -7247,6 +7424,7 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 // 修复: 增加 playbackEngineMode 双重检查，防止 AVPlayer 播放时 MPV 残留回调干扰状态
                 guard playerState.compatibilityURL != nil, playerState.playbackEngineMode == .compatibility else { return }
                 playerState.currentTime = state.currentTime
+                MPVAVPlayerPiPProxy.shared.syncPosition(state.currentTime)
                 if state.duration.isFinite, state.duration > 0 {
                     playerState.duration = state.duration
                 }
