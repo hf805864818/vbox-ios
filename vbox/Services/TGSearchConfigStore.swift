@@ -74,16 +74,12 @@ class TGSearchConfigStore: ObservableObject {
         channels.append(TGChannel(name: displayName, channelId: trimmedId))
     }
 
-    func removeChannel(at index: Int) {
-        guard index >= 0 && index < channels.count else { return }
-        channels.remove(at: index)
+    func removeChannels(at offsets: IndexSet) {
+        channels.remove(atOffsets: offsets)
     }
 
-    func moveChannel(from source: Int, to destination: Int) {
-        guard source >= 0 && source < channels.count else { return }
-        let item = channels.remove(at: source)
-        let adjustedDest = destination > source ? destination - 1 : destination
-        channels.insert(item, at: min(adjustedDest, channels.count))
+    func moveChannel(from source: IndexSet, to destination: Int) {
+        channels.move(fromOffsets: source, toOffset: destination)
     }
 
     // MARK: - 生成配置 JS
