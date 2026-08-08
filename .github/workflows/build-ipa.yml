@@ -176,18 +176,18 @@ jobs:
             RAW_COMMITS=$(git log "$PREVIOUS_TAG"..HEAD --pretty=format:"%s" --no-merges 2>/dev/null | \
               grep -v "^ci: auto bump" | \
               grep -v "^docs: 自动更新" | \
-              grep -v "^docs: 新增 CHANGELOG")
+              grep -v "^docs: 新增 CHANGELOG" || true)
           else
             RAW_COMMITS=$(git log -30 --pretty=format:"%s" --no-merges 2>/dev/null | \
               grep -v "^ci: auto bump" | \
               grep -v "^docs: 自动更新" | \
-              grep -v "^docs: 新增 CHANGELOG")
+              grep -v "^docs: 新增 CHANGELOG" || true)
           fi
 
           if [ -n "$RAW_COMMITS" ]; then
-            FEAT_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^feat" | sed -E 's/^[[:space:]]*(feat|feature)[[:space:]]*:[[:space:]]*//I')
-            FIX_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^fix" | sed -E 's/^[[:space:]]*fix[[:space:]]*:[[:space:]]*//I')
-            OTHER_ITEMS=$(echo "$RAW_COMMITS" | grep -viE "^(feat|feature|fix)" | head -20)
+            FEAT_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^feat" | sed -E 's/^[[:space:]]*(feat|feature)[[:space:]]*:[[:space:]]*//I' || true)
+            FIX_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^fix" | sed -E 's/^[[:space:]]*fix[[:space:]]*:[[:space:]]*//I' || true)
+            OTHER_ITEMS=$(echo "$RAW_COMMITS" | grep -viE "^(feat|feature|fix)" | head -20 || true)
 
             NOTES="## 修复\n\n"
             if [ -n "$FIX_ITEMS" ]; then
