@@ -18,6 +18,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 📝 记录构建开始时间
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
       - name: 🔧 Select Xcode
         run: |
           set -euo pipefail
@@ -260,6 +263,15 @@ jobs:
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: 📧 发送邮件通知
+        if: always() && !cancelled()
+        env:
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          JOB_STATUS: ${{ job.status }}
+          MARKETING_VERSION: ${{ steps.get_version.outputs.MARKETING_VERSION }}
+          BUILD_NUM: ${{ steps.get_version.outputs.BUILD_NUM }}
+        run: python3 scripts/send_build_notification.py
 
   sync-b-repo:
     needs: build
