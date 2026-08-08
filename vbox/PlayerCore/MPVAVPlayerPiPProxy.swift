@@ -49,12 +49,17 @@ final class MPVAVPlayerPiPProxy: NSObject {
 
     private var avPlayer: AVPlayer?
     private var pipController: AVPictureInPictureController?
+    private var pipPlayerLayer: AVPlayerLayer?
+    private var hiddenWindow: UIWindow?
     private var sourceURL: URL?
     private var sourceHeaders: [String: String] = [:]
     private var lastKnownPosition: Double = 0
     private var startRetries: Int = 0
     private let maxRetries = 2
+    private var pipStartRetries: Int = 0
+    private let maxPiPStartRetries = 12
     private var statusObserver: NSKeyValueObservation?
+    private var pipPossibleObserver: NSKeyValueObservation?
     private var timeObserver: Any?
     private var audioSessionActive = false
 
@@ -87,6 +92,7 @@ final class MPVAVPlayerPiPProxy: NSObject {
         sourceHeaders = headers
         lastKnownPosition = currentPosition
         startRetries = 0
+        pipStartRetries = 0
         isTryingRemux = false
         isActive = true
 
@@ -140,9 +146,15 @@ final class MPVAVPlayerPiPProxy: NSObject {
         timeObserver = nil
         statusObserver?.invalidate()
         statusObserver = nil
+        pipPossibleObserver?.invalidate()
+        pipPossibleObserver = nil
 
         pipController?.stopPictureInPicture()
         pipController = nil
+        pipPlayerLayer?.removeFromSuperlayer()
+        pipPlayerLayer = nil
+        hiddenWindow?.isHidden = true
+        hiddenWindow = nil
 
         avPlayer?.pause()
         avPlayer?.replaceCurrentItem(with: nil)
@@ -165,21 +177,101 @@ final class MPVAVPlayerPiPProxy: NSObject {
     // MARK: - 私有方法
 
     private func setupPiPController(for player: AVPlayer) {
+        DispatchQueue.main.async { [weak self] in
+            self?.configurePiPController(for: player)
+        }
+    }
+
+    private func configurePiPController(for player: AVPlayer) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
 
-        guard let controller = AVPictureInPictureController(playerLayer: AVPlayerLayer(player: player)) else {
+        pipPossibleObserver?.invalidate()
+        pipPossibleObserver = nil
+        pipController?.stopPictureInPicture()
+        pipController = nil
+        pipPlayerLayer?.removeFromSuperlayer()
+
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        layer.opacity = 0.01
+        mountPlayerLayerToHiddenWindow(layer)
+
+        guard let controller = AVPictureInPictureController(playerLayer: layer) else {
             print("[AVPlayerPiP] PiP Controller 初始化失败")
             return
         }
 
+        pipPlayerLayer = layer
         controller.delegate = self
         // iOS 16+ 支持自动启动 PiP
         if #available(iOS 16.0, *) {
             controller.canStartPictureInPictureAutomaticallyFromInline = true
         }
         self.pipController = controller
+        pipStartRetries = 0
+
+        pipPossibleObserver = controller.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] _, change in
+            guard change.newValue == true else { return }
+            self?.tryStartPictureInPicture()
+        }
 
         print("[AVPlayerPiP] PiP Controller 已设置")
+        schedulePiPStartRetry()
+    }
+
+    private func mountPlayerLayerToHiddenWindow(_ layer: AVPlayerLayer) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
+        else {
+            print("[AVPlayerPiP] 无法获取 UIWindowScene，PiP layer 未挂载")
+            return
+        }
+
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        window.windowLevel = .alert + 2
+        window.backgroundColor = .clear
+
+        let controller = UIViewController()
+        controller.view.backgroundColor = .clear
+        controller.view.frame = window.bounds
+        window.rootViewController = controller
+        window.isHidden = false
+        controller.view.layer.addSublayer(layer)
+        hiddenWindow = window
+        print("[AVPlayerPiP] PiP playerLayer 已挂载到隐藏窗口")
+    }
+
+    private func schedulePiPStartRetry() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.tryStartPictureInPicture()
+        }
+    }
+
+    private func tryStartPictureInPicture() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.tryStartPictureInPicture()
+            }
+            return
+        }
+        guard isActive, let controller = pipController else { return }
+        guard !controller.isPictureInPictureActive else { return }
+
+        if controller.isPictureInPicturePossible {
+            print("[AVPlayerPiP] 开始系统画中画")
+            controller.startPictureInPicture()
+            return
+        }
+
+        pipStartRetries += 1
+        if pipStartRetries <= maxPiPStartRetries {
+            schedulePiPStartRetry()
+        } else {
+            print("[AVPlayerPiP] PiP 一直不可启动，尝试失败回退")
+            handlePlaybackFailure()
+        }
     }
 
     private func setupObservers(for player: AVPlayer, playerItem: AVPlayerItem) {
@@ -191,6 +283,9 @@ final class MPVAVPlayerPiPProxy: NSObject {
             case .readyToPlay:
                 print("[AVPlayerPiP] AVPlayer 已就绪")
                 self.startRetries = 0
+                DispatchQueue.main.async { [weak self] in
+                    self?.tryStartPictureInPicture()
+                }
             case .failed:
                 print("[AVPlayerPiP] AVPlayer 加载失败: \(item.error?.localizedDescription ?? "unknown")")
                 self.handlePlaybackFailure()
@@ -216,8 +311,11 @@ final class MPVAVPlayerPiPProxy: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self, let url = self.sourceURL else { return }
                 let pos = self.lastKnownPosition
+                let headers = self.sourceHeaders
+                let retryCount = self.startRetries
                 self.stopProxyPiP()
-                self.startProxyPiP(url: url, headers: self.sourceHeaders, currentPosition: pos)
+                self.startProxyPiP(url: url, headers: headers, currentPosition: pos)
+                self.startRetries = retryCount
             }
             return
         }
@@ -286,7 +384,11 @@ final class MPVAVPlayerPiPProxy: NSObject {
         // 停止当前 AVPlayer
         avPlayer?.pause()
         avPlayer?.replaceCurrentItem(with: nil)
+        pipPossibleObserver?.invalidate()
+        pipPossibleObserver = nil
         pipController = nil
+        pipPlayerLayer?.removeFromSuperlayer()
+        pipPlayerLayer = nil
 
         // 用转封装 URL 创建新的 AVPlayer
         let player = AVPlayer()
@@ -311,6 +413,7 @@ final class MPVAVPlayerPiPProxy: NSObject {
         setupPiPController(for: player)
         setupObservers(for: player, playerItem: playerItem)
         player.play()
+        pipStartRetries = 0
 
         print("[AVPlayerPiP] 转封装路径 AVPlayer 已启动")
     }
