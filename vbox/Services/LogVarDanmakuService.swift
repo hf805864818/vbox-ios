@@ -10,6 +10,21 @@ struct LogVarDanmakuItem: Identifiable, Codable {
     var pool: Int = 0
 }
 
+/// 弹幕搜索结果（番剧）
+struct DanmakuSearchResult: Identifiable {
+    let id: Int          // animeId
+    let animeTitle: String
+    let type: String     // TV/剧场版/OVA 等
+    let episodes: [DanmakuEpisodeInfo]
+}
+
+/// 弹幕剧集信息
+struct DanmakuEpisodeInfo: Identifiable {
+    let id: Int          // episodeId
+    let episodeNumber: Int
+    let episodeTitle: String
+}
+
 class LogVarDanmakuService: ObservableObject {
     static let shared = LogVarDanmakuService()
     /// 默认弹幕源
@@ -61,6 +76,50 @@ class LogVarDanmakuService: ObservableObject {
             }
         } catch { print("[Danmaku] search: \(error)") }
         return nil
+    }
+
+    func searchAnimeDetailed(keyword: String) async -> [DanmakuSearchResult] {
+        guard let e = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let u = URL(string: "\(baseURL)/api/v2/search/anime?keyword=\(e)") else { return [] }
+        do {
+            let (d, _) = try await session.data(from: u)
+            if let root = try JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let animes = root["animes"] as? [[String: Any]] {
+                return animes.map { anime in
+                    let id = anime["animeId"] as? Int ?? 0
+                    let title = anime["animeTitle"] as? String ?? ""
+                    let type = anime["type"] as? String ?? "TV"
+                    let episodes = (anime["episodes"] as? [[String: Any]])?.compactMap { ep in
+                        DanmakuEpisodeInfo(
+                            id: ep["episodeId"] as? Int ?? 0,
+                            episodeNumber: ep["episodeNumber"] as? Int ?? 0,
+                            episodeTitle: ep["episodeTitle"] as? String ?? ""
+                        )
+                    } ?? []
+                    return DanmakuSearchResult(id: id, animeTitle: title, type: type, episodes: episodes)
+                }
+            }
+        } catch { print("[Danmaku] search detailed: \(error)") }
+        return []
+    }
+
+    func fetchBangumiEpisodes(animeId: Int) async -> [DanmakuEpisodeInfo] {
+        guard let bangumiURL = URL(string: "\(baseURL)/api/v2/bangumi/\(animeId)") else { return [] }
+        do {
+            let (data, _) = try await session.data(from: bangumiURL)
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let bangumi = root["bangumi"] as? [String: Any],
+                  let episodes = bangumi["episodes"] as? [[String: Any]] else { return [] }
+            return episodes.compactMap { ep in
+                let id = ep["episodeId"] as? Int ?? 0
+                let num = ep["episodeNumber"] as? Int ?? Int(ep["episodeNumber"] as? String ?? "0") ?? 0
+                let title = ep["episodeTitle"] as? String ?? ""
+                return DanmakuEpisodeInfo(id: id, episodeNumber: num, episodeTitle: title)
+            }
+        } catch {
+            print("[Danmaku] fetch bangumi episodes: \(error)")
+        }
+        return []
     }
 
     func matchEpisode(fileName: String) async -> Int? {
