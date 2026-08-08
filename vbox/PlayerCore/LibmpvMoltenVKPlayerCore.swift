@@ -97,12 +97,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var pipTextureCache: CVMetalTextureCache?
     /// Metal 命令队列
     private var pipCommandQueue: MTLCommandQueue?
-    /// PiP 目标像素缓冲（从 pool 获取或兜底创建）
-    private var pipPixelBuffer: CVPixelBuffer?
-    /// PiP 目标 Metal 纹理
-    private var pipMetalTexture: MTLTexture?
-    /// PiP 目标纹理尺寸缓存
-    private var pipTextureSize: CGSize = .zero
+    /// 上次捕获的 drawable 序列号，用于跳过重复帧（避免对同一帧多次 blit）
+    private var lastCapturedSequence: Int = 0
+    /// 后台任务标识，确保 App 进入后台后定时器仍能触发
+    private var pipBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    /// 诊断日志计数器（每 30 次定时器回调输出一次状态）
+    private var diagLogCounter: Int = 0
 
     enum PlaybackProfile: String {
         case hlsFast = "MoltenVK HLS极速"
@@ -146,6 +146,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard !isPipCapturing else { return }
         isPipCapturing = true
         frameCaptureCounter = 0
+        diagLogCounter = 0
 
         if captureTimer == nil {
             let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -156,7 +157,15 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             timer.resume()
             captureTimer = timer
         }
-        log("[PiP] 帧捕获已启动（DispatchSourceTimer + Metal blit 模式）")
+
+        // 申请后台任务，确保 App 进入后台后定时器仍能触发（audio 后台模式 + 额外保障）
+        if pipBackgroundTaskId == .invalid {
+            pipBackgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "MPVPiPCapture") { [weak self] in
+                self?.endPiPBackgroundTask()
+            }
+        }
+
+        log("[PiP] 帧捕获已启动（DispatchSourceTimer + Metal blit 模式），bgTask=\(pipBackgroundTaskId)")
     }
 
     /// 停止 PiP 帧捕获
@@ -165,11 +174,23 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         captureTimer?.cancel()
         captureTimer = nil
         frameCaptureCounter = 0
-        pipPixelBuffer = nil
-        pipMetalTexture = nil
-        pipTextureSize = .zero
+        lastCapturedSequence = 0
         hasLoggedFirstBlitFrame = false
+        diagLogCounter = 0
+        // 清理 Metal 纹理缓存，释放缓存的 CVMetalTexture 条目
+        if let cache = pipTextureCache {
+            CVMetalTextureCacheFlush(cache, 0)
+        }
+        endPiPBackgroundTask()
         log("[PiP] 帧捕获已停止")
+    }
+
+    /// 结束后台任务
+    private func endPiPBackgroundTask() {
+        if pipBackgroundTaskId != .invalid {
+            UIApplication.shared.endBackgroundTask(pipBackgroundTaskId)
+            pipBackgroundTaskId = .invalid
+        }
     }
 
     /// 强制捕获一帧（不依赖定时器，App 进入后台前调用）
@@ -186,6 +207,16 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
 
+        // 诊断日志：每 30 次回调（约 3 秒）输出一次 drawable 序列号，
+        // 用于判断 MPV 在后台是否仍在渲染新帧
+        diagLogCounter += 1
+        if diagLogCounter >= 30 {
+            diagLogCounter = 0
+            let seq = renderView.metalLayer.drawableSequence
+            let hasDrawable = renderView.metalLayer.lastDrawable != nil
+            log("[PiP] 诊断：drawableSeq=\(seq), lastCaptured=\(lastCapturedSequence), hasDrawable=\(hasDrawable), isBg=\(UIApplication.shared.applicationState != .active)")
+        }
+
         frameCaptureCounter += 1
         guard frameCaptureCounter >= frameCaptureInterval else { return }
         frameCaptureCounter = 0
@@ -197,7 +228,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     /// 通过 Metal 纹理 blit 捕获当前帧，避免 CPU 截图和 CGImage 转换。
     /// 源：MPVKitMetalLayer 最近一次返回的 drawable texture
-    /// 目标：CVPixelBuffer  backed Metal texture（复用 pool 或兜底创建）
+    /// 目标：CVPixelBuffer backed Metal texture（每帧从 pool 获取新缓冲，避免重用冲突）
+    ///
+    /// 关键修复：
+    /// 1. 每帧从 pool 获取新的 CVPixelBuffer，不复用单个 buffer（避免 display layer
+    ///    读取旧帧时被新帧 blit 覆写导致画面冻结）
+    /// 2. 使用 addCompletedHandler 等待 GPU blit 完成后再 enqueue（避免读到半成品数据）
+    /// 3. 通过 drawableSequence 跳过重复帧（MPV 后台可能停止渲染，drawable 不更新）
+    /// 4. 每帧创建新的 CVMetalTexture（因为 pixelBuffer 每帧不同，不能缓存 texture）
     @MainActor
     private func captureFrameViaMetalBlit() {
         // 延迟初始化 Metal 资源（在 @MainActor 中安全访问 renderView.metalLayer）
@@ -213,6 +251,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             }
         }
 
+        guard let pipTextureCache, let pipCommandQueue else { return }
+
         let metalLayer = renderView.metalLayer
         guard let sourceDrawable = metalLayer.lastDrawable else { return }
         let sourceTexture = sourceDrawable.texture
@@ -221,34 +261,35 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         let height = sourceTexture.height
         guard width > 0, height > 0 else { return }
 
-        // 若尺寸变化，清理旧缓存
-        if pipTextureSize.width != CGFloat(width) || pipTextureSize.height != CGFloat(height) {
-            pipPixelBuffer = nil
-            pipMetalTexture = nil
+        // 跳过重复帧：如果 drawable 序列号未变，说明 MPV 没有渲染新帧
+        let currentSeq = metalLayer.drawableSequence
+        if lastCapturedSequence == currentSeq {
+            return
         }
+        lastCapturedSequence = currentSeq
 
-        // 获取或创建 PiP 目标 CVPixelBuffer
-        let pixelBuffer: CVPixelBuffer
-        if let cached = pipPixelBuffer,
-           CVPixelBufferGetWidth(cached) == width,
-           CVPixelBufferGetHeight(cached) == height {
-            pixelBuffer = cached
-        } else {
-            guard let newBuffer = createPiPPixelBuffer(width: width, height: height) else { return }
-            pipPixelBuffer = newBuffer
-            pipTextureSize = CGSize(width: width, height: height)
-            pixelBuffer = newBuffer
-        }
+        // 每帧获取新的 pixelBuffer（从 pool 或手动创建），避免重用导致数据竞争
+        guard let pixelBuffer = createPiPPixelBuffer(width: width, height: height) else { return }
+        guard CVPixelBufferGetWidth(pixelBuffer) == width,
+              CVPixelBufferGetHeight(pixelBuffer) == height else { return }
 
-        // 获取或创建目标 Metal 纹理
-        if pipMetalTexture == nil {
-            guard let texture = createMetalTexture(from: pixelBuffer, width: width, height: height) else { return }
-            pipMetalTexture = texture
-        }
+        // 为每个新的 pixelBuffer 创建 Metal 纹理（不能缓存，因为 buffer 每帧不同）
+        var cvTexture: CVMetalTexture?
+        let texStatus = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            pipTextureCache,
+            pixelBuffer,
+            nil,
+            .bgra8Unorm,
+            width,
+            height,
+            0,
+            &cvTexture
+        )
+        guard texStatus == kCVReturnSuccess, let cvTexture else { return }
+        guard let destinationTexture = CVMetalTextureGetTexture(cvTexture) else { return }
 
-        guard let destinationTexture = pipMetalTexture,
-              let commandQueue = pipCommandQueue,
-              let commandBuffer = commandQueue.makeCommandBuffer(),
+        guard let commandBuffer = pipCommandQueue.makeCommandBuffer(),
               let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
 
         let sourceSize = MTLSize(width: width, height: height, depth: 1)
@@ -262,14 +303,21 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
                          destinationLevel: 0,
                          destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
         blitEncoder.endEncoding()
-        commandBuffer.commit()
 
         let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
-        MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+
+        // 关键修复：等待 blit 完成后再入队，避免 display layer 读到未完成的数据。
+        // cvTexture 被 closure 捕获，在 blit 完成前保持存活（其 backing IOSurface 不会被释放）。
+        commandBuffer.addCompletedHandler { _ in
+            withExtendedLifetime(cvTexture) {
+                MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+            }
+        }
+        commandBuffer.commit()
 
         if !hasLoggedFirstBlitFrame {
             hasLoggedFirstBlitFrame = true
-            log("[PiP] 首帧 Metal blit 已推送：\(width)x\(height)")
+            log("[PiP] 首帧 Metal blit 已推送：\(width)x\(height)，drawableSeq=\(currentSeq)")
         }
     }
 
@@ -293,26 +341,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         var pixelBuffer: CVPixelBuffer?
         let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
         return status == kCVReturnSuccess ? pixelBuffer : nil
-    }
-
-    /// 从 CVPixelBuffer 创建可写入的 Metal 纹理
-    @MainActor
-    private func createMetalTexture(from pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> MTLTexture? {
-        guard let pipTextureCache else { return nil }
-        var cvTexture: CVMetalTexture?
-        let status = CVMetalTextureCacheCreateTextureFromImage(
-            kCFAllocatorDefault,
-            pipTextureCache,
-            pixelBuffer,
-            nil,
-            .bgra8Unorm,
-            width,
-            height,
-            0,
-            &cvTexture
-        )
-        guard status == kCVReturnSuccess, let cvTexture else { return nil }
-        return CVMetalTextureGetTexture(cvTexture)
     }
 
     // MARK: - 公开方法
