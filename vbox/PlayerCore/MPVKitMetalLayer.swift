@@ -6,6 +6,8 @@ class MPVKitMetalLayer: CAMetalLayer {
     /// 最近一次通过 nextDrawable() 返回的 drawable，用于 PiP 纹理 blit 捕获。
     /// 注意：这里仅保留引用，读取时机由上层控制；MPV 渲染并 present 后该纹理仍可能可读。
     private(set) var lastDrawable: CAMetalDrawable?
+    /// drawable 序列号，每次 nextDrawable() 递增，用于检测是否有新帧渲染
+    private(set) var drawableSequence: Int = 0
 
     override var drawableSize: CGSize {
         get { super.drawableSize }
@@ -34,6 +36,7 @@ class MPVKitMetalLayer: CAMetalLayer {
         let drawable = super.nextDrawable()
         if let drawable {
             lastDrawable = drawable
+            drawableSequence += 1
         }
         return drawable
     }
