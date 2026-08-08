@@ -764,6 +764,7 @@ class PlayerState: ObservableObject {
     @Published var showDanmakuInput = false
     @Published var showToolsMenu = false
     @Published var showSkipSettings = false
+    @Published var showDanmakuSearch = false
     // 片头片尾设置：按视频 vodId 独立存储，同一剧集所有集数共享
     @Published var skipIntroEnabled = false
     @Published var skipIntroSeconds = 0
@@ -841,6 +842,15 @@ class PlayerState: ObservableObject {
     var quarkShareURL: String = ""
     var quarkCookie: String = ""
     private var currentVideo: VodItem?
+
+    /// 当前视频标题（供搜索弹窗预填）
+    var currentVideoTitle: String {
+        if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
+            let name = episodeItems[currentEpisodeIndex].name
+            return (name as NSString).deletingPathExtension
+        }
+        return currentVideo?.vodName ?? ""
+    }
     private var allDanmakuItems: [LogVarDanmakuItem] = []
     private var emittedDanmakuIDs = Set<Int>()
     private var danmakuTask: Task<Void, Never>?
@@ -1391,6 +1401,32 @@ class PlayerState: ObservableObject {
                 self.emittedDanmakuIDs.removeAll()
                 self.danmakuItems = []
                 self.log(items.isEmpty ? "[Danmaku] 未匹配到弹幕" : "[Danmaku] 已加载 \(items.count) 条弹幕")
+            }
+        }
+    }
+
+    /// 手动搜索并加载弹幕（用户从搜索弹窗选择后调用）
+    func manualLoadDanmaku(episodeId: Int) {
+        danmakuTask?.cancel()
+        allDanmakuItems = []
+        danmakuItems = []
+        emittedDanmakuIDs.removeAll()
+        danmakuLoadedCount = 0
+        currentDanmakuEpisodeId = episodeId
+
+        log("[Danmaku] 手动加载弹幕，episodeId=\(episodeId)")
+        danmakuTask = Task { [weak self] in
+            let items = await LogVarDanmakuService.shared.fetchDanmaku(episodeId: episodeId)
+            await MainActor.run {
+                guard let self else { return }
+                self.allDanmakuItems = items.sorted { $0.time < $1.time }
+                self.danmakuLoadedCount = items.count
+                self.emittedDanmakuIDs.removeAll()
+                self.danmakuItems = []
+                if !items.isEmpty {
+                    self.showDanmaku = true
+                }
+                self.log(items.isEmpty ? "[Danmaku] 该集无弹幕" : "[Danmaku] 已加载 \(items.count) 条弹幕")
             }
         }
     }
@@ -4622,6 +4658,7 @@ class PlayerState: ObservableObject {
         showDanmakuInput = false
         showToolsMenu = false
         showSkipSettings = false
+        showDanmakuSearch = false
         skipOutroTriggered = false
         skipIntroTriggered = false
         isSwitchingEpisode = false
@@ -4667,7 +4704,8 @@ struct PlayerContainerView: View {
         playerState.showEnginePicker ||
         playerState.showDanmakuInput ||
         playerState.showToolsMenu ||
-        playerState.showSkipSettings
+        playerState.showSkipSettings ||
+        playerState.showDanmakuSearch
     }
 
     private var hasPlaybackError: Bool {
@@ -5162,7 +5200,8 @@ struct PlayerContainerView: View {
                         autoPlayNext: $playerState.autoPlayNext,
                         backgroundPlay: $playerState.backgroundPlay,
                         pipEnabled: $playerState.pipEnabled,
-                        showDebugOverlay: $playerState.showDebugOverlay
+                        showDebugOverlay: $playerState.showDebugOverlay,
+                        showDanmakuSearch: $playerState.showDanmakuSearch
                     )
                     .environmentObject(settings)
                     .position(x: geo.size.width - 70.5, y: 155)
@@ -5206,6 +5245,35 @@ struct PlayerContainerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(41)
             }
+
+            // 搜索弹幕面板（居中弹窗，竖屏/横屏均可用）
+            if playerState.showDanmakuSearch {
+                GeometryReader { geo in
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showDanmakuSearch = false
+                            }
+                        }
+                    DanmakuSearchPanel(
+                        isPresented: $playerState.showDanmakuSearch,
+                        videoTitle: playerState.currentVideoTitle,
+                        currentEpisodeIndex: playerState.currentEpisodeIndex,
+                        onLoadDanmaku: { episodeId in
+                            playerState.manualLoadDanmaku(episodeId: episodeId)
+                        }
+                    )
+                    .environmentObject(settings)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
+                    ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(42)
+            }
         }
         .onAppear {
             resetAutoHideTimer()
@@ -5240,6 +5308,7 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.showDanmakuInput) { handleControlPopupChange($0) }
         .onChange(of: playerState.showToolsMenu) { handleControlPopupChange($0) }
         .onChange(of: playerState.showSkipSettings) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showDanmakuSearch) { handleControlPopupChange($0) }
         .onChange(of: playerState.isSeeking) { isSeeking in
             if isSeeking {
                 autoHideTask?.cancel()
@@ -5429,6 +5498,7 @@ struct PlayerTopBarView: View {
                     playerState.showEnginePicker = false
                     playerState.showToolsMenu = false
                     playerState.showSkipSettings = false
+                    playerState.showDanmakuSearch = false
                     // 短暂延迟后恢复允许所有方向，用户可自由旋转回竖屏
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         OrientationHelper.allowAllOrientations()
@@ -6253,6 +6323,7 @@ struct PlayerControlsView: View {
             playerState.showEnginePicker = false
             playerState.showToolsMenu = false
             playerState.showSkipSettings = false
+            playerState.showDanmakuSearch = false
         }
     }
 
@@ -7779,6 +7850,334 @@ struct DanmakuSettingsPanelV2: View {
     }
 }
 
+// MARK: - 搜索弹幕面板
+struct DanmakuSearchPanel: View {
+    @Binding var isPresented: Bool
+    let videoTitle: String
+    let currentEpisodeIndex: Int
+    let onLoadDanmaku: (Int) -> Void
+    @EnvironmentObject private var settings: AppSettings
+
+    @State private var keyword: String = ""
+    @State private var searchResults: [DanmakuSearchResult] = []
+    @State private var selectedAnimeId: Int? = nil
+    @State private var selectedEpisodeId: Int? = nil
+    @State private var episodes: [DanmakuEpisodeInfo] = []
+    @State private var isSearching = false
+    @State private var isLoadingEpisodes = false
+    @State private var hasSearched = false
+
+    private var panelBackground: Color {
+        if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.95)
+        }
+        return Color.black.opacity(0.88)
+    }
+
+    private var textColor: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .label) : .white
+    }
+
+    private var subtitleColor: Color {
+        textColor.opacity(0.6)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(textColor)
+                Text("搜索弹幕")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(textColor)
+                Spacer()
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPresented = false
+                    }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.6))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            Divider().background(textColor.opacity(0.12))
+
+            // 搜索框
+            HStack(spacing: 8) {
+                TextField("输入资源名称", text: $keyword)
+                    .font(.system(size: 13))
+                    .foregroundColor(textColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(textColor.opacity(0.08))
+                    .cornerRadius(8)
+                    .submitLabel(.search)
+                    .onSubmit { performSearch() }
+
+                Button(action: { performSearch() }) {
+                    Text("搜索")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color(hex: "00BE06"))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(keyword.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            // 内容区
+            if isSearching {
+                Spacer()
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: textColor.opacity(0.6)))
+                    .scaleEffect(0.9)
+                Text("搜索中...")
+                    .font(.system(size: 12))
+                    .foregroundColor(subtitleColor)
+                    .padding(.top, 8)
+                Spacer()
+            } else if !hasSearched {
+                Spacer()
+                VStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass.circle")
+                        .font(.system(size: 36))
+                        .foregroundColor(subtitleColor)
+                    Text("输入资源名称搜索弹幕")
+                        .font(.system(size: 12))
+                        .foregroundColor(subtitleColor)
+                }
+                Spacer()
+            } else if searchResults.isEmpty {
+                Spacer()
+                VStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 32))
+                        .foregroundColor(subtitleColor)
+                    Text("未找到匹配的弹幕源")
+                        .font(.system(size: 12))
+                        .foregroundColor(subtitleColor)
+                }
+                Spacer()
+            } else {
+                // 搜索结果 + 集数列表
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(spacing: 0) {
+                        ForEach(searchResults) { result in
+                            danmakuResultRow(result)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                }
+                .frame(maxHeight: 260)
+
+                // 底部操作栏
+                if selectedEpisodeId != nil {
+                    Divider().background(textColor.opacity(0.12))
+                        .padding(.top, 4)
+
+                    HStack(spacing: 12) {
+                        Spacer()
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isPresented = false
+                            }
+                        }) {
+                            Text("取消")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(textColor.opacity(0.7))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        Button(action: {
+                            if let epId = selectedEpisodeId {
+                                onLoadDanmaku(epId)
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isPresented = false
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "text.bubble.fill")
+                                    .font(.system(size: 11))
+                                Text("加载弹幕")
+                                    .font(.system(size: 13, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color(hex: "00BE06"))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .frame(width: 300)
+        .frame(maxHeight: 420)
+        .background(panelBackground)
+        .cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .onAppear {
+            if keyword.isEmpty {
+                keyword = videoTitle
+            }
+        }
+    }
+
+    // MARK: - 搜索结果行
+    @ViewBuilder
+    private func danmakuResultRow(_ result: DanmakuSearchResult) -> some View {
+        VStack(spacing: 0) {
+            // 番剧标题行
+            Button(action: {
+                if selectedAnimeId == result.id {
+                    // 再次点击折叠
+                    selectedAnimeId = nil
+                    episodes = []
+                    selectedEpisodeId = nil
+                } else {
+                    selectedAnimeId = result.id
+                    selectedEpisodeId = nil
+                    episodes = result.episodes
+                    // 如果搜索结果不带 episodes，通过 API 获取
+                    if episodes.isEmpty {
+                        loadEpisodes(animeId: result.id)
+                    }
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: selectedAnimeId == result.id ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(subtitleColor)
+                        .frame(width: 14)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(result.animeTitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(textColor)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if !result.type.isEmpty {
+                            Text(result.type)
+                                .font(.system(size: 10))
+                                .foregroundColor(subtitleColor)
+                        }
+                    }
+
+                    Spacer()
+
+                    if !result.episodes.isEmpty {
+                        Text("\(result.episodes.count)集")
+                            .font(.system(size: 10))
+                            .foregroundColor(subtitleColor)
+                    }
+                }
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // 集数列表（选中番剧后展开）
+            if selectedAnimeId == result.id {
+                if isLoadingEpisodes && episodes.isEmpty {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(height: 20)
+                        Text("加载剧集中...")
+                            .font(.system(size: 11))
+                            .foregroundColor(subtitleColor)
+                        Spacer()
+                    }
+                    .padding(.bottom, 8)
+                } else if !episodes.isEmpty {
+                    // 集数网格
+                    let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
+                    LazyVGrid(columns: columns, spacing: 6) {
+                        ForEach(episodes) { ep in
+                            Button(action: {
+                                selectedEpisodeId = ep.id
+                                UISelectionFeedbackGenerator().selectionChanged()
+                            }) {
+                                Text("\(ep.episodeNumber)")
+                                    .font(.system(size: 12, weight: selectedEpisodeId == ep.id ? .bold : .regular))
+                                    .foregroundColor(selectedEpisodeId == ep.id ? .white : textColor)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 28)
+                                    .background(selectedEpisodeId == ep.id ? Color(hex: "00BE06") : textColor.opacity(0.08))
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.bottom, 10)
+                }
+            }
+
+            Divider().background(textColor.opacity(0.08))
+                .padding(.horizontal, 4)
+        }
+    }
+
+    // MARK: - 搜索
+    private func performSearch() {
+        let trimmed = keyword.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        isSearching = true
+        hasSearched = false
+        searchResults = []
+        selectedAnimeId = nil
+        selectedEpisodeId = nil
+        episodes = []
+
+        Task {
+            let results = await LogVarDanmakuService.shared.searchAnimeDetailed(keyword: trimmed)
+            await MainActor.run {
+                self.searchResults = results
+                self.isSearching = false
+                self.hasSearched = true
+            }
+        }
+    }
+
+    // MARK: - 加载剧集列表
+    private func loadEpisodes(animeId: Int) {
+        isLoadingEpisodes = true
+        Task {
+            let eps = await LogVarDanmakuService.shared.fetchBangumiEpisodes(animeId: animeId)
+            await MainActor.run {
+                self.episodes = eps
+                self.isLoadingEpisodes = false
+                // 自动选中当前集数
+                let targetEp = currentEpisodeIndex + 1
+                if let match = eps.first(where: { $0.episodeNumber == targetEp }) {
+                    self.selectedEpisodeId = match.id
+                }
+            }
+        }
+    }
+}
+
 // MARK: - 更多功能竖条菜单（横屏，可扩展功能按钮）
 struct ToolsQuickMenuV2: View {
     @Binding var showSkipSettings: Bool
@@ -7787,6 +8186,7 @@ struct ToolsQuickMenuV2: View {
     @Binding var backgroundPlay: Bool
     @Binding var pipEnabled: Bool
     @Binding var showDebugOverlay: Bool
+    @Binding var showDanmakuSearch: Bool
     @EnvironmentObject private var settings: AppSettings
 
     private var menuBackground: Color {
@@ -7801,7 +8201,40 @@ struct ToolsQuickMenuV2: View {
     }
 
     var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
         VStack(spacing: 0) {
+            // 搜索弹幕（跳转按钮）
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolsMenu = false
+                    showDanmakuSearch = true
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.8))
+                        .frame(width: 16)
+                    Text("搜索弹幕")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(textColor)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 2)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.4))
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .padding(.horizontal, 8)
+                .frame(width: 115, height: 38)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
             // 功能项：片头片尾（横向布局，与其他行统一）
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -7855,8 +8288,9 @@ struct ToolsQuickMenuV2: View {
             // 调试信息浮层
             ToolsToggleRow(icon: "ladybug.fill", title: "调试浮层", isOn: $showDebugOverlay, textColor: textColor)
         }
-        .frame(width: 115)
         .padding(.vertical, 4)
+        }
+        .frame(width: 115, maxHeight: 280)
         .background(menuBackground)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
