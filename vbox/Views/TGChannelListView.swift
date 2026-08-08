@@ -38,7 +38,7 @@ struct TGChannelListView: View {
                         .padding(.vertical, 4)
                     }
                     .onDelete { offsets in
-                        offsets.forEach { store.removeChannel(at: $0) }
+                        store.removeChannels(at: offsets)
                     }
                     .onMove { source, destination in
                         store.moveChannel(from: source, to: destination)
