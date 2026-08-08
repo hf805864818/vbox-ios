@@ -99,7 +99,12 @@ final class MPVPiPManager: NSObject {
             sampleBufferDisplayLayer: layer,
             playbackDelegate: self
         )
-        pipController = AVPictureInPictureController(contentSource: source)
+        guard let controller = AVPictureInPictureController(contentSource: source) else {
+            print("[MPVPiP] PiP Controller 初始化失败")
+            cleanupDisplayLayer()
+            return
+        }
+        pipController = controller
         pipController?.delegate = self
 
         // 激活音频会话（iOS 要求必须有活跃音频会话才能启动 PiP）

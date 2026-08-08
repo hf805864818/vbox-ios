@@ -394,13 +394,15 @@ class LiveTVService: ObservableObject {
         }
         for (key, channelDicts) in dict {
             localChannelsMap[key] = channelDicts.compactMap { d in
-                let nameVal = (d["name"] ?? nil) ?? "未知"
-                let urlVal = (d["url"] ?? nil) ?? ""
+                let nameVal = d["name"]?.flatMap { $0 } ?? "未知"
+                let urlVal = d["url"]?.flatMap { $0 } ?? ""
+                let groupVal = d["group"]?.flatMap { $0 }
+                let logoVal = d["logo"]?.flatMap { $0 }
                 return SubscribeChannel(
                     name: nameVal,
                     url: urlVal,
-                    group: d["group"] ?? nil,
-                    logo: d["logo"] ?? nil
+                    group: groupVal,
+                    logo: logoVal
                 )
             }
         }

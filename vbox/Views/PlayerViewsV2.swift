@@ -226,7 +226,11 @@ class PiPHelper: NSObject {
 
         let pipContentSource = AVPictureInPictureController.ContentSource(playerLayer: playerLayer)
 
-        pipController = AVPictureInPictureController(contentSource: pipContentSource)
+        guard let controller = AVPictureInPictureController(contentSource: pipContentSource) else {
+            print("[PiP] PiP Controller 初始化失败")
+            return
+        }
+        pipController = controller
         pipController?.delegate = self
 
         pipStartRetries = 0
@@ -1167,7 +1171,7 @@ class PlayerState: ObservableObject {
         return rules.first(where: { lower.contains($0.0) })?.1
     }
 
-    private func shouldTryBaiduAVPlayerFirst(resourceName: String, playlistKind: PlaylistKind?) -> Bool {
+    private func shouldTryBaiduAVPlayerFirst(resourceName: String, playlistKind: M3U8PlaylistKind?) -> Bool {
         if playlistKind != nil { return true }
         let lower = resourceName.lowercased()
         let nativeExtensions = [".mp4", ".m4v", ".mov", ".m3u8"]
