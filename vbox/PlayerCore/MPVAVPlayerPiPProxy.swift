@@ -167,7 +167,11 @@ final class MPVAVPlayerPiPProxy: NSObject {
     private func setupPiPController(for player: AVPlayer) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
 
-        let controller = AVPictureInPictureController(playerLayer: AVPlayerLayer(player: player))
+        guard let controller = AVPictureInPictureController(playerLayer: AVPlayerLayer(player: player)) else {
+            print("[AVPlayerPiP] PiP Controller 初始化失败")
+            return
+        }
+
         controller.delegate = self
         // iOS 16+ 支持自动启动 PiP
         if #available(iOS 16.0, *) {
