@@ -266,6 +266,7 @@ jobs:
 
       - name: 📧 发送邮件通知
         if: always() && !cancelled()
+        continue-on-error: true
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           JOB_STATUS: ${{ job.status }}
