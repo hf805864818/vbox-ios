@@ -33,6 +33,8 @@ final class ViewCapturePiPManager: NSObject {
     private var frameCount: Int = 0
     private var lastFPSTime: Date = Date()
     private var estimatedFPS: Double = 30
+    /// KVO 观察者（必须强引用，否则会被释放导致回调失效）
+    private var pipStatusObserver: NSKeyValueObservation?
 
     /// 截图定时器（DispatchSourceTimer，后台仍可触发）
     private var captureTimer: DispatchSourceTimer?
@@ -99,8 +101,8 @@ final class ViewCapturePiPManager: NSObject {
         // 激活音频会话
         activateAudioSession()
 
-        // KVO 观察 isPictureInPicturePossible
-        pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible,
+        // KVO 观察 isPictureInPicturePossible（必须强引用观察者）
+        pipStatusObserver = pipController?.observe(\AVPictureInPictureController.isPictureInPicturePossible,
                                 options: [.new]) { [weak self] _, change in
             guard let self else { return }
             if let isPossible = change.newValue, isPossible {
@@ -202,6 +204,7 @@ final class ViewCapturePiPManager: NSObject {
     func cleanupPiP() {
         stopPiP()
         cleanupDisplayLayer()
+        pipStatusObserver = nil
         pipController = nil
         formatDescription = nil
         pixelBufferPool = nil
@@ -500,5 +503,14 @@ extension ViewCapturePiPManager: AVPictureInPictureSampleBufferPlaybackDelegate 
     nonisolated func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(
         _ pictureInPictureController: AVPictureInPictureController) -> Bool {
         return false
+    }
+
+    nonisolated func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
+        // PiP 窗口尺寸变化时的回调（iOS 16.0+）
+        Task { @MainActor in
+            print("[ViewCapturePiP] PiP 窗口尺寸变化：\(newRenderSize.width)x\(newRenderSize.height)")
+        }
     }
 }
