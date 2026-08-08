@@ -226,11 +226,7 @@ class PiPHelper: NSObject {
 
         let pipContentSource = AVPictureInPictureController.ContentSource(playerLayer: playerLayer)
 
-        guard let controller = AVPictureInPictureController(contentSource: pipContentSource) else {
-            print("[PiP] PiP Controller 初始化失败")
-            return
-        }
-        pipController = controller
+        pipController = AVPictureInPictureController(contentSource: pipContentSource)
         pipController?.delegate = self
 
         pipStartRetries = 0
