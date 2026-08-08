@@ -2278,6 +2278,7 @@ class PlayerState: ObservableObject {
             #if canImport(swift_mdk)
             MDKPipManager.shared.cleanupPiPController()
             #endif
+            ViewCapturePiPManager.shared.cleanupPiP()
         }
     }
     
@@ -6096,6 +6097,8 @@ struct PlayerControlsView: View {
                 NotificationCenter.default.post(name: .vboxMDKRequestStopPiP, object: nil)
             }
             #endif
+            // 停止 IJK/VLC/AliPlayer 视图截图 PiP
+            ViewCapturePiPManager.shared.stopPiP()
             PiPHelper.shared.stopPiP()
             playerState.isPiPActive = false
         } else {
@@ -6104,8 +6107,8 @@ struct PlayerControlsView: View {
 
             let engineName = playerState.compatibilityEngineName
             // 判断使用哪种 PiP 等待策略
-            var useFrameBridgedPiP = false  // MDK/MPV 帧桥接 PiP：需要等待启动
-            var useAVPlayerPiP = false      // VLC/IJK/AVPlayer 系统画中画：需要等待 isPiPPossible
+            var useFrameBridgedPiP = false  // MDK/MPV/视图截图 帧桥接 PiP：需要等待启动
+            var useAVPlayerPiP = false      // AVPlayer 系统画中画：需要等待 isPiPPossible
 
             if playerState.compatibilityURL != nil {
                 // 兼容内核（网盘资源）：根据引擎类型选择 PiP 方案
@@ -6125,19 +6128,14 @@ struct PlayerControlsView: View {
                     playerState.log("[PlayerV2] MPV 内核启动帧桥接画中画")
                     #endif
                 } else {
-                    // IJK / VLC / AliPlayer：回退到 AVPlayer 系统画中画
-                    useAVPlayerPiP = true
-                    if let compatURL = playerState.compatibilityURL {
-                        let avOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": playerState.compatibilityHeaders]
-                        let asset = AVURLAsset(url: compatURL, options: avOptions)
-                        let avPlayerForPiP = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                        // 尝试跳转到当前播放进度
-                        if playerState.currentTime > 0 {
-                            avPlayerForPiP.seek(to: CMTime(seconds: playerState.currentTime, preferredTimescale: 600))
-                        }
-                        avPlayerForPiP.play()
-                        PiPHelper.shared.setupPiP(for: avPlayerForPiP)
-                        playerState.log("[PlayerV2] \(engineName) 回退 AVPlayer 系统画中画：\(compatURL.absoluteString.prefix(80))")
+                    // IJK / VLC / AliPlayer：使用视图截图帧桥接 PiP
+                    // 不再创建新 AVPlayer 播放本地代理 URL（会失败），改为截图当前播放器视图
+                    useFrameBridgedPiP = true
+                    if let playerView = findCurrentPlayerView() {
+                        ViewCapturePiPManager.shared.startPiP(sourceView: playerView)
+                        playerState.log("[PlayerV2] \(engineName) 视图截图帧桥接画中画")
+                    } else {
+                        playerState.log("[PlayerV2] \(engineName) 未找到播放器视图，PiP 不可用")
                     }
                 }
             } else if let avPlayer = player {
@@ -6150,8 +6148,8 @@ struct PlayerControlsView: View {
 
             // 根据引擎类型选择不同的进入后台策略
             if useFrameBridgedPiP {
-                // MDK/MPV 帧桥接 PiP：等待 PiP 实际启动后再进入后台
-                let deadline = Date().addingTimeInterval(5.0)
+                // MDK/MPV/视图截图 帧桥接 PiP：等待 PiP 实际启动后再进入后台
+                let deadline = Date().addingTimeInterval(8.0)
                 waitForPiPAndGoBackground(deadline: deadline)
             } else if useAVPlayerPiP {
                 // AVPlayer 系统画中画：等待 isPiPPossible 后进入后台
@@ -6183,6 +6181,11 @@ struct PlayerControlsView: View {
             return
         }
         #endif
+        if ViewCapturePiPManager.shared.isPipActive {
+            playerState.log("[PlayerV2] 视图截图 PiP 已启动，进入后台")
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            return
+        }
 
         if Date() < deadline {
             // 强制推一帧（不依赖 display link / render callback）
@@ -6208,10 +6211,17 @@ struct PlayerControlsView: View {
             .first(where: { $0.isKeyWindow })?.rootViewController?.view else { return nil }
 
         let candidates = ["Player", "Video", "GL", "Metal", "Render", "AliPlayer", "VLC", "IJK", "MPV", "MDK"]
+        /// 播放器容器视图的 tag 标识（VLC/IJK 等使用普通 UIView 作为容器）
+        let playerViewTag = 9527
         var result: UIView?
 
         func search(_ view: UIView) {
             if result != nil { return }
+            // 优先通过 tag 标识匹配（适用于 VLC/IJK 等使用普通 UIView 的引擎）
+            if view.tag == playerViewTag {
+                result = view
+                return
+            }
             let clsName = String(describing: type(of: view))
             for keyword in candidates {
                 if clsName.contains(keyword) {
@@ -6667,6 +6677,12 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             guard !isStopped else { return }
             currentURL = url
             core.attach(to: view)
+            // 同步当前画面拉伸模式：setupMPV 完成后 mpv 句柄才可用，
+            // 此时 setMPVProperty 才能真正生效（configure() 中的调用因 mpv==nil 被跳过）
+            if let mode = playerState?.videoGravity {
+                core.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
+                core.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
+            }
             core.load(url: url, headers: headers, profile: inferredProfile(for: url))
             core.setRate(playerState?.playbackSpeed ?? 1.0)
             core.play()
@@ -6743,6 +6759,7 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
+        view.tag = 9527  // VLC 播放器视图标识，用于 findCurrentPlayerView 查找
         context.coordinator.attach(to: view, url: url, headers: headers)
         return view
     }
@@ -6765,6 +6782,8 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
         private var didFinish = false
         private var drawableView: UIView?
         var currentURL: URL?
+        /// 上次检测到的视频尺寸（用于检测尺寸变化后重新应用 aspectFill）
+        private var lastVideoSize: CGSize = .zero
 
         init(playerState: PlayerState) {
             self.playerState = playerState
@@ -6836,7 +6855,7 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
             guard let view = drawableView else { return }
             view.clipsToBounds = true
             // VLC 内部使用 OpenGL ES 直接渲染到 layer，UIView.contentMode 无效。
-            // 必须通过 VLCMediaPlayer 的 videoAspectRatio 属性控制画面比例。
+            // 必须通过 VLCMediaPlayer 的 videoAspectRatio 和 scaleFactor 属性控制画面比例。
             switch mode {
             case .aspectFit:
                 // 适应：保持宽高比，留黑边（VLC 默认行为）
@@ -6844,10 +6863,30 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
                 mediaPlayer.scaleFactor = 0
             case .aspectFill:
                 // 填充：保持宽高比但放大裁剪
-                // 设置 scaleFactor > 1 实现放大裁剪效果
+                // VLC 的 scaleFactor 是在 aspect-fit 基础上的缩放系数
+                // 需要根据视频实际尺寸和视图尺寸计算正确的缩放比
                 mediaPlayer.videoAspectRatio = nil
-                let viewAspect = view.bounds.width / max(view.bounds.height, 1)
-                mediaPlayer.scaleFactor = Float(viewAspect > 1 ? viewAspect : 1.0 / viewAspect)
+                let viewW = view.bounds.width
+                let viewH = max(view.bounds.height, 1)
+                let viewAspect = viewW / viewH
+                // 尝试从 VLC 获取视频实际尺寸（VLCVideoSize 是 C 结构体，非 NSValue）
+                let vlcSize = mediaPlayer.videoSize
+                let videoW = CGFloat(vlcSize.width)
+                let videoH = CGFloat(vlcSize.height)
+                if videoW > 0 && videoH > 0 {
+                    let videoAspect = videoW / videoH
+                    // 计算填充所需的缩放系数：取宽高比差异的较大值
+                    if videoAspect > viewAspect {
+                        // 视频比视图宽：需要放大以填满高度，裁剪两侧
+                        mediaPlayer.scaleFactor = Float(videoAspect / viewAspect)
+                    } else {
+                        // 视频比视图高：需要放大以填满宽度，裁剪上下
+                        mediaPlayer.scaleFactor = Float(viewAspect / videoAspect)
+                    }
+                } else {
+                    // 视频尺寸未知（尚未开始播放），用视图宽高比做合理估算
+                    mediaPlayer.scaleFactor = Float(viewAspect > 1 ? viewAspect : 1.0 / viewAspect)
+                }
             case .resize:
                 // 拉伸：强制视频适配视图宽高比（不保持宽高比）
                 let w = Int(view.bounds.width)
@@ -6912,6 +6951,16 @@ struct VLCPlayerRepresentableV2: UIViewRepresentable {
                     playerState.currentTime = total
                     playerState.log("[PlayerV2] VLC 播放结束")
                     playerState.playNextEpisodeIfAvailable()
+                }
+
+                // 检测视频尺寸变化，重新应用 aspectFill（首帧到达后 videoSize 才有值）
+                let vlcVideoSize = self.mediaPlayer.videoSize
+                let currentSize = CGSize(width: CGFloat(vlcVideoSize.width), height: CGFloat(vlcVideoSize.height))
+                if currentSize.width > 0 && currentSize.height > 0 && currentSize != self.lastVideoSize {
+                    self.lastVideoSize = currentSize
+                    if playerState.videoGravity == .aspectFill {
+                        self.applyVideoGravity(.aspectFill)
+                    }
                 }
             }
         }
