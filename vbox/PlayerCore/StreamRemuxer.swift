@@ -1,4 +1,6 @@
 import Foundation
+import CoreMedia
+import AVFoundation
 
 // MARK: - 转封装结果
 
