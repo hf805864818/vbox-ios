@@ -651,6 +651,20 @@ struct EpisodeItem: Identifiable {
     var ucFileFid: String?
     /// UC 文件 shareFidToken（仅 UC 网盘切换集数使用）
     var ucShareFidToken: String?
+    /// 迅雷文件 ID（仅迅雷云盘切换集数使用）
+    var xunleiFileId: String?
+    /// 阿里文件 ID（仅阿里云盘切换集数使用）
+    var aliFileId: String?
+    /// 115 文件 pickCode（仅115网盘切换集数使用）
+    var one15PickCode: String?
+    /// 123 文件 ID 和 ETag（仅123云盘切换集数使用）
+    var pan123FileId: String?
+    var pan123ETag: String?
+    /// 139 文件 contentId 和 catalogId（仅139云盘切换集数使用）
+    var pan139ContentId: String?
+    var pan139CatalogId: String?
+    /// 189 文件 ID（仅天翼云盘切换集数使用）
+    var pan189FileId: String?
     /// 播放头信息
     var headers: [String: String] = [:]
     /// 是否需要兼容内核
@@ -660,6 +674,12 @@ struct EpisodeItem: Identifiable {
         case normal = "normal"       // 普通资源
         case baidu = "baidu"         // 百度网盘
         case quark = "quark"         // 夸克网盘
+        case xunlei = "xunlei"       // 迅雷云盘
+        case ali = "ali"             // 阿里云盘
+        case one15 = "one15"         // 115网盘
+        case pan123 = "pan123"       // 123云盘
+        case pan139 = "pan139"       // 139云盘
+        case pan189 = "pan189"       // 天翼云盘
         case drive = "drive"        // 其他网盘
     }
 }
@@ -2440,7 +2460,66 @@ class PlayerState: ObservableObject {
             }
             return
         }
-        
+
+        // 阿里云盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .ali {
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[Ali] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.aliGetAllPlayableFiles(shareURL: cleanShareURL)
+                log("[Ali] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .ali, aliFileId: f.fileId)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("阿里文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolveAliFilePlayURL(
+                    shareURL: cleanShareURL,
+                    fileId: files[0].fileId,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[Ali] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                // 降级到单文件解析（原有行为）
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置阿里云盘 Token"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 阿里云盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 阿里云盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("阿里解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
         // 百度网盘：先获取文件列表，多文件则展示选择列表
         if driveType == .baidu {
             guard let pair = CloudDriveManager.shared.baiduTokenPair() else {
@@ -2623,7 +2702,335 @@ class PlayerState: ObservableObject {
             }
             return
         }
-        
+
+        // 迅雷云盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .xunlei {
+            guard let token = CloudDriveManager.shared.tokens(for: .xunlei).first else {
+                await MainActor.run {
+                    self.failPlayback("未配置迅雷云盘 Cookie")
+                }
+                return
+            }
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[Xunlei] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.xunleiGetFileList(shareURL: cleanShareURL, cookie: token.value)
+                log("[Xunlei] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .xunlei, xunleiFileId: f.fileId)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("迅雷文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolveXunleiFilePlayURL(
+                    shareURL: cleanShareURL,
+                    cookie: token.value,
+                    fileId: files[0].fileId,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[Xunlei] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                // 降级到单文件解析（原有行为）
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置迅雷云盘 Cookie"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 迅雷云盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 迅雷云盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("迅雷解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
+        // 115网盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .one15 {
+            guard let token = CloudDriveManager.shared.tokens(for: .one15).first else {
+                await MainActor.run {
+                    self.failPlayback("未配置115网盘 Cookie/CID")
+                }
+                return
+            }
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[115] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.one15GetAllPlayableFiles(shareURL: cleanShareURL, cid: token.value)
+                log("[115] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .one15, one15PickCode: f.pickCode)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("115文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolve115FilePlayURL(
+                    shareURL: cleanShareURL,
+                    cid: token.value,
+                    pickCode: files[0].pickCode,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[115] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置115网盘 Cookie/CID"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 115网盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 115网盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("115解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
+        // 123云盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .pan123 {
+            guard let token = CloudDriveManager.shared.tokens(for: .pan123).first else {
+                await MainActor.run {
+                    self.failPlayback("未配置123云盘 Cookie")
+                }
+                return
+            }
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[123] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.pan123GetAllFiles(shareURL: cleanShareURL, token: token.value)
+                log("[123] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .pan123, pan123FileId: f.fileId, pan123ETag: f.eTag)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("123文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolve123FilePlayURL(
+                    shareURL: cleanShareURL,
+                    token: token.value,
+                    fileId: files[0].fileId,
+                    eTag: files[0].eTag,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[123] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置123云盘 Cookie"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 123云盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 123云盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("123解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
+        // 139云盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .pan139 {
+            guard let token = CloudDriveManager.shared.tokens(for: .pan139).first else {
+                await MainActor.run {
+                    self.failPlayback("未配置139云盘 Cookie")
+                }
+                return
+            }
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[139] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.pan139GetAllFiles(shareURL: cleanShareURL, cookie: token.value)
+                log("[139] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .pan139, pan139ContentId: f.contentId, pan139CatalogId: f.catalogId)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("139文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolve139FilePlayURL(
+                    shareURL: cleanShareURL,
+                    cookie: token.value,
+                    contentId: files[0].contentId,
+                    catalogId: files[0].catalogId,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[139] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置139云盘 Cookie"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 139云盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 139云盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("139解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
+        // 天翼云盘：先获取文件列表，多文件则展示选集列表
+        if driveType == .pan189 {
+            guard let token = CloudDriveManager.shared.tokens(for: .pan189).first else {
+                await MainActor.run {
+                    self.failPlayback("未配置天翼云盘 Cookie")
+                }
+                return
+            }
+            CloudDriveManager.onLog = { [weak self] msg in
+                self?.log("[PlayerV2] \(msg)")
+            }
+            log("[189] ①获取文件列表...")
+            do {
+                let files = try await CloudDriveManager.shared.pan189GetAllFiles(shareURL: cleanShareURL, cookie: token.value)
+                log("[189] ✅ 成功，共\(files.count)个文件")
+
+                await MainActor.run {
+                    currentEpisodeIndex = 0
+                    episodeItems = files.enumerated().map { idx, f in
+                        EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
+                                    sourceType: .pan189, pan189FileId: f.fileId)
+                    }
+                }
+
+                guard !files.isEmpty else {
+                    await MainActor.run {
+                        self.failPlayback("天翼文件列表为空")
+                    }
+                    return
+                }
+
+                // 播放第一个文件
+                let result = try await CloudDriveManager.shared.resolve189FilePlayURL(
+                    shareURL: cleanShareURL,
+                    cookie: token.value,
+                    fileId: files[0].fileId,
+                    fileName: files[0].fileName
+                )
+                await playResolvedDriveVideo(result)
+                return
+            } catch {
+                log("[189] ❌ 获取文件列表失败，降级到单文件解析: \(error.localizedDescription)")
+                do {
+                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
+                    await playResolvedDriveVideo(result)
+                } catch let error as DriveError {
+                    let msg: String
+                    switch error {
+                    case .tokenNotConfigured: msg = "未配置天翼云盘 Cookie"
+                    case .noPlayURL(let reason): msg = reason
+                    case .invalidShareURL: msg = "无效的分享链接"
+                    case .saveFailed: msg = "转存失败"
+                    case .invalidResponse: msg = "服务器响应异常"
+                    case .notImplemented: msg = "暂不支持"
+                    }
+                    log("[PlayerV2] ❌ 天翼云盘 播放失败: \(msg)")
+                    await MainActor.run { self.failPlayback(msg) }
+                } catch {
+                    log("[PlayerV2] ❌ 天翼云盘 解析异常: \(error.localizedDescription)")
+                    await MainActor.run { self.failPlayback("天翼解析失败: \(error.localizedDescription)") }
+                }
+                return
+            }
+        }
+
         do {
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
             await playResolvedDriveVideo(result)
@@ -4185,6 +4592,24 @@ class PlayerState: ObservableObject {
             case .quark:
                 // 夸克网盘：解析并播放
                 await self.playQuarkEpisode(episode: episode)
+            case .xunlei:
+                // 迅雷云盘：使用专用切集逻辑
+                await self.playXunleiEpisode(episode: episode)
+            case .ali:
+                // 阿里云盘：使用专用切集逻辑
+                await self.playAliEpisode(episode: episode)
+            case .one15:
+                // 115网盘：使用专用切集逻辑
+                await self.play115Episode(episode: episode)
+            case .pan123:
+                // 123云盘：使用专用切集逻辑
+                await self.play123Episode(episode: episode)
+            case .pan139:
+                // 139云盘：使用专用切集逻辑
+                await self.play139Episode(episode: episode)
+            case .pan189:
+                // 天翼云盘：使用专用切集逻辑
+                await self.play189Episode(episode: episode)
             case .drive:
                 // UC 网盘：使用专用切集逻辑
                 if let ucFid = episode.ucFileFid, let ucToken = episode.ucShareFidToken {
@@ -4265,7 +4690,222 @@ class PlayerState: ObservableObject {
             }
         }
     }
-    
+
+    /// 播放迅雷云盘指定集数
+    private func playXunleiEpisode(episode: EpisodeItem) async {
+        guard let fileId = episode.xunleiFileId else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[Xunlei] 切集播放: \(episode.name) (fileId=\(fileId))")
+        await MainActor.run { isLoading = true }
+
+        guard let token = CloudDriveManager.shared.tokens(for: .xunlei).first else {
+            await MainActor.run {
+                self.failPlayback("未配置迅雷云盘 Cookie")
+                self.isSwitchingEpisode = false
+            }
+            return
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolveXunleiFilePlayURL(
+                shareURL: episode.url,
+                cookie: token.value,
+                fileId: fileId,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[Xunlei] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("迅雷切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 播放阿里云盘指定集数
+    private func playAliEpisode(episode: EpisodeItem) async {
+        guard let fileId = episode.aliFileId else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[Ali] 切集播放: \(episode.name) (fileId=\(fileId))")
+        await MainActor.run { isLoading = true }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolveAliFilePlayURL(
+                shareURL: episode.url,
+                fileId: fileId,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[Ali] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("阿里切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 播放115网盘指定集数
+    private func play115Episode(episode: EpisodeItem) async {
+        guard let pickCode = episode.one15PickCode else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[115] 切集播放: \(episode.name) (pickCode=\(pickCode))")
+        await MainActor.run { isLoading = true }
+
+        guard let token = CloudDriveManager.shared.tokens(for: .one15).first else {
+            await MainActor.run {
+                self.failPlayback("未配置115网盘 Cookie/CID")
+                self.isSwitchingEpisode = false
+            }
+            return
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolve115FilePlayURL(
+                shareURL: episode.url,
+                cid: token.value,
+                pickCode: pickCode,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[115] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("115切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 播放123云盘指定集数
+    private func play123Episode(episode: EpisodeItem) async {
+        guard let fileId = episode.pan123FileId, let eTag = episode.pan123ETag else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[123] 切集播放: \(episode.name) (fileId=\(fileId))")
+        await MainActor.run { isLoading = true }
+
+        guard let token = CloudDriveManager.shared.tokens(for: .pan123).first else {
+            await MainActor.run {
+                self.failPlayback("未配置123云盘 Cookie")
+                self.isSwitchingEpisode = false
+            }
+            return
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolve123FilePlayURL(
+                shareURL: episode.url,
+                token: token.value,
+                fileId: fileId,
+                eTag: eTag,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[123] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("123切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 播放139云盘指定集数
+    private func play139Episode(episode: EpisodeItem) async {
+        guard let contentId = episode.pan139ContentId, let catalogId = episode.pan139CatalogId else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[139] 切集播放: \(episode.name) (contentId=\(contentId))")
+        await MainActor.run { isLoading = true }
+
+        guard let token = CloudDriveManager.shared.tokens(for: .pan139).first else {
+            await MainActor.run {
+                self.failPlayback("未配置139云盘 Cookie")
+                self.isSwitchingEpisode = false
+            }
+            return
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolve139FilePlayURL(
+                shareURL: episode.url,
+                cookie: token.value,
+                contentId: contentId,
+                catalogId: catalogId,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[139] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("139切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 播放天翼云盘指定集数
+    private func play189Episode(episode: EpisodeItem) async {
+        guard let fileId = episode.pan189FileId else {
+            await MainActor.run { self.isSwitchingEpisode = false }
+            return
+        }
+
+        log("[189] 切集播放: \(episode.name) (fileId=\(fileId))")
+        await MainActor.run { isLoading = true }
+
+        guard let token = CloudDriveManager.shared.tokens(for: .pan189).first else {
+            await MainActor.run {
+                self.failPlayback("未配置天翼云盘 Cookie")
+                self.isSwitchingEpisode = false
+            }
+            return
+        }
+
+        do {
+            let result = try await CloudDriveManager.shared.resolve189FilePlayURL(
+                shareURL: episode.url,
+                cookie: token.value,
+                fileId: fileId,
+                fileName: episode.name
+            )
+            await MainActor.run {
+                currentEpisodeIndex = episode.id
+            }
+            await playResolvedDriveVideo(result)
+        } catch {
+            log("[189] 切集失败: \(error.localizedDescription)")
+            await MainActor.run {
+                self.failPlayback("天翼切集失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func initPlayer(url: URL, noReferer: Bool = false, customHeaders: [String: String]? = nil) {
         guard !Task.isCancelled else {
             log("[PlayerV2] 已取消的播放任务，跳过播放器初始化")

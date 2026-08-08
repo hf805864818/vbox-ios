@@ -1429,6 +1429,156 @@ class CloudDriveManager: ObservableObject {
         )
     }
 
+    // MARK: - 阿里云盘文件列表（多文件/文件夹支持）
+
+    struct AliShareFilePublic {
+        let fileId: String
+        let fileName: String
+    }
+
+    /// 获取阿里云盘分享链接中的所有可播放视频文件
+    /// 递归遍历子文件夹，返回所有视频文件列表
+    func aliGetAllPlayableFiles(shareURL: String) async throws -> [AliShareFilePublic] {
+        print("[Ali] 📂 获取所有可播放文件: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [Ali] 获取文件列表...")
+
+        let cred = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
+        let accessToken = cred.accessToken ?? ""
+        guard !accessToken.isEmpty else {
+            throw DriveError.noPlayURL("阿里 token 刷新成功但未返回 access_token，请重新授权阿里云盘")
+        }
+
+        let shareInfo = extractAliShareInfo(from: shareURL)
+        guard !shareInfo.shareId.isEmpty else { throw DriveError.invalidShareURL }
+
+        let shareToken = try await aliGetShareToken(
+            shareId: shareInfo.shareId,
+            sharePwd: shareInfo.sharePwd,
+            token: accessToken
+        )
+
+        var allVideos: [AliShareFilePublic] = []
+        try await aliCollectPlayableFiles(
+            shareId: shareInfo.shareId,
+            parentFileId: "root",
+            shareToken: shareToken,
+            token: accessToken,
+            into: &allVideos
+        )
+
+        print("[Ali] ✅ 可播放文件获取成功: \(allVideos.count) 个")
+        self.log("[CloudDrive] [Ali] ✅ 文件列表: \(allVideos.count) 个文件")
+        return allVideos
+    }
+
+    /// 递归收集文件夹中的所有视频文件
+    private func aliCollectPlayableFiles(
+        shareId: String, parentFileId: String, shareToken: String, token: String,
+        into result: inout [AliShareFilePublic]
+    ) async throws {
+        let files = try await aliGetShareFileList(
+            shareId: shareId,
+            parentFileId: parentFileId,
+            shareToken: shareToken,
+            token: token
+        )
+
+        for file in files {
+            if aliIsPlayable(file: file) {
+                result.append(AliShareFilePublic(fileId: file.fileId, fileName: file.name))
+            } else if file.type.lowercased() == "folder" {
+                try await aliCollectPlayableFiles(
+                    shareId: shareId,
+                    parentFileId: file.fileId,
+                    shareToken: shareToken,
+                    token: token,
+                    into: &result
+                )
+            }
+        }
+    }
+
+    /// 解析阿里云盘指定文件的播放地址（用于多文件选集播放）
+    func resolveAliFilePlayURL(shareURL: String, fileId: String, fileName: String) async throws -> PlayResult {
+        print("[Ali] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
+        self.log("[CloudDrive] [Ali] 解析文件: \(fileName)")
+
+        let cred = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
+        let accessToken = cred.accessToken ?? ""
+        guard !accessToken.isEmpty else {
+            throw DriveError.noPlayURL("阿里 token 刷新成功但未返回 access_token，请重新授权阿里云盘")
+        }
+
+        let shareInfo = extractAliShareInfo(from: shareURL)
+        guard !shareInfo.shareId.isEmpty else { throw DriveError.invalidShareURL }
+
+        let shareToken = try await aliGetShareToken(
+            shareId: shareInfo.shareId,
+            sharePwd: shareInfo.sharePwd,
+            token: accessToken
+        )
+
+        var transcodeURL: String?
+        do {
+            let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: fileId, shareToken: shareToken, token: accessToken)
+            let taskList = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList ?? []
+            let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
+            transcodeURL = qualityOrder.compactMap { quality in
+                taskList.first { ($0.templateId ?? "").uppercased().contains(quality) }?.url
+            }.first ?? taskList.first(where: { ($0.url ?? "").isEmpty == false })?.url
+            print("[Ali] 转码线路: \(transcodeURL != nil ? "已获取" : "未获取")")
+        } catch {
+            print("[Ali] ⚠️ 转码线路获取失败，将尝试原画直链: \(error.localizedDescription)")
+        }
+
+        var downloadURL: String?
+        do {
+            downloadURL = try await aliGetDownloadURL(fileId: fileId, shareId: shareInfo.shareId, shareToken: shareToken, token: accessToken)
+            print("[Ali] 原画直链: \(downloadURL != nil ? "已获取" : "未获取")")
+        } catch {
+            print("[Ali] ⚠️ 原画直链获取失败: \(error.localizedDescription)")
+        }
+
+        let playbackHeaders = aliPlaybackHeaders(accessToken: accessToken, shareToken: shareToken)
+
+        let playURL: String
+        let source: String
+        if let url = transcodeURL {
+            playURL = url
+            source = "transcode"
+        } else if let url = downloadURL {
+            playURL = url
+            source = "download_url"
+        } else {
+            throw DriveError.noPlayURL("阿里: 转码地址和原画直链均获取失败")
+        }
+
+        let fallbackURL: String?
+        let fallbackSource: String?
+        if source == "transcode", let url = downloadURL {
+            fallbackURL = url
+            fallbackSource = "download_url"
+        } else if source == "download_url", let url = transcodeURL {
+            fallbackURL = url
+            fallbackSource = "transcode"
+        } else {
+            fallbackURL = nil
+            fallbackSource = nil
+        }
+
+        print("[Ali] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
+
+        return PlayResult(
+            url: playURL,
+            headers: playbackHeaders,
+            driveType: .ali,
+            source: source,
+            fallbackURL: fallbackURL,
+            fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
+            fallbackSource: fallbackSource
+        )
+    }
+
     private func aliGetShareToken(shareId: String, sharePwd: String?, token: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.alipan.com/v2/share_link/get_share_token")!)
         request.httpMethod = "POST"
@@ -6080,6 +6230,67 @@ class CloudDriveManager: ObservableObject {
         return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "m4v"].contains { lower.hasSuffix(".\($0)") }
     }
 
+    // MARK: - 115网盘文件列表（多文件/文件夹支持）
+
+    struct One15ShareFilePublic {
+        let pickCode: String
+        let fileName: String
+    }
+
+    /// 获取115网盘分享链接中的所有可播放视频文件（递归遍历子文件夹）
+    func one15GetAllPlayableFiles(shareURL: String, cid: String) async throws -> [One15ShareFilePublic] {
+        print("[115] 📂 获取所有可播放文件: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [115] 获取文件列表...")
+
+        let cookie = normalize115Cookie(cid)
+        let (shareCode, receiveCode) = try await extract115ShareCode(from: shareURL)
+
+        var allVideos: [One15ShareFilePublic] = []
+        try await one15CollectPlayableFiles(
+            shareCode: shareCode, receiveCode: receiveCode, cid: "0", cookie: cookie,
+            into: &allVideos
+        )
+
+        print("[115] ✅ 可播放文件获取成功: \(allVideos.count) 个")
+        self.log("[CloudDrive] [115] ✅ 文件列表: \(allVideos.count) 个文件")
+        return allVideos
+    }
+
+    private func one15CollectPlayableFiles(
+        shareCode: String, receiveCode: String, cid: String, cookie: String,
+        into result: inout [One15ShareFilePublic]
+    ) async throws {
+        let list = try await one15Snap(shareCode: shareCode, receiveCode: receiveCode, cid: cid, cookie: cookie)
+        for item in list {
+            if !item.isDir && one15IsPlayableFileName(item.fileName ?? "") {
+                if let pickCode = item.pickCode, !pickCode.isEmpty {
+                    result.append(One15ShareFilePublic(pickCode: pickCode, fileName: item.fileName ?? "未知文件"))
+                }
+            } else if item.isDir, let nextCid = item.cid, !nextCid.isEmpty {
+                try await one15CollectPlayableFiles(
+                    shareCode: shareCode, receiveCode: receiveCode, cid: nextCid, cookie: cookie,
+                    into: &result
+                )
+            }
+        }
+    }
+
+    /// 解析115网盘指定文件的播放地址（用于多文件选集播放）
+    func resolve115FilePlayURL(shareURL: String, cid: String, pickCode: String, fileName: String) async throws -> PlayResult {
+        print("[115] 🎬 解析指定文件: pickCode=\(pickCode) name=\(fileName)")
+        self.log("[CloudDrive] [115] 解析文件: \(fileName)")
+
+        let cookie = normalize115Cookie(cid)
+        let downloadURL = try await one15GetDownloadURL(pickCode: pickCode, cookie: cookie)
+
+        return PlayResult(
+            url: downloadURL,
+            headers: one15PlaybackHeaders(cookie: cookie),
+            driveType: .one15,
+            source: fileName
+        )
+    }
+
     // MARK: - 123云盘
 
     func resolve123PanPlayURL(shareURL: String, token: String) async throws -> PlayResult {
@@ -6193,6 +6404,137 @@ class CloudDriveManager: ObservableObject {
         return ""
     }
 
+    // MARK: - 123云盘文件列表（多文件/文件夹支持）
+
+    struct Pan123ShareFile {
+        let fileId: String
+        let fileName: String
+        let eTag: String
+    }
+
+    /// 获取123云盘分享链接中的所有视频文件
+    func pan123GetAllFiles(shareURL: String, token: String) async throws -> [Pan123ShareFile] {
+        print("[123Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [123] 获取文件列表...")
+
+        let shareCode = extract123PanShareCode(from: shareURL)
+        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
+
+        let accessToken = CloudDriveAuthManager.shared.credential(for: .pan123)?.accessToken
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.123pan.com/",
+            "Origin": "https://www.123pan.com"
+        ]
+
+        var components = URLComponents(string: "https://www.123pan.com/b/api/share/get")!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "100"),
+            URLQueryItem(name: "next", value: "1"),
+            URLQueryItem(name: "orderBy", value: "share_id"),
+            URLQueryItem(name: "orderDirection", value: "desc"),
+            URLQueryItem(name: "shareKey", value: shareCode),
+            URLQueryItem(name: "SharePwd", value: ""),
+            URLQueryItem(name: "ParentFileId", value: "0"),
+            URLQueryItem(name: "Page", value: "1")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "Cookie")
+        if let accessToken = accessToken, !accessToken.isEmpty {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("123云盘: 分享列表返回无法解析")
+        }
+        if let code = json["code"] as? Int, code != 0, code != 200 {
+            let msg = json["message"] as? String ?? "code=\(code)"
+            throw DriveError.noPlayURL("123云盘: \(msg)")
+        }
+        guard let dataObj = json["data"] as? [String: Any],
+              let list = dataObj["InfoList"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("123云盘: 无法获取文件列表")
+        }
+
+        let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
+        var files: [Pan123ShareFile] = []
+        for item in list {
+            let name = item["FileName"] as? String ?? item["fileName"] as? String ?? "未知文件"
+            let fileId: String
+            if let id = item["FileId"] as? Int { fileId = String(id) }
+            else if let idStr = item["FileId"] as? String { fileId = idStr }
+            else { continue }
+            let eTag = item["Etag"] as? String ?? item["ETag"] as? String ?? item["etag"] as? String ?? ""
+            guard !eTag.isEmpty else { continue }
+            // 筛选视频文件
+            let lowerName = name.lowercased()
+            if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
+                files.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
+            }
+        }
+
+        // 如果没有视频文件，返回所有文件
+        if files.isEmpty {
+            for item in list {
+                let name = item["FileName"] as? String ?? item["fileName"] as? String ?? "未知文件"
+                let fileId: String
+                if let id = item["FileId"] as? Int { fileId = String(id) }
+                else if let idStr = item["FileId"] as? String { fileId = idStr }
+                else { continue }
+                let eTag = item["Etag"] as? String ?? item["ETag"] as? String ?? item["etag"] as? String ?? ""
+                guard !eTag.isEmpty else { continue }
+                files.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
+            }
+        }
+
+        print("[123Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
+        self.log("[CloudDrive] [123] ✅ 文件列表: \(files.count) 个文件")
+        return files
+    }
+
+    /// 解析123云盘指定文件的播放地址（用于多文件选集播放）
+    func resolve123FilePlayURL(shareURL: String, token: String, fileId: String, eTag: String, fileName: String) async throws -> PlayResult {
+        print("[123Pan] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
+        self.log("[CloudDrive] [123] 解析文件: \(fileName)")
+
+        let shareCode = extract123PanShareCode(from: shareURL)
+        let accessToken = CloudDriveAuthManager.shared.credential(for: .pan123)?.accessToken
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.123pan.com/",
+            "Origin": "https://www.123pan.com"
+        ]
+
+        let downloadURL = URL(string: "https://www.123pan.com/a/api/file/download_info")!
+        var downloadReq = URLRequest(url: downloadURL)
+        downloadReq.httpMethod = "POST"
+        downloadReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        downloadReq.setValue(token, forHTTPHeaderField: "Cookie")
+        if let accessToken = accessToken, !accessToken.isEmpty {
+            downloadReq.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        for (k, v) in headers { downloadReq.setValue(v, forHTTPHeaderField: k) }
+        let body: [String: Any] = ["fileId": fileId, "etag": eTag, "shareKey": shareCode, "SharePwd": ""]
+        downloadReq.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (dlData, _) = try await session.data(for: downloadReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any],
+              let dlDataObj = dlJson["data"] as? [String: Any] else {
+            throw DriveError.noPlayURL("123云盘: 无法获取下载链接")
+        }
+        let downloadUrl = dlDataObj["DownloadUrl"] as? String
+            ?? dlDataObj["download_url"] as? String
+            ?? dlDataObj["url"] as? String
+        guard let downloadUrl, !downloadUrl.isEmpty else {
+            throw DriveError.noPlayURL("123云盘: 下载链接为空")
+        }
+
+        return PlayResult(url: downloadUrl, headers: headers, driveType: .pan123, source: fileName)
+    }
+
     // MARK: - 139云盘
 
     func resolve139PanPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
@@ -6261,6 +6603,101 @@ class CloudDriveManager: ObservableObject {
             driveType: .pan139,
             source: "139pan_direct"
         )
+    }
+
+    // MARK: - 139云盘文件列表（多文件支持）
+
+    struct Pan139ShareFile {
+        let contentId: String
+        let catalogId: String
+        let fileName: String
+    }
+
+    /// 获取139云盘分享链接中的所有文件
+    func pan139GetAllFiles(shareURL: String, cookie: String) async throws -> [Pan139ShareFile] {
+        print("[139Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [139] 获取文件列表...")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G960U) AppleWebKit/537.36",
+            "Referer": "https://yun.139.com/",
+            "Origin": "https://yun.139.com",
+            "Cookie": cookie
+        ]
+
+        guard let urlComponents = URLComponents(string: shareURL),
+              let path = urlComponents.path.components(separatedBy: "/").last,
+              !path.isEmpty else {
+            throw DriveError.invalidShareURL
+        }
+
+        let apiURL = URL(string: "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/devapp/IOutLink/getContentInfoFromOutLink")!
+        var request = URLRequest(url: apiURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        let body: [String: Any] = ["linkId": path, "password": ""]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let contentList = dataObj["contentList"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("139云盘: 无法获取分享内容")
+        }
+
+        var files: [Pan139ShareFile] = []
+        for item in contentList {
+            let contentId = item["contentId"] as? String ?? ""
+            let catalogId = item["catalogId"] as? String ?? ""
+            let name = item["contentName"] as? String ?? item["name"] as? String ?? "未知文件"
+            guard !contentId.isEmpty, !catalogId.isEmpty else { continue }
+            files.append(Pan139ShareFile(contentId: contentId, catalogId: catalogId, fileName: name))
+        }
+
+        print("[139Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
+        self.log("[CloudDrive] [139] ✅ 文件列表: \(files.count) 个文件")
+        return files
+    }
+
+    /// 解析139云盘指定文件的播放地址（用于多文件选集播放）
+    func resolve139FilePlayURL(shareURL: String, cookie: String, contentId: String, catalogId: String, fileName: String) async throws -> PlayResult {
+        print("[139Pan] 🎬 解析指定文件: contentId=\(contentId) name=\(fileName)")
+        self.log("[CloudDrive] [139] 解析文件: \(fileName)")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G960U) AppleWebKit/537.36",
+            "Referer": "https://yun.139.com/",
+            "Origin": "https://yun.139.com",
+            "Cookie": cookie
+        ]
+
+        guard let urlComponents = URLComponents(string: shareURL),
+              let path = urlComponents.path.components(separatedBy: "/").last,
+              !path.isEmpty else {
+            throw DriveError.invalidShareURL
+        }
+
+        let downloadURL = URL(string: "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/devapp/IOutLink/getContentDownloadUrl")!
+        var downloadReq = URLRequest(url: downloadURL)
+        downloadReq.httpMethod = "POST"
+        downloadReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { downloadReq.setValue(v, forHTTPHeaderField: k) }
+        let dlBody: [String: Any] = [
+            "contentId": contentId,
+            "catalogId": catalogId,
+            "linkId": path
+        ]
+        downloadReq.httpBody = try JSONSerialization.data(withJSONObject: dlBody)
+
+        let (dlData, _) = try await session.data(for: downloadReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any],
+              let dlDataObj = dlJson["data"] as? [String: Any],
+              let downloadUrl = dlDataObj["downloadUrl"] as? String else {
+            throw DriveError.noPlayURL("139云盘: 无法获取下载链接")
+        }
+
+        return PlayResult(url: downloadUrl, headers: headers, driveType: .pan139, source: fileName)
     }
 
     // MARK: - 天翼云盘
@@ -6467,6 +6904,224 @@ class CloudDriveManager: ObservableObject {
             driveType: .pan189,
             source: "189pan_direct"
         )
+    }
+
+    // MARK: - 天翼云盘文件列表（多文件/文件夹支持）
+
+    struct Pan189ShareFile {
+        let fileId: String
+        let fileName: String
+    }
+
+    /// 获取天翼云盘分享链接中的所有视频文件
+    func pan189GetAllFiles(shareURL: String, cookie: String) async throws -> [Pan189ShareFile] {
+        print("[189Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [189] 获取文件列表...")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://cloud.189.cn/",
+            "Origin": "https://cloud.189.cn",
+            "Cookie": cookie
+        ]
+
+        guard let url = URL(string: shareURL),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw DriveError.invalidShareURL
+        }
+
+        var shareCode = ""
+        if let codeItem = components.queryItems?.first(where: { $0.name == "code" }) {
+            shareCode = codeItem.value ?? ""
+        }
+        if shareCode.isEmpty, let path = URLComponents(string: shareURL)?.path {
+            let parts = path.components(separatedBy: "/")
+            if let last = parts.last, !last.isEmpty { shareCode = last }
+        }
+        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
+
+        var accessCode = ""
+        if let fragment = url.fragment, !fragment.isEmpty {
+            accessCode = fragment
+        } else if let pwdItem = components.queryItems?.first(where: { $0.name == "pwd" || $0.name == "accessCode" }) {
+            accessCode = pwdItem.value ?? ""
+        }
+
+        // 步骤1: 获取分享信息
+        let shareInfoURL = URL(string: "https://cloud.189.cn/api/open/share/getShareInfoByCodeV2.action")!
+        var shareReq = URLRequest(url: shareInfoURL)
+        shareReq.httpMethod = "POST"
+        shareReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { shareReq.setValue(v, forHTTPHeaderField: k) }
+        var shareBody = "shareCode=\(shareCode)"
+        if !accessCode.isEmpty { shareBody += "&accessCode=\(accessCode)" }
+        shareReq.httpBody = shareBody.data(using: .utf8)
+
+        let (shareData, _) = try await session.data(for: shareReq)
+        guard let shareJson = try JSONSerialization.jsonObject(with: shareData) as? [String: Any] else {
+            throw DriveError.noPlayURL("天翼云盘: 无法解析分享信息响应")
+        }
+
+        var fileId = ""
+        var shareId: Int64 = 0
+        var fileName = ""
+        if let fid = shareJson["fileId"] as? String, !fid.isEmpty {
+            fileId = fid
+        } else if let fid = shareJson["fileId"] as? Int64 {
+            fileId = String(fid)
+        }
+        if let sid = shareJson["shareId"] as? Int64 { shareId = sid }
+        else if let sid = shareJson["shareId"] as? String { shareId = Int64(sid) ?? 0 }
+        if let fn = shareJson["fileName"] as? String { fileName = fn }
+
+        if fileId.isEmpty, let dataObj = shareJson["data"] as? [String: Any] {
+            if let fid = dataObj["fileId"] as? String { fileId = fid }
+            else if let fid = dataObj["fileId"] as? Int64 { fileId = String(fid) }
+            if let sid = dataObj["shareId"] as? Int64 { shareId = sid }
+            else if let sid = dataObj["shareId"] as? String { shareId = Int64(sid) ?? 0 }
+            if let fn = dataObj["fileName"] as? String { fileName = fn }
+        }
+
+        guard !fileId.isEmpty else {
+            throw DriveError.noPlayURL("天翼云盘: 无法提取文件信息")
+        }
+
+        // 步骤2: 尝试列出文件夹内的文件
+        let listURL = URL(string: "https://cloud.189.cn/api/open/share/listShareFiles.action")!
+        var listReq = URLRequest(url: listURL)
+        listReq.httpMethod = "POST"
+        listReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { listReq.setValue(v, forHTTPHeaderField: k) }
+        var listBody = "shareId=\(shareId)&fileId=\(fileId)&pageNum=1&pageSize=100"
+        if !accessCode.isEmpty { listBody += "&accessCode=\(accessCode)" }
+        listReq.httpBody = listBody.data(using: .utf8)
+
+        let (listData, _) = try await session.data(for: listReq)
+        if let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any] {
+            // 如果成功返回文件列表
+            if let dataObj = listJson["data"] as? [[String: Any]], !dataObj.isEmpty {
+                let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
+                var files: [Pan189ShareFile] = []
+                for item in dataObj {
+                    let fId = (item["fileId"] as? String) ?? (item["fileId"] as? Int64).map { String($0) } ?? ""
+                    let fName = item["fileName"] as? String ?? item["name"] as? String ?? "未知文件"
+                    guard !fId.isEmpty else { continue }
+                    let lowerName = fName.lowercased()
+                    if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
+                        files.append(Pan189ShareFile(fileId: fId, fileName: fName))
+                    }
+                }
+                // 如果没有视频文件，返回所有文件
+                if files.isEmpty {
+                    for item in dataObj {
+                        let fId = (item["fileId"] as? String) ?? (item["fileId"] as? Int64).map { String($0) } ?? ""
+                        let fName = item["fileName"] as? String ?? item["name"] as? String ?? "未知文件"
+                        if !fId.isEmpty {
+                            files.append(Pan189ShareFile(fileId: fId, fileName: fName))
+                        }
+                    }
+                }
+                if !files.isEmpty {
+                    print("[189Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
+                    self.log("[CloudDrive] [189] ✅ 文件列表: \(files.count) 个文件")
+                    return files
+                }
+            }
+        }
+
+        // 列表获取失败，返回单文件
+        print("[189Pan] 文件夹列表获取失败，返回单文件: \(fileName)")
+        self.log("[CloudDrive] [189] 单文件: \(fileName)")
+        return [Pan189ShareFile(fileId: fileId, fileName: fileName)]
+    }
+
+    /// 解析天翼云盘指定文件的播放地址（用于多文件选集播放）
+    func resolve189FilePlayURL(shareURL: String, cookie: String, fileId: String, fileName: String) async throws -> PlayResult {
+        print("[189Pan] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
+        self.log("[CloudDrive] [189] 解析文件: \(fileName)")
+
+        let headers: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://cloud.189.cn/",
+            "Origin": "https://cloud.189.cn",
+            "Cookie": cookie
+        ]
+
+        // 提取 shareCode 和 accessCode
+        guard let url = URL(string: shareURL),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw DriveError.invalidShareURL
+        }
+        var shareCode = ""
+        if let codeItem = components.queryItems?.first(where: { $0.name == "code" }) {
+            shareCode = codeItem.value ?? ""
+        }
+        var accessCode = ""
+        if let fragment = url.fragment, !fragment.isEmpty {
+            accessCode = fragment
+        } else if let pwdItem = components.queryItems?.first(where: { $0.name == "pwd" || $0.name == "accessCode" }) {
+            accessCode = pwdItem.value ?? ""
+        }
+
+        // 获取 shareId
+        var shareId: Int64 = 0
+        if !shareCode.isEmpty {
+            let shareInfoURL = URL(string: "https://cloud.189.cn/api/open/share/getShareInfoByCodeV2.action")!
+            var shareReq = URLRequest(url: shareInfoURL)
+            shareReq.httpMethod = "POST"
+            shareReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            for (k, v) in headers { shareReq.setValue(v, forHTTPHeaderField: k) }
+            var shareBody = "shareCode=\(shareCode)"
+            if !accessCode.isEmpty { shareBody += "&accessCode=\(accessCode)" }
+            shareReq.httpBody = shareBody.data(using: .utf8)
+            let (shareData, _) = try await session.data(for: shareReq)
+            if let shareJson = try JSONSerialization.jsonObject(with: shareData) as? [String: Any] {
+                if let sid = shareJson["shareId"] as? Int64 { shareId = sid }
+                else if let sid = shareJson["shareId"] as? String { shareId = Int64(sid) ?? 0 }
+                if shareId == 0, let dataObj = shareJson["data"] as? [String: Any] {
+                    if let sid = dataObj["shareId"] as? Int64 { shareId = sid }
+                    else if let sid = dataObj["shareId"] as? String { shareId = Int64(sid) ?? 0 }
+                }
+            }
+        }
+
+        // 获取下载链接
+        let downloadURL = URL(string: "https://cloud.189.cn/api/open/share/getFileDownloadUrl.action")!
+        var dlReq = URLRequest(url: downloadURL)
+        dlReq.httpMethod = "POST"
+        dlReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { dlReq.setValue(v, forHTTPHeaderField: k) }
+        var dlBody = "fileId=\(fileId)"
+        if shareId != 0 { dlBody += "&shareId=\(shareId)" }
+        dlReq.httpBody = dlBody.data(using: .utf8)
+
+        let (dlData, _) = try await session.data(for: dlReq)
+        guard let dlJson = try JSONSerialization.jsonObject(with: dlData) as? [String: Any] else {
+            throw DriveError.noPlayURL("天翼云盘: 无法解析下载链接响应")
+        }
+
+        var downloadUrlStr = ""
+        if let dataObj = dlJson["data"] as? [String: Any] {
+            if let url = dataObj["fileDownloadUrl"] as? String, !url.isEmpty { downloadUrlStr = url }
+            else if let url = dataObj["downloadUrl"] as? String, !url.isEmpty { downloadUrlStr = url }
+            else if let url = dataObj["url"] as? String, !url.isEmpty { downloadUrlStr = url }
+        }
+        if downloadUrlStr.isEmpty {
+            if let url = dlJson["fileDownloadUrl"] as? String, !url.isEmpty { downloadUrlStr = url }
+            else if let url = dlJson["downloadUrl"] as? String, !url.isEmpty { downloadUrlStr = url }
+            else if let url = dlJson["url"] as? String, !url.isEmpty { downloadUrlStr = url }
+        }
+
+        guard !downloadUrlStr.isEmpty else {
+            throw DriveError.noPlayURL("天翼云盘: 无法获取下载链接")
+        }
+
+        let playHeaders: [String: String] = [
+            "User-Agent": headers["User-Agent"] ?? "",
+            "Referer": "https://cloud.189.cn/",
+            "Origin": "https://cloud.189.cn"
+        ]
+        return PlayResult(url: downloadUrlStr, headers: playHeaders, driveType: .pan189, source: fileName)
     }
 
     // MARK: - UC 网盘
@@ -7761,6 +8416,448 @@ class CloudDriveManager: ObservableObject {
         print("[Xunlei] 解析结果: playURL=\(playURL != nil ? "有" : "无"), fallbackURL=\(fallbackURL != nil ? "有" : "无"), error=\(error ?? "无")")
 
         return (playURL, fallbackURL, fileName, error)
+    }
+
+    // MARK: - 迅雷云盘文件列表（多文件/文件夹支持）
+
+    struct XunleiShareFile {
+        let fileId: String
+        let fileName: String
+    }
+
+    /// 获取迅雷云盘分享链接中的所有视频文件
+    /// 用于文件夹类型的分享链接，返回所有可播放的视频文件列表
+    func xunleiGetFileList(shareURL: String, cookie: String) async throws -> [XunleiShareFile] {
+        print("[Xunlei] 📂 获取文件列表: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [Xunlei] 获取文件列表...")
+
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+        webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        // 注入 Cookie
+        if !cookie.isEmpty {
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            let pieces = cookie.components(separatedBy: ";")
+            for piece in pieces {
+                let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, let eqIndex = trimmed.firstIndex(of: "=") else { continue }
+                let name = String(trimmed[..<eqIndex]).trimmingCharacters(in: .whitespaces)
+                let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { continue }
+                let properties: [HTTPCookiePropertyKey: Any] = [
+                    .name: name,
+                    .value: value,
+                    .domain: ".xunlei.com",
+                    .path: "/"
+                ]
+                if let httpCookie = HTTPCookie(properties: properties) {
+                    await withCheckedContinuation { cont in
+                        store.setCookie(httpCookie) { cont.resume() }
+                    }
+                }
+            }
+        }
+
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            webView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            window.addSubview(webView)
+        }
+
+        defer { webView.removeFromSuperview() }
+
+        guard let url = URL(string: shareURL) else {
+            throw DriveError.invalidShareURL
+        }
+
+        print("[Xunlei] WebView 加载分享链接: \(shareURL)")
+        webView.load(URLRequest(url: url))
+
+        // 等待页面加载完成
+        try await Task.sleep(nanoseconds: 5_000_000_000)
+
+        // 等待 React SPA 渲染文件列表
+        var fileListReady = false
+        for _ in 0..<15 {
+            let ready = try await webView.evaluateJavaScript("""
+                (function() {
+                    var items = document.querySelectorAll('[class*="file-item"], [class*="file-list"] > div, [class*="FileList"] > div, [data-file-id]');
+                    if (items.length > 0) return true;
+                    var saveBtn = document.querySelector('[class*="save"], [class*="Save"]');
+                    if (saveBtn) return true;
+                    var loading = document.querySelector('[class*="loading"], [class*="Loading"]');
+                    if (loading) return false;
+                    var error = document.querySelector('[class*="error"], [class*="Error"]');
+                    if (error && error.textContent.length > 5) return true;
+                    return items.length > 0;
+                })()
+            """)
+            if let isReady = ready as? Bool, isReady {
+                fileListReady = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+
+        print("[Xunlei] 文件列表页就绪: \(fileListReady)")
+        if !fileListReady {
+            throw DriveError.noPlayURL("迅雷云盘: 页面加载超时，文件列表未渲染")
+        }
+
+        // 调用分享详情 API 获取完整文件列表
+        let jsCode = """
+        (async function() {
+            try {
+                var url = window.location.href;
+                var shareIdMatch = url.match(/\\/s\\/([A-Za-z0-9]+)/);
+                if (!shareIdMatch) return {error: "无法提取分享ID"};
+                var shareId = shareIdMatch[1];
+
+                var pwdMatch = url.match(/[?&]pwd=([^&]+)/);
+                var pwd = pwdMatch ? decodeURIComponent(pwdMatch[1]) : "";
+
+                var detailResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/detail', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        share_id: shareId,
+                        pass_code: pwd,
+                        flags: {page: 1, size: 100}
+                    })
+                });
+
+                if (!detailResp.ok) {
+                    return {error: 'share/detail API返回: ' + detailResp.status};
+                }
+
+                var detailData = await detailResp.json();
+                var fileList = detailData.file_list || detailData.files || detailData.file_infos || [];
+
+                var videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m4v', '.rmvb', '.rm'];
+                var videoFiles = [];
+                var allFiles = [];
+
+                for (var i = 0; i < fileList.length; i++) {
+                    var fName = fileList[i].name || fileList[i].file_name || '';
+                    var fId = fileList[i].id || fileList[i].file_id || '';
+                    if (!fId) continue;
+
+                    allFiles.push({fileId: fId, fileName: fName});
+
+                    var lowerName = fName.toLowerCase();
+                    for (var j = 0; j < videoExts.length; j++) {
+                        if (lowerName.endsWith(videoExts[j])) {
+                            videoFiles.push({fileId: fId, fileName: fName});
+                            break;
+                        }
+                    }
+                }
+
+                var resultFiles = videoFiles.length > 0 ? videoFiles : allFiles;
+                return {files: resultFiles, total: resultFiles.length};
+            } catch(e) {
+                return {error: 'JS异常: ' + e.message};
+            }
+        })()
+        """
+
+        let jsResult: Any?
+        do {
+            jsResult = try await withTimeout(seconds: 30) {
+                try await webView.evaluateJavaScript(jsCode)
+            }
+        } catch {
+            throw DriveError.noPlayURL("迅雷云盘: 获取文件列表超时")
+        }
+
+        guard let resultDict = jsResult as? [String: Any] else {
+            throw DriveError.noPlayURL("迅雷云盘: 文件列表解析失败")
+        }
+
+        if let error = resultDict["error"] as? String {
+            throw DriveError.noPlayURL("迅雷云盘: \(error)")
+        }
+
+        guard let filesArray = resultDict["files"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("迅雷云盘: 文件列表为空")
+        }
+
+        var files: [XunleiShareFile] = []
+        for fileDict in filesArray {
+            if let fId = fileDict["fileId"] as? String, !fId.isEmpty,
+               let fName = fileDict["fileName"] as? String {
+                files.append(XunleiShareFile(fileId: fId, fileName: fName))
+            }
+        }
+
+        print("[Xunlei] ✅ 文件列表获取成功: \(files.count) 个文件")
+        self.log("[CloudDrive] [Xunlei] ✅ 文件列表: \(files.count) 个文件")
+        return files
+    }
+
+    /// 解析迅雷云盘指定文件的播放地址（用于多文件选集播放）
+    func resolveXunleiFilePlayURL(shareURL: String, cookie: String, fileId: String, fileName: String) async throws -> PlayResult {
+        print("[Xunlei] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
+        self.log("[CloudDrive] [Xunlei] 解析文件: \(fileName)")
+
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+        webView.customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        // 注入 Cookie
+        if !cookie.isEmpty {
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            let pieces = cookie.components(separatedBy: ";")
+            for piece in pieces {
+                let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, let eqIndex = trimmed.firstIndex(of: "=") else { continue }
+                let name = String(trimmed[..<eqIndex]).trimmingCharacters(in: .whitespaces)
+                let value = String(trimmed[trimmed.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { continue }
+                let properties: [HTTPCookiePropertyKey: Any] = [
+                    .name: name,
+                    .value: value,
+                    .domain: ".xunlei.com",
+                    .path: "/"
+                ]
+                if let httpCookie = HTTPCookie(properties: properties) {
+                    await withCheckedContinuation { cont in
+                        store.setCookie(httpCookie) { cont.resume() }
+                    }
+                }
+            }
+        }
+
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            webView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            window.addSubview(webView)
+        }
+
+        defer { webView.removeFromSuperview() }
+
+        guard let url = URL(string: shareURL) else {
+            throw DriveError.invalidShareURL
+        }
+
+        webView.load(URLRequest(url: url))
+        try await Task.sleep(nanoseconds: 5_000_000_000)
+
+        // 等待页面渲染
+        var fileListReady = false
+        for _ in 0..<15 {
+            let ready = try await webView.evaluateJavaScript("""
+                (function() {
+                    var items = document.querySelectorAll('[class*="file-item"], [class*="file-list"] > div, [class*="FileList"] > div, [data-file-id]');
+                    if (items.length > 0) return true;
+                    var saveBtn = document.querySelector('[class*="save"], [class*="Save"]');
+                    if (saveBtn) return true;
+                    var loading = document.querySelector('[class*="loading"], [class*="Loading"]');
+                    if (loading) return false;
+                    var error = document.querySelector('[class*="error"], [class*="Error"]');
+                    if (error && error.textContent.length > 5) return true;
+                    return items.length > 0;
+                })()
+            """)
+            if let isReady = ready as? Bool, isReady {
+                fileListReady = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+
+        if !fileListReady {
+            throw DriveError.noPlayURL("迅雷云盘: 页面加载超时")
+        }
+
+        // 转义 fileId 和 fileName 用于 JavaScript 字符串
+        let escapedFileId = fileId.replacingOccurrences(of: "'", with: "\\'")
+        let escapedFileName = fileName.replacingOccurrences(of: "'", with: "\\'")
+
+        let jsCode = """
+        (async function() {
+            try {
+                var targetFileId = '\(escapedFileId)';
+                var targetFileName = '\(escapedFileName)';
+
+                // 步骤1: 尝试直接获取文件详情（播放地址）
+                var fileResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + targetFileId + '?with_audit=true&space=', {
+                    headers: {'Content-Type': 'application/json'}
+                });
+
+                if (fileResp.ok) {
+                    var fileData = await fileResp.json();
+                    var playUrl = '';
+                    if (fileData.medias && fileData.medias.length > 0) {
+                        for (var k = 0; k < fileData.medias.length; k++) {
+                            if (fileData.medias[k].link && fileData.medias[k].link.url) {
+                                playUrl = fileData.medias[k].link.url;
+                                break;
+                            }
+                        }
+                    }
+                    var fallbackUrl = fileData.web_content_link || '';
+                    if (playUrl || fallbackUrl) {
+                        return {playUrl: playUrl, fallbackUrl: fallbackUrl, fileName: targetFileName};
+                    }
+                }
+
+                // 步骤2: 直接获取失败，尝试保存到网盘后再获取
+                var url = window.location.href;
+                var shareIdMatch = url.match(/\\/s\\/([A-Za-z0-9]+)/);
+                if (!shareIdMatch) return {error: "无法提取分享ID"};
+                var shareId = shareIdMatch[1];
+
+                var pwdMatch = url.match(/[?&]pwd=([^&]+)/);
+                var pwd = pwdMatch ? decodeURIComponent(pwdMatch[1]) : "";
+
+                // 创建临时文件夹
+                var createResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        kind: 'drive#folder',
+                        name: 'vbox_temp_' + Date.now(),
+                        parent_id: '',
+                        space: ''
+                    })
+                });
+                if (createResp.ok) {
+                    var createData = await createResp.json();
+                    var tempFolderId = createData.id || '';
+
+                    // 保存指定文件到临时文件夹
+                    var saveResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/save', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            share_id: shareId,
+                            pass_code: pwd,
+                            file_ids: [targetFileId],
+                            parent_id: tempFolderId,
+                            space: ''
+                        })
+                    });
+                    if (saveResp.ok) {
+                        var saveData = await saveResp.json();
+                        if (saveData.tasks && saveData.tasks.length > 0) {
+                            await new Promise(r => setTimeout(r, 3000));
+                            var savedListResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files?space=&__type=drive&refresh=true&__sync=true&parent_id=' + tempFolderId + '&with_audit=true&limit=50', {
+                                headers: {'Content-Type': 'application/json'}
+                            });
+                            if (savedListResp.ok) {
+                                var savedListData = await savedListResp.json();
+                                var savedFiles = savedListData.files || [];
+                                var savedFileId = '';
+
+                                // 优先通过文件名匹配
+                                for (var m = 0; m < savedFiles.length; m++) {
+                                    if (savedFiles[m].name === targetFileName) {
+                                        savedFileId = savedFiles[m].id || '';
+                                        break;
+                                    }
+                                }
+                                if (!savedFileId && savedFiles.length > 0) {
+                                    savedFileId = savedFiles[0].id || '';
+                                }
+                                if (savedFileId) {
+                                    var savedFileResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + savedFileId + '?with_audit=true&space=', {
+                                        headers: {'Content-Type': 'application/json'}
+                                    });
+                                    if (savedFileResp.ok) {
+                                        var savedFileData = await savedFileResp.json();
+                                        var playUrl2 = '';
+                                        if (savedFileData.medias && savedFileData.medias.length > 0) {
+                                            for (var p = 0; p < savedFileData.medias.length; p++) {
+                                                if (savedFileData.medias[p].link && savedFileData.medias[p].link.url) {
+                                                    playUrl2 = savedFileData.medias[p].link.url;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        var fallbackUrl2 = savedFileData.web_content_link || '';
+                                        // 清理临时文件夹
+                                        fetch('https://x-api-pan.xunlei.com/drive/v1/files/' + tempFolderId + '/trash', {
+                                            method: 'PATCH',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: '{}'
+                                        });
+                                        if (playUrl2 || fallbackUrl2) {
+                                            return {playUrl: playUrl2, fallbackUrl: fallbackUrl2, fileName: targetFileName};
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return {error: "无法获取文件播放地址"};
+            } catch(e) {
+                return {error: 'JS异常: ' + e.message};
+            }
+        })()
+        """
+
+        let jsResult: Any?
+        do {
+            jsResult = try await withTimeout(seconds: 30) {
+                try await webView.evaluateJavaScript(jsCode)
+            }
+        } catch {
+            throw DriveError.noPlayURL("迅雷云盘: 解析超时，请重试")
+        }
+
+        guard let resultDict = jsResult as? [String: Any] else {
+            throw DriveError.noPlayURL("迅雷云盘: 解析结果格式异常")
+        }
+
+        let playURL = resultDict["playUrl"] as? String
+        let fallbackURL = resultDict["fallbackUrl"] as? String
+        let resultFileName = resultDict["fileName"] as? String ?? fileName
+        let error = resultDict["error"] as? String
+
+        if let playURL, !playURL.isEmpty {
+            print("[Xunlei] ✅ 播放地址获取成功: \(playURL.prefix(80))")
+            let headers: [String: String] = [
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36",
+                "Referer": "https://pan.xunlei.com/"
+            ]
+            return PlayResult(
+                url: playURL,
+                headers: headers,
+                driveType: .xunlei,
+                source: resultFileName,
+                fallbackURL: fallbackURL,
+                fallbackHeaders: headers,
+                fallbackSource: resultFileName
+            )
+        }
+
+        if let fallbackURL, !fallbackURL.isEmpty {
+            print("[Xunlei] ⚠️ 使用 web_content_link 兜底: \(fallbackURL.prefix(80))")
+            let headers: [String: String] = [
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36",
+                "Referer": "https://pan.xunlei.com/"
+            ]
+            return PlayResult(
+                url: fallbackURL,
+                headers: headers,
+                driveType: .xunlei,
+                source: resultFileName
+            )
+        }
+
+        throw DriveError.noPlayURL(error ?? "迅雷云盘: 未获取到播放地址")
     }
 
     /// 带超时的异步操作包装
