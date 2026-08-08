@@ -234,15 +234,17 @@ final class MDKPipManager: NSObject {
 
     private func enqueueFrameInternal(_ pixelBuffer: CVPixelBuffer,
                       presentationTime: CMTime) {
-        guard isPiPReady, let displayLayer else { return }
-
-        // 首帧时自动初始化 PiP 控制器（如果尚未初始化）
-        if pipController == nil {
+        // 关键修复：首帧到达时如果 PiP 控制器尚未初始化，先用实际帧尺寸初始化，
+        // 否则 guard 会在 isPiPReady=false 时直接返回，导致 PiP 永远收不到帧。
+        // 这与 MPVPiPManager 的逻辑一致。
+        if pipController == nil || !isPiPReady || displayLayer == nil {
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
+            print("[MDKPiP] 首帧到达，自动初始化 PiP：\(width)x\(height)")
             initializePiPInternal(videoSize: CGSize(width: width, height: height))
-            guard pipController != nil, self.displayLayer != nil else { return }
         }
+
+        guard isPiPReady, let displayLayer else { return }
 
         // 首帧时创建 formatDescription
         if formatDescription == nil {
