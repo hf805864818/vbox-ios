@@ -1096,8 +1096,19 @@ globalThis.__JS_SPIDER__ = _spider;
 
             guard let finalJSCode = jsCode else { return false }
 
+            // 1.5 特殊处理: TG搜索蜘蛛 - 注入用户自定义配置
+            // 在主脚本前 prepend 配置 JS，设置全局变量 __TG_CONFIG__
+            var codeToLoad = finalJSCode
+            if key == "js_TG搜索" {
+                let configJS = TGSearchConfigStore.shared.generateConfigJS()
+                if !configJS.isEmpty {
+                    codeToLoad = configJS + "\n" + finalJSCode
+                    print("[SpiderManager] 🔧 注入TG搜索配置: \(configJS.prefix(100))...")
+                }
+            }
+
             // 2. 加载 JS 框架到引擎
-            try await loadSpiderEngine(jsCode: finalJSCode, key: key)
+            try await loadSpiderEngine(jsCode: codeToLoad, key: key)
 
             // 3. 加载 ext 字段（优先本地缓存）
             // ext 加载失败不应影响主框架的成功状态
