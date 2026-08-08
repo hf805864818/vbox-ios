@@ -196,11 +196,7 @@ final class MPVAVPlayerPiPProxy: NSObject {
         layer.opacity = 0.01
         mountPlayerLayerToHiddenWindow(layer)
 
-        guard let controller = AVPictureInPictureController(playerLayer: layer) else {
-            print("[AVPlayerPiP] PiP Controller 初始化失败")
-            return
-        }
-
+        let controller = AVPictureInPictureController(playerLayer: layer)
         pipPlayerLayer = layer
         controller.delegate = self
         // iOS 16+ 支持自动启动 PiP

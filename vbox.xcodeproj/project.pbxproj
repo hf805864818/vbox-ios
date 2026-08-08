@@ -112,6 +112,7 @@
 		A100100 /* StreamRemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100100 /* StreamRemuxer.swift */; };
 		A100101 /* RemuxProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100101 /* RemuxProxyServer.swift */; };
 		A100102 /* MPVAVPlayerPiPProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100102 /* MPVAVPlayerPiPProxy.swift */; };
+		A7C9E002A7C9E002A7C9E002 /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A7C9E001A7C9E001A7C9E001 /* AVKit.framework */; };
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
@@ -529,6 +530,7 @@
 		D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfreetype.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfreetype.xcframework; sourceTree = SOURCE_ROOT; };
 		D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieService.swift; sourceTree = "<group>"; };
 		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		A7C9E001A7C9E001A7C9E001 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornHomeView.swift; sourceTree = "<group>"; };
 		D62F6461A137466FAE5F133B /* DuckVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckVideoService.swift; sourceTree = "<group>"; };
@@ -601,6 +603,7 @@
 				23A1945FAC72E9863F8D8AFF /* CoreVideo.framework in Frameworks */,
 				80FFE25DBBA32D0D5930BA81 /* AudioToolbox.framework in Frameworks */,
 				D26C924E2AA40B2A60CD47FA /* AVFoundation.framework in Frameworks */,
+				A7C9E002A7C9E002A7C9E002 /* AVKit.framework in Frameworks */,
 				8594FA70445202F5F08A123A /* Metal.framework in Frameworks */,
 				0B8A0BC12EB59E31457F7A26 /* QuartzCore.framework in Frameworks */,
 				4C54E1F2F36AA08687F86228 /* UIKit.framework in Frameworks */,
@@ -699,6 +702,7 @@
 				2298D3101C1AE3DA9002687B /* CoreVideo.framework */,
 				C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */,
 				D335C9314BCA41E37F2D5605 /* AVFoundation.framework */,
+				A7C9E001A7C9E001A7C9E001 /* AVKit.framework */,
 				BFE207598530999CD737A4C6 /* Metal.framework */,
 				1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */,
 				4959B121CB3DFFFB86D6BEFC /* UIKit.framework */,
