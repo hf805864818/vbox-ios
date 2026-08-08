@@ -2357,14 +2357,8 @@ class PlayerState: ObservableObject {
                             let tokens = CloudDriveManager.shared.tokens(for: driveType)
                             if !tokens.isEmpty {
                                 log("[PlayerV2] 尝试播放 \(driveType.displayName)")
-                                do {
-                                    let result = try await CloudDriveManager.shared.resolvePlayURL(from: url)
-                                    await playResolvedDriveVideo(result)
-                                    return
-                                } catch {
-                                    log("[PlayerV2] \(driveType.displayName) 播放失败: \(error.localizedDescription)")
-                                    continue
-                                }
+                                await handleDriveUrl(url, driveType: driveType)
+                                return
                             }
                         }
                     }
@@ -2397,14 +2391,9 @@ class PlayerState: ObservableObject {
                     if let driveType = CloudDriveManager.detectDrive(from: link.url) {
                         let tokens = CloudDriveManager.shared.tokens(for: driveType)
                         if !tokens.isEmpty {
-                            do {
-                                let playResult = try await CloudDriveManager.shared.resolvePlayURL(from: link.url)
-                                await playResolvedDriveVideo(playResult)
-                                return
-                            } catch {
-                                log("[PlayerV2] \(link.name) 失败: \(error.localizedDescription)")
-                                continue
-                            }
+                            log("[PlayerV2] 尝试播放 \(driveType.displayName): \(link.name)")
+                            await handleDriveUrl(link.url, driveType: driveType)
+                            return
                         }
                     }
                 }
@@ -4185,30 +4174,8 @@ class PlayerState: ObservableObject {
                 return
             }
             log("[PlayerV2] ✅ 提前检测到 \(driveType.displayName) 分享链接，直接走云盘解析")
-            do {
-                let result = try await CloudDriveManager.shared.resolvePlayURL(from: urlString)
-                log("[PlayerV2] ✅ 云盘解析成功! 播放地址: \(result.url.prefix(80))...")
-                await playResolvedDriveVideo(result)
-                return
-            } catch let error as DriveError {
-                let msg: String
-                switch error {
-                case .tokenNotConfigured(let name): msg = "未配置\(name) Token，请到 设置→网盘播放 中添加"
-                case .noPlayURL(let reason): msg = "\(driveType.displayName) \(reason)"
-                case .invalidShareURL: msg = "无效的\(driveType.displayName)分享链接"
-                case .saveFailed: msg = "\(driveType.displayName) 转存失败"
-                case .invalidResponse: msg = "\(driveType.displayName) 服务器响应异常"
-                case .notImplemented: msg = "\(driveType.displayName) 暂不支持"
-                }
-                log("[PlayerV2] ❌ DriveError: \(msg)")
-                await MainActor.run { self.failPlayback(msg) }
-                return
-            } catch {
-                let msg = "\(driveType.displayName) 解析异常: \(error.localizedDescription)"
-                log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { self.failPlayback(msg) }
-                return
-            }
+            await handleDriveUrl(urlString, driveType: driveType)
+            return
         }
 
         // 需要解析的链接：先试解析器，再试 playerContent
@@ -4335,39 +4302,9 @@ class PlayerState: ObservableObject {
                 await MainActor.run { self.failPlayback(msg) }
                 return
             }
-            do {
-                log("[PlayerV2] ⏳ 正在调用 \(driveType.displayName) API 解析...")
-                let result = try await CloudDriveManager.shared.resolvePlayURL(from: playUrlToCheck)
-                log("[PlayerV2] ✅ 网盘解析成功! 播放地址: \(result.url.prefix(80))...")
-                log("[PlayerV2] 📋 请求头: \(result.headers.keys.joined(separator: ", "))")
-                if URL(string: result.url) != nil {
-                    await playResolvedDriveVideo(result)
-                    return
-                } else {
-                    let msg = "\(driveType.displayName) 返回的播放地址无效: \(result.url.prefix(50))"
-                    log("[PlayerV2] ❌ \(msg)")
-                    await MainActor.run { self.failPlayback(msg) }
-                    return
-                }
-            } catch let error as DriveError {
-                let msg: String
-                switch error {
-                case .tokenNotConfigured(let name): msg = "未配置\(name) Token，请到 设置→网盘播放 中添加"
-                case .noPlayURL(let reason): msg = "\(driveType.displayName) \(reason)"
-                case .invalidShareURL: msg = "无效的\(driveType.displayName)分享链接"
-                case .saveFailed: msg = "\(driveType.displayName) 转存失败"
-                case .invalidResponse: msg = "\(driveType.displayName) 服务器响应异常"
-                case .notImplemented: msg = "\(driveType.displayName) 暂不支持"
-                }
-                log("[PlayerV2] ❌ DriveError: \(msg)")
-                await MainActor.run { self.failPlayback(msg) }
-                return
-            } catch {
-                let msg = "\(driveType.displayName) 解析异常: \(error.localizedDescription)"
-                log("[PlayerV2] ❌ \(msg)")
-                await MainActor.run { self.failPlayback(msg) }
-                return
-            }
+            log("[PlayerV2] ⏳ 正在调用 \(driveType.displayName) API 解析...")
+            await handleDriveUrl(playUrlToCheck, driveType: driveType)
+            return
         } else {
             log("[PlayerV2] ⚠️ 未识别为网盘链接")
         }
