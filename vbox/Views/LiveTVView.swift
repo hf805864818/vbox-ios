@@ -387,7 +387,7 @@ struct LiveTVView: View {
                     loadChannelsIfNeeded(for: first.tid)
                 }
             }
-            .onChange(of: service.dynamicCategories) { _ in
+            .onChange(of: service.dynamicCategories.map(\.id)) { _ in
                 if !currentCategories.contains(where: { $0.tid == currentCategory }) {
                     if let first = currentCategories.first {
                         currentCategory = first.tid
@@ -395,7 +395,7 @@ struct LiveTVView: View {
                     }
                 }
             }
-            .onChange(of: service.dynamicCategories) { _ in
+            .onChange(of: service.dynamicCategories.map(\.id)) { _ in
                 channelsCache.removeAll()
                 if let first = currentCategories.first {
                     currentCategory = first.tid

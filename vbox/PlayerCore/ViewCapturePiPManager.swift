@@ -95,7 +95,12 @@ final class ViewCapturePiPManager: NSObject {
             sampleBufferDisplayLayer: layer,
             playbackDelegate: self
         )
-        pipController = AVPictureInPictureController(contentSource: source)
+        guard let controller = AVPictureInPictureController(contentSource: source) else {
+            print("[ViewCapturePiP] PiP Controller 初始化失败")
+            cleanupDisplayLayer()
+            return
+        }
+        pipController = controller
         pipController?.delegate = self
 
         // 激活音频会话
