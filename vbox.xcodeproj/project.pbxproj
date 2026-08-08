@@ -189,6 +189,7 @@
 		A12026 /* MDKPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12026 /* MDKPlayerEngine.swift */; };
 		A12027 /* MDKPipManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12027 /* MDKPipManager.swift */; };
 		A12028 /* MPVPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12028 /* MPVPiPManager.swift */; };
+		A12029 /* ViewCapturePiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12029 /* ViewCapturePiPManager.swift */; };
 		A12030 /* MDKRenderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12030 /* MDKRenderView.swift */; };
 		A12031 /* KXSPAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12031 /* KXSPAPIService.swift */; };
 		A12032 /* SangeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12032 /* SangeModels.swift */; };
@@ -484,6 +485,7 @@
 		B12026 /* MDKPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPlayerEngine.swift; sourceTree = "<group>"; };
 		B12027 /* MDKPipManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKPipManager.swift; sourceTree = "<group>"; };
 		B12028 /* MPVPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPiPManager.swift; sourceTree = "<group>"; };
+		B12029 /* ViewCapturePiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewCapturePiPManager.swift; sourceTree = "<group>"; };
 		B12030 /* MDKRenderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDKRenderView.swift; sourceTree = "<group>"; };
 		B12031 /* KXSPAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KXSPAPIService.swift; sourceTree = "<group>"; };
 		B12032 /* SangeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SangeModels.swift; sourceTree = "<group>"; };
@@ -936,6 +938,7 @@
 				B12026 /* MDKPlayerEngine.swift */,
 				B12027 /* MDKPipManager.swift */,
 				B12028 /* MPVPiPManager.swift */,
+				B12029 /* ViewCapturePiPManager.swift */,
 				B12030 /* MDKRenderView.swift */,
 			);
 			path = PlayerCore;
@@ -1056,6 +1059,7 @@
 				A12026 /* MDKPlayerEngine.swift in Sources */,
 				A12027 /* MDKPipManager.swift in Sources */,
 				A12028 /* MPVPiPManager.swift in Sources */,
+				A12029 /* ViewCapturePiPManager.swift in Sources */,
 				A12030 /* MDKRenderView.swift in Sources */,
 				A10033 /* MDKPlayerRepresentable.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,

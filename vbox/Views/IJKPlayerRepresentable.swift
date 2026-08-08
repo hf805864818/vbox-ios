@@ -18,6 +18,7 @@ struct IJKPlayerRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
+        view.tag = 9527  // 播放器视图标识，用于 findCurrentPlayerView 查找
         context.coordinator.attach(to: view, url: url, headers: headers)
         return view
     }

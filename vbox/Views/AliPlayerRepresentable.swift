@@ -38,6 +38,7 @@ struct AliPlayerRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let containerView = UIView(frame: .zero)
         containerView.backgroundColor = .black
+        containerView.tag = 9527  // 播放器视图标识，用于 findCurrentPlayerView 查找
         containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         guard let player = createAliPlayer() else {
