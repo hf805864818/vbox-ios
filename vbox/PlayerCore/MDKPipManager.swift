@@ -64,7 +64,15 @@ final class MDKPipManager: NSObject {
 
     /// 初始化 PiP（传入视频尺寸，在首帧到达前调用）
     /// 关键修复：displayLayer 必须挂载到 UIWindow 才能被 PiP 控制器识别
-    func initializePiP(videoSize: CGSize) {
+    /// nonisolated：允许从 MDK 后台解码线程安全调用，内部切到主线程执行。
+    /// 这样避免在背景线程创建 UIWindow 导致 UIKit 断言崩溃。
+    nonisolated func initializePiP(videoSize: CGSize) {
+        Task { @MainActor [weak self] in
+            self?.initializePiPInternal(videoSize: videoSize)
+        }
+    }
+
+    private func initializePiPInternal(videoSize: CGSize) {
         guard isPipSupported else { return }
         guard videoSize.width > 0, videoSize.height > 0 else { return }
 
@@ -232,7 +240,7 @@ final class MDKPipManager: NSObject {
         if pipController == nil {
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
-            initializePiP(videoSize: CGSize(width: width, height: height))
+            initializePiPInternal(videoSize: CGSize(width: width, height: height))
             guard pipController != nil, self.displayLayer != nil else { return }
         }
 
