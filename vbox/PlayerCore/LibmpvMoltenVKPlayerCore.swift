@@ -4,12 +4,19 @@ import UIKit
 import Metal
 import CoreVideo
 import AVFoundation
+import GLKit
+import OpenGLES
 
 #if canImport(Libmpv)
 import Libmpv
 
-final class LibmpvMoltenVKRenderView: UIView {
-    let metalLayer = MPVKitMetalLayer()
+// MARK: - 渲染视图（GLKView + OpenGL ES）
+
+/// 使用 GLKView + OpenGL ES 渲染 MPV 视频。
+/// 关键变更：从 CAMetalLayer（wid 模式）切换到 mpv_render_context（OpenGL ES），
+/// 以获得对渲染时机的完全控制——后台时可通过定时器主动调用 mpv_render_context_render()
+/// 渲染新帧到离屏 FBO，解决画中画画面冻结问题。
+final class LibmpvMoltenVKRenderView: GLKView {
     private var gravityObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
@@ -17,8 +24,8 @@ final class LibmpvMoltenVKRenderView: UIView {
         configure()
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
+    required init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
         configure()
     }
 
@@ -28,30 +35,14 @@ final class LibmpvMoltenVKRenderView: UIView {
         }
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        metalLayer.frame = bounds
-        metalLayer.contentsScale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        metalLayer.drawableSize = CGSize(
-            width: max(CGFloat(1), bounds.width * metalLayer.contentsScale),
-            height: max(CGFloat(1), bounds.height * metalLayer.contentsScale)
-        )
-    }
-
     private func configure() {
         backgroundColor = .black
         isOpaque = true
         clipsToBounds = true
-        metalLayer.frame = bounds
-        metalLayer.contentsScale = UIScreen.main.nativeScale
-        metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.framebufferOnly = false  // 必须为 false 才能读取像素
-        metalLayer.backgroundColor = UIColor.black.cgColor
-        layer.addSublayer(metalLayer)
+        enableSetNeedsDisplay = true
         // 不在 configure() 中调用 applyVideoGravity：
         // applyVideoGravity 内部访问 LibmpvMoltenVKPlayerCore.shared，
         // 而单例初始化期间正在创建本视图，会导致 dispatch_once 递归死锁崩溃。
-        // gravity 模式将在 attach() 完成后由 syncVideoGravity 或通知触发设置。
         gravityObserver = NotificationCenter.default.addObserver(
             forName: .vboxVideoGravityChanged,
             object: nil,
@@ -63,8 +54,6 @@ final class LibmpvMoltenVKRenderView: UIView {
     }
 
     private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
-        // 通过 MPV 属性控制画面拉伸（运行时切换，必须用 mpv_set_property_string）
-        // contentsGravity 对 CAMetalLayer 无效，因为 drawableSize == layer 尺寸
         LibmpvMoltenVKPlayerCore.shared.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
         LibmpvMoltenVKPlayerCore.shared.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
         print("[MPV-MoltenVK] 屏幕拉伸模式切换为：\(mode.rawValue)")
@@ -76,12 +65,14 @@ final class LibmpvMoltenVKRenderView: UIView {
     }
 }
 
+// MARK: - 播放器核心
+
 final class LibmpvMoltenVKPlayerCore: NSObject {
 
     /// 全局共享实例，用于应用内小窗和全屏之间复用同一个 mpv 上下文
     static let shared = LibmpvMoltenVKPlayerCore()
 
-    // MARK: - PiP 帧捕获属性
+    // MARK: - PiP 帧捕获属性（OpenGL ES 离屏 FBO 模式）
 
     /// PiP 帧捕获开关
     private var isPipCapturing = false
@@ -89,20 +80,27 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var captureTimer: DispatchSourceTimer?
     /// 帧捕获计数器（节流用）
     private var frameCaptureCounter: Int = 0
-    /// 帧捕获间隔（每 N 帧捕获一次）
-    private let frameCaptureInterval: Int = 3
+    /// 帧捕获间隔（每 N 次定时器回调捕获一次）
+    private let frameCaptureInterval: Int = 2
     /// 是否已打印首帧捕获日志（避免刷屏）
-    private var hasLoggedFirstBlitFrame = false
-    /// Metal 纹理缓存，用于 CVPixelBuffer <-> MTLTexture
-    private var pipTextureCache: CVMetalTextureCache?
-    /// Metal 命令队列
-    private var pipCommandQueue: MTLCommandQueue?
-    /// 上次捕获的 drawable 序列号，用于跳过重复帧（避免对同一帧多次 blit）
-    private var lastCapturedSequence: Int = 0
+    private var hasLoggedFirstCaptureFrame = false
     /// 后台任务标识，确保 App 进入后台后定时器仍能触发
     private var pipBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
-    /// 诊断日志计数器（每 30 次定时器回调输出一次状态）
+    /// 诊断日志计数器
     private var diagLogCounter: Int = 0
+
+    // MARK: - 离屏 FBO 属性
+
+    /// 离屏 FBO ID（用于 PiP 后台帧捕获）
+    private var offscreenFBO: GLuint = 0
+    /// 离屏 FBO 关联的颜色 Renderbuffer
+    private var offscreenColorBuffer: GLuint = 0
+    /// 离屏 FBO 关联的深度 Renderbuffer
+    private var offscreenDepthBuffer: GLuint = 0
+    /// 离屏 FBO 的尺寸（视频原始尺寸）
+    private var offscreenSize: CGSize = .zero
+    /// 离屏 FBO 是否已就绪
+    private var isOffscreenReady = false
 
     enum PlaybackProfile: String {
         case hlsFast = "MoltenVK HLS极速"
@@ -121,6 +119,10 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     let renderView = LibmpvMoltenVKRenderView()
     private weak var containerView: UIView?
     private var mpv: OpaquePointer?
+    /// mpv_render_context，用于主动控制渲染（替代 wid 模式）
+    private var renderContext: OpaquePointer?
+    /// EAGLContext，OpenGL ES 渲染上下文
+    private var eaglContext: EAGLContext?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
     private var isShuttingDown = false
 
@@ -140,8 +142,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     // MARK: - PiP 帧捕获控制
 
-    /// 启动 PiP 帧捕获（Metal 纹理 blit 模式）
-    /// 使用 DispatchSourceTimer 替代 CADisplayLink，确保 App 进入后台后仍能持续推帧
+    /// 启动 PiP 帧捕获（OpenGL ES 离屏 FBO 模式）
+    /// 使用 DispatchSourceTimer + mpv_render_context_render()，确保 App 进入后台后
+    /// 仍能主动渲染新帧到离屏 FBO 并推送到 PiP displayLayer。
     func startPiPCapture() {
         guard !isPipCapturing else { return }
         isPipCapturing = true
@@ -158,14 +161,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             captureTimer = timer
         }
 
-        // 申请后台任务，确保 App 进入后台后定时器仍能触发（audio 后台模式 + 额外保障）
+        // 申请后台任务，确保 App 进入后台后定时器仍能触发
         if pipBackgroundTaskId == .invalid {
             pipBackgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "MPVPiPCapture") { [weak self] in
                 self?.endPiPBackgroundTask()
             }
         }
 
-        log("[PiP] 帧捕获已启动（DispatchSourceTimer + Metal blit 模式），bgTask=\(pipBackgroundTaskId)")
+        log("[PiP] 帧捕获已启动（DispatchSourceTimer + OpenGL ES 离屏 FBO 模式），bgTask=\(pipBackgroundTaskId)")
     }
 
     /// 停止 PiP 帧捕获
@@ -174,13 +177,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         captureTimer?.cancel()
         captureTimer = nil
         frameCaptureCounter = 0
-        lastCapturedSequence = 0
-        hasLoggedFirstBlitFrame = false
+        hasLoggedFirstCaptureFrame = false
         diagLogCounter = 0
-        // 清理 Metal 纹理缓存，释放缓存的 CVMetalTexture 条目
-        if let cache = pipTextureCache {
-            CVMetalTextureCacheFlush(cache, 0)
-        }
         endPiPBackgroundTask()
         log("[PiP] 帧捕获已停止")
     }
@@ -198,24 +196,22 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
         Task { @MainActor [weak self] in
-            self?.captureFrameViaMetalBlit()
+            self?.captureFrameViaOffscreenFBO()
         }
     }
 
-    /// 定时器回调：定期捕获帧
+    /// 定时器回调：定期通过离屏 FBO 捕获帧
     private func captureFrameTick() {
         guard isPipCapturing, !isShuttingDown else { return }
         guard state.width > 0, state.height > 0 else { return }
 
-        // 诊断日志：每 30 次回调（约 3 秒）输出一次 drawable 序列号，
-        // 用于判断 MPV 在后台是否仍在渲染新帧
+        // 诊断日志：每 30 次回调（约 3 秒）输出一次状态
         diagLogCounter += 1
         if diagLogCounter >= 30 {
             diagLogCounter = 0
-            let seq = renderView.metalLayer.drawableSequence
-            let hasDrawable = renderView.metalLayer.lastDrawable != nil
             let isPlaying = state.isPlaying
-            log("[PiP] 诊断：drawableSeq=\(seq), lastCaptured=\(lastCapturedSequence), hasDrawable=\(hasDrawable), isPlaying=\(isPlaying), isBg=\(UIApplication.shared.applicationState != .active)")
+            let isBg = UIApplication.shared.applicationState != .active
+            log("[PiP] 诊断：isPlaying=\(isPlaying), isBg=\(isBg), offscreenReady=\(isOffscreenReady), videoSize=\(state.width)x\(state.height)")
         }
 
         frameCaptureCounter += 1
@@ -223,126 +219,208 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         frameCaptureCounter = 0
 
         Task { @MainActor [weak self] in
-            self?.captureFrameViaMetalBlit()
+            self?.captureFrameViaOffscreenFBO()
         }
     }
 
-    /// 通过 Metal 纹理 blit 捕获当前帧，避免 CPU 截图和 CGImage 转换。
-    /// 源：MPVKitMetalLayer 最近一次返回的 drawable texture
-    /// 目标：CVPixelBuffer backed Metal texture（每帧从 pool 获取新缓冲，避免重用冲突）
+    /// 通过 OpenGL ES 离屏 FBO 捕获当前帧。
     ///
-    /// 关键设计：
-    /// 1. 每帧从 pool 获取新的 CVPixelBuffer，不复用单个 buffer（避免 display layer
-    ///    读取旧帧时被新帧 blit 覆写导致画面冻结）
-    /// 2. commit 后立即 enqueue（不用 addCompletedHandler，因为后台 Metal 命令缓冲区
-    ///    可能永远不完成，导致闭包泄漏 pixelBuffer、命令队列堆积、主线程阻塞）
-    /// 3. drawableSequence 仅用于诊断日志，不跳过帧（后台时 MPV 可能不渲染新帧，
-    ///    但仍需推送旧帧保持 PiP 画面存活）
-    /// 4. 每帧创建新的 CVMetalTexture（因为 pixelBuffer 每帧不同，不能缓存 texture）
+    /// 核心原理：
+    /// 1. 使用 mpv_render_context_render() 将 MPV 当前帧渲染到离屏 FBO
+    ///    —— 这不依赖 CADisplayLink，在后台仍可正常工作
+    /// 2. 使用 glReadPixels 读取 FBO 像素数据
+    /// 3. 转换为 CVPixelBuffer 并推送到 MPVPiPManager 的 displayLayer
+    ///
+    /// 与之前 Metal blit 方案的区别：
+    /// - Metal blit 读取 CAMetalLayer.lastDrawable，后台时 display link 暂停导致
+    ///   lastDrawable 永远是同一帧 → 画面冻结
+    /// - 本方案主动调用 mpv_render_context_render()，强制 MPV 渲染新帧到 FBO，
+    ///   不受 display link 影响 → 后台也能获得实时画面
     @MainActor
-    private func captureFrameViaMetalBlit() {
-        // 延迟初始化 Metal 资源（在 @MainActor 中安全访问 renderView.metalLayer）
-        if pipCommandQueue == nil || pipTextureCache == nil {
-            let device = renderView.metalLayer.device ?? MTLCreateSystemDefaultDevice()
-            if let device {
-                pipCommandQueue = device.makeCommandQueue()
-                var cache: CVMetalTextureCache?
-                let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
-                if status == kCVReturnSuccess {
-                    pipTextureCache = cache
-                }
+    private func captureFrameViaOffscreenFBO() {
+        guard let renderContext, let eaglContext else { return }
+        guard !isShuttingDown else { return }
+
+        let videoWidth = state.width
+        let videoHeight = state.height
+        guard videoWidth > 0, videoHeight > 0 else { return }
+
+        // 在主线程上设置 EAGLContext 为当前上下文
+        let prevContext = EAGLContext.current()
+        if prevContext !== eaglContext {
+            EAGLContext.setCurrent(eaglContext)
+        }
+
+        defer {
+            if prevContext !== eaglContext {
+                EAGLContext.setCurrent(prevContext)
             }
         }
 
-        guard let pipTextureCache, let pipCommandQueue else { return }
+        let captureSize = CGSize(width: videoWidth, height: videoHeight)
 
-        let metalLayer = renderView.metalLayer
-        guard let sourceDrawable = metalLayer.lastDrawable else { return }
-        let sourceTexture = sourceDrawable.texture
+        // 视频尺寸变化时重建离屏 FBO
+        if offscreenSize != captureSize || !isOffscreenReady {
+            setupOffscreenFBO(width: videoWidth, height: videoHeight)
+        }
 
-        let width = sourceTexture.width
-        let height = sourceTexture.height
-        guard width > 0, height > 0 else { return }
+        guard isOffscreenReady, offscreenFBO > 0 else { return }
 
-        // 每帧获取新的 pixelBuffer（从 pool 或手动创建），避免重用导致数据竞争
-        guard let pixelBuffer = createPiPPixelBuffer(width: width, height: height) else { return }
-        guard CVPixelBufferGetWidth(pixelBuffer) == width,
-              CVPixelBufferGetHeight(pixelBuffer) == height else { return }
+        // 保存当前 FBO
+        var originalFBO: GLint = 0
+        glGetIntegerv(GLenum(GL_FRAMEBUFFER_BINDING), &originalFBO)
 
-        // 为每个新的 pixelBuffer 创建 Metal 纹理（不能缓存，因为 buffer 每帧不同）
-        var cvTexture: CVMetalTexture?
-        let texStatus = CVMetalTextureCacheCreateTextureFromImage(
-            kCFAllocatorDefault,
-            pipTextureCache,
-            pixelBuffer,
-            nil,
-            .bgra8Unorm,
-            width,
-            height,
-            0,
-            &cvTexture
+        // 绑定离屏 FBO
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), offscreenFBO)
+
+        // 使用 mpv_render_context_render() 渲染到离屏 FBO
+        // 这是关键步骤：主动调用 render，不依赖 display link
+        var flipY: CInt = 1
+        var fboStruct = mpv_opengl_fbo(
+            fbo: Int32(offscreenFBO),
+            w: Int32(videoWidth),
+            h: Int32(videoHeight),
+            internal_format: 0
         )
-        guard texStatus == kCVReturnSuccess, let cvTexture else { return }
-        guard let destinationTexture = CVMetalTextureGetTexture(cvTexture) else { return }
+        withUnsafeMutablePointer(to: &fboStruct) { fboPointer in
+            withUnsafeMutablePointer(to: &flipY) { flipPointer in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(flipPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                ]
+                mpv_render_context_render(renderContext, &params)
+            }
+        }
 
-        guard let commandBuffer = pipCommandQueue.makeCommandBuffer(),
-              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
-            // 命令缓冲区创建失败（可能命令队列积压），跳过本帧
+        // 读取像素数据
+        let bytesPerRow = videoWidth * 4
+        let totalBytes = bytesPerRow * videoHeight
+        let pixelData = UnsafeMutablePointer<UInt8>.allocate(capacity: totalBytes)
+
+        glReadPixels(GLint(0), GLint(0),
+                     GLsizei(videoWidth), GLsizei(videoHeight),
+                     GLenum(GL_BGRA), GLenum(GL_UNSIGNED_BYTE),
+                     pixelData)
+
+        // 恢复原始 FBO
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), GLenum(originalFBO))
+
+        // 检查 OpenGL 错误
+        let glError = glGetError()
+        if glError != GLenum(GL_NO_ERROR) {
+            pixelData.deallocate()
+            log("[PiP] glReadPixels 错误：\(glError)")
             return
         }
 
-        let sourceSize = MTLSize(width: width, height: height, depth: 1)
-        blitEncoder.copy(from: sourceTexture,
-                         sourceSlice: 0,
-                         sourceLevel: 0,
-                         sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                         sourceSize: sourceSize,
-                         to: destinationTexture,
-                         destinationSlice: 0,
-                         destinationLevel: 0,
-                         destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
-        blitEncoder.endEncoding()
-        commandBuffer.commit()
+        // 获取 CVPixelBuffer 并拷贝像素数据（同步执行，避免 pixelData 生命周期问题）
+        let currentTime = state.currentTime
 
-        // 同步等待 blit 完成（确保 pixelBuffer 中的数据完整后再 enqueue）。
-        // waitUntilCompleted 在主线程上会短暂阻塞，但 Metal blit 操作极快（<1ms），
-        // 远比 addCompletedHandler 的异步回调安全可靠（后者在后台可能永远不触发）。
-        commandBuffer.waitUntilCompleted()
-
-        // blit 完成后立即入队，cvTexture 通过 withExtendedLifetime 保持存活直到 enqueue 完成
-        let presentationTime = CMTime(value: Int64(state.currentTime * 1000), timescale: 1000)
-        withExtendedLifetime(cvTexture) {
-            MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+        guard let pixelBuffer = MPVPiPManager.shared.createPixelBufferFromPool() else {
+            pixelData.deallocate()
+            return
         }
 
-        let currentSeq = metalLayer.drawableSequence
-        lastCapturedSequence = currentSeq
-        if !hasLoggedFirstBlitFrame {
-            hasLoggedFirstBlitFrame = true
-            log("[PiP] 首帧 Metal blit 已推送：\(width)x\(height)，drawableSeq=\(currentSeq)")
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+            pixelData.deallocate()
+        }
+
+        guard let destBaseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            return
+        }
+
+        let destBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+
+        // glReadPixels 从底部向上读取，需要垂直翻转并逐行拷贝
+        for y in 0..<videoHeight {
+            let srcRow = pixelData.advanced(by: y * bytesPerRow)
+            let dstRow = destBaseAddress.advanced(by: (videoHeight - 1 - y) * destBytesPerRow)
+            memcpy(dstRow, srcRow, min(bytesPerRow, destBytesPerRow))
+        }
+
+        let presentationTime = CMTime(
+            value: Int64(currentTime * 1000),
+            timescale: 1000
+        )
+
+        MPVPiPManager.shared.enqueueFrame(pixelBuffer, presentationTime: presentationTime)
+
+        if !hasLoggedFirstCaptureFrame {
+            hasLoggedFirstCaptureFrame = true
+            log("[PiP] 首帧离屏 FBO 已推送：\(videoWidth)x\(videoHeight)")
         }
     }
 
-    /// 创建或获取 PiP 目标 CVPixelBuffer，优先使用 MPVPiPManager 的 pool
-    @MainActor
-    private func createPiPPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
-        if let poolBuffer = MPVPiPManager.shared.createPixelBufferFromPool() {
-            if CVPixelBufferGetWidth(poolBuffer) == width,
-               CVPixelBufferGetHeight(poolBuffer) == height {
-                return poolBuffer
-            }
+    /// 创建离屏 FBO 和关联的 Renderbuffer
+    private func setupOffscreenFBO(width: Int, height: Int) {
+        guard let eaglContext else { return }
+        EAGLContext.setCurrent(eaglContext)
+
+        // 先清理旧的
+        cleanupOffscreenFBO()
+
+        let w = GLsizei(width)
+        let h = GLsizei(height)
+
+        // 创建 FBO
+        glGenFramebuffers(1, &offscreenFBO)
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), offscreenFBO)
+
+        // 创建颜色 Renderbuffer
+        glGenRenderbuffers(1, &offscreenColorBuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), offscreenColorBuffer)
+        glRenderbufferStorage(GLenum(GL_RENDERBUFFER), GLenum(GL_RGBA8_OES), w, h)
+        glFramebufferRenderbuffer(GLenum(GL_FRAMEBUFFER),
+                                   GLenum(GL_COLOR_ATTACHMENT0),
+                                   GLenum(GL_RENDERBUFFER),
+                                   offscreenColorBuffer)
+
+        // 创建深度 Renderbuffer
+        glGenRenderbuffers(1, &offscreenDepthBuffer)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), offscreenDepthBuffer)
+        glRenderbufferStorage(GLenum(GL_RENDERBUFFER), GLenum(GL_DEPTH_COMPONENT16), w, h)
+        glFramebufferRenderbuffer(GLenum(GL_FRAMEBUFFER),
+                                   GLenum(GL_DEPTH_ATTACHMENT),
+                                   GLenum(GL_RENDERBUFFER),
+                                   offscreenDepthBuffer)
+
+        // 检查 FBO 完整性
+        let status = glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER))
+        if status == GLenum(GL_FRAMEBUFFER_COMPLETE) {
+            offscreenSize = CGSize(width: width, height: height)
+            isOffscreenReady = true
+            log("[PiP] 离屏FBO创建成功：\(width)x\(height)")
+        } else {
+            log("[PiP] 离屏FBO创建失败，状态：\(status)")
+            isOffscreenReady = false
         }
 
-        let attrs: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height,
-            kCVPixelBufferMetalCompatibilityKey as String: true,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
-        ]
-        var pixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
-        return status == kCVReturnSuccess ? pixelBuffer : nil
+        // 解绑
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), 0)
+        glBindRenderbuffer(GLenum(GL_RENDERBUFFER), 0)
+    }
+
+    /// 清理离屏 FBO 资源
+    private func cleanupOffscreenFBO() {
+        guard offscreenFBO > 0 else { return }
+        if let eaglContext {
+            EAGLContext.setCurrent(eaglContext)
+        }
+        if offscreenColorBuffer > 0 {
+            glDeleteRenderbuffers(1, &offscreenColorBuffer)
+            offscreenColorBuffer = 0
+        }
+        if offscreenDepthBuffer > 0 {
+            glDeleteRenderbuffers(1, &offscreenDepthBuffer)
+            offscreenDepthBuffer = 0
+        }
+        glDeleteFramebuffers(1, &offscreenFBO)
+        offscreenFBO = 0
+        isOffscreenReady = false
+        offscreenSize = .zero
     }
 
     // MARK: - 公开方法
@@ -358,12 +436,16 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             view.layoutIfNeeded()
         }
 
-        if renderView.metalLayer.device == nil {
-            renderView.metalLayer.device = MTLCreateSystemDefaultDevice()
+        // 创建 EAGLContext（OpenGL ES 3，回退到 ES 2）
+        if eaglContext == nil {
+            eaglContext = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
         }
 
-        if renderView.metalLayer.drawableSize.width <= 1 || renderView.metalLayer.drawableSize.height <= 1 {
-            renderView.metalLayer.drawableSize = CGSize(width: 2, height: 2)
+        // 配置 GLKView
+        if let eaglContext {
+            renderView.context = eaglContext
+            renderView.delegate = self
+            EAGLContext.setCurrent(eaglContext)
         }
 
         if mpv == nil {
@@ -452,6 +534,15 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         // 停止帧捕获
         stopPiPCapture()
 
+        // 清理离屏 FBO
+        cleanupOffscreenFBO()
+
+        // 清理 render context
+        if let renderContext {
+            mpv_render_context_free(renderContext)
+            self.renderContext = nil
+        }
+
         if let handle = mpv {
             mpv_set_wakeup_callback(handle, nil, nil)
             eventQueue.sync {}
@@ -459,7 +550,15 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             mpv_terminate_destroy(handle)
             mpv = nil
         }
+
+        renderView.delegate = nil
         renderView.removeFromSuperview()
+
+        if EAGLContext.current() === eaglContext {
+            EAGLContext.setCurrent(nil)
+        }
+        eaglContext = nil
+
         state = PlayerEngineState()
     }
 
@@ -478,13 +577,15 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         check(mpv_request_log_messages(handle, "warn"), context: "request_log_messages")
         #endif
 
-        var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(renderView.metalLayer).toOpaque()))
-        check(mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &wid), context: "wid")
+        // 关键变更：使用 vo=libmpv + mpv_render_context 替代 wid 模式
+        // wid 模式下 MPV 通过内部 display link 驱动渲染，后台时 display link 暂停
+        // 导致画中画画面冻结。使用 render context 模式后，我们可以通过定时器
+        // 主动调用 mpv_render_context_render() 渲染新帧，不受 display link 影响。
         setOption("config", "no")
         setOption("terminal", "no")
-        setOption("vo", "gpu-next")
-        setOption("gpu-api", "vulkan")
-        setOption("gpu-context", "moltenvk")
+        setOption("vo", "libmpv")
+        setOption("gpu-api", "opengl")
+        setOption("opengl-es", "yes")
         setOption("hwdec", "videotoolbox")
         setOption("video-rotate", "no")
         setOption("cache", "yes")
@@ -497,6 +598,11 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             fail("mpv_initialize失败：\(String(cString: mpv_error_string(code)))")
             mpv_terminate_destroy(handle)
             mpv = nil
+            return
+        }
+
+        // 创建 mpv_render_context（OpenGL ES）
+        guard createRenderContext(handle: handle) else {
             return
         }
 
@@ -517,7 +623,79 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             player.readEvents()
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
 
-        log("Libmpv-MoltenVK内核初始化完成")
+        log("Libmpv-MoltenVK内核初始化完成（render context 模式）")
+    }
+
+    /// 创建 OpenGL ES render context
+    private func createRenderContext(handle: OpaquePointer) -> Bool {
+        guard renderContext == nil else { return true }
+        guard eaglContext != nil else {
+            fail("EAGLContext未创建")
+            return false
+        }
+
+        var advancedControl: CInt = 1
+        var initParams = mpv_opengl_init_params(
+            get_proc_address: { _, name in
+                guard let name else { return nil }
+                return dlsym(UnsafeMutableRawPointer(bitPattern: -2), String(cString: name))
+            },
+            get_proc_address_ctx: nil
+        )
+
+        let code = MPV_RENDER_API_TYPE_OPENGL.withCString { apiType in
+            withUnsafeMutablePointer(to: &initParams) { initParamsPointer in
+                withUnsafeMutablePointer(to: &advancedControl) { advancedControlPointer in
+                    var params = [
+                        mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: UnsafeMutableRawPointer(mutating: apiType)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: UnsafeMutableRawPointer(initParamsPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_ADVANCED_CONTROL, data: UnsafeMutableRawPointer(advancedControlPointer)),
+                        mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                    ]
+                    return mpv_render_context_create(&renderContext, handle, &params)
+                }
+            }
+        }
+        guard code >= 0, renderContext != nil else {
+            fail("mpv_render_context_create失败：\(String(cString: mpv_error_string(code)))")
+            return false
+        }
+
+        // 设置渲染更新回调：MPV 有新帧时触发 GLKView 重绘
+        mpv_render_context_set_update_callback(renderContext, { context in
+            guard let context else { return }
+            let player = Unmanaged<LibmpvMoltenVKPlayerCore>.fromOpaque(context).takeUnretainedValue()
+            DispatchQueue.main.async {
+                player.renderView.setNeedsDisplay()
+            }
+        }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+
+        return true
+    }
+
+    /// GLKView 渲染回调：通过 mpv_render_context_render() 渲染到 GLKView 的 framebuffer
+    private func renderToGLKView() {
+        guard let renderContext, let eaglContext else { return }
+        EAGLContext.setCurrent(eaglContext)
+
+        var framebuffer: GLint = 0
+        glGetIntegerv(GLenum(GL_FRAMEBUFFER_BINDING), &framebuffer)
+
+        let scale = renderView.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let width = max(1, Int32(renderView.bounds.width * scale))
+        let height = max(1, Int32(renderView.bounds.height * scale))
+        var flipY: CInt = 1
+        var fbo = mpv_opengl_fbo(fbo: Int32(framebuffer), w: width, h: height, internal_format: 0)
+        withUnsafeMutablePointer(to: &fbo) { fboPointer in
+            withUnsafeMutablePointer(to: &flipY) { flipPointer in
+                var params = [
+                    mpv_render_param(type: MPV_RENDER_PARAM_OPENGL_FBO, data: UnsafeMutableRawPointer(fboPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_FLIP_Y, data: UnsafeMutableRawPointer(flipPointer)),
+                    mpv_render_param(type: MPV_RENDER_PARAM_INVALID, data: nil)
+                ]
+                mpv_render_context_render(renderContext, &params)
+            }
+        }
     }
 
     private func readEvents() {
@@ -793,6 +971,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         onStateChange?(state)
     }
 }
+
+// MARK: - GLKViewDelegate
+
+extension LibmpvMoltenVKPlayerCore: GLKViewDelegate {
+    func glkView(_ view: GLKView, drawIn rect: CGRect) {
+        renderToGLKView()
+    }
+}
 #else
 final class LibmpvMoltenVKPlayerCore {
     enum PlaybackProfile {
@@ -801,6 +987,7 @@ final class LibmpvMoltenVKPlayerCore {
         case hlsFMP4
         case mp4
         case mkvLarge
+        case httpStream
         case generic
     }
 }
