@@ -91,7 +91,22 @@ jobs:
       - name: 📦 Install CocoaPods dependencies
         run: |
           sudo gem install cocoapods --no-document
-          pod install --repo-update
+          # MobileVLCKit 的下载服务器 download.videolan.org 经常超时，需要重试
+          for attempt in 1 2 3 4 5; do
+            echo "📦 第 ${attempt}/5 次尝试 pod install"
+            if pod install --repo-update; then
+              echo "✅ CocoaPods 安装成功"
+              exit 0
+            fi
+            echo "⚠️ pod install 失败，清理后重试..."
+            rm -rf Pods Podfile.lock
+            pod cache clean --all 2>/dev/null || true
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "❌ pod install 多次重试后仍失败"
+          exit 1
 
       - name: 🔧 修复 PushPlayView/PushPlayStore 路径 (pod install 后)
         run: python3 scripts/fix_pushplay_pbxproj.py
