@@ -10,63 +10,12 @@ import OpenGLES
 #if canImport(Libmpv)
 import Libmpv
 
-// MARK: - 渲染视图（GLKView + OpenGL ES）
+// MARK: - 播放器核心
 
-/// 使用 GLKView + OpenGL ES 渲染 MPV 视频。
+/// 使用 GLKView + OpenGL ES + mpv_render_context 渲染 MPV 视频。
 /// 关键变更：从 CAMetalLayer（wid 模式）切换到 mpv_render_context（OpenGL ES），
 /// 以获得对渲染时机的完全控制——后台时可通过定时器主动调用 mpv_render_context_render()
 /// 渲染新帧到离屏 FBO，解决画中画画面冻结问题。
-final class LibmpvMoltenVKRenderView: GLKView {
-    private var gravityObserver: NSObjectProtocol?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configure()
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
-        configure()
-    }
-
-    deinit {
-        if let observer = gravityObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
-
-    private func configure() {
-        backgroundColor = .black
-        isOpaque = true
-        clipsToBounds = true
-        enableSetNeedsDisplay = true
-        // 不在 configure() 中调用 applyVideoGravity：
-        // applyVideoGravity 内部访问 LibmpvMoltenVKPlayerCore.shared，
-        // 而单例初始化期间正在创建本视图，会导致 dispatch_once 递归死锁崩溃。
-        gravityObserver = NotificationCenter.default.addObserver(
-            forName: .vboxVideoGravityChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
-            self?.applyVideoGravity(mode)
-        }
-    }
-
-    private func applyVideoGravity(_ mode: PlayerState.VideoGravityMode) {
-        LibmpvMoltenVKPlayerCore.shared.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
-        LibmpvMoltenVKPlayerCore.shared.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
-        print("[MPV-MoltenVK] 屏幕拉伸模式切换为：\(mode.rawValue)")
-    }
-
-    /// 由外部（attach 后）调用，同步初始 gravity 模式
-    func syncVideoGravity(_ mode: PlayerState.VideoGravityMode) {
-        applyVideoGravity(mode)
-    }
-}
-
-// MARK: - 播放器核心
-
 final class LibmpvMoltenVKPlayerCore: NSObject {
 
     /// 全局共享实例，用于应用内小窗和全屏之间复用同一个 mpv 上下文
@@ -116,13 +65,30 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     var onStateChange: ((PlayerEngineState) -> Void)?
 
     private(set) var state = PlayerEngineState()
-    let renderView = LibmpvMoltenVKRenderView()
+
+    /// EAGLContext，OpenGL ES 渲染上下文（lazy，首次访问时创建）
+    private lazy var eaglContext: EAGLContext? = {
+        EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
+    }()
+
+    /// GLKView 渲染视图（lazy，依赖 eaglContext）
+    /// 不能用 let 直接初始化，因为 GLKView 的初始化器要求传入 context。
+    private lazy var renderView: GLKView = {
+        let view = GLKView(frame: .zero, context: eaglContext!)
+        view.backgroundColor = .black
+        view.isOpaque = true
+        view.clipsToBounds = true
+        view.enableSetNeedsDisplay = true
+        return view
+    }()
+
+    /// 画面拉伸模式观察者
+    private var gravityObserver: NSObjectProtocol?
+
     private weak var containerView: UIView?
     private var mpv: OpaquePointer?
     /// mpv_render_context，用于主动控制渲染（替代 wid 模式）
     private var renderContext: OpaquePointer?
-    /// EAGLContext，OpenGL ES 渲染上下文
-    private var eaglContext: EAGLContext?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
     private var isShuttingDown = false
 
@@ -436,16 +402,26 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             view.layoutIfNeeded()
         }
 
-        // 创建 EAGLContext（OpenGL ES 3，回退到 ES 2）
-        if eaglContext == nil {
-            eaglContext = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
+        // 配置 GLKView（eaglContext 已通过 lazy 属性创建）
+        guard let ctx = eaglContext else {
+            fail("EAGLContext创建失败")
+            return
         }
+        renderView.context = ctx
+        renderView.delegate = self
+        EAGLContext.setCurrent(ctx)
 
-        // 配置 GLKView
-        if let eaglContext {
-            renderView.context = eaglContext
-            renderView.delegate = self
-            EAGLContext.setCurrent(eaglContext)
+        // 注册画面拉伸模式观察者（首次 attach 时注册）
+        if gravityObserver == nil {
+            gravityObserver = NotificationCenter.default.addObserver(
+                forName: .vboxVideoGravityChanged,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let mode = note.userInfo?["mode"] as? PlayerState.VideoGravityMode else { return }
+                self?.setMPVProperty("keepaspect", mode == .resize ? "no" : "yes")
+                self?.setMPVProperty("panscan", mode == .aspectFill ? "1.0" : "0")
+            }
         }
 
         if mpv == nil {
@@ -537,6 +513,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         // 清理离屏 FBO
         cleanupOffscreenFBO()
 
+        // 移除画面拉伸模式观察者
+        if let observer = gravityObserver {
+            NotificationCenter.default.removeObserver(observer)
+            gravityObserver = nil
+        }
+
         // 清理 render context
         if let renderContext {
             mpv_render_context_free(renderContext)
@@ -554,10 +536,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         renderView.delegate = nil
         renderView.removeFromSuperview()
 
+        // 注意：不将 eaglContext 设为 nil。
+        // lazy var 设为 nil 后不会重新触发初始化器，导致重新 attach 时 context 为 nil。
+        // EAGLContext 可跨多个 MPV 会话复用。
         if EAGLContext.current() === eaglContext {
             EAGLContext.setCurrent(nil)
         }
-        eaglContext = nil
 
         state = PlayerEngineState()
     }
@@ -629,10 +613,11 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     /// 创建 OpenGL ES render context
     private func createRenderContext(handle: OpaquePointer) -> Bool {
         guard renderContext == nil else { return true }
-        guard eaglContext != nil else {
+        guard let ctx = eaglContext else {
             fail("EAGLContext未创建")
             return false
         }
+        EAGLContext.setCurrent(ctx)
 
         var advancedControl: CInt = 1
         var initParams = mpv_opengl_init_params(
