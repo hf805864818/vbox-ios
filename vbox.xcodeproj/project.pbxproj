@@ -239,6 +239,8 @@
 		D62C0C19FBCAF3C9F113C5F1 /* Libuavs3d.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D76C250B58207918B87B9816 /* nettle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */; };
+		TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B001 /* TGSearchConfigStore.swift */; };
+		TG0100000000000000000A002 /* TGChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B002 /* TGChannelListView.swift */; };
 		D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */; };
 		D9DC71EEE315652DBB10FBC0 /* AliyunMediaDownloader.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DBB70601ACD38A42793119C9 /* RemoteWelfareEntryPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39F98B4020C6C82E76951C53 /* RemoteWelfareEntryPoint.swift */; };
@@ -512,6 +514,8 @@
 		C9E623AC03FF5B83F03C95FD /* gmp.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gmp.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gmp.xcframework; sourceTree = SOURCE_ROOT; };
 		CABEC3013D14E3B1328BED19 /* WelfareTabGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareTabGateView.swift; sourceTree = "<group>"; };
 		CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareProxyStore.swift; sourceTree = "<group>"; };
+		TG0100000000000000000B001 /* TGSearchConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGSearchConfigStore.swift; sourceTree = "<group>"; };
+		TG0100000000000000000B002 /* TGChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGChannelListView.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceConfigManager.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceStatusBar.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000005 /* FeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackService.swift; sourceTree = "<group>"; };
@@ -794,6 +798,7 @@
 				BBBB000000000000000000001 /* HeiliaoService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 				CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */,
+				TG0100000000000000000B001 /* TGSearchConfigStore.swift */,
 				9635B11828EC465785E74A90 /* BananaVideoService.swift */,
 				1A2B3C4D5E6F708192A3B4C5 /* LusushequService.swift */,
 				7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */,
@@ -865,6 +870,7 @@
 				04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */,
 				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
+				TG0100000000000000000B002 /* TGChannelListView.swift */,
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
 				F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
 				CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */,
@@ -1159,6 +1165,8 @@
 				B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */,
 				AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */,
 				D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */,
+				TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */,
+				TG0100000000000000000A002 /* TGChannelListView.swift in Sources */,
 				290F6A90927942109B5BEABC /* BananaVideoService.swift in Sources */,
 				4F5E6D7C8B9A090807060504 /* LusushequService.swift in Sources */,
 				15C55930D7E7595531B91B84 /* TencentVideoNativeSpider.swift in Sources */,

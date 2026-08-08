@@ -12,6 +12,7 @@ struct SettingsView: View {
     @StateObject private var spiderManager = SpiderManager.shared
     @StateObject private var remoteSourceManager = RemoteSourceConfigManager.shared
     @StateObject private var cloudDriveManager = CloudDriveManager.shared
+    @StateObject private var tgConfigStore = TGSearchConfigStore.shared
     @AppStorage("custom_danmaku_source_enabled") private var customDanmakuSourceEnabled = false
     @AppStorage("custom_danmaku_source_url") private var customDanmakuSourceURL = ""
     @AppStorage("show_search_debug") private var showSearchDebug = false
@@ -106,6 +107,7 @@ struct SettingsView: View {
             skinSettingsSection
             playbackSettingsSection
             tmdbSettingsSection
+            tgSearchSettingsSection
             subscriptionSection
             siteDiagnosticsSection
             fallbackSection
@@ -282,6 +284,101 @@ struct SettingsView: View {
                     .padding(.vertical, 6)
                 }
             }
+        }
+    }
+
+    // MARK: - TG搜索设置
+    private var tgSearchSettingsSection: some View {
+        SettingsSection(title: "TG搜索设置") {
+            VStack(spacing: 12) {
+                // 代理地址
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("代理地址")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 16)
+                    TextField("https://xxx.com/?token=xxx&url=", text: $tgConfigStore.proxyURL)
+                        .font(.system(size: 14))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                        )
+                        .padding(.horizontal, 16)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                    Text("支持URL转发代理，在末尾拼接原始URL")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 6)
+
+                // 分隔线
+                Divider().padding(.horizontal, 16)
+
+                // 频道来源模式
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("频道来源")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 16)
+
+                    Picker("频道来源", selection: $tgConfigStore.channelMode) {
+                        ForEach(TGSearchConfigStore.ChannelMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+
+                    Text(channelModeDescription)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 6)
+
+                // 分隔线
+                Divider().padding(.horizontal, 16)
+
+                // 频道管理导航
+                NavigationLink(destination: TGChannelListView()) {
+                    HStack {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(hex: "8B5CF6"))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("TG频道管理")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+                            Text("\(tgConfigStore.channels.count) 个自定义频道")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var channelModeDescription: String {
+        switch tgConfigStore.channelMode {
+        case .default:
+            return "仅使用远程仓库内置的默认频道"
+        case .custom:
+            return "仅使用自定义频道，方便排查问题"
+        case .all:
+            return "远程默认频道 + 自定义频道，全部并行搜索"
         }
     }
 
