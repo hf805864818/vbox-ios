@@ -1108,6 +1108,18 @@ final class DoubanImageProxyServer {
             return
         }
 
+        // HEAD 请求：返回 200 OK + 正确的视频 Content-Type，不转发到上游。
+        // 避免 normalizedRange 注入默认 Range 导致百度返回 206，使 AVPlayer 资源探测失败。
+        if method == "HEAD" {
+            let contentType = streamContentType(for: item)
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+            print("📥 本地视频代理 HEAD 响应[\(item.provider)]: id=\(id), contentType=\(contentType)")
+            return
+        }
+
         let requestHeaders = parseRequestHeaders(requestText)
         let incomingRange = requestHeaders["range"]
         print("📥 本地视频代理收到请求[\(item.provider)]: method=\(method), id=\(id), range=\(incomingRange ?? "无"), path=\(pathAndQuery)")
@@ -1115,7 +1127,7 @@ final class DoubanImageProxyServer {
             let range = normalizedRange(incomingRange)
             if let cached = baiduStreamCache.cachedResponse(id: id, requestedRange: range) {
                 print("💾 百度分片缓存命中: id=\(id), range=\(range ?? "无"), bytes=\(cached.body.count)")
-                sendStream(statusCode: 206, headers: cached.headers, body: cached.body, on: connection)
+                sendStream(statusCode: 206, headers: patchedStreamHeaders(cached.headers, for: item), body: cached.body, on: connection)
                 baiduStreamCache.postProgress(id: id)
                 return
             }
@@ -1286,7 +1298,10 @@ final class DoubanImageProxyServer {
 
     private func normalizedRange(_ raw: String?) -> String? {
         guard let raw, raw.lowercased().hasPrefix("bytes=") else {
-            return "bytes=0-8388607"
+            // 无 Range 请求时不注入默认 Range，透传为无 Range 请求。
+            // 之前默认返回 "bytes=0-8388607" 会导致百度返回 206，
+            // 违反 HTTP 规范（无 Range 请求不应返回 206），AVPlayer 无法正确解析。
+            return nil
         }
 
         let text = raw.replacingOccurrences(of: "bytes=", with: "")
@@ -1297,10 +1312,16 @@ final class DoubanImageProxyServer {
             return raw
         }
 
-        if parts.count > 1, let end = Int(parts[1]) {
+        if parts.count > 1, !parts[1].isEmpty, let end = Int(parts[1]) {
             return "bytes=\(start)-\(end)"
         }
 
+        // 只有 start 没有 end（如 bytes=0-），透传不修改
+        if parts.count > 1 && parts[1].isEmpty {
+            return raw
+        }
+
+        // 只有单个数字（如 bytes=0），默认请求 8MB 分片（用于预加载等场景）
         let end = start + 8 * 1024 * 1024 - 1
         return "bytes=\(start)-\(end)"
     }
@@ -1493,9 +1514,10 @@ final class DoubanImageProxyServer {
 
     private func sendStream(statusCode: Int, headers: [AnyHashable: Any], body: Data, on connection: NWConnection) {
         let reason = Self.reasonPhrase(for: statusCode)
-        let contentType = (headers["Content-Type"] as? String)
+        let rawContentType = (headers["Content-Type"] as? String)
             ?? (headers["content-type"] as? String)
             ?? "application/octet-stream"
+        let contentType = Self.correctedVideoContentType(rawContentType)
         let contentRange = (headers["Content-Range"] as? String)
             ?? (headers["content-range"] as? String)
         let acceptRanges = (headers["Accept-Ranges"] as? String)
@@ -1522,7 +1544,8 @@ final class DoubanImageProxyServer {
 
     fileprivate static func streamResponseHeader(statusCode: Int, headers: [AnyHashable: Any]) -> Data {
         let reason = Self.reasonPhrase(for: statusCode)
-        let contentType = headerValue(headers, "Content-Type") ?? "application/octet-stream"
+        let rawContentType = headerValue(headers, "Content-Type") ?? "application/octet-stream"
+        let contentType = correctedVideoContentType(rawContentType)
         let contentRange = headerValue(headers, "Content-Range")
         let acceptRanges = headerValue(headers, "Accept-Ranges") ?? "bytes"
         let contentLength = headerValue(headers, "Content-Length")
@@ -1540,6 +1563,34 @@ final class DoubanImageProxyServer {
 
         header += "\r\n"
         return Data(header.utf8)
+    }
+
+    /// 修正视频流的 Content-Type：网盘直链常返回 application/octet-stream，
+    /// AVPlayer 无扩展名 + 错误 Content-Type 会导致 PlayerItem 状态卡在 .unknown。
+    private static func correctedVideoContentType(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("video/") || lower.contains("mpegurl") || lower.contains("mp4") {
+            return raw
+        }
+        // 网盘直链通常是 MP4 封装，默认返回 video/mp4
+        return "video/mp4"
+    }
+
+    /// 根据 StreamItem 推断 Content-Type
+    private func streamContentType(for item: StreamItem) -> String {
+        let ext = item.url.pathExtension.lowercased()
+        switch ext {
+        case "m3u8": return "application/vnd.apple.mpegurl"
+        case "mp4", "m4v", "mov": return "video/mp4"
+        default: return "video/mp4"
+        }
+    }
+
+    /// 修正响应头中的 Content-Type（用于缓存命中场景）
+    private func patchedStreamHeaders(_ headers: [AnyHashable: Any], for item: StreamItem) -> [AnyHashable: Any] {
+        var patched = headers
+        patched["Content-Type"] = streamContentType(for: item)
+        return patched
     }
 
     fileprivate static func headerValue(_ headers: [AnyHashable: Any], _ name: String) -> String? {
@@ -2847,7 +2898,7 @@ final class BaiduStreamSegmentCache {
         let total = totalBytes(for: id) ?? max(segment.end + 1, request.end + 1)
         return CachedResponse(
             headers: [
-                "Content-Type": "application/octet-stream",
+                "Content-Type": "video/mp4",
                 "Content-Length": "\(body.count)",
                 "Accept-Ranges": "bytes",
                 "Content-Range": "bytes \(request.start)-\(request.end)/\(total)"

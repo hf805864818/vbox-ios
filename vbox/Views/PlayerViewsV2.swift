@@ -3546,11 +3546,11 @@ class PlayerState: ObservableObject {
 
         if shouldFallbackBaiduAVPlayerToCompatibility {
             Task { @MainActor [weak self, weak p] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
                 guard let self, let p, self.player === p else { return }
                 guard self.playbackSessionId == sessionId, self.loadError == nil else { return }
                 guard p.currentItem?.status != .readyToPlay else { return }
-                self.log("[Baidu] AVPlayer 3秒内未就绪，回退原兼容内核")
+                self.log("[Baidu] AVPlayer 6秒内未就绪，回退原兼容内核")
                 self.switchBaiduAVPlayerFailureToCompatibility(url: urlObj, headers: assetHeaders, reason: "系统内核启动超时")
             }
         }

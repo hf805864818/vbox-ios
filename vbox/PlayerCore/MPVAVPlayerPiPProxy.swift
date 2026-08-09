@@ -100,6 +100,10 @@ final class MPVAVPlayerPiPProxy: NSObject {
 
         // 创建 AVPlayer
         let player = AVPlayer()
+        // 禁用等待缓冲以减少启动延迟，与主播放器一致
+        if #available(iOS 10.0, *) {
+            player.automaticallyWaitsToMinimizeStalling = false
+        }
         self.avPlayer = player
 
         // 创建 AVPlayerItem（带请求头）
@@ -118,9 +122,8 @@ final class MPVAVPlayerPiPProxy: NSObject {
         player.volume = 0
         player.isMuted = true
 
-        // Seek 到当前播放位置
-        let seekTime = CMTime(seconds: currentPosition, preferredTimescale: 1000)
-        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        // 注意：不在此处立即 seek，等 .readyToPlay 后再 seek，
+        // 避免在资源未加载时发起精确 seek 导致额外 Range 请求和潜在挂起。
 
         // 设置 PiP
         setupPiPController(for: player)
@@ -141,6 +144,8 @@ final class MPVAVPlayerPiPProxy: NSObject {
     func stopProxyPiP() {
         isActive = false
         isTryingRemux = false
+
+        NotificationCenter.default.removeObserver(self)
 
         timeObserver.map { avPlayer?.removeTimeObserver($0) }
         timeObserver = nil
@@ -281,16 +286,58 @@ final class MPVAVPlayerPiPProxy: NSObject {
             switch item.status {
             case .readyToPlay:
                 print("[AVPlayerPiP] AVPlayer 已就绪")
+                // 检测视频轨：确保有视频画面，否则可能只有音频解码成功
+                let tracks = item.tracks
+                let videoTracks = tracks.filter { $0.assetTrack?.mediaType == .video }
+                let size = item.presentationSize
+                print("[AVPlayerPiP] 轨道数=\(tracks.count), 视频轨=\(videoTracks.count), 画面=\(Int(size.width))x\(Int(size.height))")
+
+                if videoTracks.isEmpty || size.width <= 1 || size.height <= 1 {
+                    print("[AVPlayerPiP] ⚠️ 无有效视频轨或画面尺寸异常，尝试转封装路径")
+                    self.handlePlaybackFailure()
+                    return
+                }
+
                 self.startRetries = 0
-                DispatchQueue.main.async { [weak self] in
-                    self?.tryStartPictureInPicture()
+
+                // readyToPlay 后再 seek 到当前播放位置（精确 seek 需要 moov 已解析）
+                let pos = self.lastKnownPosition
+                if pos > 0.5 {
+                    let seekTime = CMTime(seconds: pos, preferredTimescale: 1000)
+                    player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+                        print("[AVPlayerPiP] seek 到 \(String(format: "%.1f", pos))s: finished=\(finished)")
+                        DispatchQueue.main.async { [weak self] in
+                            self?.tryStartPictureInPicture()
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.tryStartPictureInPicture()
+                    }
                 }
             case .failed:
-                print("[AVPlayerPiP] AVPlayer 加载失败: \(item.error?.localizedDescription ?? "unknown")")
+                let err = item.error
+                print("[AVPlayerPiP] AVPlayer 加载失败: \(err?.localizedDescription ?? "unknown"), code=\((err as NSError?)?.code ?? -1)")
+                if let nsError = err as NSError? {
+                    print("[AVPlayerPiP] 错误域=\(nsError.domain), userInfo=\(nsError.userInfo)")
+                }
                 self.handlePlaybackFailure()
-            default:
-                break
+            case .unknown:
+                print("[AVPlayerPiP] AVPlayer 状态为 unknown，等待加载...")
+            @unknown default:
+                print("[AVPlayerPiP] AVPlayer 状态为未知枚举值: \(item.status.rawValue)")
             }
+        }
+
+        // 监听 AVPlayerItem 错误通知
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] notification in
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            print("[AVPlayerPiP] AVPlayerItem 播放失败: \(error?.localizedDescription ?? "unknown")")
+            self?.handlePlaybackFailure()
         }
 
         // 定时同步位置
