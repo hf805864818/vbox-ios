@@ -57,7 +57,7 @@ jobs:
           cd "Python-${PYTHON_VERSION}"
 
           # 3. 交叉编译 arm64 静态库
-          echo "🔧 配置交叉编译..."
+          echo "🔧 配置 (detected arch: $(uname -m))..."
           export CC="xcrun -sdk iphoneos clang -arch arm64"
           export CXX="xcrun -sdk iphoneos clang++ -arch arm64"
           export CFLAGS="-mios-version-min=15.0 -O2"
@@ -65,7 +65,7 @@ jobs:
 
           ./configure \
             --host=aarch64-apple-darwin \
-            --build=x86_64-apple-darwin \
+            --build=aarch64-apple-darwin \
             --with-build-python=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
             --enable-static \
             --disable-shared \
