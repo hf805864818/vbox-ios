@@ -62,6 +62,29 @@ final class StreamRemuxer {
     /// 初始化段（ftyp + moov）就绪时回调（在解析完头部后触发一次）
     var onInitSegmentReady: ((Data) -> Void)?
 
+    // MARK: - 原始视频帧输出（用于 VideoToolbox PiP）
+
+    /// 视频帧信息
+    struct VideoFrameInfo {
+        /// 编码数据（MKV/FLV 中存储的格式：AVCC/HVCC length-prefixed NAL）
+        let data: Data
+        /// 显示时间戳（毫秒）
+        let presentationTimeMs: UInt64
+        /// 是否关键帧
+        let isKeyframe: Bool
+    }
+
+    /// 每解析出一个视频帧时回调（用于 VideoToolbox 硬解码 PiP）
+    /// 只输出视频帧，音频帧被丢弃。
+    var onVideoFrameReady: ((VideoFrameInfo) -> Void)?
+
+    /// 视频编解码器类型（kCMVideoCodecType_H264 / kCMVideoCodecType_HEVC 等）
+    /// 头部解析完成后才有值
+    var videoCodecTypeValue: UInt32 { videoCodecType }
+
+    /// 视频 extradata（avcC / hvcC 格式，头部解析完成后才有值）
+    var videoExtradataValue: Data? { videoExtradata }
+
     /// 源格式
     private(set) var sourceFormat: SourceFormat = .unknown
     /// 是否已完成
@@ -370,6 +393,11 @@ final class StreamRemuxer {
             }
 
             if !simpleBlocks.isEmpty {
+                // 原始视频帧输出（用于 VideoToolbox PiP）
+                if onVideoFrameReady != nil {
+                    emitVideoFrames(from: simpleBlocks, clusterTimecode: clusterTimecode)
+                }
+
                 let segment = buildFMP4MediaSegment(
                     simpleBlocks: simpleBlocks,
                     clusterTimecode: clusterTimecode
@@ -507,6 +535,11 @@ final class StreamRemuxer {
             }
 
             if !block.data.isEmpty {
+                // 原始视频帧输出（用于 VideoToolbox PiP）
+                if onVideoFrameReady != nil {
+                    emitVideoFrames(from: [block], clusterTimecode: UInt64(timestamp))
+                }
+
                 let segment = buildFMP4MediaSegment(
                     simpleBlocks: [block],
                     clusterTimecode: UInt64(timestamp)
@@ -786,6 +819,36 @@ final class StreamRemuxer {
             })
 
             return trak
+        }
+    }
+
+    // MARK: - 原始视频帧输出（用于 VideoToolbox PiP）
+
+    /// 从 simpleBlocks 中提取视频帧并通过回调输出
+    private func emitVideoFrames(from simpleBlocks: [MKVSimpleBlock], clusterTimecode: UInt64) {
+        guard let callback = onVideoFrameReady else { return }
+
+        for block in simpleBlocks {
+            // 只处理视频轨道
+            guard block.trackNumber == fmp4VideoTrackID else { continue }
+
+            // 计算显示时间戳（毫秒）
+            // block.timecode 是相对于 clusterTimecode 的有符号偏移
+            let relativeOffset = Int64(block.timecode)
+            let presentationTime: UInt64
+            if relativeOffset >= 0 {
+                presentationTime = clusterTimecode + UInt64(relativeOffset)
+            } else {
+                let absOffset = UInt64(-relativeOffset)
+                presentationTime = clusterTimecode > absOffset ? clusterTimecode - absOffset : 0
+            }
+
+            let frameInfo = VideoFrameInfo(
+                data: block.data,
+                presentationTimeMs: presentationTime,
+                isKeyframe: block.isKeyframe
+            )
+            callback(frameInfo)
         }
     }
 
