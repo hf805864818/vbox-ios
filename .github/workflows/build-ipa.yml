@@ -38,22 +38,35 @@ jobs:
           set -euo pipefail
           PYTHON_VERSION="3.12.4"
           echo "🐍 编译 CPython ${PYTHON_VERSION} for iOS arm64..."
+          
+          # 1. 安装 Python 3.12 (交叉编译需要同版本的构建主机 Python)
+          echo "📦 安装 Python 3.12..."
+          if ! python3.12 --version 2>/dev/null; then
+            PYTHON_TAR="python-${PYTHON_VERSION}-macos11.pkg"
+            curl -sLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_TAR}"
+            sudo installer -pkg "${PYTHON_TAR}" -target / 2>&1 | tail -1
+            # 把 Python 3.12 加入 PATH
+            export PATH="/Library/Frameworks/Python.framework/Versions/3.12/bin:$PATH"
+            python3.12 --version
+          fi
 
-          # 下载 Python 源码
+          # 2. 下载 Python 源码
+          echo "📥 下载 Python 源码..."
           curl -sLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz"
           tar xf "Python-${PYTHON_VERSION}.tar.xz"
           cd "Python-${PYTHON_VERSION}"
 
-          # 交叉编译 arm64 静态库
+          # 3. 交叉编译 arm64 静态库
+          echo "🔧 配置交叉编译..."
           export CC="xcrun -sdk iphoneos clang -arch arm64"
           export CXX="xcrun -sdk iphoneos clang++ -arch arm64"
-          export CFLAGS="-mios-version-min=15.0 -O2 -fembed-bitcode"
+          export CFLAGS="-mios-version-min=15.0 -O2"
           export LDFLAGS="-mios-version-min=15.0"
 
           ./configure \
             --host=aarch64-apple-darwin \
             --build=x86_64-apple-darwin \
-            --with-build-python=/usr/bin/python3 \
+            --with-build-python=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
             --enable-static \
             --disable-shared \
             --without-ensurepip \
@@ -61,11 +74,11 @@ jobs:
             --disable-test-modules \
             --without-lzma \
             --without-bz2 \
-            --with-openssl=/usr \
             ac_cv_file__dev_ptmx=no \
             ac_cv_file__dev_ptc=no
 
-          make -j$(sysctl -n hw.ncpu) 2>&1 | tail -10
+          echo "🏗️ 编译中..."
+          make -j$(sysctl -n hw.ncpu) 2>&1 | tail -5
 
           # 复制产物
           cp libpython3.12.a ../vbox/Libraries/libpython3.12.a
