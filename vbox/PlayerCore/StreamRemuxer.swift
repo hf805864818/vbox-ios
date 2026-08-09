@@ -59,6 +59,9 @@ final class StreamRemuxer {
     /// 每产生一个媒体段时回调（用于流式输出）
     var onSegmentReady: ((Data) -> Void)?
 
+    /// 初始化段（ftyp + moov）就绪时回调（在解析完头部后触发一次）
+    var onInitSegmentReady: ((Data) -> Void)?
+
     /// 源格式
     private(set) var sourceFormat: SourceFormat = .unknown
     /// 是否已完成
@@ -239,6 +242,7 @@ final class StreamRemuxer {
         if !mkvTracks.isEmpty {
             initSegment = buildFMP4InitSegment()
             initSegmentWritten = true
+            onInitSegmentReady?(initSegment)
         }
     }
 
@@ -460,6 +464,7 @@ final class StreamRemuxer {
         if !mkvTracks.isEmpty {
             initSegment = buildFMP4InitSegment()
             initSegmentWritten = true
+            onInitSegmentReady?(initSegment)
         }
     }
 
