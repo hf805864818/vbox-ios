@@ -33,6 +33,82 @@ jobs:
           done
           xcodebuild -version
 
+      - name: 🐍 Build CPython 3.12 for iOS arm64
+        run: |
+          set -euo pipefail
+          PYTHON_VERSION="3.12.4"
+          echo "🐍 编译 CPython ${PYTHON_VERSION} for iOS arm64..."
+
+          # 下载 Python 源码
+          curl -sLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz"
+          tar xf "Python-${PYTHON_VERSION}.tar.xz"
+          cd "Python-${PYTHON_VERSION}"
+
+          # 交叉编译 arm64 静态库
+          export CC="xcrun -sdk iphoneos clang -arch arm64"
+          export CXX="xcrun -sdk iphoneos clang++ -arch arm64"
+          export CFLAGS="-mios-version-min=15.0 -O2 -fembed-bitcode"
+          export LDFLAGS="-mios-version-min=15.0"
+
+          ./configure \
+            --host=aarch64-apple-darwin \
+            --build=x86_64-apple-darwin \
+            --enable-static \
+            --disable-shared \
+            --without-ensurepip \
+            --without-doc-strings \
+            --disable-test-modules \
+            --without-lzma \
+            --without-bz2 \
+            ac_cv_file__dev_ptmx=no \
+            ac_cv_file__dev_ptc=no
+
+          make -j$(sysctl -n hw.ncpu) 2>&1 | tail -10
+
+          # 复制产物
+          cp libpython3.12.a ../vbox/Libraries/libpython3.12.a
+          cp Python.h Include/ ../vbox/Libraries/Python/ -r
+          echo "✅ libpython3.12.a 已编译: $(ls -lh ../vbox/Libraries/libpython3.12.a)"
+
+          # 精简标准库到 ~6MB
+          echo "🐍 精简 Python 标准库..."
+          cd ..
+          STDLIB_SRC="Python-${PYTHON_VERSION}/Lib"
+          STDLIB_DST="vbox/Resources/python-stdlib"
+          mkdir -p "${STDLIB_DST}/site-packages"
+
+          # 复制核心模块
+          for mod in __future__ abc.py ast.py base64.py binascii.py bisect.py \
+            calendar.py codecs.py collections contextlib.py copy.py copyreg.py \
+            csv.py dataclasses.py datetime.py email encodings enum.py \
+            fnmatch.py fractions.py functools.py genericpath.py getopt.py \
+            gzip.py hashlib.py heapq.py html http importlib inspect.py \
+            io.py ipaddress.py json keyword.py linecache.py logging \
+            math.py ntpath.py numbers.py opcode.py operator.py os.py \
+            pathlib.py pickle.py posixpath.py pprint.py queue.py \
+            quopri.py random.py re reprlib.py selectors.py shlex.py \
+            shutil.py site.py socket.py sqlite3 sre_compile.py \
+            sre_constants.py sre_parse.py ssl.py stat.py string.py \
+            struct.py tarfile.py tempfile.py textwrap.py threading.py \
+            token.py tokenize.py traceback.py types.py typing.py \
+            unicodedata.py urllib uuid.py warnings.py weakref.py \
+            _collections_abc.py _compat_pickle.py _compression.py \
+            _markupbase.py _osx_support.py _py_abc.py _sitebuiltins.py \
+            _strptime.py _threading_local.py _weakrefset.py zipfile; do
+            if [ -f "${STDLIB_SRC}/${mod}" ]; then
+              cp "${STDLIB_SRC}/${mod}" "${STDLIB_DST}/${mod}"
+            elif [ -d "${STDLIB_SRC}/${mod}" ]; then
+              mkdir -p "${STDLIB_DST}/${mod}"
+              cp -r "${STDLIB_SRC}/${mod}/"* "${STDLIB_DST}/${mod}/"
+            fi
+          done
+
+          # 复制用户自定义模块
+          cp -r vbox/Resources/python-stdlib/base "${STDLIB_DST}/base"
+          cp -r vbox/Resources/python-stdlib/site-packages "${STDLIB_DST}/site-packages" 2>/dev/null || true
+
+          echo "📦 标准库大小: $(du -sh ${STDLIB_DST} | cut -f1)"
+
       - name: 🎬 Fetch MPVKit dependencies
         run: |
           bash scripts/fetch_mpv_dependencies.sh --cache-dir .mpv-cache
@@ -140,6 +216,9 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
             MARKETING_VERSION=${{ steps.get_version.outputs.MARKETING_VERSION }} \
             CURRENT_PROJECT_VERSION=${{ steps.get_version.outputs.BUILD_NUM }} \
+            HEADER_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/Python" \
+            LIBRARY_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries" \
+            OTHER_LDFLAGS="-lpython3.12 -lz" \
             build 2>&1
 
       - name: 📦 Package IPA
