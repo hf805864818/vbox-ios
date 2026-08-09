@@ -299,7 +299,13 @@ struct SubscriptionSiteGrid: View {
             ForEach(Array(sites.enumerated()), id: \.offset) { _, site in
                 Button(action: {
                     dismiss()
-                    settings.triggerSearch(site.name)
+                    // 延迟触发搜索，等待 sheet dismiss 动画完成，
+                    // 避免 dismiss 和 fullScreenCover present 同时发生导致转场竞争
+                    // （会导致 SearchView 意外 onDisappear 重置 isSearching 状态）
+                    let title = site.name
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        settings.triggerSearch(title)
+                    }
                 }) {
                     VStack(spacing: 4) {
                         Image(systemName: "play.circle.fill")
@@ -510,7 +516,13 @@ struct GridSubjectCard: View {
         }
         .onTapGesture {
             dismiss()
-            settings.triggerSearch(subject.title)
+            // 延迟触发搜索，等待 sheet dismiss 动画完成，
+            // 避免 dismiss 和 fullScreenCover present 同时发生导致转场竞争
+            // （会导致 SearchView 意外 onDisappear 重置 isSearching 状态）
+            let title = subject.title
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                settings.triggerSearch(title)
+            }
         }
     }
 }
