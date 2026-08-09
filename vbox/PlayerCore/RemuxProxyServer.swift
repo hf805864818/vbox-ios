@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import UIKit
 
 // MARK: - 转封装代理服务器
 
@@ -11,8 +12,8 @@ import Network
 /// ```
 /// AVPlayer 请求 http://127.0.0.1:18081/remux?id=xxx
 ///     → 查找注册的上游 URL
-///     → URLSession 拉取上游数据
-///     → StreamRemuxer 实时转封装为 fMP4
+///     → URLSession 流式拉取上游数据
+///     → StreamRemuxer 实时转封装为 fMP4（通过 onSegmentReady 流式输出）
 ///     → 流式返回给 AVPlayer
 /// ```
 ///
@@ -42,6 +43,10 @@ final class RemuxProxyServer {
     private let queue = DispatchQueue(label: "com.vbox.remux-proxy", qos: .userInitiated)
     private var streamItems: [String: RemuxStreamItem] = [:]
     private let lock = NSLock()
+    /// 后台任务标识，确保 App 进入后台后转封装代理的上游下载能继续进行
+    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    /// 当前活跃的流式下载任务数，用于管理后台任务生命周期
+    private var activeStreamCount: Int = 0
 
     // MARK: - 数据结构
 
@@ -50,10 +55,9 @@ final class RemuxProxyServer {
         let headers: [String: String]
         let provider: String
         let createdAt: Date
-        var initSegment: Data?
-        var mediaSegments: [Data] = []
-        var isComplete: Bool = false
         var sourceFormat: StreamRemuxer.SourceFormat = .unknown
+        /// 是否已经检测过格式（通过前几字节魔数）
+        var formatDetected: Bool = false
     }
 
     // MARK: - 初始化
@@ -104,6 +108,7 @@ final class RemuxProxyServer {
         lock.lock()
         streamItems.removeAll()
         lock.unlock()
+        endBackgroundTaskIfNeeded()
         print("[RemuxProxy] 服务器已停止")
     }
 
@@ -134,11 +139,6 @@ final class RemuxProxyServer {
         lock.unlock()
 
         print("[RemuxProxy] 注册流: id=\(id), provider=\(provider), host=\(url.host ?? "")")
-
-        // 异步预热：下载前 2MB 检测格式并生成初始化段
-        queue.async { [weak self] in
-            self?.preheatStream(id: id)
-        }
 
         var components = URLComponents()
         components.scheme = "http"
@@ -215,187 +215,151 @@ final class RemuxProxyServer {
             return
         }
 
-        streamRemuxedContent(id: id, item: item, on: connection)
+        // 启动流式转封装
+        beginStreamDownload(id: id, item: item, on: connection)
     }
 
-    // MARK: - 预热
+    // MARK: - 流式下载与转封装
 
-    private func preheatStream(id: String) {
-        lock.lock()
-        guard var item = streamItems[id] else {
-            lock.unlock()
-            return
-        }
-        lock.unlock()
-
-        let preheatSize = 2 * 1024 * 1024
+    /// 启动流式下载并实时转封装（MKV/FLV → fMP4）或透传（MP4）
+    private func beginStreamDownload(id: String, item: RemuxStreamItem, on connection: NWConnection) {
         var request = URLRequest(url: item.url)
-        request.setValue("bytes=0-\(preheatSize - 1)", forHTTPHeaderField: "Range")
         for (key, value) in item.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var responseData = Data()
-
-        let task = URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data { responseData = data }
-            semaphore.signal()
-        }
-        task.resume()
-        _ = semaphore.wait(timeout: .now() + 10)
-
-        guard !responseData.isEmpty else {
-            print("[RemuxProxy] 预热失败: id=\(id)")
-            return
-        }
-
-        let format = StreamRemuxer.detectFormat(from: responseData)
-
-        if format == .mp4 {
-            lock.lock()
-            streamItems[id]?.sourceFormat = .mp4
-            streamItems[id]?.isComplete = true
-            streamItems[id]?.mediaSegments = [responseData]
-            lock.unlock()
-            print("[RemuxProxy] 检测为 MP4 格式，直接透传: id=\(id)")
-            return
-        }
-
-        if format == .unknown {
-            print("[RemuxProxy] 无法识别格式，将尝试透传: id=\(id)")
-            lock.lock()
-            streamItems[id]?.sourceFormat = .unknown
-            streamItems[id]?.isComplete = true
-            streamItems[id]?.mediaSegments = [responseData]
-            lock.unlock()
-            return
-        }
+        // 启动后台任务保活
+        beginBackgroundTaskIfNeeded()
 
         let remuxer = StreamRemuxer()
-        remuxer.processBytes(responseData)
+        var headerSent = false
+        var isPassthrough = false // MP4/unknown 直接透传
 
-        let result = remuxer.finalize()
+        let delegate = RemuxStreamDelegate(
+            queue: queue,
+            onDataReceived: { data in
+                // 响应头还没发的话先发
+                if !headerSent {
+                    headerSent = true
+                    let header = self.buildHTTPHeader(
+                        statusCode: 200,
+                        contentType: "video/mp4",
+                        contentLength: nil
+                    )
+                    connection.send(content: header.data(using: .utf8), completion: .contentProcessed { _ in })
+                }
 
-        lock.lock()
-        streamItems[id]?.sourceFormat = format
-        streamItems[id]?.initSegment = result.initSegment
-        streamItems[id]?.mediaSegments = result.mediaSegments
-        if result.mediaSegments.isEmpty {
-            streamItems[id]?.isComplete = true
-        }
-        lock.unlock()
+                // 如果已经确定是透传模式（MP4/unknown），直接转发数据
+                if isPassthrough {
+                    connection.send(content: data, completion: .contentProcessed { _ in })
+                    return
+                }
 
-        print("[RemuxProxy] 预热完成: id=\(id), format=\(format), initSeg=\(result.initSegment.count)B, mediaSegs=\(result.mediaSegments.count)")
-    }
+                // 喂给转封装器
+                remuxer.processBytes(data)
 
-    // MARK: - 流式返回
-
-    private func streamRemuxedContent(id: String, item: RemuxStreamItem, on connection: NWConnection) {
-        if item.sourceFormat == .mp4 || item.sourceFormat == .unknown {
-            streamRawContent(id: id, item: item, on: connection)
-            return
-        }
-
-        if let initSeg = item.initSegment, !initSeg.isEmpty {
-            let initHeader = buildHTTPHeader(
-                statusCode: 200,
-                contentType: "video/mp4",
-                contentLength: nil
-            )
-            connection.send(content: initHeader.data(using: .utf8), completion: .contentProcessed { _ in })
-            connection.send(content: initSeg, completion: .contentProcessed { _ in })
-        }
-
-        for segment in item.mediaSegments {
-            connection.send(content: segment, completion: .contentProcessed { _ in })
-        }
-
-        if item.isComplete {
-            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
-            return
-        }
-
-        fetchAndRemuxRemaining(id: id, item: item, on: connection)
-    }
-
-    private func streamRawContent(id: String, item: RemuxStreamItem, on connection: NWConnection) {
-        let header = buildHTTPHeader(statusCode: 200, contentType: "video/mp4", contentLength: nil)
-        connection.send(content: header.data(using: .utf8), completion: .contentProcessed { _ in })
-
-        for segment in item.mediaSegments {
-            connection.send(content: segment, completion: .contentProcessed { _ in })
-        }
-
-        if item.isComplete {
-            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
-        } else {
-            fetchRemaining(id: id, item: item, on: connection)
-        }
-    }
-
-    private func fetchAndRemuxRemaining(id: String, item: RemuxStreamItem, on connection: NWConnection) {
-        let offset = 2 * 1024 * 1024
-        var request = URLRequest(url: item.url)
-        request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
-        for (key, value) in item.headers {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
-
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let self, let data, error == nil else {
+                // 检测是否为 MP4 或 unknown，如果是则切换到透传模式
+                let fmt = remuxer.sourceFormat
+                if fmt == .mp4 || fmt == .unknown {
+                    isPassthrough = true
+                    // 已经 processBytes 的数据可能没被透传出去
+                    // 对于 MP4，handleMP4Passthrough 只设置了 isComplete，没有保存数据
+                    // 所以我们需要把已接收的数据重新发一遍
+                    // 但这会导致重复发送……
+                    // 简化处理：因为 MP4 检测只需要前 12 字节（ftyp box）
+                    // 我们把已收到的这部分数据也发出去
+                    connection.send(content: data, completion: .contentProcessed { _ in })
+                }
+            },
+            onComplete: { [weak self] in
+                guard let self else { return }
+                if !isPassthrough {
+                    // 转封装模式：finalize 兜底
+                    let finalResult = remuxer.finalize()
+                    for segment in finalResult.mediaSegments {
+                        connection.send(content: segment, completion: .contentProcessed { _ in })
+                    }
+                }
                 connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
-                return
+                self.endStreamBackgroundTask()
+            },
+            onError: { [weak self] error in
+                print("[RemuxProxy] 流式下载失败: \(error?.localizedDescription ?? "unknown")")
+                connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
+                self?.endStreamBackgroundTask()
             }
+        )
 
-            let remuxer = StreamRemuxer()
-            remuxer.processBytes(data)
-            let result = remuxer.finalize()
-
-            for segment in result.mediaSegments {
-                connection.send(content: segment, completion: .contentProcessed { _ in })
+        // 设置转封装回调：init segment 和 media segment 就绪时立即发送
+        remuxer.onInitSegmentReady = { initData in
+            delegate.queue.async {
+                connection.send(content: initData, completion: .contentProcessed { _ in })
             }
-
-            self.lock.lock()
-            self.streamItems[id]?.isComplete = true
-            self.lock.unlock()
-
-            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
         }
+        remuxer.onSegmentReady = { segmentData in
+            delegate.queue.async {
+                connection.send(content: segmentData, completion: .contentProcessed { _ in })
+            }
+        }
+
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.networkServiceType = .video
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
         task.resume()
+
+        // 绑定 delegate 到 task，防止被释放
+        delegate.associatedTask = task
+        objc_setAssociatedObject(task, &RemuxProxyServer.associatedDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    private func fetchRemaining(id: String, item: RemuxStreamItem, on connection: NWConnection) {
-        let offset = 2 * 1024 * 1024
-        var request = URLRequest(url: item.url)
-        request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
-        for (key, value) in item.headers {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
+    private static var associatedDelegateKey: UInt8 = 0
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let self, let data, error == nil else {
-                connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
-                return
+    // MARK: - 后台任务管理
+
+    private func beginBackgroundTaskIfNeeded() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.activeStreamCount += 1
+            guard self.backgroundTaskId == .invalid else { return }
+
+            self.backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RemuxProxyDownload") { [weak self] in
+                // 后台时间耗尽，清理
+                guard let self else { return }
+                if self.backgroundTaskId != .invalid {
+                    UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                    self.backgroundTaskId = .invalid
+                }
             }
-
-            connection.send(content: data, completion: .contentProcessed { _ in })
-
-            self.lock.lock()
-            self.streamItems[id]?.isComplete = true
-            self.lock.unlock()
-
-            connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
+            print("[RemuxProxy] 开始后台任务，活跃流数=\(self.activeStreamCount)")
         }
-        task.resume()
+    }
+
+    private func endStreamBackgroundTask() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.activeStreamCount = max(0, self.activeStreamCount - 1)
+            if self.activeStreamCount == 0, self.backgroundTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                self.backgroundTaskId = .invalid
+                print("[RemuxProxy] 结束后台任务")
+            }
+        }
+    }
+
+    // 兼容旧方法引用（如果有的话）
+    private func endBackgroundTaskIfNeeded() {
+        endStreamBackgroundTask()
     }
 
     // MARK: - HTTP 响应构建
 
+    /// 构建 HTTP 响应头。
+    /// 注意：fMP4 流式播放不需要 Accept-Ranges，AVPlayer 按流式/直播模式处理即可。
     private func buildHTTPHeader(statusCode: Int, contentType: String, contentLength: Int?) -> String {
         var header = "HTTP/1.1 \(statusCode) \(statusText(statusCode))\r\n"
         header += "Content-Type: \(contentType)\r\n"
-        header += "Accept-Ranges: bytes\r\n"
         header += "Cache-Control: no-store, no-cache\r\n"
         header += "Access-Control-Allow-Origin: *\r\n"
         if let length = contentLength {
@@ -408,7 +372,6 @@ final class RemuxProxyServer {
     private func sendHeadResponse(on connection: NWConnection) {
         let header = "HTTP/1.1 200 OK\r\n" +
             "Content-Type: video/mp4\r\n" +
-            "Accept-Ranges: bytes\r\n" +
             "Cache-Control: no-store\r\n" +
             "Connection: close\r\n\r\n"
         connection.send(content: header.data(using: .utf8), completion: .contentProcessed { _ in })
@@ -435,5 +398,62 @@ final class RemuxProxyServer {
         case 405: return "Method Not Allowed"
         default: return "Error"
         }
+    }
+}
+
+// MARK: - 流式下载代理
+
+/// URLSession 流式下载代理，负责接收上游数据并交给转封装器处理。
+///
+/// 所有回调都派发到 RemuxProxyServer 的串行队列上，保证线程安全。
+final class RemuxStreamDelegate: NSObject, URLSessionDataDelegate {
+
+    let queue: DispatchQueue
+    private var onDataReceived: ((Data) -> Void)?
+    private var onComplete: (() -> Void)?
+    private var onError: ((Error?) -> Void)?
+
+    weak var associatedTask: URLSessionDataTask?
+
+    init(
+        queue: DispatchQueue,
+        onDataReceived: @escaping (Data) -> Void,
+        onComplete: @escaping () -> Void,
+        onError: @escaping (Error?) -> Void
+    ) {
+        self.queue = queue
+        self.onDataReceived = onDataReceived
+        self.onComplete = onComplete
+        self.onError = onError
+        super.init()
+    }
+
+    // MARK: - URLSessionDataDelegate
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.onDataReceived?(data)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if let error {
+                self.onError?(error)
+            } else {
+                self.onComplete?()
+            }
+            // 清理
+            self.onDataReceived = nil
+            self.onComplete = nil
+            self.onError = nil
+            session.finishTasksAndInvalidate()
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        completionHandler(.allow)
     }
 }

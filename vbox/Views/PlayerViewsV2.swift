@@ -6976,15 +6976,11 @@ struct PlayerControlsView: View {
             playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP
 
             // 根据引擎类型选择不同的进入后台策略
-            if useFrameBridgedPiP {
-                // MDK/MPV/视图截图 帧桥接 PiP：等待 PiP 实际启动后再进入后台
-                let deadline = Date().addingTimeInterval(8.0)
-                waitForPiPAndGoBackground(deadline: deadline)
-            } else if useAVPlayerPiP {
-                // AVPlayer 系统画中画：等待 isPiPPossible 后进入后台
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
-                }
+            if useFrameBridgedPiP || useAVPlayerPiP {
+                // 帧桥接 PiP 和 AVPlayer 代理 PiP：都等待 PiP 实际启动后再进入后台
+                // 避免 PiP 还没起来 App 就退到后台，导致小窗不显示
+                let deadline = Date().addingTimeInterval(12.0)
+                waitForPiPAndGoBackground(deadline: deadline, checkAVPlayerProxy: useAVPlayerPiP)
             } else if useAudioOnlyBackground {
                 if playerState.backgroundPlay {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -7002,8 +6998,19 @@ struct PlayerControlsView: View {
         }
     }
 
-    /// 轮询等待帧桥接 PiP 启动后再进入后台，避免 PiP 窗口不出现
-    private func waitForPiPAndGoBackground(deadline: Date) {
+    /// 轮询等待 PiP 启动后再进入后台，避免 PiP 窗口不出现
+    private func waitForPiPAndGoBackground(deadline: Date, checkAVPlayerProxy: Bool = false) {
+        // AVPlayer 代理 PiP 检测
+        if checkAVPlayerProxy {
+            let proxy = MPVAVPlayerPiPProxy.shared
+            // isPipActive 由 PiP delegate 回调更新，主线程安全读取
+            if proxy.isActive && proxy.isPipActive {
+                playerState.log("[PlayerV2] AVPlayer 代理 PiP 已启动，进入后台")
+                UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                return
+            }
+        }
+
         #if canImport(swift_mdk)
         if MDKPipManager.shared.isPipActive {
             playerState.log("[PlayerV2] MDK PiP 已启动，进入后台")
@@ -7025,21 +7032,27 @@ struct PlayerControlsView: View {
         }
 
         if Date() < deadline {
-            // 强制推一帧（不依赖 display link / render callback）
+            // 帧桥接 PiP：强制推一帧（不依赖 display link / render callback）
             // 仅在 MPV 引擎且有活跃播放时才访问 MPV 单例，
             // 避免 MDK 引擎下首次访问触发单例初始化递归死锁
-            #if canImport(Libmpv)
-            if playerState.compatibilityEngineName.contains("MPV") && LibmpvMoltenVKPlayerCore.shared.hasActivePlayback {
-                LibmpvMoltenVKPlayerCore.shared.forceCaptureFrame()
+            // （AVPlayer 代理 PiP 不需要推帧，AVPlayer 自己会渲染）
+            if !checkAVPlayerProxy {
+                #if canImport(Libmpv)
+                if playerState.compatibilityEngineName.contains("MPV") && LibmpvMoltenVKPlayerCore.shared.hasActivePlayback {
+                    LibmpvMoltenVKPlayerCore.shared.forceCaptureFrame()
+                }
+                #endif
             }
-            #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.waitForPiPAndGoBackground(deadline: deadline)
+                self.waitForPiPAndGoBackground(deadline: deadline, checkAVPlayerProxy: checkAVPlayerProxy)
             }
         } else {
-            // 超时：PiP 启动失败，仍然进入后台
-            playerState.log("[PlayerV2] PiP 启动超时，强制进入后台")
+            // 超时：PiP 启动失败，降级为后台声音模式并进入后台
+            playerState.log("[PlayerV2] PiP 启动超时，降级为后台声音模式并进入后台")
             playerState.isPiPActive = false
+            if checkAVPlayerProxy {
+                MPVAVPlayerPiPProxy.shared.stopProxyPiP()
+            }
             UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
         }
     }

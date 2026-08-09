@@ -42,6 +42,13 @@ final class MPVAVPlayerPiPProxy: NSObject {
     var isSupported: Bool {
         AVPictureInPictureController.isPictureInPictureSupported()
     }
+    /// PiP 窗口是否正在显示（KVO 可观测）
+    @MainActor
+    var isPictureInPictureActive: Bool {
+        pipController?.isPictureInPictureActive ?? false
+    }
+    /// PiP 窗口是否正在显示（非 MainActor 安全读取，由 delegate 回调更新）
+    private(set) var isPipActive = false
     /// 是否正在尝试转封装路径
     private(set) var isTryingRemux = false
 
@@ -142,7 +149,17 @@ final class MPVAVPlayerPiPProxy: NSObject {
 
     /// 停止 AVPlayer 代理 PiP
     func stopProxyPiP() {
+        // 保证所有 UI 操作都在主线程
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.stopProxyPiP()
+            }
+            return
+        }
+
+        guard isActive else { return }
         isActive = false
+        isPipActive = false
         isTryingRemux = false
 
         NotificationCenter.default.removeObserver(self)
@@ -168,7 +185,10 @@ final class MPVAVPlayerPiPProxy: NSObject {
         sourceURL = nil
         sourceHeaders = [:]
 
-        deactivateAudioSession()
+        // 注意：不在这里停用全局 AVAudioSession。
+        // 音频会话由主播放器统一管理，PiP 代理只负责激活。
+        // 如果在这里 setActive(false)，可能打断主播放器的音频输出，
+        // 甚至与 MPV 的音频线程竞争导致死锁。
 
         print("[AVPlayerPiP] 代理 PiP 已停止")
         NotificationCenter.default.post(name: .vboxAVPlayerPiPStatusChanged, object: false)
@@ -511,6 +531,7 @@ extension MPVAVPlayerPiPProxy: AVPictureInPictureControllerDelegate {
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        isPipActive = true
         print("[AVPlayerPiP] PiP 已开始")
         NotificationCenter.default.post(name: .vboxPiPStatusChanged, object: true)
     }
@@ -520,6 +541,7 @@ extension MPVAVPlayerPiPProxy: AVPictureInPictureControllerDelegate {
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        isPipActive = false
         print("[AVPlayerPiP] PiP 已停止")
         stopProxyPiP()
     }
