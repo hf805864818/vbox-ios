@@ -72,6 +72,10 @@ final class VTPiPManager: NSObject {
         var pendingFrameCount = 0
         /// 是否正在运行
         var isRunning = false
+        /// 目标起始时间（毫秒），从主播放器当前播放位置开始
+        var targetStartTimeMs: UInt64 = 0
+        /// 是否已越过目标时间（找到目标时间后的第一个关键帧后开始解码）
+        var hasPassedTargetTime = false
     }
 
     private var pipelineState = PipelineState()
@@ -102,8 +106,9 @@ final class VTPiPManager: NSObject {
     /// - Parameters:
     ///   - url: 视频源流 URL
     ///   - headers: 请求头
+    ///   - startTime: 起始播放时间（秒），用于从当前观看位置开始，保证音画同步
     ///   - provider: 资源提供者标识
-    func startPiP(url: URL, headers: [String: String], provider: String) {
+    func startPiP(url: URL, headers: [String: String], startTime: TimeInterval, provider: String) {
         guard isPipSupported else {
             print("[VTPiP] 当前设备不支持画中画")
             return
@@ -113,7 +118,7 @@ final class VTPiPManager: NSObject {
             stopPiP()
         }
 
-        print("[VTPiP] 启动 VideoToolbox PiP，URL: \(url.absoluteString.prefix(80))...")
+        print("[VTPiP] 启动 VideoToolbox PiP，URL: \(url.absoluteString.prefix(80))..., startTime: \(startTime)s")
 
         // 激活音频会话（PiP 必须有活跃音频会话）
         activateAudioSession()
@@ -133,14 +138,16 @@ final class VTPiPManager: NSObject {
             self.pipelineState.firstKeyframeReceived = false
             self.pipelineState.decodedFrameCount = 0
             self.pipelineState.pendingFrameCount = 0
+            self.pipelineState.targetStartTimeMs = UInt64(max(0, startTime) * 1000)
+            self.pipelineState.hasPassedTargetTime = startTime <= 0 // 如果从0开始，直接进入解码
 
             // 设置视频帧回调（在 processingQueue 上调用）
             remuxer.onVideoFrameReady = { [weak self] frameInfo in
                 self?.handleVideoFrameOnPipelineQueue(frameInfo)
             }
 
-            // 启动下载
-            self.startDownloadOnPipelineQueue(url: url, headers: headers, remuxer: remuxer)
+            // 启动下载（带 Range 请求跳到目标时间附近）
+            self.startDownloadOnPipelineQueue(url: url, headers: headers, startTime: startTime, remuxer: remuxer)
         }
     }
 
@@ -168,6 +175,9 @@ final class VTPiPManager: NSObject {
             pipelineState.decoderSetupStarted = false
             pipelineState.firstKeyframeReceived = false
             pipelineState.pendingFrameCount = 0
+            pipelineState.decodedFrameCount = 0
+            pipelineState.targetStartTimeMs = 0
+            pipelineState.hasPassedTargetTime = false
         }
 
         // 主线程清理 UI 相关资源
@@ -181,12 +191,26 @@ final class VTPiPManager: NSObject {
 
     // MARK: - 私有方法 - 下载（processingQueue 上调用）
 
-    private func startDownloadOnPipelineQueue(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
+    private func startDownloadOnPipelineQueue(url: URL, headers: [String: String], startTime: TimeInterval, remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         var request = URLRequest(url: url)
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
+        }
+
+        // 如果从非零位置开始，使用 Range 请求粗跳到目标位置附近
+        // 注意：MKV/FLV 格式不能精确 seek 到帧，需要跳到目标位置前的某个位置，
+        // 然后逐帧解析找到目标时间后的第一个关键帧。
+        // 这里用一个保守的估算：假设码率 2Mbps，往前多跳 10 秒数据确保能找到关键帧。
+        if startTime > 1.0 {
+            // 粗略估算字节位置：假设平均码率 2 Mbps = 250 KB/s
+            // 往前多留 15 秒余量，确保包含目标时间点之前的关键帧
+            let estimatedBytePosition = max(0, Int64(startTime - 15) * 250 * 1024)
+            if estimatedBytePosition > 0 {
+                request.setValue("bytes=\(estimatedBytePosition)-", forHTTPHeaderField: "Range")
+                print("[VTPiP] 使用 Range 请求从 ~\(estimatedBytePosition / 1024 / 1024)MB 开始（目标: \(startTime)s）")
+            }
         }
 
         let delegate = VTPiPStreamDelegate(
@@ -255,24 +279,31 @@ final class VTPiPManager: NSObject {
             return
         }
 
-        // 必须等到第一个关键帧才开始解码
-        if !pipelineState.firstKeyframeReceived {
-            guard frameInfo.isKeyframe else {
-                // 不是关键帧，丢弃
+        // 阶段 1：等待越过目标时间
+        if !pipelineState.hasPassedTargetTime {
+            // 如果这帧的 PTS 还没到目标时间，跳过
+            if frameInfo.presentationTimeMs < pipelineState.targetStartTimeMs {
                 return
             }
+            // 到了目标时间后，等待第一个关键帧再开始解码
+            if !frameInfo.isKeyframe {
+                return
+            }
+            // 找到目标时间后的第一个关键帧，开始解码
+            pipelineState.hasPassedTargetTime = true
             pipelineState.firstKeyframeReceived = true
-            print("[VTPiP] 收到第一个关键帧，开始解码")
+            print("[VTPiP] 找到目标时间后的第一个关键帧（\(frameInfo.presentationTimeMs)ms），开始解码")
         }
 
-        // 简单的拥塞控制：如果待显示帧太多，丢弃非关键帧
+        // 阶段 2：正常解码（已经越过目标时间）
+        // 拥塞控制：如果待显示帧太多，丢弃非关键帧
         if pipelineState.pendingFrameCount > 30 && !frameInfo.isKeyframe {
             return
         }
 
         let pts = CMTime(value: Int64(frameInfo.presentationTimeMs), timescale: 1000)
 
-        // 记录第一帧时间戳作为基准
+        // 记录第一帧（目标时间后的第一帧）时间戳作为基准
         if pipelineState.decodedFrameCount == 0 {
             pipelineState.basePresentationTime = pts
         }

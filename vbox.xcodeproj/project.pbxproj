@@ -112,6 +112,8 @@
 		A100100 /* StreamRemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100100 /* StreamRemuxer.swift */; };
 		A100101 /* RemuxProxyServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100101 /* RemuxProxyServer.swift */; };
 		A100102 /* MPVAVPlayerPiPProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100102 /* MPVAVPlayerPiPProxy.swift */; };
+		A100103 /* VTDecoderSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100103 /* VTDecoderSession.swift */; };
+		A100104 /* VTPiPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100104 /* VTPiPManager.swift */; };
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
@@ -410,6 +412,8 @@
 		B100100 /* StreamRemuxer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamRemuxer.swift; sourceTree = "<group>"; };
 		B100101 /* RemuxProxyServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemuxProxyServer.swift; sourceTree = "<group>"; };
 		B100102 /* MPVAVPlayerPiPProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVAVPlayerPiPProxy.swift; sourceTree = "<group>"; };
+		B100103 /* VTDecoderSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VTDecoderSession.swift; sourceTree = "<group>"; };
+		B100104 /* VTPiPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VTPiPManager.swift; sourceTree = "<group>"; };
 		B10011 /* QJSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QJSSpiderEngine.swift; sourceTree = "<group>"; };
 		B10012 /* QuickJSBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QuickJSBridge.m; sourceTree = "<group>"; };
 		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -959,6 +963,8 @@
 				B100100 /* StreamRemuxer.swift */,
 				B100101 /* RemuxProxyServer.swift */,
 				B100102 /* MPVAVPlayerPiPProxy.swift */,
+				B100103 /* VTDecoderSession.swift */,
+				B100104 /* VTPiPManager.swift */,
 			);
 			path = PlayerCore;
 			sourceTree = "<group>";
@@ -1083,6 +1089,8 @@
 				A100100 /* StreamRemuxer.swift in Sources */,
 				A100101 /* RemuxProxyServer.swift in Sources */,
 				A100102 /* MPVAVPlayerPiPProxy.swift in Sources */,
+				A100103 /* VTDecoderSession.swift in Sources */,
+				A100104 /* VTPiPManager.swift in Sources */,
 				A10033 /* MDKPlayerRepresentable.swift in Sources */,
 				A10001 /* VBoxApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
