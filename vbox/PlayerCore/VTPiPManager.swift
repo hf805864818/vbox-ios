@@ -300,8 +300,7 @@ final class VTPiPManager: NSObject {
         pipelineState.downloadTask = task
         pipelineState.downloadDelegate = delegate
 
-        delegate.associatedTask = task
-        objc_setAssociatedObject(task, &VTPiPManager.associatedDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // pipelineState.downloadDelegate 已强引用 delegate，避免使用 associated object 触发 Actor 隔离问题
     }
 
     /// 启动 seek 阶段下载（第二阶段：用 Range 跳到目标位置附近）
@@ -385,11 +384,8 @@ final class VTPiPManager: NSObject {
         pipelineState.downloadTask = task
         pipelineState.downloadDelegate = delegate
 
-        delegate.associatedTask = task
-        objc_setAssociatedObject(task, &VTPiPManager.associatedDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // pipelineState.downloadDelegate 已强引用 delegate，避免使用 associated object 触发 Actor 隔离问题
     }
-
-    private static var associatedDelegateKey: UInt8 = 0
 
     // MARK: - 私有方法 - 视频帧处理（processingQueue 上调用）
 

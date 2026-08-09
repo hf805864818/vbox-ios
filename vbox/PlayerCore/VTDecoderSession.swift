@@ -194,7 +194,7 @@ final class VTDecoderSession {
             // 填充数据
             let copyStatus = data.withUnsafeBytes { ptr in
                 CMBlockBufferReplaceDataBytes(
-                    withMemoryBlock: ptr.baseAddress!,
+                    with: ptr.baseAddress!,
                     blockBuffer: blockBuf,
                     offsetIntoDestination: 0,
                     dataLength: dataSize
