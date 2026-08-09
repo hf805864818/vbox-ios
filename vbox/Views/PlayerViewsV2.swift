@@ -6937,7 +6937,8 @@ struct PlayerControlsView: View {
             let engineName = playerState.compatibilityEngineName
             // 判断使用哪种 PiP 等待策略
             var useFrameBridgedPiP = false  // MDK/MPV/视图截图 帧桥接 PiP：需要等待启动
-            var useAVPlayerPiP = false      // AVPlayer 系统画中画：需要等待 isPiPPossible
+            var useAVPlayerPiP = false      // AVPlayer 代理画中画：需要等待代理 PiP delegate
+            var useNativeAVPlayerPiP = false // 原生 AVPlayer 系统画中画：快速进入后台
             var useVTPiP = false            // VideoToolbox 硬解码 PiP：需要等待首帧解码
             var useAudioOnlyBackground = false
 
@@ -6997,14 +6998,20 @@ struct PlayerControlsView: View {
                 }
             } else if let avPlayer = player {
                 // 原生 AVPlayer：使用系统画中画
-                useAVPlayerPiP = true
+                useNativeAVPlayerPiP = true
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
 
-            playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP || useVTPiP
+            playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP || useNativeAVPlayerPiP || useVTPiP
 
             // 根据引擎类型选择不同的进入后台策略
-            if useFrameBridgedPiP || useAVPlayerPiP || useVTPiP {
+            if useNativeAVPlayerPiP {
+                // 普通切片/M3U8/系统内核的原生 AVPlayer PiP 不走 12 秒轮询。
+                // PiPHelper 内部会立即 startPictureInPicture，并在 isPictureInPicturePossible 变 true 时重试。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+                }
+            } else if useFrameBridgedPiP || useAVPlayerPiP || useVTPiP {
                 // 帧桥接 PiP、AVPlayer 代理 PiP 和 VideoToolbox PiP：都等待 PiP 实际启动后再进入后台
                 // 避免 PiP 还没起来 App 就退到后台，导致小窗不显示
                 let deadline = Date().addingTimeInterval(12.0)
