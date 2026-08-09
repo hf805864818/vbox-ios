@@ -6435,87 +6435,160 @@ class CloudDriveManager: ObservableObject {
         let eTag: String
     }
 
-    /// 获取123云盘分享链接中的所有视频文件
-    func pan123GetAllFiles(shareURL: String, token: String) async throws -> [Pan123ShareFile] {
-        print("[123Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
-        self.log("[CloudDrive] [123] 获取文件列表...")
+    private func pan123IsDirItem(_ item: [String: Any]) -> Bool {
+        // 优先检查常见的文件夹类型字段
+        if let type = item["Type"] as? Int { return type == 1 || type == 2 }  // 123盘常见 1=文件夹
+        if let type = item["ContentType"] as? Int { return type == 1 || type == 2 }
+        if let typeStr = item["Type"] as? String {
+            return typeStr.lowercased() == "folder" || typeStr.lowercased() == "dir"
+        }
+        if let isDir = item["IsDir"] as? Bool { return isDir }
+        if let isDir = item["isDir"] as? Bool { return isDir }
+        if let isDir = item["is_dir"] as? Bool { return isDir }
+        // 兜底：无扩展名且有 FileId/FileName 的视为文件夹
+        let name = item["FileName"] as? String ?? item["fileName"] as? String ?? ""
+        if !name.isEmpty && !name.contains(".") {
+            return true
+        }
+        return false
+    }
 
-        let shareCode = extract123PanShareCode(from: shareURL)
-        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
-
-        let accessToken = CloudDriveAuthManager.shared.credential(for: .pan123)?.accessToken
+    private func pan123FetchDir(shareCode: String, parentFileId: String, token: String, accessToken: String?) async throws -> [[String: Any]] {
         let headers: [String: String] = [
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://www.123pan.com/",
             "Origin": "https://www.123pan.com"
         ]
 
-        var components = URLComponents(string: "https://www.123pan.com/b/api/share/get")!
-        components.queryItems = [
-            URLQueryItem(name: "limit", value: "100"),
-            URLQueryItem(name: "next", value: "1"),
-            URLQueryItem(name: "orderBy", value: "share_id"),
-            URLQueryItem(name: "orderDirection", value: "desc"),
-            URLQueryItem(name: "shareKey", value: shareCode),
-            URLQueryItem(name: "SharePwd", value: ""),
-            URLQueryItem(name: "ParentFileId", value: "0"),
-            URLQueryItem(name: "Page", value: "1")
-        ]
-        var request = URLRequest(url: components.url!)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(token, forHTTPHeaderField: "Cookie")
-        if let accessToken = accessToken, !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        }
-        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        var allItems: [[String: Any]] = []
+        var page = 1
+        let maxPages = 10
 
-        let (data, _) = try await session.data(for: request)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw DriveError.noPlayURL("123云盘: 分享列表返回无法解析")
+        while page <= maxPages {
+            var components = URLComponents(string: "https://www.123pan.com/b/api/share/get")!
+            components.queryItems = [
+                URLQueryItem(name: "limit", value: "100"),
+                URLQueryItem(name: "next", value: "1"),
+                URLQueryItem(name: "orderBy", value: "share_id"),
+                URLQueryItem(name: "orderDirection", value: "desc"),
+                URLQueryItem(name: "shareKey", value: shareCode),
+                URLQueryItem(name: "SharePwd", value: ""),
+                URLQueryItem(name: "ParentFileId", value: parentFileId),
+                URLQueryItem(name: "Page", value: "\(page)")
+            ]
+            var request = URLRequest(url: components.url!)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(token, forHTTPHeaderField: "Cookie")
+            if let accessToken = accessToken, !accessToken.isEmpty {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+
+            let (data, _) = try await session.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw DriveError.noPlayURL("123云盘: 分享列表返回无法解析")
+            }
+            if let code = json["code"] as? Int, code != 0, code != 200 {
+                let msg = json["message"] as? String ?? "code=\(code)"
+                throw DriveError.noPlayURL("123云盘: \(msg)")
+            }
+            guard let dataObj = json["data"] as? [String: Any],
+                  let list = dataObj["InfoList"] as? [[String: Any]] else {
+                break
+            }
+
+            allItems.append(contentsOf: list)
+
+            // 检查是否还有下一页
+            if list.count < 100 { break }
+            page += 1
         }
-        if let code = json["code"] as? Int, code != 0, code != 200 {
-            let msg = json["message"] as? String ?? "code=\(code)"
-            throw DriveError.noPlayURL("123云盘: \(msg)")
-        }
-        guard let dataObj = json["data"] as? [String: Any],
-              let list = dataObj["InfoList"] as? [[String: Any]] else {
-            throw DriveError.noPlayURL("123云盘: 无法获取文件列表")
-        }
+
+        return allItems
+    }
+
+    /// 获取123云盘分享链接中的所有视频文件（递归遍历子文件夹）
+    func pan123GetAllFiles(shareURL: String, token: String) async throws -> [Pan123ShareFile] {
+        print("[123Pan] 📂 获取文件列表（递归）: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [123] 获取文件列表...")
+
+        let shareCode = extract123PanShareCode(from: shareURL)
+        guard !shareCode.isEmpty else { throw DriveError.invalidShareURL }
+
+        let accessToken = CloudDriveAuthManager.shared.credential(for: .pan123)?.accessToken
 
         let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
-        var files: [Pan123ShareFile] = []
-        for item in list {
-            let name = item["FileName"] as? String ?? item["fileName"] as? String ?? "未知文件"
-            let fileId: String
-            if let id = item["FileId"] as? Int { fileId = String(id) }
-            else if let idStr = item["FileId"] as? String { fileId = idStr }
-            else { continue }
-            let eTag = item["Etag"] as? String ?? item["ETag"] as? String ?? item["etag"] as? String ?? ""
-            guard !eTag.isEmpty else { continue }
-            // 筛选视频文件
-            let lowerName = name.lowercased()
-            if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
-                files.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
-            }
-        }
+        var allVideoFiles: [Pan123ShareFile] = []
+        var allFilesFallback: [Pan123ShareFile] = []
 
-        // 如果没有视频文件，返回所有文件
-        if files.isEmpty {
-            for item in list {
+        // BFS 递归遍历所有子文件夹
+        var dirsToLoad: [(id: String, name: String)] = [("0", "根目录")]
+        var loadedDirs = Set<String>()
+        let maxDirs = 30
+        let maxVideos = 500
+
+        while !dirsToLoad.isEmpty && allVideoFiles.count < maxVideos {
+            guard loadedDirs.count < maxDirs else {
+                print("[123Pan] ⚠️ 已达目录数量上限 (\(maxDirs))，停止递归")
+                break
+            }
+
+            let current = dirsToLoad.removeFirst()
+            guard !loadedDirs.contains(current.id) else { continue }
+            loadedDirs.insert(current.id)
+
+            let items: [[String: Any]]
+            do {
+                items = try await pan123FetchDir(
+                    shareCode: shareCode,
+                    parentFileId: current.id,
+                    token: token,
+                    accessToken: accessToken
+                )
+            } catch {
+                print("[123Pan] ⚠️ 加载目录失败: \(current.name), \(error.localizedDescription)")
+                continue
+            }
+
+            for item in items {
                 let name = item["FileName"] as? String ?? item["fileName"] as? String ?? "未知文件"
                 let fileId: String
                 if let id = item["FileId"] as? Int { fileId = String(id) }
-                else if let idStr = item["FileId"] as? String { fileId = idStr }
+                else if let idStr = item["FileId"] as? String, !idStr.isEmpty { fileId = idStr }
                 else { continue }
                 let eTag = item["Etag"] as? String ?? item["ETag"] as? String ?? item["etag"] as? String ?? ""
                 guard !eTag.isEmpty else { continue }
-                files.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
+
+                let isDir = pan123IsDirItem(item)
+
+                if isDir {
+                    // 子文件夹，加入队列
+                    if !loadedDirs.contains(fileId) {
+                        dirsToLoad.append((fileId, name))
+                    }
+                } else {
+                    // 收集所有文件作为兜底
+                    allFilesFallback.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
+                    // 筛选视频文件
+                    let lowerName = name.lowercased()
+                    if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
+                        allVideoFiles.append(Pan123ShareFile(fileId: fileId, fileName: name, eTag: eTag))
+                    }
+                }
             }
         }
 
-        print("[123Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
-        self.log("[CloudDrive] [123] ✅ 文件列表: \(files.count) 个文件")
-        return files
+        // 如果递归后还是没有视频文件，返回所有文件作为兜底
+        let result = allVideoFiles.isEmpty ? allFilesFallback : allVideoFiles
+
+        print("[123Pan] ✅ 递归获取完成: \(result.count) 个文件（视频 \(allVideoFiles.count) 个，遍历了 \(loadedDirs.count) 个目录）")
+        self.log("[CloudDrive] [123] ✅ 文件列表: \(result.count) 个文件")
+
+        guard !result.isEmpty else {
+            throw DriveError.noPlayURL("123云盘: 分享内未找到文件")
+        }
+
+        return result
     }
 
     /// 解析123云盘指定文件的播放地址（用于多文件选集播放）
@@ -6636,11 +6709,28 @@ class CloudDriveManager: ObservableObject {
         let fileName: String
     }
 
-    /// 获取139云盘分享链接中的所有文件
-    func pan139GetAllFiles(shareURL: String, cookie: String) async throws -> [Pan139ShareFile] {
-        print("[139Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
-        self.log("[CloudDrive] [139] 获取文件列表...")
+    private func pan139IsDirItem(_ item: [String: Any]) -> Bool {
+        // 优先检查类型字段
+        if let type = item["contentType"] as? Int { return type == 1 || type == 2 }
+        if let type = item["type"] as? Int { return type == 1 || type == 2 }
+        if let typeStr = item["contentType"] as? String {
+            return typeStr.lowercased() == "folder" || typeStr.lowercased() == "dir" || typeStr.lowercased() == "catalog"
+        }
+        if let typeStr = item["type"] as? String {
+            return typeStr.lowercased() == "folder" || typeStr.lowercased() == "dir"
+        }
+        if let isDir = item["isDir"] as? Bool { return isDir }
+        if let isDir = item["is_dir"] as? Bool { return isDir }
+        // 兜底：无扩展名的视为文件夹
+        let name = item["contentName"] as? String ?? item["name"] as? String ?? ""
+        if !name.isEmpty && !name.contains(".") {
+            return true
+        }
+        return false
+    }
 
+    /// 加载139云盘指定目录的内容（根目录传 nil，子目录传 catalogId）
+    private func pan139FetchDir(linkId: String, parentCatalogId: String?, cookie: String) async throws -> [[String: Any]]? {
         let headers: [String: String] = [
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G960U) AppleWebKit/537.36",
             "Referer": "https://yun.139.com/",
@@ -6648,39 +6738,126 @@ class CloudDriveManager: ObservableObject {
             "Cookie": cookie
         ]
 
-        guard let urlComponents = URLComponents(string: shareURL),
-              let path = urlComponents.path.components(separatedBy: "/").last,
-              !path.isEmpty else {
-            throw DriveError.invalidShareURL
-        }
-
         let apiURL = URL(string: "https://share-kd-njs.yun.139.com/yun-share/richlifeApp/devapp/IOutLink/getContentInfoFromOutLink")!
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
-        let body: [String: Any] = ["linkId": path, "password": ""]
+
+        var body: [String: Any] = ["linkId": linkId, "password": ""]
+        // 尝试多种常见的子目录参数名
+        if let parentCatalogId = parentCatalogId, !parentCatalogId.isEmpty {
+            body["catalogId"] = parentCatalogId
+            body["parentCatalogId"] = parentCatalogId
+            body["parentId"] = parentCatalogId
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await session.data(for: request)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataObj = json["data"] as? [String: Any],
               let contentList = dataObj["contentList"] as? [[String: Any]] else {
-            throw DriveError.noPlayURL("139云盘: 无法获取分享内容")
+            return nil  // 返回 nil 表示此目录加载失败（可能是不支持子目录查询）
+        }
+        return contentList
+    }
+
+    /// 获取139云盘分享链接中的所有视频文件（递归遍历子文件夹）
+    func pan139GetAllFiles(shareURL: String, cookie: String) async throws -> [Pan139ShareFile] {
+        print("[139Pan] 📂 获取文件列表（递归）: \(shareURL.prefix(60))")
+        self.log("[CloudDrive] [139] 获取文件列表...")
+
+        guard let urlComponents = URLComponents(string: shareURL),
+              let path = urlComponents.path.components(separatedBy: "/").last,
+              !path.isEmpty else {
+            throw DriveError.invalidShareURL
         }
 
-        var files: [Pan139ShareFile] = []
-        for item in contentList {
-            let contentId = item["contentId"] as? String ?? ""
-            let catalogId = item["catalogId"] as? String ?? ""
-            let name = item["contentName"] as? String ?? item["name"] as? String ?? "未知文件"
-            guard !contentId.isEmpty, !catalogId.isEmpty else { continue }
-            files.append(Pan139ShareFile(contentId: contentId, catalogId: catalogId, fileName: name))
+        let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
+        var allVideoFiles: [Pan139ShareFile] = []
+        var allFilesFallback: [Pan139ShareFile] = []
+
+        // BFS 递归遍历所有子文件夹
+        // catalogId 为 nil 表示根目录
+        var dirsToLoad: [(catalogId: String?, name: String)] = [(nil, "根目录")]
+        var loadedDirs = Set<String>()
+        let maxDirs = 30
+        let maxVideos = 500
+
+        while !dirsToLoad.isEmpty && allVideoFiles.count < maxVideos {
+            guard loadedDirs.count < maxDirs else {
+                print("[139Pan] ⚠️ 已达目录数量上限 (\(maxDirs))，停止递归")
+                break
+            }
+
+            let current = dirsToLoad.removeFirst()
+            let dirKey = current.catalogId ?? "root"
+            guard !loadedDirs.contains(dirKey) else { continue }
+            loadedDirs.insert(dirKey)
+
+            let items: [[String: Any]]?
+            do {
+                items = try await pan139FetchDir(
+                    linkId: path,
+                    parentCatalogId: current.catalogId,
+                    cookie: cookie
+                )
+            } catch {
+                print("[139Pan] ⚠️ 加载目录失败: \(current.name), \(error.localizedDescription)")
+                if current.catalogId == nil {
+                    // 根目录都加载失败，直接抛出
+                    throw DriveError.noPlayURL("139云盘: 无法获取分享内容")
+                }
+                continue
+            }
+
+            guard let items = items else {
+                // API 返回 nil，可能不支持子目录查询，跳过
+                if current.catalogId != nil {
+                    print("[139Pan] ℹ️ 子目录查询可能不支持，跳过: \(current.name)")
+                }
+                continue
+            }
+
+            for item in items {
+                let contentId = item["contentId"] as? String ?? ""
+                let catalogId = item["catalogId"] as? String ?? ""
+                let name = item["contentName"] as? String ?? item["name"] as? String ?? "未知文件"
+                guard !contentId.isEmpty else { continue }
+                // catalogId 可能为空，用 contentId 兜底
+                let effectiveCatalogId = catalogId.isEmpty ? contentId : catalogId
+
+                let isDir = pan139IsDirItem(item)
+
+                if isDir {
+                    // 子文件夹，加入队列
+                    let dirKey = effectiveCatalogId
+                    if !loadedDirs.contains(dirKey) {
+                        dirsToLoad.append((effectiveCatalogId, name))
+                    }
+                } else {
+                    let file = Pan139ShareFile(contentId: contentId, catalogId: catalogId, fileName: name)
+                    allFilesFallback.append(file)
+                    // 筛选视频文件
+                    let lowerName = name.lowercased()
+                    if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
+                        allVideoFiles.append(file)
+                    }
+                }
+            }
         }
 
-        print("[139Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
-        self.log("[CloudDrive] [139] ✅ 文件列表: \(files.count) 个文件")
-        return files
+        // 如果递归后还是没有视频文件，返回所有文件作为兜底
+        let result = allVideoFiles.isEmpty ? allFilesFallback : allVideoFiles
+
+        print("[139Pan] ✅ 递归获取完成: \(result.count) 个文件（视频 \(allVideoFiles.count) 个，遍历了 \(loadedDirs.count) 个目录）")
+        self.log("[CloudDrive] [139] ✅ 文件列表: \(result.count) 个文件")
+
+        guard !result.isEmpty else {
+            throw DriveError.noPlayURL("139云盘: 分享内未找到文件")
+        }
+
+        return result
     }
 
     /// 解析139云盘指定文件的播放地址（用于多文件选集播放）
@@ -6936,9 +7113,62 @@ class CloudDriveManager: ObservableObject {
         let fileName: String
     }
 
-    /// 获取天翼云盘分享链接中的所有视频文件
+    private func pan189IsDirItem(_ item: [String: Any]) -> Bool {
+        // 优先检查 isFolder / isDir 字段
+        if let isFolder = item["isFolder"] as? Bool { return isFolder }
+        if let isDir = item["isDir"] as? Bool { return isDir }
+        if let isDir = item["is_dir"] as? Bool { return isDir }
+        if let type = item["fileType"] as? Int { return type == 1 || type == 2 }
+        if let type = item["type"] as? Int { return type == 1 || type == 2 }
+        if let typeStr = item["fileType"] as? String {
+            return typeStr.lowercased() == "folder" || typeStr.lowercased() == "dir"
+        }
+        if let typeStr = item["type"] as? String {
+            return typeStr.lowercased() == "folder" || typeStr.lowercased() == "dir"
+        }
+        // 兜底：无扩展名的视为文件夹
+        let name = item["fileName"] as? String ?? item["name"] as? String ?? ""
+        if !name.isEmpty && !name.contains(".") {
+            return true
+        }
+        return false
+    }
+
+    /// 加载天翼云盘指定目录的文件列表（支持分页）
+    private func pan189FetchDir(shareId: Int64, fileId: String, accessCode: String, headers: [String: String]) async throws -> [[String: Any]] {
+        let listURL = URL(string: "https://cloud.189.cn/api/open/share/listShareFiles.action")!
+        var allItems: [[String: Any]] = []
+        var pageNum = 1
+        let maxPages = 10
+
+        while pageNum <= maxPages {
+            var listReq = URLRequest(url: listURL)
+            listReq.httpMethod = "POST"
+            listReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            for (k, v) in headers { listReq.setValue(v, forHTTPHeaderField: k) }
+            var listBody = "shareId=\(shareId)&fileId=\(fileId)&pageNum=\(pageNum)&pageSize=100"
+            if !accessCode.isEmpty { listBody += "&accessCode=\(accessCode)" }
+            listReq.httpBody = listBody.data(using: .utf8)
+
+            let (listData, _) = try await session.data(for: listReq)
+            guard let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any],
+                  let dataArr = listJson["data"] as? [[String: Any]] else {
+                break
+            }
+
+            allItems.append(contentsOf: dataArr)
+
+            // 检查是否还有下一页
+            if dataArr.count < 100 { break }
+            pageNum += 1
+        }
+
+        return allItems
+    }
+
+    /// 获取天翼云盘分享链接中的所有视频文件（递归遍历子文件夹）
     func pan189GetAllFiles(shareURL: String, cookie: String) async throws -> [Pan189ShareFile] {
-        print("[189Pan] 📂 获取文件列表: \(shareURL.prefix(60))")
+        print("[189Pan] 📂 获取文件列表（递归）: \(shareURL.prefix(60))")
         self.log("[CloudDrive] [189] 获取文件列表...")
 
         let headers: [String: String] = [
@@ -6970,7 +7200,7 @@ class CloudDriveManager: ObservableObject {
             accessCode = pwdItem.value ?? ""
         }
 
-        // 步骤1: 获取分享信息
+        // 步骤1: 获取分享信息（shareId + 根目录 fileId）
         let shareInfoURL = URL(string: "https://cloud.189.cn/api/open/share/getShareInfoByCodeV2.action")!
         var shareReq = URLRequest(url: shareInfoURL)
         shareReq.httpMethod = "POST"
@@ -6985,77 +7215,115 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("天翼云盘: 无法解析分享信息响应")
         }
 
-        var fileId = ""
+        var rootFileId = ""
         var shareId: Int64 = 0
-        var fileName = ""
+        var rootFileName = ""
         if let fid = shareJson["fileId"] as? String, !fid.isEmpty {
-            fileId = fid
+            rootFileId = fid
         } else if let fid = shareJson["fileId"] as? Int64 {
-            fileId = String(fid)
+            rootFileId = String(fid)
         }
         if let sid = shareJson["shareId"] as? Int64 { shareId = sid }
         else if let sid = shareJson["shareId"] as? String { shareId = Int64(sid) ?? 0 }
-        if let fn = shareJson["fileName"] as? String { fileName = fn }
+        if let fn = shareJson["fileName"] as? String { rootFileName = fn }
 
-        if fileId.isEmpty, let dataObj = shareJson["data"] as? [String: Any] {
-            if let fid = dataObj["fileId"] as? String { fileId = fid }
-            else if let fid = dataObj["fileId"] as? Int64 { fileId = String(fid) }
+        if rootFileId.isEmpty, let dataObj = shareJson["data"] as? [String: Any] {
+            if let fid = dataObj["fileId"] as? String { rootFileId = fid }
+            else if let fid = dataObj["fileId"] as? Int64 { rootFileId = String(fid) }
             if let sid = dataObj["shareId"] as? Int64 { shareId = sid }
             else if let sid = dataObj["shareId"] as? String { shareId = Int64(sid) ?? 0 }
-            if let fn = dataObj["fileName"] as? String { fileName = fn }
+            if let fn = dataObj["fileName"] as? String { rootFileName = fn }
         }
 
-        guard !fileId.isEmpty else {
+        guard !rootFileId.isEmpty else {
             throw DriveError.noPlayURL("天翼云盘: 无法提取文件信息")
         }
 
-        // 步骤2: 尝试列出文件夹内的文件
-        let listURL = URL(string: "https://cloud.189.cn/api/open/share/listShareFiles.action")!
-        var listReq = URLRequest(url: listURL)
-        listReq.httpMethod = "POST"
-        listReq.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        for (k, v) in headers { listReq.setValue(v, forHTTPHeaderField: k) }
-        var listBody = "shareId=\(shareId)&fileId=\(fileId)&pageNum=1&pageSize=100"
-        if !accessCode.isEmpty { listBody += "&accessCode=\(accessCode)" }
-        listReq.httpBody = listBody.data(using: .utf8)
+        let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
+        var allVideoFiles: [Pan189ShareFile] = []
+        var allFilesFallback: [Pan189ShareFile] = []
 
-        let (listData, _) = try await session.data(for: listReq)
-        if let listJson = try JSONSerialization.jsonObject(with: listData) as? [String: Any] {
-            // 如果成功返回文件列表
-            if let dataObj = listJson["data"] as? [[String: Any]], !dataObj.isEmpty {
-                let videoExts = ["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m4v", "rmvb", "rm"]
-                var files: [Pan189ShareFile] = []
-                for item in dataObj {
-                    let fId = (item["fileId"] as? String) ?? (item["fileId"] as? Int64).map { String($0) } ?? ""
-                    let fName = item["fileName"] as? String ?? item["name"] as? String ?? "未知文件"
-                    guard !fId.isEmpty else { continue }
+        // BFS 递归遍历所有子文件夹
+        var dirsToLoad: [(fileId: String, name: String)] = [(rootFileId, rootFileName)]
+        var loadedDirs = Set<String>()
+        let maxDirs = 30
+        let maxVideos = 500
+
+        while !dirsToLoad.isEmpty && allVideoFiles.count < maxVideos {
+            guard loadedDirs.count < maxDirs else {
+                print("[189Pan] ⚠️ 已达目录数量上限 (\(maxDirs))，停止递归")
+                break
+            }
+
+            let current = dirsToLoad.removeFirst()
+            guard !loadedDirs.contains(current.fileId) else { continue }
+            loadedDirs.insert(current.fileId)
+
+            let items: [[String: Any]]
+            do {
+                items = try await pan189FetchDir(
+                    shareId: shareId,
+                    fileId: current.fileId,
+                    accessCode: accessCode,
+                    headers: headers
+                )
+            } catch {
+                print("[189Pan] ⚠️ 加载目录失败: \(current.name), \(error.localizedDescription)")
+                if current.fileId == rootFileId {
+                    // 根目录加载失败，抛出
+                    throw DriveError.noPlayURL("天翼云盘: 无法获取文件列表")
+                }
+                continue
+            }
+
+            for item in items {
+                let fId = (item["fileId"] as? String) ?? (item["fileId"] as? Int64).map { String($0) } ?? ""
+                let fName = item["fileName"] as? String ?? item["name"] as? String ?? "未知文件"
+                guard !fId.isEmpty else { continue }
+
+                let isDir = pan189IsDirItem(item)
+
+                if isDir {
+                    // 子文件夹，加入队列
+                    if !loadedDirs.contains(fId) {
+                        dirsToLoad.append((fId, fName))
+                    }
+                } else {
+                    let file = Pan189ShareFile(fileId: fId, fileName: fName)
+                    allFilesFallback.append(file)
+                    // 筛选视频文件
                     let lowerName = fName.lowercased()
                     if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
-                        files.append(Pan189ShareFile(fileId: fId, fileName: fName))
+                        allVideoFiles.append(file)
                     }
-                }
-                // 如果没有视频文件，返回所有文件
-                if files.isEmpty {
-                    for item in dataObj {
-                        let fId = (item["fileId"] as? String) ?? (item["fileId"] as? Int64).map { String($0) } ?? ""
-                        let fName = item["fileName"] as? String ?? item["name"] as? String ?? "未知文件"
-                        if !fId.isEmpty {
-                            files.append(Pan189ShareFile(fileId: fId, fileName: fName))
-                        }
-                    }
-                }
-                if !files.isEmpty {
-                    print("[189Pan] ✅ 文件列表获取成功: \(files.count) 个文件")
-                    self.log("[CloudDrive] [189] ✅ 文件列表: \(files.count) 个文件")
-                    return files
                 }
             }
         }
 
-        // 列表获取失败，返回单文件
-        print("[189Pan] 文件夹列表获取失败，返回单文件: \(fileName)")
-        self.log("[CloudDrive] [189] 单文件: \(fileName)")
-        return [Pan189ShareFile(fileId: fileId, fileName: fileName)]
+        // 如果递归后没有视频也没有普通文件（可能根目录本身就是一个视频文件）
+        if allVideoFiles.isEmpty && allFilesFallback.isEmpty {
+            // 检查根目录是不是单文件
+            if !rootFileName.isEmpty {
+                let lowerName = rootFileName.lowercased()
+                if videoExts.contains(where: { lowerName.hasSuffix(".\($0)") }) {
+                    allVideoFiles.append(Pan189ShareFile(fileId: rootFileId, fileName: rootFileName))
+                } else {
+                    allFilesFallback.append(Pan189ShareFile(fileId: rootFileId, fileName: rootFileName))
+                }
+            }
+        }
+
+        // 如果没有视频文件，返回所有文件作为兜底
+        let result = allVideoFiles.isEmpty ? allFilesFallback : allVideoFiles
+
+        print("[189Pan] ✅ 递归获取完成: \(result.count) 个文件（视频 \(allVideoFiles.count) 个，遍历了 \(loadedDirs.count) 个目录）")
+        self.log("[CloudDrive] [189] ✅ 文件列表: \(result.count) 个文件")
+
+        guard !result.isEmpty else {
+            throw DriveError.noPlayURL("天翼云盘: 分享内未找到文件")
+        }
+
+        return result
     }
 
     /// 解析天翼云盘指定文件的播放地址（用于多文件选集播放）
