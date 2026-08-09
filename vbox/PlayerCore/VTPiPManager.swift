@@ -76,6 +76,17 @@ final class VTPiPManager: NSObject {
         var targetStartTimeMs: UInt64 = 0
         /// 是否已越过目标时间（找到目标时间后的第一个关键帧后开始解码）
         var hasPassedTargetTime = false
+        /// 下载阶段：header=下载头部解析元数据, seek=Range跳到目标位置, streaming=正常播放
+        var downloadPhase: DownloadPhase = .header
+        /// 头部已下载字节数
+        var headerBytesDownloaded: Int64 = 0
+    }
+
+    /// 下载阶段
+    private enum DownloadPhase {
+        case header      // 下载文件头部，解析 codec/分辨率等元数据
+        case seeking     // 跳到目标位置（Range 请求）
+        case streaming   // 正常流式播放
     }
 
     private var pipelineState = PipelineState()
@@ -178,6 +189,8 @@ final class VTPiPManager: NSObject {
             pipelineState.decodedFrameCount = 0
             pipelineState.targetStartTimeMs = 0
             pipelineState.hasPassedTargetTime = false
+            pipelineState.downloadPhase = .header
+            pipelineState.headerBytesDownloaded = 0
         }
 
         // 主线程清理 UI 相关资源
@@ -194,23 +207,128 @@ final class VTPiPManager: NSObject {
     private func startDownloadOnPipelineQueue(url: URL, headers: [String: String], startTime: TimeInterval, remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
+        // 如果 startTime 很小（< 5秒），直接从头开始下载，不走两阶段
+        if startTime < 5.0 {
+            pipelineState.downloadPhase = .streaming
+            pipelineState.hasPassedTargetTime = startTime <= 0
+            print("[VTPiP] 从头开始播放（\(startTime)s），直接流式下载")
+            startStreamingDownload(url: url, headers: headers, rangeStart: nil, remuxer: remuxer)
+            return
+        }
+
+        // 两阶段下载：
+        // Phase 1: 先下载文件头部（前 512KB），让 StreamRemuxer 解析出 codec/分辨率等元数据
+        // Phase 2: 用 Range 请求跳到目标位置附近，继续下载和解码
+        pipelineState.downloadPhase = .header
+        pipelineState.headerBytesDownloaded = 0
+        print("[VTPiP] 第一阶段：下载头部解析元数据（目标时间: \(startTime)s）")
+        startHeaderDownload(url: url, headers: headers, remuxer: remuxer)
+    }
+
+    /// 启动头部下载（第一阶段：只下前 512KB 用于解析元数据）
+    private func startHeaderDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
+        dispatchPrecondition(condition: .onQueue(processingQueue))
+
+        var request = URLRequest(url: url)
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        // 只请求前 512KB，足够包含 MKV header + tracks + 第一个 cluster
+        request.setValue("bytes=0-524287", forHTTPHeaderField: "Range")
+
+        let delegate = VTPiPStreamDelegate(
+            queue: processingQueue,
+            onDataReceived: { [weak self] data in
+                guard let self else { return }
+                guard self.pipelineState.isRunning else { return }
+                guard self.pipelineState.downloadPhase == .header else { return }
+
+                self.pipelineState.headerBytesDownloaded += Int64(data.count)
+
+                // 喂给转封装器解析头部
+                remuxer.processBytes(data)
+
+                // 检查是否已经解析出视频信息
+                if !self.pipelineState.decoderSetupStarted,
+                   remuxer.sourceFormat != .unknown,
+                   remuxer.videoWidth > 0,
+                   remuxer.videoHeight > 0 {
+                    self.pipelineState.decoderSetupStarted = true
+                    self.setupDecoderAndDisplayLayerOnMain(remuxer: remuxer)
+                }
+            },
+            onComplete: { [weak self] in
+                guard let self else { return }
+                guard self.pipelineState.downloadPhase == .header else { return }
+                print("[VTPiP] 头部下载完成，进入第二阶段：跳到目标位置")
+
+                // 头部下载完成，取消当前任务，启动第二阶段 Range 下载
+                self.pipelineState.downloadTask?.cancel()
+                self.pipelineState.downloadTask = nil
+                self.pipelineState.downloadDelegate = nil
+
+                // 启动第二阶段：从目标位置附近开始
+                self.startSeekPhaseDownload(url: url, headers: headers, remuxer: remuxer)
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
+                guard self.pipelineState.downloadPhase == .header else { return }
+
+                // 如果是取消（我们主动取消的），不算错误
+                if let nsError = error as NSError?, nsError.code == -999 {
+                    return
+                }
+
+                print("[VTPiP] 头部下载失败: \(error?.localizedDescription ?? "unknown")")
+                self.pipelineState.isRunning = false
+                Task { @MainActor in
+                    self.handlePiPError()
+                }
+            }
+        )
+
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.networkServiceType = .video
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        pipelineState.downloadSession = session
+        let task = session.dataTask(with: request)
+        task.resume()
+
+        pipelineState.downloadTask = task
+        pipelineState.downloadDelegate = delegate
+
+        delegate.associatedTask = task
+        objc_setAssociatedObject(task, &VTPiPManager.associatedDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    /// 启动 seek 阶段下载（第二阶段：用 Range 跳到目标位置附近）
+    private func startSeekPhaseDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
+        dispatchPrecondition(condition: .onQueue(processingQueue))
+
+        let targetMs = pipelineState.targetStartTimeMs
+        // 粗略估算字节位置：假设平均码率 2 Mbps = 250 KB/s
+        // 往前多留 20 秒余量，确保目标时间点落在请求范围内
+        let startTimeSec = TimeInterval(targetMs) / 1000.0
+        let estimatedBytePosition = max(0, Int64(startTimeSec - 20) * 250 * 1024)
+
+        pipelineState.downloadPhase = .seeking
+        print("[VTPiP] 第二阶段：Range 跳到 ~\(estimatedBytePosition / 1024 / 1024)MB（目标: \(startTimeSec)s）")
+
+        startStreamingDownload(url: url, headers: headers, rangeStart: estimatedBytePosition, remuxer: remuxer)
+    }
+
+    /// 启动流式下载（可带或不带 Range）
+    private func startStreamingDownload(url: URL, headers: [String: String], rangeStart: Int64?, remuxer: StreamRemuxer) {
+        dispatchPrecondition(condition: .onQueue(processingQueue))
+
         var request = URLRequest(url: url)
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        // 如果从非零位置开始，使用 Range 请求粗跳到目标位置附近
-        // 注意：MKV/FLV 格式不能精确 seek 到帧，需要跳到目标位置前的某个位置，
-        // 然后逐帧解析找到目标时间后的第一个关键帧。
-        // 这里用一个保守的估算：假设码率 2Mbps，往前多跳 10 秒数据确保能找到关键帧。
-        if startTime > 1.0 {
-            // 粗略估算字节位置：假设平均码率 2 Mbps = 250 KB/s
-            // 往前多留 15 秒余量，确保包含目标时间点之前的关键帧
-            let estimatedBytePosition = max(0, Int64(startTime - 15) * 250 * 1024)
-            if estimatedBytePosition > 0 {
-                request.setValue("bytes=\(estimatedBytePosition)-", forHTTPHeaderField: "Range")
-                print("[VTPiP] 使用 Range 请求从 ~\(estimatedBytePosition / 1024 / 1024)MB 开始（目标: \(startTime)s）")
-            }
+        if let rangeStart = rangeStart, rangeStart > 0 {
+            request.setValue("bytes=\(rangeStart)-", forHTTPHeaderField: "Range")
         }
 
         let delegate = VTPiPStreamDelegate(
@@ -219,10 +337,15 @@ final class VTPiPManager: NSObject {
                 guard let self else { return }
                 guard self.pipelineState.isRunning else { return }
 
+                // 如果正在 seek 阶段，进入 streaming 阶段
+                if self.pipelineState.downloadPhase == .seeking {
+                    self.pipelineState.downloadPhase = .streaming
+                }
+
                 // 喂给转封装器
                 remuxer.processBytes(data)
 
-                // 检查是否已经解析出视频信息（只调用一次初始化解码器）
+                // 检查是否已经解析出视频信息（兜底：如果头部阶段没解析出来）
                 if !self.pipelineState.decoderSetupStarted,
                    remuxer.sourceFormat != .unknown,
                    remuxer.videoWidth > 0,
@@ -235,7 +358,6 @@ final class VTPiPManager: NSObject {
                 guard let self else { return }
                 print("[VTPiP] 下载完成")
                 _ = remuxer.finalize()
-                // 等待解码完成
                 if let decoder = self.pipelineState.decoderSession {
                     decoder.finishDecoding()
                 }
@@ -261,7 +383,6 @@ final class VTPiPManager: NSObject {
         pipelineState.downloadTask = task
         pipelineState.downloadDelegate = delegate
 
-        // 绑定 delegate 到 task，防止被释放
         delegate.associatedTask = task
         objc_setAssociatedObject(task, &VTPiPManager.associatedDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
