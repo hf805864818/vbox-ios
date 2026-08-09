@@ -1611,41 +1611,64 @@ class CloudDriveManager: ObservableObject {
     }
 
     private func aliGetShareFileList(shareId: String, parentFileId: String, shareToken: String, token: String) async throws -> [AliShareFile] {
-        var request = URLRequest(url: URL(string: "https://api.alipan.com/adrive/v3/file/list")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
-        let body: [String: Any] = [
-            "share_id": shareId,
-            "parent_file_id": parentFileId,
-            "limit": 100,
-            "order_by": "name",
-            "order_direction": "ASC"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await session.data(for: request)
+        var allItems: [[String: Any]] = []
+        var marker: String = ""
 
-        let respStr = String(data: data, encoding: .utf8) ?? ""
-        print("[Ali] 文件列表响应: \(respStr.prefix(500))")
+        // 分页加载，直到 next_marker 为空或达到上限（最多 10 页 = 1000 个文件/文件夹）
+        for page in 0..<10 {
+            var request = URLRequest(url: URL(string: "https://api.alipan.com/adrive/v3/file/list")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+            request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+            var body: [String: Any] = [
+                "share_id": shareId,
+                "parent_file_id": parentFileId,
+                "limit": 100,
+                "order_by": "name",
+                "order_direction": "ASC"
+            ]
+            if !marker.isEmpty {
+                body["marker"] = marker
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, _) = try await session.data(for: request)
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            print("[Ali] ❌ 文件列表响应非JSON")
-            throw DriveError.invalidResponse
-        }
+            if page == 0 {
+                let respStr = String(data: data, encoding: .utf8) ?? ""
+                print("[Ali] 文件列表响应: \(respStr.prefix(500))")
+            }
 
-        guard let items = json["items"] as? [[String: Any]] else {
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("[Ali] ❌ 文件列表响应非JSON")
+                throw DriveError.invalidResponse
+            }
+
             if let code = json["code"] as? String, code != "OK" {
                 let message = json["message"] as? String ?? "未知错误"
                 print("[Ali] ❌ API错误: \(message)")
                 throw DriveError.noPlayURL("阿里: \(message)")
             }
-            print("[Ali] ❌ 文件列表为空")
-            throw DriveError.noPlayURL("阿里: 分享为空或已失效")
+
+            guard let items = json["items"] as? [[String: Any]] else {
+                print("[Ali] ❌ 文件列表为空")
+                throw DriveError.noPlayURL("阿里: 分享为空或已失效")
+            }
+
+            allItems.append(contentsOf: items)
+
+            // 检查是否有下一页
+            if let nextMarker = json["next_marker"] as? String, !nextMarker.isEmpty {
+                marker = nextMarker
+                // 还有下一页，继续
+            } else {
+                // 没有更多了
+                break
+            }
         }
 
-        return items.compactMap { item in
+        return allItems.compactMap { item in
             let fileId = item["file_id"] as? String ?? ""
             let name = item["name"] as? String ?? item["file_name"] as? String ?? ""
             let type = item["type"] as? String ?? ""
@@ -8423,12 +8446,13 @@ class CloudDriveManager: ObservableObject {
     struct XunleiShareFile {
         let fileId: String
         let fileName: String
+        let isDir: Bool
     }
 
-    /// 获取迅雷云盘分享链接中的所有视频文件
+    /// 获取迅雷云盘分享链接中的所有视频文件（递归遍历子文件夹）
     /// 用于文件夹类型的分享链接，返回所有可播放的视频文件列表
     func xunleiGetFileList(shareURL: String, cookie: String) async throws -> [XunleiShareFile] {
-        print("[Xunlei] 📂 获取文件列表: \(shareURL.prefix(60))")
+        print("[Xunlei] 📂 获取文件列表（递归）: \(shareURL.prefix(60))")
         self.log("[CloudDrive] [Xunlei] 获取文件列表...")
 
         let config = WKWebViewConfiguration()
@@ -8509,9 +8533,9 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("迅雷云盘: 页面加载超时，文件列表未渲染")
         }
 
-        // 调用分享详情 API 获取完整文件列表
-        let jsCode = """
-        (async function() {
+        // 在 WebView 中注入一个全局函数，用于加载指定目录的文件列表
+        let injectJS = """
+        window.__vbox_xunlei_loadDir = async function(parentId) {
             try {
                 var url = window.location.href;
                 var shareIdMatch = url.match(/\\/s\\/([A-Za-z0-9]+)/);
@@ -8521,83 +8545,151 @@ class CloudDriveManager: ObservableObject {
                 var pwdMatch = url.match(/[?&]pwd=([^&]+)/);
                 var pwd = pwdMatch ? decodeURIComponent(pwdMatch[1]) : "";
 
-                var detailResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/detail', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        share_id: shareId,
-                        pass_code: pwd,
-                        flags: {page: 1, size: 100}
-                    })
-                });
+                // 使用 share/files API 加载指定目录
+                var apiURL = 'https://x-api-pan.xunlei.com/drive/v1/share/files?share_id=' + shareId + '&pass_code=' + pwd;
+                if (parentId && parentId !== 'root') {
+                    apiURL += '&parent_id=' + encodeURIComponent(parentId);
+                }
+                apiURL += '&page=1&size=200';
 
-                if (!detailResp.ok) {
-                    return {error: 'share/detail API返回: ' + detailResp.status};
+                var resp = await fetch(apiURL);
+                if (!resp.ok) {
+                    // 兜底：用 share/detail API
+                    var detailResp = await fetch('https://x-api-pan.xunlei.com/drive/v1/share/detail', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            share_id: shareId,
+                            pass_code: pwd,
+                            parent_file_id: parentId === 'root' ? '' : parentId,
+                            flags: {page: 1, size: 200}
+                        })
+                    });
+                    if (!detailResp.ok) {
+                        return {error: 'API返回: ' + detailResp.status};
+                    }
+                    var detailData = await detailResp.json();
+                    var list = detailData.file_list || detailData.files || detailData.file_infos || [];
+                    return {files: list};
                 }
 
-                var detailData = await detailResp.json();
-                var fileList = detailData.file_list || detailData.files || detailData.file_infos || [];
+                var data = await resp.json();
+                var list = data.file_list || data.files || data.file_infos || (data.data && data.data.files) || [];
+                return {files: list};
+            } catch(e) {
+                return {error: 'JS异常: ' + e.message};
+            }
+        };
+        """
+        try await webView.evaluateJavaScript(injectJS)
 
+        // BFS 递归遍历所有子文件夹，收集视频文件
+        var allVideoFiles: [XunleiShareFile] = []
+        var dirsToLoad: [(id: String, name: String)] = [("root", "根目录")]
+        var loadedDirs = Set<String>()
+        let maxDirs = 30 // 最多遍历 30 个子目录，防止极端嵌套
+
+        while !dirsToLoad.isEmpty && allVideoFiles.count < 500 {
+            guard loadedDirs.count < maxDirs else {
+                print("[Xunlei] ⚠️ 已达目录数量上限 (\(maxDirs))，停止递归")
+                break
+            }
+
+            let current = dirsToLoad.removeFirst()
+            guard !loadedDirs.contains(current.id) else { continue }
+            loadedDirs.insert(current.id)
+
+            let jsCode = """
+            (async function() {
+                var result = await window.__vbox_xunlei_loadDir('\(current.id)');
+                if (result.error) return {error: result.error};
+
+                var files = result.files || [];
                 var videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m4v', '.rmvb', '.rm'];
                 var videoFiles = [];
-                var allFiles = [];
+                var subDirs = [];
 
-                for (var i = 0; i < fileList.length; i++) {
-                    var fName = fileList[i].name || fileList[i].file_name || '';
-                    var fId = fileList[i].id || fileList[i].file_id || '';
+                for (var i = 0; i < files.length; i++) {
+                    var fName = files[i].name || files[i].file_name || '';
+                    var fId = files[i].id || files[i].file_id || '';
                     if (!fId) continue;
 
-                    allFiles.push({fileId: fId, fileName: fName});
+                    // 判断是否为文件夹
+                    var isDir = false;
+                    if (files[i].type === 'folder' || files[i].type === 'dir' || files[i].is_dir === true || files[i].isDir === true) {
+                        isDir = true;
+                    } else if (!fName.includes('.')) {
+                        // 无扩展名的大概率是文件夹（兜底判断）
+                        isDir = true;
+                    }
 
-                    var lowerName = fName.toLowerCase();
-                    for (var j = 0; j < videoExts.length; j++) {
-                        if (lowerName.endsWith(videoExts[j])) {
-                            videoFiles.push({fileId: fId, fileName: fName});
-                            break;
+                    if (isDir) {
+                        subDirs.push({fileId: fId, fileName: fName, isDir: true});
+                    } else {
+                        var lowerName = fName.toLowerCase();
+                        for (var j = 0; j < videoExts.length; j++) {
+                            if (lowerName.endsWith(videoExts[j])) {
+                                videoFiles.push({fileId: fId, fileName: fName, isDir: false});
+                                break;
+                            }
                         }
                     }
                 }
 
-                var resultFiles = videoFiles.length > 0 ? videoFiles : allFiles;
-                return {files: resultFiles, total: resultFiles.length};
-            } catch(e) {
-                return {error: 'JS异常: ' + e.message};
+                return {videos: videoFiles, dirs: subDirs};
+            })()
+            """
+
+            let jsResult: Any?
+            do {
+                jsResult = try await withTimeout(seconds: 15) {
+                    try await webView.evaluateJavaScript(jsCode)
+                }
+            } catch {
+                print("[Xunlei] ⚠️ 加载目录失败: \(current.name), 跳过")
+                continue
             }
-        })()
-        """
 
-        let jsResult: Any?
-        do {
-            jsResult = try await withTimeout(seconds: 30) {
-                try await webView.evaluateJavaScript(jsCode)
+            guard let resultDict = jsResult as? [String: Any] else {
+                continue
             }
-        } catch {
-            throw DriveError.noPlayURL("迅雷云盘: 获取文件列表超时")
-        }
 
-        guard let resultDict = jsResult as? [String: Any] else {
-            throw DriveError.noPlayURL("迅雷云盘: 文件列表解析失败")
-        }
+            if let error = resultDict["error"] as? String {
+                print("[Xunlei] ⚠️ 加载目录失败: \(current.name), \(error)")
+                continue
+            }
 
-        if let error = resultDict["error"] as? String {
-            throw DriveError.noPlayURL("迅雷云盘: \(error)")
-        }
+            // 收集视频文件
+            if let videos = resultDict["videos"] as? [[String: Any]] {
+                for v in videos {
+                    if let fId = v["fileId"] as? String, !fId.isEmpty,
+                       let fName = v["fileName"] as? String {
+                        allVideoFiles.append(XunleiShareFile(fileId: fId, fileName: fName, isDir: false))
+                    }
+                }
+            }
 
-        guard let filesArray = resultDict["files"] as? [[String: Any]] else {
-            throw DriveError.noPlayURL("迅雷云盘: 文件列表为空")
-        }
-
-        var files: [XunleiShareFile] = []
-        for fileDict in filesArray {
-            if let fId = fileDict["fileId"] as? String, !fId.isEmpty,
-               let fName = fileDict["fileName"] as? String {
-                files.append(XunleiShareFile(fileId: fId, fileName: fName))
+            // 收集子文件夹，加入队列
+            if let dirs = resultDict["dirs"] as? [[String: Any]] {
+                for d in dirs {
+                    if let dId = d["fileId"] as? String, !dId.isEmpty,
+                       let dName = d["fileName"] as? String {
+                        if !loadedDirs.contains(dId) {
+                            dirsToLoad.append((dId, dName))
+                        }
+                    }
+                }
             }
         }
 
-        print("[Xunlei] ✅ 文件列表获取成功: \(files.count) 个文件")
-        self.log("[CloudDrive] [Xunlei] ✅ 文件列表: \(files.count) 个文件")
-        return files
+        print("[Xunlei] ✅ 递归获取完成: \(allVideoFiles.count) 个视频文件，遍历了 \(loadedDirs.count) 个目录")
+        self.log("[CloudDrive] [Xunlei] ✅ 文件列表: \(allVideoFiles.count) 个视频")
+
+        guard !allVideoFiles.isEmpty else {
+            throw DriveError.noPlayURL("迅雷云盘: 分享内未找到视频文件")
+        }
+
+        return allVideoFiles
     }
 
     /// 解析迅雷云盘指定文件的播放地址（用于多文件选集播放）
