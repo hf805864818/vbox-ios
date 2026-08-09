@@ -194,10 +194,10 @@ final class VTDecoderSession {
             // 填充数据
             let copyStatus = data.withUnsafeBytes { ptr in
                 CMBlockBufferReplaceDataBytes(
-                    with: ptr.baseAddress!,
+                    withMemoryBlock: ptr.baseAddress!,
                     blockBuffer: blockBuf,
-                    offset: 0,
-                    length: dataSize
+                    offsetIntoDestination: 0,
+                    dataLength: dataSize
                 )
             }
             
@@ -419,10 +419,12 @@ final class VTDecoderSession {
                 var formatDesc: CMVideoFormatDescription?
                 let status = sps.withUnsafeBytes { spsPtr in
                     pps.withUnsafeBytes { ppsPtr in
-                        CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                        let spsPointer = spsPtr.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                        let ppsPointer = ppsPtr.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                        return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                             allocator: kCFAllocatorDefault,
                             parameterSetCount: 2,
-                            parameterSetPointers: [spsPtr.baseAddress!, ppsPtr.baseAddress!],
+                            parameterSetPointers: [spsPointer, ppsPointer],
                             parameterSetSizes: [sps.count, pps.count],
                             nalUnitHeaderLength: 4,
                             formatDescriptionOut: &formatDesc
@@ -478,12 +480,16 @@ final class VTDecoderSession {
         let status = vps.withUnsafeBytes { vpsPtr in
             sps.withUnsafeBytes { spsPtr in
                 pps.withUnsafeBytes { ppsPtr in
-                    CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                    let vpsPointer = vpsPtr.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let spsPointer = spsPtr.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let ppsPointer = ppsPtr.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                         allocator: kCFAllocatorDefault,
                         parameterSetCount: 3,
-                        parameterSetPointers: [vpsPtr.baseAddress!, spsPtr.baseAddress!, ppsPtr.baseAddress!],
+                        parameterSetPointers: [vpsPointer, spsPointer, ppsPointer],
                         parameterSetSizes: [vps.count, sps.count, pps.count],
                         nalUnitHeaderLength: 4,
+                        extensions: nil,
                         formatDescriptionOut: &formatDesc
                     )
                 }

@@ -89,7 +89,9 @@ final class VTPiPManager: NSObject {
         case streaming   // 正常流式播放
     }
 
-    private var pipelineState = PipelineState()
+    /// 解码管线状态，所有读写都在 processingQueue 上进行
+    /// 注意：此属性不遵守 MainActor 隔离，仅在 processingQueue 上安全访问
+    private nonisolated(unsafe) var pipelineState = PipelineState()
     private let processingQueue = DispatchQueue(label: "com.vbox.vtpip.processing", qos: .userInitiated)
 
     // MARK: - 其他属性
@@ -204,7 +206,7 @@ final class VTPiPManager: NSObject {
 
     // MARK: - 私有方法 - 下载（processingQueue 上调用）
 
-    private func startDownloadOnPipelineQueue(url: URL, headers: [String: String], startTime: TimeInterval, remuxer: StreamRemuxer) {
+    nonisolated private func startDownloadOnPipelineQueue(url: URL, headers: [String: String], startTime: TimeInterval, remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         // 如果 startTime 很小（< 5秒），直接从头开始下载，不走两阶段
@@ -226,7 +228,7 @@ final class VTPiPManager: NSObject {
     }
 
     /// 启动头部下载（第一阶段：只下前 512KB 用于解析元数据）
-    private func startHeaderDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
+    nonisolated private func startHeaderDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         var request = URLRequest(url: url)
@@ -303,7 +305,7 @@ final class VTPiPManager: NSObject {
     }
 
     /// 启动 seek 阶段下载（第二阶段：用 Range 跳到目标位置附近）
-    private func startSeekPhaseDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
+    nonisolated private func startSeekPhaseDownload(url: URL, headers: [String: String], remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         let targetMs = pipelineState.targetStartTimeMs
@@ -319,7 +321,7 @@ final class VTPiPManager: NSObject {
     }
 
     /// 启动流式下载（可带或不带 Range）
-    private func startStreamingDownload(url: URL, headers: [String: String], rangeStart: Int64?, remuxer: StreamRemuxer) {
+    nonisolated private func startStreamingDownload(url: URL, headers: [String: String], rangeStart: Int64?, remuxer: StreamRemuxer) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         var request = URLRequest(url: url)
@@ -391,7 +393,7 @@ final class VTPiPManager: NSObject {
 
     // MARK: - 私有方法 - 视频帧处理（processingQueue 上调用）
 
-    private func handleVideoFrameOnPipelineQueue(_ frameInfo: StreamRemuxer.VideoFrameInfo) {
+    nonisolated private func handleVideoFrameOnPipelineQueue(_ frameInfo: StreamRemuxer.VideoFrameInfo) {
         dispatchPrecondition(condition: .onQueue(processingQueue))
 
         guard pipelineState.isRunning else { return }
@@ -444,7 +446,7 @@ final class VTPiPManager: NSObject {
 
     // MARK: - 私有方法 - 初始化解码器和显示层
 
-    private func setupDecoderAndDisplayLayerOnMain(remuxer: StreamRemuxer) {
+    nonisolated private func setupDecoderAndDisplayLayerOnMain(remuxer: StreamRemuxer) {
         let width = remuxer.videoWidth
         let height = remuxer.videoHeight
         let codecType = remuxer.videoCodecTypeValue
@@ -774,9 +776,9 @@ extension VTPiPManager: AVPictureInPictureSampleBufferPlaybackDelegate {
 
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
-        skipBy skipInterval: CMTime) async {
+        skipByInterval skipInterval: CMTime) async {
         // 快进/快退：流式播放不支持，忽略
-        print("[VTPiP] PiP skipBy 请求: \(skipInterval.seconds)s，流式播放不支持")
+        print("[VTPiP] PiP skipByInterval 请求: \(skipInterval.seconds)s，流式播放不支持")
     }
 }
 
