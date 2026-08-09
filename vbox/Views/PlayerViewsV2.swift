@@ -1056,9 +1056,19 @@ class PlayerState: ObservableObject {
     private func compatibilityPiPStrategy(engineName: String, url: URL?) -> PiPStrategy {
         let isBaiduProxy = url?.host == "127.0.0.1" && (url?.path.contains("baidu-stream") ?? false)
         if isBaiduProxy {
-            // 百度复杂资源由兼容内核保证主播放，PiP 使用 VideoToolbox 硬解码方案
-            // 独立下载 + 硬件解码 + SampleBuffer PiP，后台不冻帧
-            return .videoToolbox
+            // 判断视频格式，选择不同的 PiP 方案
+            let urlStr = url?.absoluteString.lowercased() ?? ""
+            let isMP4Format = urlStr.contains(".mp4") || urlStr.contains(".m4v") || urlStr.contains(".mov")
+
+            if isMP4Format {
+                // MP4 等原生格式：用 AVPlayer 代理 PiP
+                // MP4 是 AVPlayer 原生支持的格式，转封装开销小，成功率高
+                return .avPlayerProxy
+            } else {
+                // MKV/FLV 等非原生格式：用 VideoToolbox 硬解码 PiP
+                // 独立下载 + 硬件解码 + SampleBuffer PiP，后台不冻帧
+                return .videoToolbox
+            }
         }
         if engineName.contains("MPV") || engineName.contains("mpv") {
             return .frameBridged
@@ -6959,10 +6969,11 @@ struct PlayerControlsView: View {
                     VTPiPManager.shared.startPiP(
                         url: url,
                         headers: playerState.compatibilityHeaders,
+                        startTime: playerState.currentTime,
                         provider: "baidu"
                     )
                     useVTPiP = true
-                    playerState.log("[PlayerV2] 启动 VideoToolbox 硬解码画中画")
+                    playerState.log("[PlayerV2] 启动 VideoToolbox 硬解码画中画，起始时间: \(playerState.currentTime)s")
                 } else if playerState.currentPiPStrategy == .avPlayerProxy, let url = playerState.compatibilityURL {
                     MPVAVPlayerPiPProxy.shared.startProxyPiP(
                         url: url,
