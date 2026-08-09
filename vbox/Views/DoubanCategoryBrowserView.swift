@@ -388,7 +388,11 @@ struct DoubanGridSubjectCell: View {
         }
         .onTapGesture {
             dismiss()
-            settings.triggerSearch(subject.title)
+            // 延迟触发搜索，等待 sheet dismiss 动画完成，避免转场竞争
+            let title = subject.title
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                settings.triggerSearch(title)
+            }
         }
     }
 

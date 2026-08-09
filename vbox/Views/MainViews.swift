@@ -1362,6 +1362,12 @@ struct SearchView: View {
                 if !settings.searchQuery.isEmpty {
                     runTriggeredSearch()
                 }
+            } else if !settings.searchQuery.isEmpty && (!isSearching || searchResults.isEmpty) {
+                // 防御性恢复：视图重新出现时，如果搜索状态被意外重置
+                // （如 sheet dismiss 与 fullScreenCover present 转场竞争导致 onDisappear 清空状态），
+                // 但仍有待执行的搜索关键词，则重新执行搜索。
+                // 正常从详情页返回时 isSearching=true 且 searchResults 非空，不会触发此分支。
+                runTriggeredSearch()
             }
             // 从详情页返回时：不做任何操作，保持现有搜索结果
         }
