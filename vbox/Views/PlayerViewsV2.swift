@@ -540,6 +540,10 @@ struct VideoPlayerViewV2: View {
     @State private var pipToggleObserver: NSObjectProtocol?
     @State private var avPlayerPiPStatusObserver: NSObjectProtocol?
     @State private var avPlayerPiPFallbackObserver: NSObjectProtocol?
+    /// VideoToolbox PiP 失败观察者
+    @State private var vtPiPFailureObserver: NSObjectProtocol?
+    /// VideoToolbox PiP 状态变化观察者
+    @State private var vtPiPStatusObserver: NSObjectProtocol?
 
     var body: some View {
         ZStack {
@@ -633,6 +637,23 @@ struct VideoPlayerViewV2: View {
                 playerState.currentPiPStrategy = .backgroundAudioOnly
                 playerState.log("[PlayerV2] AVPlayer 代理/转封装画中画失败，已降级为后台声音，避免冻屏")
             }
+
+            // VideoToolbox PiP 状态变化
+            vtPiPStatusObserver = NotificationCenter.default.addObserver(forName: .vboxVTPiPStatusChanged, object: nil, queue: .main) { [weak playerState] note in
+                guard let playerState, let active = note.object as? Bool else { return }
+                playerState.isPiPActive = active
+                if active {
+                    playerState.log("[PlayerV2] VideoToolbox 硬解码 PiP 已启动")
+                }
+            }
+
+            // VideoToolbox PiP 失败：降级为后台声音
+            vtPiPFailureObserver = NotificationCenter.default.addObserver(forName: .vboxVTPiPFailed, object: nil, queue: .main) { [weak playerState] _ in
+                guard let playerState else { return }
+                playerState.isPiPActive = false
+                playerState.currentPiPStrategy = .backgroundAudioOnly
+                playerState.log("[PlayerV2] VideoToolbox 硬解码 PiP 失败，已降级为后台声音")
+            }
         }
         .onDisappear {
             // 恢复竖屏；不要立刻再 unlock，避免连续触发 scene 几何更新。
@@ -643,6 +664,8 @@ struct VideoPlayerViewV2: View {
             if let obs = pipToggleObserver { NotificationCenter.default.removeObserver(obs) }
             if let obs = avPlayerPiPStatusObserver { NotificationCenter.default.removeObserver(obs) }
             if let obs = avPlayerPiPFallbackObserver { NotificationCenter.default.removeObserver(obs) }
+            if let obs = vtPiPStatusObserver { NotificationCenter.default.removeObserver(obs) }
+            if let obs = vtPiPFailureObserver { NotificationCenter.default.removeObserver(obs) }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
@@ -739,6 +762,7 @@ class PlayerState: ObservableObject {
 
     enum PiPStrategy: Equatable {
         case system              // AVPlayer 原生系统画中画
+        case videoToolbox        // VideoToolbox 硬解码画中画（独立下载+硬解码）
         case avPlayerProxy       // 兼容内核播放 + AVPlayer 代理/转封装画中画
         case frameBridged        // 兼容内核帧桥接画中画
         case backgroundAudioOnly // 不启动假画中画，仅退后台保留声音
@@ -746,7 +770,7 @@ class PlayerState: ObservableObject {
 
         var supportsVisualPiP: Bool {
             switch self {
-            case .system, .avPlayerProxy, .frameBridged:
+            case .system, .videoToolbox, .avPlayerProxy, .frameBridged:
                 return true
             case .backgroundAudioOnly, .unavailable:
                 return false
@@ -755,7 +779,7 @@ class PlayerState: ObservableObject {
 
         var allowsControl: Bool {
             switch self {
-            case .system, .avPlayerProxy, .frameBridged, .backgroundAudioOnly:
+            case .system, .videoToolbox, .avPlayerProxy, .frameBridged, .backgroundAudioOnly:
                 return true
             case .unavailable:
                 return false
@@ -1032,9 +1056,9 @@ class PlayerState: ObservableObject {
     private func compatibilityPiPStrategy(engineName: String, url: URL?) -> PiPStrategy {
         let isBaiduProxy = url?.host == "127.0.0.1" && (url?.path.contains("baidu-stream") ?? false)
         if isBaiduProxy {
-            // 百度复杂资源由兼容内核保证主播放，同时用 AVPlayer 代理/转封装承载系统 PiP。
-            // 这样绕开后台 GPU/截图链路冻帧问题，又尽量保留真正画中画。
-            return .avPlayerProxy
+            // 百度复杂资源由兼容内核保证主播放，PiP 使用 VideoToolbox 硬解码方案
+            // 独立下载 + 硬件解码 + SampleBuffer PiP，后台不冻帧
+            return .videoToolbox
         }
         if engineName.contains("MPV") || engineName.contains("mpv") {
             return .frameBridged
@@ -6907,6 +6931,8 @@ struct PlayerControlsView: View {
             // 停止 IJK/VLC/AliPlayer 视图截图 PiP
             ViewCapturePiPManager.shared.stopPiP()
             MPVAVPlayerPiPProxy.shared.stopProxyPiP()
+            // 停止 VideoToolbox 硬解码 PiP
+            VTPiPManager.shared.stopPiP()
             PiPHelper.shared.stopPiP()
             playerState.isPiPActive = false
         } else {
@@ -6922,11 +6948,22 @@ struct PlayerControlsView: View {
             // 判断使用哪种 PiP 等待策略
             var useFrameBridgedPiP = false  // MDK/MPV/视图截图 帧桥接 PiP：需要等待启动
             var useAVPlayerPiP = false      // AVPlayer 系统画中画：需要等待 isPiPPossible
+            var useVTPiP = false            // VideoToolbox 硬解码 PiP：需要等待首帧解码
             var useAudioOnlyBackground = false
 
             if playerState.compatibilityURL != nil {
                 // 兼容内核（网盘资源）：根据引擎类型选择 PiP 方案
-                if playerState.currentPiPStrategy == .avPlayerProxy, let url = playerState.compatibilityURL {
+                if playerState.currentPiPStrategy == .videoToolbox, let url = playerState.compatibilityURL {
+                    // VideoToolbox 硬解码 PiP：独立下载 + 硬件解码 + SampleBuffer PiP
+                    // 直接从原始源流下载解码，不依赖 AVPlayer
+                    VTPiPManager.shared.startPiP(
+                        url: url,
+                        headers: playerState.compatibilityHeaders,
+                        provider: "baidu"
+                    )
+                    useVTPiP = true
+                    playerState.log("[PlayerV2] 启动 VideoToolbox 硬解码画中画")
+                } else if playerState.currentPiPStrategy == .avPlayerProxy, let url = playerState.compatibilityURL {
                     MPVAVPlayerPiPProxy.shared.startProxyPiP(
                         url: url,
                         headers: playerState.compatibilityHeaders,
@@ -6973,11 +7010,11 @@ struct PlayerControlsView: View {
                 PiPHelper.shared.setupPiP(for: avPlayer)
             }
 
-            playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP
+            playerState.isPiPActive = useFrameBridgedPiP || useAVPlayerPiP || useVTPiP
 
             // 根据引擎类型选择不同的进入后台策略
-            if useFrameBridgedPiP || useAVPlayerPiP {
-                // 帧桥接 PiP 和 AVPlayer 代理 PiP：都等待 PiP 实际启动后再进入后台
+            if useFrameBridgedPiP || useAVPlayerPiP || useVTPiP {
+                // 帧桥接 PiP、AVPlayer 代理 PiP 和 VideoToolbox PiP：都等待 PiP 实际启动后再进入后台
                 // 避免 PiP 还没起来 App 就退到后台，导致小窗不显示
                 let deadline = Date().addingTimeInterval(12.0)
                 waitForPiPAndGoBackground(deadline: deadline, checkAVPlayerProxy: useAVPlayerPiP)
@@ -7027,6 +7064,13 @@ struct PlayerControlsView: View {
         #endif
         if ViewCapturePiPManager.shared.isPipActive {
             playerState.log("[PlayerV2] 视图截图 PiP 已启动，进入后台")
+            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            return
+        }
+
+        // VideoToolbox 硬解码 PiP
+        if VTPiPManager.shared.isPipActive {
+            playerState.log("[PlayerV2] VideoToolbox 硬解码 PiP 已启动，进入后台")
             UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
             return
         }
