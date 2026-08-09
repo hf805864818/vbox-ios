@@ -53,6 +53,7 @@ jobs:
           ./configure \
             --host=aarch64-apple-darwin \
             --build=x86_64-apple-darwin \
+            --with-build-python=/usr/bin/python3 \
             --enable-static \
             --disable-shared \
             --without-ensurepip \
@@ -60,6 +61,7 @@ jobs:
             --disable-test-modules \
             --without-lzma \
             --without-bz2 \
+            --with-openssl=/usr \
             ac_cv_file__dev_ptmx=no \
             ac_cv_file__dev_ptc=no
 
