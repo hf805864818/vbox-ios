@@ -1056,19 +1056,9 @@ class PlayerState: ObservableObject {
     private func compatibilityPiPStrategy(engineName: String, url: URL?) -> PiPStrategy {
         let isBaiduProxy = url?.host == "127.0.0.1" && (url?.path.contains("baidu-stream") ?? false)
         if isBaiduProxy {
-            // 判断视频格式，选择不同的 PiP 方案
-            let urlStr = url?.absoluteString.lowercased() ?? ""
-            let isMP4Format = urlStr.contains(".mp4") || urlStr.contains(".m4v") || urlStr.contains(".mov")
-
-            if isMP4Format {
-                // MP4 等原生格式：用 AVPlayer 代理 PiP
-                // MP4 是 AVPlayer 原生支持的格式，转封装开销小，成功率高
-                return .avPlayerProxy
-            } else {
-                // MKV/FLV 等非原生格式：用 VideoToolbox 硬解码 PiP
-                // 独立下载 + 硬件解码 + SampleBuffer PiP，后台不冻帧
-                return .videoToolbox
-            }
+            // 百度资源的 AVPlayer 代理 PiP 和 VideoToolbox 硬解码 PiP 已在真机验证中出现启动超时/无桌面小窗。
+            // 为避免点击小窗后误以为有画面，正式链路先只保留后台声音保底。
+            return .backgroundAudioOnly
         }
         if engineName.contains("MPV") || engineName.contains("mpv") {
             return .frameBridged
@@ -3300,36 +3290,26 @@ class PlayerState: ObservableObject {
                 log("[UC] IJK/MPV/MDK 均不可用，uc-stream 降级使用 VLC")
             }
         } else if isBaiduLocalProxy && enginePreference == .auto {
-            if shouldTryBaiduAVPlayerFirst(resourceName: resourceName, playlistKind: playlistKind) {
-                await MainActor.run {
-                    guard playbackSessionId == sessionId else { return }
-                    playbackEngineMode = .system
-                    compatibilityHint = nil
-                    currentPiPStrategy = .system
-                    loadingMessage = "正在尝试系统内核..."
-                }
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "AVPlayer", reason: "百度资源格式可尝试系统内核，失败自动回兼容内核")
-                log("[Baidu] 自动模式优先尝试 AVPlayer，失败将回退原兼容内核链路")
-            } else {
-                // 百度复杂封装/疑似软解资源：保留原 MPV → MDK → VLC 兼容播放链路
-                let reason = compatibilityReason(for: resourceName) ?? "百度原画本地代理"
-                let baiduCompatibilityEngine = preferredCompatibilityEngineName(for: urlObj)
-                await MainActor.run {
-                    guard playbackSessionId == sessionId else { return }
-                    playbackEngineMode = .compatibility
-                    compatibilityHint = reason
-                    currentPiPStrategy = compatibilityPiPStrategy(engineName: baiduCompatibilityEngine, url: urlObj)
-                }
-                if isMPVBuildAvailable {
-                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream \(reason)")
-                    log("[Baidu] 复杂格式保留原兼容链路，优先使用 MPV-MoltenVK")
-                } else if isMDKBuildAvailable {
-                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream \(reason)（MPV 不可用）")
-                    log("[Baidu] MPV 不可用，降级使用 MDK")
-                } else if isVLCBuildAvailable {
-                    logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu-stream MPV/MDK 均不可用降级 VLC")
-                    log("[Baidu] MPV/MDK 均不可用，降级使用 VLC 兼容内核")
-                }
+            // 百度网盘资源一律优先兼容内核，禁止自动模式再尝试 AVPlayer 主播放链路。
+            // 原因：百度本地代理 + 鉴权 + 大文件加载会导致 AVPlayer 启动慢/超时，影响用户播放体验。
+            let reason = compatibilityReason(for: resourceName) ?? "百度原画本地代理"
+            let baiduCompatibilityEngine = preferredCompatibilityEngineName(for: urlObj)
+            await MainActor.run {
+                guard playbackSessionId == sessionId else { return }
+                playbackEngineMode = .compatibility
+                compatibilityHint = reason
+                currentPiPStrategy = compatibilityPiPStrategy(engineName: baiduCompatibilityEngine, url: urlObj)
+                loadingMessage = "正在使用兼容内核..."
+            }
+            if isMPVBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "baidu-stream 强制兼容内核：\(reason)")
+                log("[Baidu] 自动模式下百度资源强制使用 MPV-MoltenVK 兼容内核，不再尝试 AVPlayer")
+            } else if isMDKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "baidu-stream 强制兼容内核（MPV 不可用）")
+                log("[Baidu] MPV 不可用，百度资源强制降级使用 MDK")
+            } else if isVLCBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "baidu-stream 强制兼容内核（MPV/MDK 均不可用）")
+                log("[Baidu] MPV/MDK 均不可用，百度资源强制降级使用 VLC 兼容内核")
             }
         } else if enginePreference == .auto, isM3U8URL(urlObj) || playlistKind != nil {
             await MainActor.run {
