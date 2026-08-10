@@ -53,8 +53,8 @@ end
 # 4. 添加 PBXFileReference
 file_ref = project.files.find { |f| f.path == File.join('vbox/Libraries/python-ios', 'Python.framework') }
 unless file_ref
-  file_ref = project.new(File.join('vbox/Libraries/python-ios', 'Python.framework'))
-  project.main_group.files << file_ref
+  file_ref = project.main_group.new_file('vbox/Libraries/python-ios/Python.framework')
+  file_ref.last_known_file_type = 'wrapper.framework'
   puts "✅ 添加 PBXFileReference: Python.framework"
 end
 
@@ -94,11 +94,8 @@ bridge_files.each do |rel_path|
   # 找到或创建 fileRef
   file_ref = project.files.find { |f| f.path == rel_path }
   unless file_ref
-    file_ref = project.new(rel_path)
-    file_ref.source_tree = 'SOURCE_ROOT'
-    file_ref.path = rel_path
-    # 需设置 file reference 到 groups
-    project.main_group.files << file_ref if project.main_group.files.find { |f| f.path == rel_path }.nil?
+    file_ref = project.main_group.new_file(rel_path)
+    puts "    新建 fileRef: #{rel_path}"
   end
   source_phase.add_file_reference(file_ref)
   puts "✅ 添加编译源: #{rel_path}"
