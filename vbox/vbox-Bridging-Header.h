@@ -2,3 +2,4 @@
 #import <CommonCrypto/CommonCrypto.h>
 #import <AliyunPlayer/AliPlayerBridge.h>
 #import "PythonBridge.h"
+#import "PythonLogStore.h"

@@ -57,6 +57,9 @@ struct ProfileView: View {
 
                     // MARK: 三大功能入口
                     featureEntriesSection
+
+                    // MARK: 开发模式 (Python日志调试)
+                    developerSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 20)
@@ -250,6 +253,31 @@ struct ProfileView: View {
             }
 
             }
+    }
+
+    // MARK: - 开发模式 (Python日志调试)
+
+    private var developerSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                // 开关: Python 日志悬浮窗
+                Toggle("🐍 Python 开发日志", isOn: $settings.devLogEnabled)
+                    .tint(accentColor)
+                    .font(.system(size: 15, weight: .medium))
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(settings.usesVisualSkin ? Color.white.opacity(0.1) : Color(uiColor: .secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+        }
     }
 
     // MARK: - 功能入口

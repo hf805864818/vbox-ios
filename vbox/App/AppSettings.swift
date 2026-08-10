@@ -57,6 +57,7 @@ class AppSettings: ObservableObject {
     private static let welfareUnlockedKey = "app_welfare_unlocked"
     private static let welfarePasswordKey = "app_welfare_password"
     private static let welfareEnabledKey = "app_welfare_enabled"
+    private static let devLogEnabledKey = "app_dev_log_enabled"
     private static let remoteDefaultSourceEnabledKey = RemoteSourceConfigKeys.remoteDefaultSourceEnabled
     private static let bundleSourcesEnabledKey = RemoteSourceConfigKeys.bundleSourcesEnabled
     private static let defaultManifestURLKey = RemoteSourceConfigKeys.defaultManifestURL
@@ -114,6 +115,17 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(welfareEnabled, forKey: Self.welfareEnabledKey)
         }
     }
+    @Published var devLogEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(devLogEnabled, forKey: Self.devLogEnabledKey)
+            PythonLogStore.shared().enabled = devLogEnabled
+            if devLogEnabled {
+                Task { @MainActor in PythonLogManager.shared.show() }
+            } else {
+                Task { @MainActor in PythonLogManager.shared.hide() }
+            }
+        }
+    }
     @Published var remoteDefaultSourceEnabled: Bool {
         didSet {
             UserDefaults.standard.set(remoteDefaultSourceEnabled, forKey: Self.remoteDefaultSourceEnabledKey)
@@ -145,6 +157,8 @@ class AppSettings: ObservableObject {
         welfareUnlocked = UserDefaults.standard.object(forKey: Self.welfareUnlockedKey) as? Bool ?? false
         welfarePassword = UserDefaults.standard.string(forKey: Self.welfarePasswordKey) ?? "888888"
         welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
+        devLogEnabled = UserDefaults.standard.object(forKey: Self.devLogEnabledKey) as? Bool ?? false
+        PythonLogStore.shared().enabled = devLogEnabled
         remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: Self.remoteDefaultSourceEnabledKey) as? Bool ?? true
         bundleSourcesEnabled = UserDefaults.standard.object(forKey: Self.bundleSourcesEnabledKey) as? Bool ?? false
 
