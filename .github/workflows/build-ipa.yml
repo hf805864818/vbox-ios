@@ -33,19 +33,57 @@ jobs:
           done
           xcodebuild -version
 
-      - name: 🐍 Build CPython for iOS arm64 (Python-Apple-support)
+      - name: 🐍 Fetch CPython pre-built artifacts (Release 附件加速)
+        id: python_cache
+        continue-on-error: true
         run: |
           set -euo pipefail
-          echo "🐍 检查是否已有预编译的 libpython3.14.a..."
+          PYTHON_TAG="python-3.14.6-ios-arm64"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${PYTHON_TAG}/${PYTHON_TAG}.tar.gz"
 
+          echo "🐍 尝试从 Release 下载预编译产物: ${PYTHON_TAG}"
+          echo "  URL: ${DOWNLOAD_URL}"
+
+          # 如果 repo 已有 libpython3.14.a，跳过
           if [ -f vbox/Libraries/python-ios/libpython3.14.a ]; then
-            echo "✅ 使用仓库中已提交的 libpython3.14.a (跳过编译)"
-            ls -lh vbox/Libraries/python-ios/libpython3.14.a
-            echo "  头文件: $(ls vbox/Libraries/python-ios/Headers/ 2>/dev/null | wc -l) 个"
-            echo "  标准库: vbox/Resources/python-stdlib"
+            echo "✅ 仓库中已有 libpython3.14.a，跳过下载和编译"
+            echo "skip_build=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          echo "⚠️ 未找到预编译库，开始现场编译..."
+
+          # 尝试下载 (带 3 次重试)
+          TARBALL="/tmp/python-artifacts.tar.gz"
+          if curl -L --retry 3 --retry-delay 5 --fail \
+               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -o "$TARBALL" "$DOWNLOAD_URL"; then
+
+            echo "✅ 下载成功 ($(du -h "$TARBALL" | cut -f1))"
+            mkdir -p /tmp/python-artifacts
+            tar xzf "$TARBALL" -C /tmp/python-artifacts
+
+            # 复制产物到项目目录
+            mkdir -p vbox/Libraries/python-ios vbox/Resources
+            cp /tmp/python-artifacts/vbox/Libraries/python-ios/libpython3.14.a vbox/Libraries/python-ios/
+            cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Python.framework vbox/Libraries/python-ios/
+            cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Headers vbox/Libraries/python-ios/
+            cp -r /tmp/python-artifacts/vbox/Resources/python-stdlib vbox/Resources/
+
+            echo "✅ 产物已解压到项目目录"
+            echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
+            echo "  Python.framework: $(du -sh vbox/Libraries/python-ios/Python.framework | cut -f1)"
+            echo "  python-stdlib: $(du -sh vbox/Resources/python-stdlib | cut -f1)"
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+            rm -rf /tmp/python-artifacts "$TARBALL"
+          else
+            echo "⚠️ Release 下载失败，将回退到现场编译"
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🐍 Build CPython for iOS arm64 (Python-Apple-support)
+        if: steps.python_cache.outputs.skip_build != 'true'
+        run: |
+          set -euo pipefail
+          echo "⚠️ 开始现场编译 CPython..."
 
           # 1. 安装 host Python 3.14 (工具链需要同版本 build-python)
           echo "📦 安装 host Python 3.14..."
@@ -203,6 +241,11 @@ jobs:
           echo "🐍 精简 Python 标准库..."
           STD="vbox/Resources/python-stdlib"
 
+          # 0. 如果标准库已从 Release 下载，跳过复制步骤
+          if [ -d "$STD/lib/python3.14" ]; then
+            echo "✅ 标准库已存在 (从 Release 下载)，跳过复制步骤"
+          else
+
           # 1. 从 CPython 构建产物复制标准库到 Resources
           #    关键: 必须匹配真机 iphoneos.arm64 (排除 iphonesimulator)
           #    且保留 python3.14 层 → 最终路径须为 python-stdlib/lib/python3.14/
@@ -225,6 +268,8 @@ jobs:
               exit 1
             fi
           fi
+
+          fi  # end of "if stdlib already downloaded"
 
           # 如果已经有了就直接用
           if [ ! -d "$STD" ] || [ -z "$(ls -A $STD 2>/dev/null)" ]; then
@@ -276,6 +321,38 @@ jobs:
           fi
 
           echo "精简后: $(du -sh $STD | cut -f1)"
+
+      - name: 📦 Upload CPython artifacts to Release (首次编译时)
+        if: steps.python_cache.outputs.skip_build != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PYTHON_TAG="python-3.14.6-ios-arm64"
+
+          echo "📦 打包 CPython 产物..."
+          bash scripts/pack_python_artifacts.sh /tmp
+
+          echo "📤 上传到 GitHub Release..."
+          # 删除旧 Release (如果存在)
+          gh release delete "$PYTHON_TAG" --yes 2>/dev/null || true
+          # 创建新 Release 并上传产物
+          gh release create "$PYTHON_TAG" \
+            "/tmp/${PYTHON_TAG}.tar.gz" \
+            "/tmp/${PYTHON_TAG}.tar.gz.sha256" \
+            --title "CPython 3.14.6 iOS arm64 (预编译产物)" \
+            --notes "CPython 3.14.6 交叉编译产物 (iphoneos.arm64)
+
+          包含:
+          - libpython3.14.a (~5.6MB)
+          - Python.framework (~8.2MB)
+          - Headers (Python.h 等)
+          - 精简后标准库 (~15MB, 含 base/spider.py)
+
+          用于 CI 加速: 下载解压后跳过 6 分钟的 make iOS 编译。
+          Python 版本升级时需重新生成。"
+          echo "✅ 产物已上传到 Release: ${PYTHON_TAG}"
 
       - name: 🏗️ Clean
         run: |
