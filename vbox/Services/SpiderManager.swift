@@ -748,6 +748,7 @@ globalThis.__JS_SPIDER__ = _spider;
 
         var jsSitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
         var apiSitesToAdd: [SiteConfig] = []
+        var pySitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
 
         for site in config.sites where site.api != nil && !site.api!.isEmpty {
             let mode = resolveSiteMode(site: site)
@@ -773,6 +774,10 @@ globalThis.__JS_SPIDER__ = _spider;
             case .apiEndpoint:
                 apiSitesToAdd.append(site)
                 print("[SpiderManager] API站点标记: \(site.name) (\(site.api ?? ""))")
+            case .pythonSpider:
+                // 🐍 Python 蜘蛛站点（订阅源）— 收集，稍后加载
+                pySitesToLoad.append((site: site, resolvedURL: site.api!))
+                print("[SpiderManager] Python蜘蛛站点标记: \(site.name) (\(site.api ?? ""))")
             case .zhanyuan:
                 break
             case .unsupported:
@@ -836,6 +841,17 @@ globalThis.__JS_SPIDER__ = _spider;
             } catch {
                 jsSpiderFailed += 1
                 print("[SpiderManager] JS蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
+            }
+        }
+
+        // 🐍 加载订阅源中的 Python 蜘蛛
+        if !pySitesToLoad.isEmpty {
+            print("[SpiderManager] 🐍 开始加载订阅源 Python 蜘蛛: \(pySitesToLoad.count) 个")
+            for item in pySitesToLoad.prefix(10) {
+                let key = item.site.key.isEmpty ? item.site.name : item.site.key
+                if engines[key] != nil { continue }
+                let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
+                print("[SpiderManager] 🐍 订阅源 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
             }
         }
 
