@@ -33,116 +33,57 @@ jobs:
           done
           xcodebuild -version
 
-      - name: 🐍 Build CPython 3.12 for iOS arm64
+      - name: 🐍 Build CPython for iOS arm64 (Python-Apple-support)
         run: |
           set -euo pipefail
-          PYTHON_VERSION="3.12.4"
-          echo "🐍 编译 CPython ${PYTHON_VERSION} for iOS arm64..."
-          
-          # 1. 安装 Python 3.12 (交叉编译需要同版本的构建主机 Python)
-          echo "📦 安装 Python 3.12..."
-          if ! python3.12 --version 2>/dev/null; then
-            PYTHON_TAR="python-${PYTHON_VERSION}-macos11.pkg"
-            curl -sLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/${PYTHON_TAR}"
-            sudo installer -pkg "${PYTHON_TAR}" -target / 2>&1 | tail -1
-            # 把 Python 3.12 加入 PATH
-            export PATH="/Library/Frameworks/Python.framework/Versions/3.12/bin:$PATH"
-            python3.12 --version
+          echo "🐍 使用 BeeWare Python-Apple-support 编译 iOS arm64 Python..."
+
+          # 1. 安装 host Python 3.14 (工具链需要同版本 build-python)
+          echo "📦 安装 host Python 3.14..."
+          if ! python3.14 --version 2>/dev/null; then
+            curl -sLO "https://www.python.org/ftp/python/3.14.6/python-3.14.6-macos11.pkg"
+            sudo installer -pkg "python-3.14.6-macos11.pkg" -target / 2>&1 | tail -1
           fi
+          export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
+          python3.14 --version
 
-          # 2. 下载 Python 源码
-          echo "📥 下载 Python 源码..."
-          curl -sLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz"
-          tar xf "Python-${PYTHON_VERSION}.tar.xz"
-          cd "Python-${PYTHON_VERSION}"
+          # 2. Clone Python-Apple-support 工具链
+          echo "📥 Clone Python-Apple-support..."
+          git clone --depth 1 https://github.com/beeware/Python-Apple-support.git /tmp/pas
+          cd /tmp/pas
 
-          # 3. 编译 arm64 静态库
-          # 策略: 先在 macOS 编译 host tools, 再交叉编译 iOS arm64
-          echo "🔧 准备编译环境 (arch: $(uname -m))..."
-          
-          # 第一步: 配置并编译 host tools (用于生成 pyconfig.h)
-          export HOST_CC="clang"
-          export HOST_CFLAGS="-O2"
-          export CC="xcrun -sdk iphoneos clang -arch arm64"
-          export CXX="xcrun -sdk iphoneos clang++ -arch arm64"
-          export CFLAGS="-mios-version-min=15.0 -O2 -fembed-bitcode"
-          export LDFLAGS="-mios-version-min=15.0"
+          # 3. 构建 iOS arm64 device Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)
+          echo "🏗️ 构建 iOS arm64 Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)..."
+          export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
+          make iphoneos.arm64 2>&1 | tee /tmp/pas-build.log | tail -25
 
-          echo "📋 运行 configure (生成 Makefile 和 pyconfig.h)..."
-          echo "注意: configure 会因 cross-run 而 '失败'，但 Makefile 已生成"
-          # configure 的 cross-compile 检测会失败在"cannot run C compiled programs"
-          # 这是正常的 —— 因为 iOS 二进制不能在 macOS 运行
-          # 我们忽略 configure 的退出码，因为 Makefile 和 pyconfig.h 已生成
-          set +e
-          ./configure \
-            --host=aarch64-apple-darwin \
-            --build=aarch64-apple-darwin \
-            --with-build-python=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
-            --disable-shared \
-            --without-ensurepip \
-            --without-doc-strings \
-            --disable-test-modules \
-            ac_cv_file__dev_ptmx=no \
-            ac_cv_file__dev_ptc=no
-          set -e
-
-          # 检查 Makefile 是否生成
-          if [ ! -f Makefile ]; then
-            echo "❌ configure 未生成 Makefile"
+          # 4. 检查产物
+          echo "📦 检查产物..."
+          INSTALL_DIR="install/ios/iphoneos.arm64/python-3.14.6"
+          if [ ! -f "${INSTALL_DIR}/Python.framework/Python" ]; then
+            echo "❌ Python.framework 未生成"
+            tail -60 /tmp/pas-build.log
             exit 1
           fi
-          echo "✅ Makefile 已生成，开始编译..."
+          echo "✅ Python framework 生成:"
+          ls -lh "${INSTALL_DIR}/Python.framework/Python"
+          echo "  标准库: $(du -sh ${INSTALL_DIR}/lib 2>/dev/null | cut -f1)"
+          echo "  头文件: ${INSTALL_DIR}/Python.framework/Headers"
 
-          echo "🏗️ 编译中..."
-          if ! make -j$(sysctl -n hw.ncpu) 2>&1 | tee /tmp/python-build.log | tail -50; then
-            echo "❌ make 失败，最后 100 行:"
-            tail -100 /tmp/python-build.log
-            exit 1
-          fi
+          # 5. 复制产物到 vbox 项目
+          echo "📤 复制到 vbox 项目..."
+          cd /var/minis/workspace/vbox-ios-fork
+          mkdir -p vbox/Libraries/python-ios
 
-          # 复制产物
-          cp libpython3.12.a ../vbox/Libraries/libpython3.12.a
-          cp Python.h Include/ ../vbox/Libraries/Python/ -r
-          echo "✅ libpython3.12.a 已编译: $(ls -lh ../vbox/Libraries/libpython3.12.a)"
+          # 静态库: Python.framework/Python → libpython3.14.a
+          cp /tmp/pas/${INSTALL_DIR}/Python.framework/Python vbox/Libraries/python-ios/libpython3.14.a
 
-          # 精简标准库到 ~6MB
-          echo "🐍 精简 Python 标准库..."
-          cd ..
-          STDLIB_SRC="Python-${PYTHON_VERSION}/Lib"
-          STDLIB_DST="vbox/Resources/python-stdlib"
-          mkdir -p "${STDLIB_DST}/site-packages"
+          # 头文件
+          mkdir -p vbox/Libraries/python-ios/Headers
+          cp -r /tmp/pas/${INSTALL_DIR}/Python.framework/Headers/* vbox/Libraries/python-ios/Headers/
 
-          # 复制核心模块
-          for mod in __future__ abc.py ast.py base64.py binascii.py bisect.py \
-            calendar.py codecs.py collections contextlib.py copy.py copyreg.py \
-            csv.py dataclasses.py datetime.py email encodings enum.py \
-            fnmatch.py fractions.py functools.py genericpath.py getopt.py \
-            gzip.py hashlib.py heapq.py html http importlib inspect.py \
-            io.py ipaddress.py json keyword.py linecache.py logging \
-            math.py ntpath.py numbers.py opcode.py operator.py os.py \
-            pathlib.py pickle.py posixpath.py pprint.py queue.py \
-            quopri.py random.py re reprlib.py selectors.py shlex.py \
-            shutil.py site.py socket.py sqlite3 sre_compile.py \
-            sre_constants.py sre_parse.py ssl.py stat.py string.py \
-            struct.py tarfile.py tempfile.py textwrap.py threading.py \
-            token.py tokenize.py traceback.py types.py typing.py \
-            unicodedata.py urllib uuid.py warnings.py weakref.py \
-            _collections_abc.py _compat_pickle.py _compression.py \
-            _markupbase.py _osx_support.py _py_abc.py _sitebuiltins.py \
-            _strptime.py _threading_local.py _weakrefset.py zipfile; do
-            if [ -f "${STDLIB_SRC}/${mod}" ]; then
-              cp "${STDLIB_SRC}/${mod}" "${STDLIB_DST}/${mod}"
-            elif [ -d "${STDLIB_SRC}/${mod}" ]; then
-              mkdir -p "${STDLIB_DST}/${mod}"
-              cp -r "${STDLIB_SRC}/${mod}/"* "${STDLIB_DST}/${mod}/"
-            fi
-          done
-
-          # 复制用户自定义模块
-          cp -r vbox/Resources/python-stdlib/base "${STDLIB_DST}/base"
-          cp -r vbox/Resources/python-stdlib/site-packages "${STDLIB_DST}/site-packages" 2>/dev/null || true
-
-          echo "📦 标准库大小: $(du -sh ${STDLIB_DST} | cut -f1)"
+          echo "✅ CPython 集成完成"
+          echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
 
       - name: 🎬 Fetch MPVKit dependencies
         run: |
@@ -251,9 +192,9 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
             MARKETING_VERSION=${{ steps.get_version.outputs.MARKETING_VERSION }} \
             CURRENT_PROJECT_VERSION=${{ steps.get_version.outputs.BUILD_NUM }} \
-            HEADER_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/Python" \
-            LIBRARY_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries" \
-            OTHER_LDFLAGS="-lpython3.12 -lz" \
+            HEADER_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/python-ios/Headers" \
+            LIBRARY_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/python-ios" \
+            OTHER_LDFLAGS="-lpython3.14 -lz" \
             build 2>&1
 
       - name: 📦 Package IPA
