@@ -230,7 +230,10 @@ jobs:
             keep="_socket _ssl hashlib zlib binascii math _struct _json \
                   _bz2 _codecs _datetime _decimal _heapq _io _opcode \
                   _pickle _random _statistics select unicodedata \
-                  resource _collections _functools _string _sre _thread"
+                  resource _collections _functools _string _sre _thread \
+                  _locale _imp _warnings _frozen_importlib _frozen_importlib_external \
+                  _signal _stat _md5 _sha1 _sha256 _sha512 _blake2 \
+                  _contextvars _queue _scproxy"
             for so in "$STD"/lib-dynload/*; do
               [ -f "$so" ] || continue
               base=$(basename "$so"); base=${base%.so}
