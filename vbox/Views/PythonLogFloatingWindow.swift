@@ -63,6 +63,20 @@ final class PythonLogFloatingWindow: UIWindow {
         self.panelVC = vc
     }
 
+    // ★ 关键: 只拦截悬浮球/展开面板区域的触摸, 其余区域事件透传给下层 App
+    // 否则全屏 UIWindow 会遮挡所有 UI 交互
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let rootVC = rootViewController else { return nil }
+        // 检查触摸点是否落在 rootVC.view 的任何子视图上 (miniView 或 expandView)
+        let hitView = rootVC.view.hitTest(point, with: event)
+        if hitView != nil && hitView !== rootVC.view {
+            // 点击在悬浮球或面板上, 返回该视图接收事件
+            return hitView
+        }
+        // 点击在透明区域, 返回 nil 让事件穿透到下层
+        return nil
+    }
+
     func show() {
         // iOS 13+: UIWindow 必须关联到 UIWindowScene 才能显示
         if let scene = UIApplication.shared.connectedScenes
@@ -222,12 +236,28 @@ final class PythonLogPanelViewController: UIViewController {
     }
 
     @objc private func exportLogs() {
-        let path = PythonLogStore.shared().exportToDocuments()
-        let alert = UIAlertController(title: path != nil ? "已导出" : "导出失败",
-                                      message: path != nil ? "日志已保存到:\n\(path!)" : "没有日志或写入失败",
-                                      preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "好", style: .default))
-        present(alert, animated: true)
+        // 检查是否有日志
+        if PythonLogStore.shared().count == 0 {
+            let alert = UIAlertController(title: "提示", message: "没有日志可导出", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        // ★ 调用 exportToZip 压缩所有日志为 zip
+        guard let zipPath = PythonLogStore.shared().exportToZip() else {
+            let alert = UIAlertController(title: "导出失败", message: "创建 zip 文件失败", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        // ★ 使用 UIDocumentPickerViewController 让用户保存到 "文件" App
+        // forExporting + asCopy: true → 将 zip 复制到用户选择的目标位置
+        let fileURL = URL(fileURLWithPath: zipPath)
+        let documentPicker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+        documentPicker.delegate = self
+        present(documentPicker, animated: true)
     }
 
     private func refreshLogs() {
@@ -241,5 +271,22 @@ final class PythonLogPanelViewController: UIViewController {
                 textView.scrollRangeToVisible(NSRange(location: text.count - 1, length: 1))
             }
         }
+    }
+}
+
+// MARK: - UIDocumentPickerDelegate
+@MainActor
+extension PythonLogPanelViewController: UIDocumentPickerDelegate {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        // 用户已选择保存位置, zip 已复制到目标
+        let alert = UIAlertController(title: "导出成功",
+                                      message: "日志已保存到文件",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "好", style: .default))
+        present(alert, animated: true)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        // 用户取消, 无需处理
     }
 }

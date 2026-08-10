@@ -39,6 +39,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 导出所有日志到 Documents, 返回文件路径 (失败返回 nil)
 - (nullable NSString *)exportToDocuments;
 
+/// 导出所有日志为 zip 到 Documents, 返回 zip 文件路径 (失败返回 nil)
+- (nullable NSString *)exportToZip;
+
 /// 日志变化通知 (悬浮窗监听刷新)
 extern NSNotificationName const PythonLogStoreDidUpdateNotification;
 
