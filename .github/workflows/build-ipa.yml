@@ -69,6 +69,11 @@ jobs:
           export LDFLAGS="-mios-version-min=15.0"
 
           echo "📋 运行 configure (生成 Makefile 和 pyconfig.h)..."
+          echo "注意: configure 会因 cross-run 而 '失败'，但 Makefile 已生成"
+          # configure 的 cross-compile 检测会失败在"cannot run C compiled programs"
+          # 这是正常的 —— 因为 iOS 二进制不能在 macOS 运行
+          # 我们忽略 configure 的退出码，因为 Makefile 和 pyconfig.h 已生成
+          set +e
           ./configure \
             --host=aarch64-apple-darwin \
             --build=aarch64-apple-darwin \
@@ -79,13 +84,19 @@ jobs:
             --disable-test-modules \
             ac_cv_file__dev_ptmx=no \
             ac_cv_file__dev_ptc=no
+          set -e
 
-          # configure 的 cross-compile 检测会失败在"cannot run C compiled programs"
-          # 但如果 make 能开始则说明 pyconfig.h 已生成，继续编译
+          # 检查 Makefile 是否生成
+          if [ ! -f Makefile ]; then
+            echo "❌ configure 未生成 Makefile"
+            exit 1
+          fi
+          echo "✅ Makefile 已生成，开始编译..."
+
           echo "🏗️ 编译中..."
-          if ! make -j$(sysctl -n hw.ncpu) 2>&1 | tee /tmp/python-build.log | tail -30; then
-            echo "make 失败，检查日志..."
-            tail -50 /tmp/python-build.log
+          if ! make -j$(sysctl -n hw.ncpu) 2>&1 | tee /tmp/python-build.log | tail -50; then
+            echo "❌ make 失败，最后 100 行:"
+            tail -100 /tmp/python-build.log
             exit 1
           fi
 
