@@ -189,6 +189,68 @@ jobs:
           gem install xcodeproj --no-document 2>/dev/null || true
           ruby scripts/configure_python_link.rb
 
+      - name: 🐍 精简 Python 标准库 (232MB → ~15MB)
+        run: |
+          set -o pipefail
+          echo "🐍 精简 Python 标准库..."
+          STD="vbox/Resources/python-stdlib"
+
+          # 1. 从 CPython 构建产物复制标准库到 Resources
+          PAS_LIB=$(find /tmp/pas/install -path "*/python-3.14.6/lib/python3.14" -type d 2>/dev/null | head -1)
+          if [ -n "$PAS_LIB" ]; then
+            echo "源标准库: $PAS_LIB ($(du -sh $PAS_LIB | cut -f1))"
+            rm -rf "$STD"
+            mkdir -p "$STD"
+            cp -r "$PAS_LIB" "$STD/lib" 2>/dev/null || cp -r "$PAS_LIB/." "$STD/"
+          fi
+
+          # 如果已经有了就直接用
+          if [ ! -d "$STD" ] || [ -z "$(ls -A $STD 2>/dev/null)" ]; then
+            echo "⚠️ 未找到标准库源，跳过精简"
+            exit 0
+          fi
+          echo "精简前: $(du -sh $STD | cut -f1)"
+
+          # 2. 删除无用目录
+          for del in test unittest idlelib tkinter lib2to3 site-packages \
+                     config-* wsgiref turtledemo xmlrpc; do
+            find "$STD" -path "*/$del" -exec rm -rf {} + 2>/dev/null
+          done
+
+          # 3. 只保留必要的 C 扩展 .so
+          if [ -d "$STD/lib-dynload" ]; then
+            keep="_socket _ssl hashlib zlib binascii math _struct _json \
+                  _bz2 _codecs _datetime _decimal _heapq _io _opcode \
+                  _pickle _random _statistics select unicodedata \
+                  resource _collections _functools _string _sre _thread"
+            for so in "$STD"/lib-dynload/*; do
+              [ -f "$so" ] || continue
+              base=$(basename "$so"); base=${base%.so}
+              keep_this=no
+              for k in $keep; do if [ "$k" = "$base" ]; then keep_this=yes; fi; done
+              if [ "$keep_this" = "no" ]; then rm -f "$so"; fi
+            done
+          fi
+
+          # 4. 删 pyc
+          find "$STD" -name "*.pyc" -delete 2>/dev/null
+          find "$STD" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
+
+          # 5. 恢复 base.spider 兼容模块 (从仓库现有文件)
+          #    重建后的 $STD 可能没有 base/, 从仓库备份恢复
+          REPO_BASE="vbox/Resources/python-stdlib/base/spider.py"
+          if [ -f "$REPO_BASE" ]; then
+            # 标准库实际位置
+            LIBDIR="$STD/lib"
+            [ -d "$LIBDIR" ] || LIBDIR="$STD"
+            mkdir -p "$LIBDIR/base"
+            cat "$REPO_BASE" > "$LIBDIR/base/spider.py"
+            touch "$LIBDIR/base/__init__.py"
+            echo "✅ 恢复 base/spider.py"
+          fi
+
+          echo "精简后: $(du -sh $STD | cut -f1)"
+
       - name: 🏗️ Clean
         run: |
           set -o pipefail
