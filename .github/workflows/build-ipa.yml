@@ -90,22 +90,17 @@ jobs:
           cd "${GITHUB_WORKSPACE}"
           mkdir -p vbox/Libraries/python-ios
 
-          # 静态库: Python.framework/Python → libpython3.14.a
+          # 复制整个 Python.framework (含二进制 + Headers)
+          rm -rf vbox/Libraries/python-ios/Python.framework
+          cp -r /tmp/pas/${INSTALL_DIR}/Python.framework vbox/Libraries/python-ios/Python.framework
+
+          # 兼容: 也单独放 libpython3.14.a
           rm -f vbox/Libraries/python-ios/libpython3.14.a
           cp /tmp/pas/${INSTALL_DIR}/Python.framework/Python vbox/Libraries/python-ios/libpython3.14.a
 
-          # 头文件
-          mkdir -p vbox/Libraries/python-ios/Headers
-          cp -r /tmp/pas/${INSTALL_DIR}/Python.framework/Headers/* vbox/Libraries/python-ios/Headers/
-
-          # 标准库到 Resources (清空重建)
-          rm -rf vbox/Resources/python-stdlib
-          mkdir -p vbox/Resources/python-stdlib
-          cp -r /tmp/pas/${INSTALL_DIR}/lib/python3.14 vbox/Resources/python-stdlib/lib
-
           echo "✅ CPython 集成完成"
           echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
-          echo "  标准库: $(du -sh vbox/Resources/python-stdlib | cut -f1)"
+          echo "  Python.framework: $(du -sh vbox/Libraries/python-ios/Python.framework | cut -f1)"
 
       - name: 🎬 Fetch MPVKit dependencies
         run: |
@@ -188,6 +183,12 @@ jobs:
       - name: 🔧 修复 PushPlayView/PushPlayStore 路径 (pod install 后)
         run: python3 scripts/fix_pushplay_pbxproj.py
 
+      - name: 🐍 注入 Python.framework 链接到 pbxproj
+        run: |
+          set -o pipefail
+          gem install xcodeproj --no-document 2>/dev/null || true
+          ruby scripts/configure_python_link.rb
+
       - name: 🏗️ Clean
         run: |
           set -o pipefail
@@ -214,9 +215,6 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER=com.vbox.iosplayer \
             MARKETING_VERSION=${{ steps.get_version.outputs.MARKETING_VERSION }} \
             CURRENT_PROJECT_VERSION=${{ steps.get_version.outputs.BUILD_NUM }} \
-            HEADER_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/python-ios/Headers" \
-            LIBRARY_SEARCH_PATHS="\$(SRCROOT)/vbox/Libraries/python-ios" \
-            OTHER_LDFLAGS="-lpython3.14 -lz" \
             build 2>&1
 
       - name: 📦 Package IPA
