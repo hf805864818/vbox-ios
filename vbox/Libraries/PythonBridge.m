@@ -13,71 +13,76 @@
 static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;
 static BOOL _pyInitialized = NO;
 static NSString *_pyHome = nil;
+static PyObject *_cachedMainModule = NULL;   // 缓存 __main__ 模块，避免每次 PyImport_AddModule 崩溃
+static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
 
 @implementation PythonSpiderBridge
 
 #pragma mark - Lifecycle
 
 + (void)initializePythonIfNeeded {
+    // 锁: 保护 _pyInitialized 检查
     pthread_mutex_lock(&_pyMutex);
+    BOOL alreadyInit = _pyInitialized;
+    pthread_mutex_unlock(&_pyMutex);
+    if (alreadyInit) return;
     
+    // 定位标准库目录
+    NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
+    _pyHome = [resourcePath stringByAppendingPathComponent:@"python-stdlib"];
+    setenv("PYTHONHOME", [_pyHome UTF8String], 1);
+    setenv("PYTHONPATH", [_pyHome UTF8String], 1);
+    setenv("PYTHONDONTWRITEBYTECODE", "1", 1);
+    
+    // Py_Initialize 必须在主线程首次调用
+    void (^initBlock)(void) = ^{
+        [self performMainThreadPythonInit];
+    };
+    if ([NSThread isMainThread]) {
+        initBlock();
+    } else {
+        // 先释放锁再派发主线程, 避免持锁 dispatch_sync 死锁
+        dispatch_sync(dispatch_get_main_queue(), initBlock);
+    }
+}
+
++ (void)performMainThreadPythonInit {
+    // 已在主线程
+    pthread_mutex_lock(&_pyMutex);
     if (_pyInitialized) {
         pthread_mutex_unlock(&_pyMutex);
         return;
     }
-    
-    // 1. 定位 Python 标准库目录（在 App bundle Resources 中）
-    NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
-    _pyHome = [resourcePath stringByAppendingPathComponent:@"python-stdlib"];
-    
-    // 2. 设置 Python 环境变量
-    setenv("PYTHONHOME", [_pyHome UTF8String], 1);
-    setenv("PYTHONPATH", [_pyHome UTF8String], 1);
-    setenv("PYTHONDONTWRITEBYTECODE", "1", 1);  // 不生成 .pyc（节省磁盘写入）
-    
-    // 3. 初始化 CPython 解释器
-    //    iOS 嵌入式 CPython 要求 Py_Initialize 在主线程第一次调用
-    //    否则可能触发崩溃。这里统一派发到主线程执行。
-    if ([NSThread isMainThread]) {
-        [self performMainThreadPythonInit];
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            [self performMainThreadPythonInit];
-        });
+    @try {
+        Py_Initialize();
+        if (!Py_IsInitialized()) {
+            NSLog(@"[PythonBridge] ❌ Py_Initialize 失败");
+            pthread_mutex_unlock(&_pyMutex);
+            return;
+        }
+        
+        // 注入 sys.path
+        NSString *sitePackages = [_pyHome stringByAppendingPathComponent:@"site-packages"];
+        NSString *initCmd = [NSString stringWithFormat:
+            @"import sys\n"
+            @"sys.path.insert(0, '%@')\n"
+            @"sys.path.insert(0, '%@')\n"
+            @"sys.path.insert(0, '%@/lib/python3.14')\n"
+            @"sys.dont_write_bytecode = True\n",
+            sitePackages, _pyHome, _pyHome];
+        if (PyRun_SimpleString([initCmd UTF8String]) != 0) {
+            PyErr_Print();
+            NSLog(@"[PythonBridge] ❌ sys.path 注入失败");
+            pthread_mutex_unlock(&_pyMutex);
+            return;
+        }
+        
+        _pyInitialized = YES;
+        NSLog(@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome);
+    } @catch (NSException *exception) {
+        NSLog(@"[PythonBridge] ❌ 初始化异常: %@", exception.reason);
     }
-    
     pthread_mutex_unlock(&_pyMutex);
-}
-
-+ (void)performMainThreadPythonInit {
-    // 已在主线程：执行实际初始化
-    Py_Initialize();
-    
-    if (!Py_IsInitialized()) {
-        NSLog(@"[PythonBridge] ❌ Py_Initialize 失败");
-        return;
-    }
-    
-    // 5. 注入 sys.path — 让脚本能 import requests/bs4/urllib3 等
-    NSString *sitePackages = [_pyHome stringByAppendingPathComponent:@"site-packages"];
-    NSString *initCmd = [NSString stringWithFormat:
-        @"import sys\n"
-        @"sys.path.insert(0, '%@')\n"
-        @"sys.path.insert(0, '%@')\n"
-        @"sys.dont_write_bytecode = True\n"
-        @"import builtins\n"
-        @"if not hasattr(builtins, 'load_module'):\n"
-        @"    builtins.load_module = lambda m: __import__(m)\n",
-        sitePackages, _pyHome];
-    
-    if (PyRun_SimpleString([initCmd UTF8String]) != 0) {
-        PyErr_Print();
-        NSLog(@"[PythonBridge] ❌ sys.path 注入失败");
-        return;
-    }
-    
-    _pyInitialized = YES;
-    NSLog(@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome);
 }
 
 + (BOOL)isPythonInitialized {
@@ -110,23 +115,28 @@ static NSString *_pyHome = nil;
     pthread_mutex_lock(&_pyMutex);
     
     NSString *result = nil;
-    PyObject *mainModule = NULL;
     PyObject *globals = NULL;
     PyObject *spider = NULL;
     FILE *fp = NULL;
     
     @try {
-        // === Phase 1: 加载脚本文件 ===
+        // === Phase 1: 获取/复用 __main__ globals (避免每次 PyImport_AddModule 崩溃) ===
+        // 复用缓存的 globals; 若为空则创建 __main__
+        if (_cachedGlobals == NULL) {
+            PyObject *mainModule = PyImport_AddModule("__main__");
+            if (!mainModule) goto cleanup;
+            _cachedMainModule = mainModule;
+            _cachedGlobals = PyModule_GetDict(mainModule);  // 借出引用, 不 DECREF
+        }
+        globals = _cachedGlobals;
+        if (!globals) goto cleanup;
+        
+        // === Phase 2: 加载脚本文件 ===
         fp = fopen([scriptPath UTF8String], "r");
         if (!fp) {
             NSLog(@"[PythonBridge] ❌ 无法打开脚本: %@", scriptPath);
             goto cleanup;
         }
-        
-        mainModule = PyImport_AddModule("__main__");
-        if (!mainModule) goto cleanup;
-        globals = PyModule_GetDict(mainModule);
-        if (!globals) goto cleanup;
         
         // 注入脚本路径信息
         NSString *injectPath = [NSString stringWithFormat:
@@ -134,7 +144,7 @@ static NSString *_pyHome = nil;
             [[scriptPath stringByDeletingLastPathComponent] stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
         PyRun_SimpleString([injectPath UTF8String]);
         
-        // 执行脚本（创建 Spider 类定义）
+        // 执行脚本（每次重新定义 Spider 类）
         PyObject *runRet = PyRun_File(fp, [[scriptPath lastPathComponent] UTF8String],
                                        Py_file_input, globals, globals);
         if (!runRet) {
@@ -145,7 +155,7 @@ static NSString *_pyHome = nil;
         Py_DECREF(runRet);
         fclose(fp); fp = NULL;
         
-        // === Phase 2: 实例化 Spider 类 ===
+        // === Phase 3: 实例化 Spider 类 ===
         PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
         if (!spiderClass || !PyCallable_Check(spiderClass)) {
             NSLog(@"[PythonBridge] ❌ 未找到 Spider 类: %@", [scriptPath lastPathComponent]);
@@ -170,7 +180,7 @@ static NSString *_pyHome = nil;
         }
         Py_XDECREF(initMethod);
         
-        // === Phase 3: 调用目标方法 ===
+        // === Phase 4: 调用目标方法 ===
         PyObject *method = PyObject_GetAttrString(spider, [functionName UTF8String]);
         if (!method || !PyCallable_Check(method)) {
             NSLog(@"[PythonBridge] ❌ 未找到方法: %@.%@", [scriptPath lastPathComponent], functionName);
@@ -208,7 +218,7 @@ static NSString *_pyHome = nil;
 cleanup:
     if (fp) fclose(fp);
     Py_XDECREF(spider);
-    // 注意：不要释放 mainModule/globals（PyImport_AddModule 借出的引用）
+    // 注意：不要释放 _cachedGlobals/_cachedMainModule (长期持有)
     
     pthread_mutex_unlock(&_pyMutex);
     return result;
