@@ -141,5 +141,34 @@ app_target.build_configurations.each do |config|
   config.build_settings['LIBRARY_SEARCH_PATHS'] = libs
 end
 
+# ============================================================
+# [关键修复] 把 Python 标准库 (python-stdlib) 加进 Copy Bundle Resources
+# ------------------------------------------------------------
+# 根因: Py_Initialize() 需要 <AppBundle>/python-stdlib 下的标准库,
+#   但仓库 vbox/Resources/python-stdlib/ 没有被 Xcode 的
+#   Copy Bundle Resources 阶段引用, 导致标准库没打进 IPA。
+#   → Py_Initialize 找不到 encodings/os 等 → SIGABRT 闪退无日志
+# 修复: 将 vbox/Resources/python-stdlib 整个文件夹作为 folder reference
+#   加入 Copy Bundle Resources 阶段, 这样 .py 标准库会原样进 App bundle。
+# ============================================================
+resources_phase = app_target.resources_build_phase
+stdlib_path = 'Resources/python-stdlib'
+# folder reference 依赖
+stdlib_file_ref = project.files.find { |f| f.path == stdlib_path || f.path == 'vbox/Resources/python-stdlib' }
+unless stdlib_file_ref
+  stdlib_file_ref = project.main_group.new_file(stdlib_path)
+  stdlib_file_ref.last_known_file_type = 'folder'
+  stdlib_file_ref.path = stdlib_path
+  stdlib_file_ref.source_tree = '<group>'
+  stdlib_file_ref.explicit_file_type = 'folder'
+  stdlib_file_ref.include_in_index = 1
+  puts "✅ 添加 python-stdlib folder reference"
+end
+# 确保 .py 文件的 folder 引用在 Copy Resources (文件夹引用打成 .lproj 或 folder)
+unless resources_phase.files_references.include?(stdlib_file_ref)
+  resources_phase.add_file_reference(stdlib_file_ref)
+  puts "✅ 添加 python-stdlib 到 Copy Bundle Resources"
+end
+
 project.save
-puts "🎉 Python.framework 集成完成！"
+puts "🎉 Python.framework + 标准库 集成完成！"
