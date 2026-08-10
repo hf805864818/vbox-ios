@@ -46,6 +46,14 @@ final class PythonLogFloatingWindow: UIWindow {
         return UIScreen.main.bounds
     }
 
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
     convenience init() {
         self.init(frame: Self.currentWindowBounds())
         self.windowLevel = UIWindow.Level.alert + 100

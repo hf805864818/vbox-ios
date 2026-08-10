@@ -117,6 +117,7 @@ def find_group_by_name(project, group_name)
 end
 
 # 明确: PythonBridge.m → Libraries group; PythonSpiderEngine.swift → Services group
+# 编译源文件: .m 和 .swift
 bridge_files = {
   'PythonBridge.m' => 'Libraries',
   'PythonSpiderEngine.swift' => 'Services',
@@ -132,6 +133,21 @@ bridge_files.each do |file_name, group_name|
   file_ref.source_tree = '<group>'
   puts "✅ 添加编译源: #{file_name} → #{group_name} group"
   source_phase.add_file_reference(file_ref)
+end
+
+# 头文件: 也需要加入 target, 供 Bridging-Header + Swift 引用
+header_files = {
+  'PythonLogStore.h' => 'Libraries',
+  'PythonBridge.h' => 'Libraries'
+}
+header_files.each do |file_name, group_name|
+  target_group = find_group_by_name(project, group_name)
+  abort "未找到 #{group_name} group" unless target_group
+  # 避免重复
+  existing = target_group.files.find { |f| f.path == file_name }
+  next if existing
+  target_group.new_file(file_name)
+  puts "✅ 添加头文件引用: #{file_name} → #{group_name} group"
 end
 
 # 8. 确保主 target 链接时能找到 Python 符号
