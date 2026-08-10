@@ -115,6 +115,7 @@ struct SettingsView: View {
             cloudDriveSection
             playbackTestToolsSection
             storageSection
+            developerSection
             aboutSection
         }
         .padding(.horizontal, 16)
@@ -812,6 +813,24 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showSiteDiagnostics) {
             SiteDiagnosticsView()
+        }
+    }
+
+    private var developerSection: some View {
+        SettingsSection(title: "开发调试") {
+            HStack {
+                Image(systemName: "ladybug.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(hex: "7C3AED"))
+                Text("Python 开发日志")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.primary)
+                Spacer()
+                Toggle("", isOn: $settings.devLogEnabled)
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
         }
     }
 
