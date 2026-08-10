@@ -223,19 +223,5 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 }
 
-// MARK: - 🆕 新增引擎类型
-
-extension SpiderEngineType {
-    static let python = SpiderEngineType(rawValue: "Python")
-}
-
-extension SpiderEngineType {
-    var displayName: String {
-        switch self {
-        case .javaScriptCore: return "JSC (Apple)"
-        case .quickJS: return "QuickJS"
-        case .python: return "Python 🐍"
-        default: return rawValue
-        }
-    }
-}
+// 注: 不扩展 SpiderEngineType —— vbox 原 enum 已有 javaScriptCore/quickJS 及 displayName.
+// Python 引擎通过 PythonSpiderEngine 类区分，无需为 SpiderEngineType 增加 case。
