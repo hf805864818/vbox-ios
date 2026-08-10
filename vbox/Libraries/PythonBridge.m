@@ -209,14 +209,48 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         PyObject *callRet = PyObject_Call(method, pyArgs, NULL);
         
         if (callRet) {
-            // 转为 JSON 字符串
-            PyObject *str = PyObject_Str(callRet);
-            if (str) {
-                const char *cstr = PyUnicode_AsUTF8(str);
-                if (cstr) {
-                    result = [NSString stringWithUTF8String:cstr];
+            // ★ 使用 json.dumps() 序列化返回值, 而非 PyObject_Str()
+            // PyObject_Str 对 dict 产出 Python repr ('key': 'value', True/False/None)
+            // json.dumps 产出标准 JSON ("key": "value", true/false/null)
+            PyObject *jsonModule = PyImport_ImportModule("json");
+            if (jsonModule) {
+                PyObject *dumpsFunc = PyObject_GetAttrString(jsonModule, "dumps");
+                if (dumpsFunc && PyCallable_Check(dumpsFunc)) {
+                    PyObject *dumpsArgs = PyTuple_Pack(1, callRet);
+                    PyObject *jsonStr = PyObject_Call(dumpsFunc, dumpsArgs, NULL);
+                    Py_DECREF(dumpsArgs);
+                    if (jsonStr) {
+                        const char *cstr = PyUnicode_AsUTF8(jsonStr);
+                        if (cstr) {
+                            result = [NSString stringWithUTF8String:cstr];
+                        }
+                        Py_DECREF(jsonStr);
+                    } else {
+                        // json.dumps 失败 (可能返回值不是可序列化对象), 回退到 str()
+                        PyErr_Clear();
+                        PyObject *str = PyObject_Str(callRet);
+                        if (str) {
+                            const char *cstr = PyUnicode_AsUTF8(str);
+                            if (cstr) {
+                                result = [NSString stringWithUTF8String:cstr];
+                            }
+                            Py_DECREF(str);
+                        }
+                    }
+                    Py_XDECREF(dumpsFunc);
                 }
-                Py_DECREF(str);
+                Py_DECREF(jsonModule);
+            }
+            if (!result) {
+                // 最终回退: PyObject_Str
+                PyObject *str = PyObject_Str(callRet);
+                if (str) {
+                    const char *cstr = PyUnicode_AsUTF8(str);
+                    if (cstr) {
+                        result = [NSString stringWithUTF8String:cstr];
+                    }
+                    Py_DECREF(str);
+                }
             }
             Py_DECREF(callRet);
         } else {
