@@ -608,12 +608,17 @@ globalThis.__JS_SPIDER__ = _spider;
             // 加载引擎
             await loadBuiltinEngineIfNeeded()
             if !spiderSites.isEmpty, let baseURL = remoteSpiderBaseURL() {
-                print("[SpiderManager] 开始加载远程默认源 JS 蜘蛛引擎 (无订阅源模式)")
+                PythonLogStore.appendLog("[SpiderManager] 📋 开始加载远程默认源蜘蛛引擎 (无订阅源模式)")
                 await loadRemoteSpiderEngines(baseURL: baseURL, sites: spiderSites)
             }
 
-            print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
-            print("[SpiderManager] 可用API站点: \(allSitesBuilder.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
+            // ★ 加载完成汇总日志
+            let pyEngines0 = engines.compactMap { (k, v) -> String? in v is PythonSpiderEngine ? k : nil }
+            let jsEngines0 = engines.compactMap { (k, v) -> String? in !(v is PythonSpiderEngine) ? k : nil }
+            PythonLogStore.appendLog("[SpiderManager] 📋 源加载完成(无订阅): \(engines.count)引擎 (\(jsEngines0.count) JS + \(pyEngines0.count) Python), \(allSitesBuilder.count)站点")
+            if !pyEngines0.isEmpty {
+                PythonLogStore.appendLog("[SpiderManager] 📋 Python 引擎: \(pyEngines0.joined(separator: ", "))")
+            }
             return
         }
 
@@ -776,17 +781,37 @@ globalThis.__JS_SPIDER__ = _spider;
                 print("[SpiderManager] API站点标记: \(site.name) (\(site.api ?? ""))")
             case .pythonSpider:
                 // 🐍 Python 蜘蛛站点（订阅源）— 收集，稍后加载
-                pySitesToLoad.append((site: site, resolvedURL: site.api!))
-                print("[SpiderManager] Python蜘蛛站点标记: \(site.name) (\(site.api ?? ""))")
+                let api = site.api!
+                let resolvedPyURL: String
+                if api.hasPrefix("./") {
+                    // 相对路径: 基于 subBaseURL 解析
+                    if let url = URL(string: subBaseURL) {
+                        resolvedPyURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                    } else {
+                        resolvedPyURL = api
+                    }
+                } else if !api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".py") {
+                    // 文件名 (无 http 前缀): 基于 subBaseURL 解析
+                    if let url = URL(string: subBaseURL) {
+                        resolvedPyURL = url.deletingLastPathComponent().appendingPathComponent(api).absoluteString
+                    } else {
+                        resolvedPyURL = api
+                    }
+                } else {
+                    resolvedPyURL = api
+                }
+                pySitesToLoad.append((site: site, resolvedURL: resolvedPyURL))
+                PythonLogStore.appendLog("[SpiderManager] 🐍 Python 蜘蛛站点: \(site.name) → \(resolvedPyURL)")
             case .zhanyuan:
                 break
             case .unsupported:
-                print("[SpiderManager] 跳过不支持站点: \(site.name) (type=\(site.type), api=\(site.api ?? ""))")
+                PythonLogStore.appendLog("[SpiderManager] ⏭️ 跳过不支持站点: \(site.name) (type=\(site.type), api=\(site.api ?? ""))")
             }
         }
 
         print("[SpiderManager] 发现 \(jsSitesToLoad.count) 个 JS 蜘蛛站点待加载")
         print("[SpiderManager] 发现 \(apiSitesToAdd.count) 个 API 模式站点待加入")
+        PythonLogStore.appendLog("[SpiderManager] 📋 订阅源站点分类: \(jsSitesToLoad.count) JS + \(pySitesToLoad.count) Python + \(apiSitesToAdd.count) API")
 
         // 限制最多加载 30 个蜘蛛（避免内存爆炸）
         for item in jsSitesToLoad.prefix(30) {
@@ -846,12 +871,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 🐍 加载订阅源中的 Python 蜘蛛
         if !pySitesToLoad.isEmpty {
-            print("[SpiderManager] 🐍 开始加载订阅源 Python 蜘蛛: \(pySitesToLoad.count) 个")
+            PythonLogStore.appendLog("[SpiderManager] 🐍 订阅源 Python 蜘蛛待加载: \(pySitesToLoad.count) 个")
             for item in pySitesToLoad.prefix(10) {
                 let key = item.site.key.isEmpty ? item.site.name : item.site.key
                 if engines[key] != nil { continue }
                 let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
-                print("[SpiderManager] 🐍 订阅源 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
+                PythonLogStore.appendLog("[SpiderManager] 🐍 订阅源 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
             }
         }
 
@@ -928,6 +953,17 @@ globalThis.__JS_SPIDER__ = _spider;
         self.allSites = allSitesBuilder
         loadedSiteCount = allSitesBuilder.count
         sourceListReady = true
+
+        // ★ 加载完成汇总日志 — 输出所有已注册引擎，方便排查 "山有木兮" 等源是否加载
+        let pyEngines = engines.compactMap { (k, v) -> String? in v is PythonSpiderEngine ? k : nil }
+        let jsEngines = engines.compactMap { (k, v) -> String? in !(v is PythonSpiderEngine) ? k : nil }
+        PythonLogStore.appendLog("[SpiderManager] 📋 源加载完成: \(engines.count)引擎 (\(jsEngines.count) JS + \(pyEngines.count) Python), \(allSitesBuilder.count)站点")
+        if !pyEngines.isEmpty {
+            PythonLogStore.appendLog("[SpiderManager] 📋 Python 引擎: \(pyEngines.joined(separator: ", "))")
+        }
+        if !jsEngines.isEmpty {
+            PythonLogStore.appendLog("[SpiderManager] 📋 JS 引擎: \(jsEngines.joined(separator: ", "))")
+        }
 
         // 将当前 allSites 中的 type=2 站源强制同步到 SQLite
         syncZhanyuanSitesToDatabase()
@@ -1049,6 +1085,11 @@ globalThis.__JS_SPIDER__ = _spider;
         }
 
         print("[SpiderManager] 远程默认源待加载 JS 蜘蛛: \(jsSitesToLoad.count) 个, Python 蜘蛛: \(pySitesToLoad.count) 个")
+        PythonLogStore.appendLog("[SpiderManager] 📋 远程源待加载: \(jsSitesToLoad.count) JS + \(pySitesToLoad.count) Python")
+        for item in pySitesToLoad {
+            let key = item.site.key.isEmpty ? item.site.name : item.site.key
+            PythonLogStore.appendLog("[SpiderManager] 📋 Python 蜘蛛待加载: \(item.site.name) (key=\(key))")
+        }
 
         // 限制最多加载 JS 蜘蛛（避免内存）
         let maxRemoteSpiders = 20
@@ -1085,12 +1126,12 @@ globalThis.__JS_SPIDER__ = _spider;
 
         // 🐍 加载 Python 蜘蛛（最多 10 个）
         if !pySitesToLoad.isEmpty {
-            print("[SpiderManager] 🐍 开始加载 Python 蜘蛛: \(pySitesToLoad.count) 个")
+            PythonLogStore.appendLog("[SpiderManager] 🐍 远程源 Python 蜘蛛待加载: \(pySitesToLoad.count) 个")
             for item in pySitesToLoad.prefix(10) {
                 let key = item.site.key.isEmpty ? item.site.name : item.site.key
                 if engines[key] != nil { continue }
                 let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
-                print("[SpiderManager] 🐍 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
+                PythonLogStore.appendLog("[SpiderManager] 🐍 远程源 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
             }
         }
     }
@@ -1179,17 +1220,27 @@ globalThis.__JS_SPIDER__ = _spider;
     /// 🐍 加载单个 Python 蜘蛛（下载 .py 到本地 → 创建 PythonSpiderEngine → 注册）
     private func loadSinglePythonSpider(site: SiteConfig, resolvedURL: String) async -> Bool {
         let key = site.key.isEmpty ? site.name : site.key
+        PythonLogStore.appendLog("[SpiderManager] 🐍 开始加载 Python 蜘蛛: \(site.name) (key=\(key))")
+        PythonLogStore.appendLog("[SpiderManager] 🐍 脚本 URL: \(resolvedURL)")
         do {
             // 1. 下载 .py 脚本
-            guard let url = URL(string: resolvedURL) else { return false }
+            guard let url = URL(string: resolvedURL) else {
+                PythonLogStore.appendLog("[SpiderManager] ❌ Python 蜘蛛 URL 无效: \(resolvedURL)")
+                return false
+            }
             var req = URLRequest(url: url)
             req.timeoutInterval = 20
             req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            
+            if let httpResp = response as? HTTPURLResponse {
+                PythonLogStore.appendLog("[SpiderManager] 🐍 HTTP \(httpResp.statusCode), 收到 \(data.count) 字节")
+            }
+            
             guard let pyCode = String(data: data, encoding: .utf8),
                   pyCode.count > 100,
                   pyCode.contains("class Spider") || pyCode.contains("class  Spider") else {
-                print("[SpiderManager] 🐍 Python 蜘蛛内容无效: \(site.name)")
+                PythonLogStore.appendLog("[SpiderManager] ❌ Python 蜘蛛内容无效或不含 class Spider: \(site.name) (长度=\(data.count))")
                 return false
             }
 
@@ -1200,25 +1251,30 @@ globalThis.__JS_SPIDER__ = _spider;
             let safeKey = key.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
             let pyURL = pyDir.appendingPathComponent("\(safeKey).py")
             try data.write(to: pyURL, options: .atomic)
+            PythonLogStore.appendLog("[SpiderManager] 🐍 脚本已保存: \(pyURL.lastPathComponent)")
 
             // 3. 创建 PythonSpiderEngine（就在主线程/当前 actor 创建，模拟器不阻塞太多）
             let engine = PythonSpiderEngine(scriptPath: pyURL.path, key: key)
 
+            // ★ 设置 onLog 回调 → 写入 PythonLogStore (否则引擎内部日志丢失)
+            engine.onLog = { msg in
+                PythonLogStore.appendLog("[\(key)] \(msg)")
+            }
+
             // 4. 检查 Python 引擎是否就绪
             guard engine.isSpiderReady else {
-                print("[SpiderManager] 🐍 Python 引擎初始化失败: \(site.name)")
+                PythonLogStore.appendLog("[SpiderManager] ❌ Python 引擎初始化失败: \(site.name) (isSpiderReady=false)")
                 return false
             }
 
             // 5. 注册进 engines
             engines[key] = engine
             if !subscribedSites.contains(key) { subscribedSites.append(key) }
-            // engineTypeDisplay 不存在，用现有 engineTypes（值仅做统计显示，Python 归为 javaScriptCore 不参与逻辑）
             engineTypes[key] = .javaScriptCore
-            print("[SpiderManager] ✅ Python 蜘蛛就绪: \(site.name) (\(key))")
+            PythonLogStore.appendLog("[SpiderManager] ✅ Python 蜘蛛就绪: \(site.name) (\(key))")
             return true
         } catch {
-            print("[SpiderManager] 🐍 Python 蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
+            PythonLogStore.appendLog("[SpiderManager] ❌ Python 蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
             return false
         }
     }
@@ -1412,21 +1468,25 @@ globalThis.__JS_SPIDER__ = _spider;
     func loadHomeData() async {
         var videos: [VodItem] = []
 
-        print("[SpiderManager] ========== 开始加载首页数据 ==========")
-        print("[SpiderManager] 可用蜘蛛引擎: \(engines.count)个")
-        print("[SpiderManager] 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
+        PythonLogStore.appendLog("[SpiderManager] 🏠 ========== 开始加载首页数据 ==========")
+        PythonLogStore.appendLog("[SpiderManager] 🏠 可用蜘蛛引擎: \(engines.count)个 [\(engines.keys.joined(separator: ", "))]")
+        PythonLogStore.appendLog("[SpiderManager] 🏠 可用API站点: \(allSites.filter { $0.api?.hasPrefix("http") ?? false }.count)个")
 
-        // 1. 尝试从 QuickJS 蜘蛛获取
+        // 1. 尝试从蜘蛛引擎获取首页数据
         if !engines.isEmpty {
-            print("[SpiderManager] 尝试从蜘蛛引擎获取首页数据...")
+            PythonLogStore.appendLog("[SpiderManager] 🏠 尝试从蜘蛛引擎获取首页数据...")
             for (key, engine) in engines {
+                let isPython = engine is PythonSpiderEngine
                 do {
-                    print("[SpiderManager] 调用蜘蛛引擎[\(key)]...")
+                    PythonLogStore.appendLog("[SpiderManager] 🏠 调用引擎[\(key)] \(isPython ? "🐍 Python" : "JS") homeContent...")
                     let result = try engine.callHomeContent()
-                    print("[SpiderManager] 蜘蛛[\(key)]返回分类: \(result.class?.count ?? 0)个, 列表: \(result.list?.count ?? 0)个")
+                    let catCount = result.class?.count ?? 0
+                    let listCount = result.list?.count ?? 0
+                    PythonLogStore.appendLog("[SpiderManager] 🏠 引擎[\(key)] 返回: \(catCount)分类, \(listCount)视频")
 
                     if let categories = result.class, !categories.isEmpty {
                         self.categories = categories
+                        PythonLogStore.appendLog("[SpiderManager] 🏠 ✅ 分类已设置: \(categories.map { $0.typeName }.joined(separator: ", "))")
                     }
 
                     if let list = result.list, !list.isEmpty {
@@ -1434,23 +1494,23 @@ globalThis.__JS_SPIDER__ = _spider;
                             item.engineKey = key
                         }
                         videos.append(contentsOf: list)
-                        print("[SpiderManager] ✅ 首页[\(key)]: \(list.count)视频")
+                        PythonLogStore.appendLog("[SpiderManager] 🏠 ✅ 首页[\(key)]: \(list.count)视频")
                         if videos.count >= 20 {
-                            print("[SpiderManager] 蜘蛛数据已足够，停止加载")
+                            PythonLogStore.appendLog("[SpiderManager] 🏠 蜘蛛数据已足够，停止加载")
                             break
                         }
                     }
                 } catch {
-                    print("[SpiderManager] ❌ 首页[\(key)]失败: \(error)")
+                    PythonLogStore.appendLog("[SpiderManager] 🏠 ❌ 首页[\(key)]失败: \(error.localizedDescription)")
                 }
             }
         } else {
-            print("[SpiderManager] ⚠️ 没有可用的蜘蛛引擎")
+            PythonLogStore.appendLog("[SpiderManager] 🏠 ⚠️ 没有可用的蜘蛛引擎")
         }
 
         // 2. 蜘蛛没数据，用热门关键词走 nativeSearch 填充首页
         if videos.isEmpty {
-            print("[SpiderManager] ⚠️ 蜘蛛首页为空，使用热门关键词通过nativeSearch拉取数据...")
+            PythonLogStore.appendLog("[SpiderManager] 🏠 ⚠️ 蜘蛛首页为空，使用热门关键词通过nativeSearch拉取数据...")
             let hotKeywords = [
                 "热播", "电影", "电视剧", "综艺", "动漫", "2026", "最新",
                 "热门", "高分", "经典", "动作", "喜剧", "爱情", "科幻",
@@ -1458,13 +1518,12 @@ globalThis.__JS_SPIDER__ = _spider;
             ]
 
             for (index, kw) in hotKeywords.enumerated() {
-                print("[SpiderManager] [\(index+1)/\(hotKeywords.count)] 搜索关键词: \(kw)")
                 let results = await nativeSearch(keyword: kw)
-                print("[SpiderManager] 热门关键词[\(kw)]: \(results.count)条")
+                PythonLogStore.appendLog("[SpiderManager] 🏠 热门词[\(index+1)/\(hotKeywords.count)] \"\(kw)\": \(results.count)条")
                 videos.append(contentsOf: results)
 
                 if videos.count >= 50 {
-                    print("[SpiderManager] ✅ 已收集\(videos.count)条视频，停止搜索")
+                    PythonLogStore.appendLog("[SpiderManager] 🏠 ✅ 已收集\(videos.count)条视频，停止搜索")
                     break
                 }
 
@@ -1472,20 +1531,15 @@ globalThis.__JS_SPIDER__ = _spider;
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5秒延迟
             }
         } else {
-            print("[SpiderManager] ✅ 蜘蛛数据已收集\(videos.count)条")
+            PythonLogStore.appendLog("[SpiderManager] 🏠 ✅ 蜘蛛数据已收集\(videos.count)条")
         }
 
-        // 去重（已临时关闭以测试多源搜索结果）
-        // var seen = Set<String>()
-        // let originalCount = videos.count
-        // videos = videos.filter { seen.insert($0.vodId.isEmpty ? $0.vodName : $0.vodId).inserted }
-        // print("[SpiderManager] 去重前: \(originalCount)条, 去重后: \(videos.count)条")
-        print("[SpiderManager] 去重已关闭，当前结果: \(videos.count)条")
+        PythonLogStore.appendLog("[SpiderManager] 🏠 去重已关闭，当前结果: \(videos.count)条")
 
         await MainActor.run {
             self.homeVideos = videos
             if self.categories.isEmpty {
-                print("[SpiderManager] 使用默认分类")
+                PythonLogStore.appendLog("[SpiderManager] 🏠 ⚠️ 分类为空, 使用默认分类")
                 self.categories = [
                     VodCategory(typeId: "movie", typeName: "电影"),
                     VodCategory(typeId: "tv", typeName: "电视剧"),
@@ -1494,17 +1548,22 @@ globalThis.__JS_SPIDER__ = _spider;
                     VodCategory(typeId: "documentary", typeName: "纪录片"),
                     VodCategory(typeId: "live", typeName: "直播")
                 ]
+            } else {
+                PythonLogStore.appendLog("[SpiderManager] 🏠 ✅ 使用引擎返回的分类: \(categories.count)个")
             }
-            print("[SpiderManager] ========== 首页数据加载完成 ==========")
-            print("[SpiderManager] 最终结果: \(videos.count)视频, \(categories.count)分类")
+            PythonLogStore.appendLog("[SpiderManager] 🏠 ========== 首页数据加载完成: \(videos.count)视频, \(categories.count)分类 ==========")
         }
     }
 
     func search(keyword: String, pg: Int = 1) async -> [VodItem] {
         var allResults: [VodItem] = []
 
+        PythonLogStore.appendLog("[SpiderManager] 🔍 开始搜索: \"\(keyword)\" (pg=\(pg))")
+        PythonLogStore.appendLog("[SpiderManager] 🔍 已注册引擎: \(engines.count) 个 [\(engines.keys.joined(separator: ", "))]")
+
         // 先尝试加载内置蜘蛛
         if engines.isEmpty {
+            PythonLogStore.appendLog("[SpiderManager] ⚠️ 引擎为空, 尝试加载内置蜘蛛...")
             await loadBuiltinEngineIfNeeded()
         }
 
@@ -1512,40 +1571,45 @@ globalThis.__JS_SPIDER__ = _spider;
         let txItems = await TencentVideoNativeSpider.shared.search(keyword: keyword, pg: pg)
         if !txItems.isEmpty {
             allResults.append(contentsOf: txItems)
-            print("[SpiderManager] 腾讯原生搜索: \(txItems.count) 条")
+            PythonLogStore.appendLog("[SpiderManager] 🔍 腾讯原生搜索: \(txItems.count) 条")
         }
 
-        // 2. QuickJS 蜘蛛搜索（跳过腾讯，已走原生）
-        for (key, engine) in engines {
-            if key == TencentVideoNativeSpider.siteKey { continue }
+        // 2. 蜘蛛引擎搜索（跳过腾讯，已走原生）
+        let engineKeys = engines.keys.sorted()
+        for key in engineKeys {
+            guard key != TencentVideoNativeSpider.siteKey else { continue }
+            let engine = engines[key]!
+            let isPython = engine is PythonSpiderEngine
+            PythonLogStore.appendLog("[SpiderManager] 🔍 搜索引擎[\(key)] \(isPython ? "🐍 Python" : "JS") ...")
             do {
-                if let items = try engine.callSearchContent(keyword: keyword, pg: pg).list {
+                let result = try engine.callSearchContent(keyword: keyword, pg: pg)
+                if let items = result.list, !items.isEmpty {
                     for var item in items {
                         if item.vodRemarks == nil || item.vodRemarks?.isEmpty == true {
                             item.vodRemarks = key
                         }
                         item.engineKey = key
-                        // 智能去重：按 vodName+画质 分组，合并来源（已关闭，保留所有搜索结果）
-                        // smartMerge(item: item, into: &allResults)
                         allResults.append(item)
                     }
-                    print("[SpiderManager] 蜘蛛搜索[\(key)]: \(items.count) 条")
+                    PythonLogStore.appendLog("[SpiderManager] ✅ 搜索[\(key)]: \(items.count) 条")
+                } else {
+                    PythonLogStore.appendLog("[SpiderManager] ⚪ 搜索[\(key)]: 0 条 (空结果)")
                 }
             } catch {
                 engineError = "搜索出错: \(error.localizedDescription)"
-                print("[SpiderManager] QuickJS 搜索失败[\(key)]: \(error)")
+                PythonLogStore.appendLog("[SpiderManager] ❌ 搜索失败[\(key)]: \(error.localizedDescription)")
             }
         }
 
-        // 2. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
+        // 3. 原生 HTTP 多源搜索（遍历订阅源站点 + 硬编码兜底）
+        PythonLogStore.appendLog("[SpiderManager] 🔍 开始原生 HTTP 多源搜索...")
         let nativeResults = await nativeSearch(keyword: keyword)
-        // 智能去重：合并原生搜索结果（已关闭，保留所有搜索结果）
         for item in nativeResults {
-            // smartMerge(item: item, into: &allResults)
             allResults.append(item)
         }
+        PythonLogStore.appendLog("[SpiderManager] 🔍 原生 HTTP 搜索: \(nativeResults.count) 条")
 
-        print("[SpiderManager] 搜索完成: QuickJS+原生 共 \(allResults.count) 条")
+        PythonLogStore.appendLog("[SpiderManager] 🔍 搜索完成: 共 \(allResults.count) 条 (引擎+原生)")
         return allResults.isEmpty ? nativeResults : allResults
     }
 
@@ -1563,15 +1627,19 @@ globalThis.__JS_SPIDER__ = _spider;
     ///   - page: 页码
     ///   - filters: 多维筛选参数（类型/地区/年份/排序），全部为 nil 时等价于原方法
     func fetchCategoryContent(categoryTypeId: String, page: Int = 1, filters: CategoryFilterParams? = nil) async -> [VodItem] {
-        // 先尝试 QuickJS 引擎的 categoryContent
+        // 先尝试蜘蛛引擎的 categoryContent
         var results: [VodItem] = []
 
         // 构造筛选查询串
         let filterQuery = Self.buildFilterQuery(filters)
 
-        // 1. 尝试 JS 引擎
+        PythonLogStore.appendLog("[SpiderManager] 📂 分类请求: tid=\(categoryTypeId), pg=\(page), 引擎数=\(engines.count)")
+
+        // 1. 尝试蜘蛛引擎
         for (key, engine) in engines {
+            let isPython = engine is PythonSpiderEngine
             do {
+                PythonLogStore.appendLog("[SpiderManager] 📂 引擎[\(key)] \(isPython ? "🐍 Python" : "JS") categoryContent...")
                 let result = try engine.callCategoryContent(tid: categoryTypeId, pg: page, extend: "{}")
                 if let list = result.list, !list.isEmpty {
                     for var item in list {
@@ -1581,19 +1649,21 @@ globalThis.__JS_SPIDER__ = _spider;
                         item.engineKey = key
                         results.append(item)
                     }
-                    print("[SpiderManager] 分类[\(categoryTypeId)]引擎[\(key)]: \(list.count)条")
+                    PythonLogStore.appendLog("[SpiderManager] 📂 ✅ 分类[\(categoryTypeId)]引擎[\(key)]: \(list.count)条")
+                } else {
+                    PythonLogStore.appendLog("[SpiderManager] 📂 ⚪ 分类[\(categoryTypeId)]引擎[\(key)]: 0条")
                 }
             } catch {
-                print("[SpiderManager] 引擎分类失败[\(key)]: \(error)")
+                PythonLogStore.appendLog("[SpiderManager] 📂 ❌ 引擎分类失败[\(key)]: \(error.localizedDescription)")
             }
         }
         
         // 2. 原生 HTTP 兜底 - 调用 TVBox API 站点
-        // 【改造】使用 resolveSiteMode 筛选 API 模式站点，更准确地识别可调用站点
         let apiSites = allSites.filter { site in
             let mode = resolveSiteMode(site: site)
             return mode == .apiEndpoint || site.type == 0 || site.type == 1
         }
+        PythonLogStore.appendLog("[SpiderManager] 📂 原生API站点: \(apiSites.count)个")
         for site in apiSites {
             guard let api = site.api else { continue }
             let baseAPI = api.hasSuffix("/") ? String(api.dropLast()) : api
@@ -1619,14 +1689,14 @@ globalThis.__JS_SPIDER__ = _spider;
                         )
                     }
                     results.append(contentsOf: items)
-                    print("[SpiderManager] 原生分类[\(site.name)]: \(items.count)条")
+                    PythonLogStore.appendLog("[SpiderManager] 📂 原生[\(site.name)]: \(items.count)条")
                 }
             } catch {
-                print("[SpiderManager] 原生分类请求失败[\(site.name)]: \(error)")
+                PythonLogStore.appendLog("[SpiderManager] 📂 ❌ 原生分类失败[\(site.name)]: \(error.localizedDescription)")
             }
         }
 
-        // 3. 网盘 CMS 源分类内容（此前缺失导致网盘源分类无数据）
+        // 3. 网盘 CMS 源分类内容
         let cloudSites = loadCloudSitesFromJSONConfig()
         for site in cloudSites where site.type == .cms {
             let api = "\(site.detailBase)/api.php/provide/vod"
@@ -1652,13 +1722,14 @@ globalThis.__JS_SPIDER__ = _spider;
                         )
                     }
                     results.append(contentsOf: items)
-                    print("[SpiderManager] 网盘CMS分类[\(site.name)]: \(items.count)条")
+                    PythonLogStore.appendLog("[SpiderManager] 📂 网盘CMS[\(site.name)]: \(items.count)条")
                 }
             } catch {
-                print("[SpiderManager] 网盘CMS分类请求失败[\(site.name)]: \(error)")
+                PythonLogStore.appendLog("[SpiderManager] 📂 ❌ 网盘CMS分类失败[\(site.name)]: \(error.localizedDescription)")
             }
         }
 
+        PythonLogStore.appendLog("[SpiderManager] 📂 分类完成: tid=\(categoryTypeId), 共\(results.count)条")
         return results
     }
 
