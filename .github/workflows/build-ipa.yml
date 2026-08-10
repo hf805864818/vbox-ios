@@ -36,7 +36,16 @@ jobs:
       - name: 🐍 Build CPython for iOS arm64 (Python-Apple-support)
         run: |
           set -euo pipefail
-          echo "🐍 使用 BeeWare Python-Apple-support 编译 iOS arm64 Python..."
+          echo "🐍 检查是否已有预编译的 libpython3.14.a..."
+
+          if [ -f vbox/Libraries/python-ios/libpython3.14.a ]; then
+            echo "✅ 使用仓库中已提交的 libpython3.14.a (跳过编译)"
+            ls -lh vbox/Libraries/python-ios/libpython3.14.a
+            echo "  头文件: $(ls vbox/Libraries/python-ios/Headers/ 2>/dev/null | wc -l) 个"
+            echo "  标准库: vbox/Resources/python-stdlib"
+            exit 0
+          fi
+          echo "⚠️ 未找到预编译库，开始现场编译..."
 
           # 1. 安装 host Python 3.14 (工具链需要同版本 build-python)
           echo "📦 安装 host Python 3.14..."
@@ -55,7 +64,7 @@ jobs:
           # 3. 构建 iOS device Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)
           echo "🏗️ 构建 iOS arm64 Python (完整 iOS 流程)..."
           export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
-          make ios 2>&1 | tee /tmp/pas-build.log | tail -30
+          make iOS 2>&1 | tee /tmp/pas-build.log | tail -30
 
           # 4. 检查产物 (iOS 目录名是首字母大写 "iOS")
           echo "📦 检查产物..."
@@ -82,14 +91,21 @@ jobs:
           mkdir -p vbox/Libraries/python-ios
 
           # 静态库: Python.framework/Python → libpython3.14.a
+          rm -f vbox/Libraries/python-ios/libpython3.14.a
           cp /tmp/pas/${INSTALL_DIR}/Python.framework/Python vbox/Libraries/python-ios/libpython3.14.a
 
           # 头文件
           mkdir -p vbox/Libraries/python-ios/Headers
           cp -r /tmp/pas/${INSTALL_DIR}/Python.framework/Headers/* vbox/Libraries/python-ios/Headers/
 
+          # 标准库到 Resources (清空重建)
+          rm -rf vbox/Resources/python-stdlib
+          mkdir -p vbox/Resources/python-stdlib
+          cp -r /tmp/pas/${INSTALL_DIR}/lib/python3.14 vbox/Resources/python-stdlib/lib
+
           echo "✅ CPython 集成完成"
           echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
+          echo "  标准库: $(du -sh vbox/Resources/python-stdlib | cut -f1)"
 
       - name: 🎬 Fetch MPVKit dependencies
         run: |
