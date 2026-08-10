@@ -116,7 +116,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
         // ★ 先尝试标准解码
         do {
-            return try JSONDecoder().decode(CategoryContentResult.self, from: data)
+            let result = try JSONDecoder().decode(CategoryContentResult.self, from: data)
+            // ★ 记录空列表情况, 便于排查
+            if result.list?.isEmpty != false {
+                onLog?("⚠️ [\(scriptKey)] categoryContent 返回空列表! tid=\(tid), pg=\(pg), 原始: \(json.prefix(200))")
+            } else {
+                onLog?("✅ [\(scriptKey)] categoryContent 成功: tid=\(tid), \(result.list?.count ?? 0)条")
+            }
+            return result
         } catch {
             onLog?("⚠️ [\(scriptKey)] categoryContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
             // ★ 容错解析: 用 JSONSerialization 手动提取, 兼容整数 vod_id 等
