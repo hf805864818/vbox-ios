@@ -158,7 +158,6 @@ class AppSettings: ObservableObject {
         welfarePassword = UserDefaults.standard.string(forKey: Self.welfarePasswordKey) ?? "888888"
         welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
         devLogEnabled = UserDefaults.standard.object(forKey: Self.devLogEnabledKey) as? Bool ?? false
-        PythonLogStore.shared().enabled = devLogEnabled
         remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: Self.remoteDefaultSourceEnabledKey) as? Bool ?? true
         bundleSourcesEnabled = UserDefaults.standard.object(forKey: Self.bundleSourcesEnabledKey) as? Bool ?? false
 
@@ -171,6 +170,10 @@ class AppSettings: ObservableObject {
         }
 
         defaultManifestURL = UserDefaults.standard.string(forKey: Self.defaultManifestURLKey) ?? RemoteSourceConfigManager.defaultManifestURL
+
+        // 所有存储属性初始化完成后，再同步 PythonLogStore 状态
+        // (不能在属性初始化中间调用，否则会触发 didSet 中的 self 访问)
+        PythonLogStore.shared().enabled = devLogEnabled
     }
 
     var preferredColorScheme: ColorScheme? {
