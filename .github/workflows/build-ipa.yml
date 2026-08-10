@@ -204,12 +204,26 @@ jobs:
           STD="vbox/Resources/python-stdlib"
 
           # 1. 从 CPython 构建产物复制标准库到 Resources
-          PAS_LIB=$(find /tmp/pas/install -path "*/python-3.14.6/lib/python3.14" -type d 2>/dev/null | head -1)
-          if [ -n "$PAS_LIB" ]; then
-            echo "源标准库: $PAS_LIB ($(du -sh $PAS_LIB | cut -f1))"
+          #    关键: 必须匹配真机 iphoneos.arm64 (排除 iphonesimulator)
+          #    且保留 python3.14 层 → 最终路径须为 python-stdlib/lib/python3.14/
+          PAS_LIB=$(find /tmp/pas/install -path "*/iphoneos.arm64/python-3.14.6/lib/python3.14" -type d 2>/dev/null | head -1)
+          if [ -z "$PAS_LIB" ]; then
+            echo "⚠️ 未找到真机标准库，尝试通用匹配但排除 simulator"
+            PAS_LIB=$(find /tmp/pas/install -path "*/python-3.14.6/lib/python3.14" -type d 2>/dev/null | grep -v simulator | head -1)
+          fi
+          if [ -n "$PAS_LIB" ] && [ -d "$PAS_LIB" ]; then
+            echo "源标准库(真机): $PAS_LIB ($(du -sh $PAS_LIB | cut -f1))"
             rm -rf "$STD"
-            mkdir -p "$STD"
-            cp -r "$PAS_LIB" "$STD/lib" 2>/dev/null || cp -r "$PAS_LIB/." "$STD/"
+            # 明确: 复制为 $STD/lib/python3.14   (保留 python3.14 层)
+            mkdir -p "$STD/lib"
+            cp -r "$PAS_LIB" "$STD/lib/"   # → $STD/lib/python3.14
+            echo "✅ 标准库已复制至: $STD/lib/python3.14"
+            # 校验非 simulator
+            if find "$STD/lib" -name "*.so" 2>/dev/null | head -1 | grep -q simulator; then
+              echo "❌ 仍含 simulator .so, 出错!"
+              find "$STD/lib" -name "*.so" 2>/dev/null | head -1
+              exit 1
+            fi
           fi
 
           # 如果已经有了就直接用
@@ -225,8 +239,10 @@ jobs:
             find "$STD" -path "*/$del" -exec rm -rf {} + 2>/dev/null
           done
 
-          # 3. 只保留必要的 C 扩展 .so
-          if [ -d "$STD/lib-dynload" ]; then
+          # 3. 只保留必要的 C 扩展 .so (路径: 真机标准库在 lib/python3.14/lib-dynload)
+          LIBDYNLOAD_DIR="$STD/lib/python3.14/lib-dynload"
+          if [ ! -d "$LIBDYNLOAD_DIR" ]; then LIBDYNLOAD_DIR="$STD/lib-dynload"; fi
+          if [ -d "$LIBDYNLOAD_DIR" ]; then
             keep="_socket _ssl hashlib zlib binascii math _struct _json \
                   _bz2 _codecs _datetime _decimal _heapq _io _opcode \
                   _pickle _random _statistics select unicodedata \
@@ -234,9 +250,11 @@ jobs:
                   _locale _imp _warnings _frozen_importlib _frozen_importlib_external \
                   _signal _stat _md5 _sha1 _sha256 _sha512 _blake2 \
                   _contextvars _queue _scproxy"
-            for so in "$STD"/lib-dynload/*; do
+            for so in "$LIBDYNLOAD_DIR"/*; do
               [ -f "$so" ] || continue
               base=$(basename "$so"); base=${base%.so}
+              base=${base%.cpython-314-iphoneos}
+              base=${base%.cpython-314-iphonesimulator}
               keep_this=no
               for k in $keep; do if [ "$k" = "$base" ]; then keep_this=yes; fi; done
               if [ "$keep_this" = "no" ]; then rm -f "$so"; fi
@@ -248,16 +266,16 @@ jobs:
           find "$STD" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
 
           # 5. 恢复 base.spider 兼容模块 (从仓库现有文件)
-          #    重建后的 $STD 可能没有 base/, 从仓库备份恢复
+          #    标准库位置: $STD/lib/python3.14, base 须放到里面
           REPO_BASE="vbox/Resources/python-stdlib/base/spider.py"
           if [ -f "$REPO_BASE" ]; then
-            # 标准库实际位置
-            LIBDIR="$STD/lib"
+            LIBDIR="$STD/lib/python3.14"
+            [ -d "$LIBDIR" ] || LIBDIR="$STD/lib"
             [ -d "$LIBDIR" ] || LIBDIR="$STD"
             mkdir -p "$LIBDIR/base"
             cat "$REPO_BASE" > "$LIBDIR/base/spider.py"
             touch "$LIBDIR/base/__init__.py"
-            echo "✅ 恢复 base/spider.py"
+            echo "✅ 恢复 base/spider.py → $LIBDIR/base"
           fi
 
           echo "精简后: $(du -sh $STD | cut -f1)"
