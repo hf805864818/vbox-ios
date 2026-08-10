@@ -13,6 +13,7 @@ import Foundation
 enum PythonSpiderError: LocalizedError {
     case execFailed(String)
     case invalidJSON(String)
+    case notInitialized
 
     var errorDescription: String? {
         switch self {
