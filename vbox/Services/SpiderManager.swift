@@ -8,6 +8,7 @@ extension Notification.Name {
 /// 站点模式枚举 — 用于区分站点的实际工作模式
 enum SiteMode {
     case jsSpider       // JS蜘蛛模式：加载JS脚本到引擎
+    case pythonSpider   // Python蜘蛛模式：加载.py脚本到Python引擎
     case apiEndpoint    // API模式：直接HTTP调用CMS接口
     case zhanyuan       // 站源模式：HTML解析
     case unsupported    // 不支持的类型（jar包等）
@@ -136,6 +137,10 @@ class SpiderManager: ObservableObject {
             // jar 包不支持
             if api.lowercased().contains(".jar") {
                 return .unsupported
+            }
+            // 🐍 Python Spider: 以 .py 结尾
+            if api.lowercased().hasSuffix(".py") {
+                return .pythonSpider
             }
             // HTTP/HTTPS URL：进一步判断是JS文件还是API接口
             if api.hasPrefix("http://") || api.hasPrefix("https://") {
@@ -1002,43 +1007,40 @@ globalThis.__JS_SPIDER__ = _spider;
     private func loadRemoteSpiderEngines(baseURL: String, sites: [SiteConfig]) async {
         guard !sites.isEmpty else { return }
 
-        // 收集需要加载的 JS 蜘蛛站点
+        // 收集需要加载的 JS 蜘蛛站点 + Python 蜘蛛站点
         var jsSitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
+        var pySitesToLoad: [(site: SiteConfig, resolvedURL: String)] = []
 
         for site in sites {
             guard let api = site.api, !api.isEmpty else { continue }
             let mode = resolveSiteMode(site: site)
+
+            // 🐍 Python Spider
+            if mode == .pythonSpider {
+                let resolvedURL = resolveSpiderURL(api: api, baseURL: baseURL, site: site)
+                if let url = resolvedURL {
+                    pySitesToLoad.append((site: site, resolvedURL: url))
+                }
+                continue
+            }
             guard mode == .jsSpider else { continue }
 
             // 解析相对路径或绝对 URL
-            let resolvedURL: String
-            if api.hasPrefix("./") || (!api.hasPrefix("http://") && !api.hasPrefix("https://") && api.hasSuffix(".js")) {
-                let cleanPath = api.hasPrefix("./") ? String(api.dropFirst(2)) : api
-                if let base = URL(string: baseURL) {
-                    resolvedURL = base.appendingPathComponent(cleanPath).standardized.absoluteString
-                } else {
-                    print("[SpiderManager] ⚠️ 远程蜘蛛 baseURL 无效，跳过: \(site.name)")
-                    continue
-                }
-            } else if api.hasPrefix("http://") || api.hasPrefix("https://") {
-                resolvedURL = api
-            } else {
-                print("[SpiderManager] 跳过无法识别的远程蜘蛛 URL: \(site.name) api=\(api.prefix(60))")
-                continue
+            let resolvedURL = resolveSpiderURL(api: api, baseURL: baseURL, site: site)
+            if let url = resolvedURL {
+                jsSitesToLoad.append((site: site, resolvedURL: url))
             }
-
-            jsSitesToLoad.append((site: site, resolvedURL: resolvedURL))
         }
 
-        print("[SpiderManager] 远程默认源待加载 JS 蜘蛛: \(jsSitesToLoad.count) 个")
+        print("[SpiderManager] 远程默认源待加载 JS 蜘蛛: \(jsSitesToLoad.count) 个, Python 蜘蛛: \(pySitesToLoad.count) 个")
 
-        // 限制最多加载 20 个（避免内存）
+        // 限制最多加载 JS 蜘蛛（避免内存）
         let maxRemoteSpiders = 20
-        let sitesToProcess = Array(jsSitesToLoad.prefix(maxRemoteSpiders))
+        let jsSitesToProcess = Array(jsSitesToLoad.prefix(maxRemoteSpiders))
 
-        // 使用 TaskGroup 并发加载多个引擎
+        // 使用 TaskGroup 并发加载多个 JS 引擎
         await withTaskGroup(of: (key: String, success: Bool).self) { group in
-            for item in sitesToProcess {
+            for item in jsSitesToProcess {
                 let key = item.site.key.isEmpty ? item.site.name : item.site.key
 
                 // 已加载则跳过
@@ -1063,6 +1065,35 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
             print("[SpiderManager] 远程默认源 JS 蜘蛛加载完成: 成功 \(loaded) 个，失败 \(failed) 个")
+        }
+
+        // 🐍 加载 Python 蜘蛛（最多 10 个）
+        if !pySitesToLoad.isEmpty {
+            print("[SpiderManager] 🐍 开始加载 Python 蜘蛛: \(pySitesToLoad.count) 个")
+            for item in pySitesToLoad.prefix(10) {
+                let key = item.site.key.isEmpty ? item.site.name : item.site.key
+                if engines[key] != nil { continue }
+                let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
+                print("[SpiderManager] 🐍 Python 蜘蛛[\(success ? "✅" : "❌")] \(item.site.name) (\(key))")
+            }
+        }
+    }
+
+    /// 解析蜘蛛脚本 URL（相对路径或绝对URL）
+    private func resolveSpiderURL(api: String, baseURL: String, site: SiteConfig) -> String? {
+        if api.hasPrefix("./") || (!api.hasPrefix("http://") && !api.hasPrefix("https://") && (api.hasSuffix(".js") || api.hasSuffix(".py"))) {
+            let cleanPath = api.hasPrefix("./") ? String(api.dropFirst(2)) : api
+            if let base = URL(string: baseURL) {
+                return base.appendingPathComponent(cleanPath).standardized.absoluteString
+            } else {
+                print("[SpiderManager] ⚠️ 远程蜘蛛 baseURL 无效，跳过: \(site.name)")
+                return nil
+            }
+        } else if api.hasPrefix("http://") || api.hasPrefix("https://") {
+            return api
+        } else {
+            print("[SpiderManager] 跳过无法识别的远程蜘蛛 URL: \(site.name) api=\(api.prefix(60))")
+            return nil
         }
     }
 
@@ -1125,6 +1156,53 @@ globalThis.__JS_SPIDER__ = _spider;
             return true
         } catch {
             print("[SpiderManager] 远程蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 🐍 加载单个 Python 蜘蛛（下载 .py 到本地 → 创建 PythonSpiderEngine → 注册）
+    private func loadSinglePythonSpider(site: SiteConfig, resolvedURL: String) async -> Bool {
+        let key = site.key.isEmpty ? site.name : site.key
+        do {
+            // 1. 下载 .py 脚本
+            guard let url = URL(string: resolvedURL) else { return false }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 20
+            req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let pyCode = String(data: data, encoding: .utf8),
+                  pyCode.count > 100,
+                  pyCode.contains("class Spider") || pyCode.contains("class  Spider") else {
+                print("[SpiderManager] 🐍 Python 蜘蛛内容无效: \(site.name)")
+                return false
+            }
+
+            // 2. 保存 .py 到本地 Documents（PythonSpiderEngine 需要脚本路径）
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let pyDir = docs.appendingPathComponent("remote_sources/spider_python", isDirectory: true)
+            try FileManager.default.createDirectory(at: pyDir, withIntermediateDirectories: true)
+            let safeKey = key.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+            let pyURL = pyDir.appendingPathComponent("\(safeKey).py")
+            try data.write(to: pyURL, options: .atomic)
+
+            // 3. 创建 PythonSpiderEngine（就在主线程/当前 actor 创建，模拟器不阻塞太多）
+            let engine = PythonSpiderEngine(scriptPath: pyURL.path, key: key)
+
+            // 4. 检查 Python 引擎是否就绪
+            guard engine.isSpiderReady else {
+                print("[SpiderManager] 🐍 Python 引擎初始化失败: \(site.name)")
+                return false
+            }
+
+            // 5. 注册进 engines
+            engines[key] = engine
+            if !subscribedSites.contains(key) { subscribedSites.append(key) }
+            // engineTypeDisplay 不存在，用现有 engineTypes（值仅做统计显示，Python 归为 javaScriptCore 不参与逻辑）
+            engineTypes[key] = .javaScriptCore
+            print("[SpiderManager] ✅ Python 蜘蛛就绪: \(site.name) (\(key))")
+            return true
+        } catch {
+            print("[SpiderManager] 🐍 Python 蜘蛛加载失败: \(site.name) - \(error.localizedDescription)")
             return false
         }
     }
