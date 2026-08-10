@@ -51,9 +51,9 @@ unless File.directory?(spec_path)
 end
 
 # 4. 添加 PBXFileReference
-file_ref = project.files.find { |f| f.path == File.join('vbox/Libraries/python-ios', 'Python.framework') }
+file_ref = project.files.find { |f| f.path == 'Libraries/python-ios/Python.framework' || f.path == 'Python.framework' }
 unless file_ref
-  file_ref = project.main_group.new_file('vbox/Libraries/python-ios/Python.framework')
+  file_ref = project.main_group.new_file('Libraries/python-ios/Python.framework')
   file_ref.last_known_file_type = 'wrapper.framework'
   puts "✅ 添加 PBXFileReference: Python.framework"
 end
@@ -88,14 +88,36 @@ end
 
 # 7.5. 把 PythonBridge.m + PythonSpiderEngine.swift 加入编译源 (sources)
 source_phase = app_target.source_build_phase
+
+# 递归查找目标 group (相对项目根的路径 → group)
+def find_group_for_path(project, rel_path)
+  dir = File.dirname(rel_path)                    # e.g. "vbox/Services"
+  parts = dir.split('/')
+  current_group = project.main_group
+  parts.each do |p|
+    sub = current_group.children.find do |c|
+      c.respond_to?(:path) && c.path == p && c.respond_to?(:files)
+    end
+    unless sub
+      sub = current_group.new_group(p, p)
+    end
+    current_group = sub
+  end
+  current_group
+end
+
 bridge_files = ['vbox/Libraries/PythonBridge.m', 'vbox/Services/PythonSpiderEngine.swift']
 bridge_files.each do |rel_path|
-  next if source_phase.files.any? { |f| f.file_ref&.path == File.basename(rel_path) }
-  # 找到或创建 fileRef
-  file_ref = project.files.find { |f| f.path == rel_path }
+  file_name = File.basename(rel_path)
+  next if source_phase.files.any? { |f| f.file_ref&.path == file_name }
+  # 找到或创建 fileRef (放在正确的 group 下, 用短文件名)
+  file_ref = project.files.find { |f| f.path == file_name && f.real_path.to_s.include?(rel_path) }
   unless file_ref
-    file_ref = project.main_group.new_file(rel_path)
-    puts "    新建 fileRef: #{rel_path}"
+    group = find_group_for_path(project, rel_path)
+    file_ref = group.new_file(file_name)
+    file_ref.path = file_name
+    file_ref.source_tree = '<group>'
+    puts "    新建 fileRef: #{rel_path} → group=#{group.path}"
   end
   source_phase.add_file_reference(file_ref)
   puts "✅ 添加编译源: #{rel_path}"
