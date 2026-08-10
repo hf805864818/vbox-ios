@@ -298,6 +298,7 @@ cleanup:
     
     if ([functionName isEqualToString:@"categoryContent"]) {
         // categoryContent(tid, pg, filter, extend) — Spider 标准签名
+        // ★ 修复: 之前 extend 参数始终传空 dict, 导致筛选器不生效
         if (jsonArgs) {
             NSData *data = [jsonArgs dataUsingEncoding:NSUTF8StringEncoding];
             NSError *err;
@@ -305,11 +306,28 @@ cleanup:
             if (!err && d) {
                 NSString *tid = d[@"tid"] ?: @"";
                 NSString *pg = d[@"pg"] ?: @"1";
+
+                // ★ 从 JSON 中提取 extend 参数, 转为 Python dict
+                PyObject *extendDict = PyDict_New();
+                NSString *extendStr = d[@"extend"];
+                if (extendStr && extendStr.length > 0 && ![extendStr isEqualToString:@"{}"]) {
+                    // extend 是 JSON 字符串, 解析后转为 Python dict
+                    NSData *extendData = [extendStr dataUsingEncoding:NSUTF8StringEncoding];
+                    NSDictionary *extendObj = [NSJSONSerialization JSONObjectWithData:extendData options:0 error:nil];
+                    if (extendObj) {
+                        for (NSString *k in extendObj) {
+                            id v = extendObj[k];
+                            PyDict_SetItemString(extendDict, [k UTF8String],
+                                PyUnicode_FromString([[v description] UTF8String]));
+                        }
+                    }
+                }
+
                 return PyTuple_Pack(4,
                     PyUnicode_FromString([tid UTF8String]),
                     PyUnicode_FromString([pg UTF8String]),
                     PyDict_New(),
-                    PyDict_New()
+                    extendDict
                 );
             }
         }

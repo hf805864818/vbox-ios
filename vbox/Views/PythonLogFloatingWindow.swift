@@ -253,7 +253,31 @@ final class PythonLogPanelViewController: UIViewController {
         let fileURL = URL(fileURLWithPath: zipPath)
         let documentPicker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
         documentPicker.delegate = self
-        present(documentPicker, animated: true)
+
+        // ★ 关键修复: 从主 App 的 rootViewController present documentPicker
+        // 之前从悬浮窗的 VC present, 导致 picker dismiss 时悬浮窗被系统移除
+        // 改为从主窗口 present, 悬浮窗不参与 presentation chain, 保持可见
+        presentFromMainWindow(documentPicker)
+    }
+
+    /// 从主 App 窗口的 rootViewController present 一个 VC
+    /// 确保悬浮窗不参与 presentation chain, 避免被系统移除
+    private func presentFromMainWindow(_ vc: UIViewController) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
+              let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            // 回退: 直接在悬浮窗 present (可能导致悬浮窗消失, 但是没有其他选择)
+            present(vc, animated: true)
+            return
+        }
+
+        // 找到最顶层的 presented VC
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController, !presented.isBeingDismissed {
+            topVC = presented
+        }
+        topVC.present(vc, animated: true)
     }
 
     /// ★ 在主 App 窗口上弹 Alert
