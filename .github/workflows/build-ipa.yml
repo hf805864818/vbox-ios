@@ -52,22 +52,28 @@ jobs:
           git clone --depth 1 https://github.com/beeware/Python-Apple-support.git /tmp/pas
           cd /tmp/pas
 
-          # 3. 构建 iOS arm64 device Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)
-          echo "🏗️ 构建 iOS arm64 Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)..."
+          # 3. 构建 iOS device Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)
+          echo "🏗️ 构建 iOS arm64 Python (完整 iOS 流程)..."
           export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
-          make iphoneos.arm64 2>&1 | tee /tmp/pas-build.log | tail -25
+          make ios 2>&1 | tee /tmp/pas-build.log | tail -30
 
-          # 4. 检查产物
+          # 4. 检查产物 (iOS 目录名是首字母大写 "iOS")
           echo "📦 检查产物..."
           INSTALL_DIR="install/ios/iphoneos.arm64/python-3.14.6"
           if [ ! -f "${INSTALL_DIR}/Python.framework/Python" ]; then
+            INSTALL_DIR="install/iOS/iphoneos.arm64/python-3.14.6"
+          fi
+          if [ ! -f "${INSTALL_DIR}/Python.framework/Python" ]; then
             echo "❌ Python.framework 未生成"
-            tail -60 /tmp/pas-build.log
+            echo "install 目录结构:"
+            find install -name "Python" -path "*framework*" 2>/dev/null | head
+            echo "--- 日志末尾 ---"
+            tail -80 /tmp/pas-build.log
             exit 1
           fi
           echo "✅ Python framework 生成:"
           ls -lh "${INSTALL_DIR}/Python.framework/Python"
-          echo "  标准库: $(du -sh ${INSTALL_DIR}/lib 2>/dev/null | cut -f1)"
+          echo "  标准库路径: ${INSTALL_DIR}/lib/python3.14"
           echo "  头文件: ${INSTALL_DIR}/Python.framework/Headers"
 
           # 5. 复制产物到 vbox 项目
