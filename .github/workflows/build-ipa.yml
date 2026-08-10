@@ -265,34 +265,21 @@ jobs:
           find "$STD" -name "*.pyc" -delete 2>/dev/null
           find "$STD" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
 
-          # 5. 恢复 base.spider 兼容模块 (内联生成, 不依赖被 rm 的仓库文件)
-          #    必须放 $STD/lib/python3.14/base/
-          LIBDIR="$STD/lib/python3.14"
-          [ -d "$LIBDIR" ] || LIBDIR="$STD/lib"
-          [ -d "$LIBDIR" ] || LIBDIR="$STD"
-          mkdir -p "$LIBDIR/base"
-          cat > "$LIBDIR/base/spider.py" << 'PYEOF'
-"""base.spider 兼容模块 - vbox CPython Bridge"""
-import urllib.request
-
-class Spider:
-    def __init__(self):
-        self.name = "BaseSpider"
-
-    def fetch(self, url, headers=None, **kw):
-        req = urllib.request.Request(url, headers=headers or {})
-        r = urllib.request.urlopen(req, timeout=15)
-        class Response:
-            def __init__(self, text, encoding='utf-8'):
-                self.text = text
-                self.encoding = encoding
-        return Response(r.read().decode('utf-8', errors='replace'))
-
-    def getName(self):
-        return getattr(self, 'name', 'BaseSpider')
-PYEOF
-          touch "$LIBDIR/base/__init__.py"
-          echo "✅ 恢复 base/spider.py → $LIBDIR/base/spider.py"
+          # 5. 恢复 base.spider 兼容模块
+          #    从 repo 的 scripts/python-base-spider.py 复制 (不在 python-stdlib 下, 不会被 rm 删)
+          #    目标: $STD/lib/python3.14/base/spider.py
+          if [ -f "scripts/python-base-spider.py" ]; then
+            LIBDIR="$STD/lib/python3.14"
+            [ -d "$LIBDIR" ] || LIBDIR="$STD/lib"
+            [ -d "$LIBDIR" ] || LIBDIR="$STD"
+            mkdir -p "$LIBDIR/base"
+            cp "scripts/python-base-spider.py" "$LIBDIR/base/spider.py"
+            touch "$LIBDIR/base/__init__.py"
+            echo "✅ 恢复 base/spider.py → $LIBDIR/base/spider.py"
+            ls -la "$LIBDIR/base/"
+          else
+            echo "⚠️ 未找到 scripts/python-base-spider.py"
+          fi
 
           echo "精简后: $(du -sh $STD | cut -f1)"
 
