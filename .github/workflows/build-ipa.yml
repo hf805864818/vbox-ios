@@ -87,7 +87,7 @@ jobs:
 
           # 5. 复制产物到 vbox 项目
           echo "📤 复制到 vbox 项目..."
-          cd /var/minis/workspace/vbox-ios-fork
+          cd "${GITHUB_WORKSPACE}"
           mkdir -p vbox/Libraries/python-ios
 
           # 静态库: Python.framework/Python → libpython3.14.a
