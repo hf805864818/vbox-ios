@@ -1889,11 +1889,39 @@ globalThis.__JS_SPIDER__ = _spider;
                 let engineEntries = Array(engines)
                 guard !engineEntries.isEmpty else { return }
 
+                // ★ 方案B: 把 Python 引擎摘出并发 TaskGroup, 单独串行执行
+                //   (iOS CPython 非线程安全, 不能多线程并发; JS/CMS 保持原并发逻辑不变)
+                let jsEntries = engineEntries.filter { !($1 is PythonSpiderEngine) }
+                let pyEntries = engineEntries.filter { $1 is PythonSpiderEngine }
+
+                // Python 引擎先串行搜索 (它们共享一个 CPython 解释器, 必须串行)
+                if !pyEntries.isEmpty {
+                    for (key, pyEngine) in pyEntries {
+                        do {
+                            if let items = try pyEngine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
+                                var taggedPython = items
+                                let pyName = siteNameMap[key] ?? key
+                                for i in 0..<taggedPython.count {
+                                    taggedPython[i].vodRemarks = pyName
+                                    taggedPython[i].engineKey = key
+                                }
+                                log("🐍 Python[\(key)] +\(taggedPython.count)条")
+                                onBatch(taggedPython)
+                            }
+                        } catch {
+                            log("🐍 Python[\(key)] \(error.localizedDescription)")
+                        }
+                    }
+                }
+
+                // JS/CMS 引擎保持原并发逻辑不变
+                guard !jsEntries.isEmpty else { return }
+
                 await withTaskGroup(of: (key: String, items: [VodItem]?, error: String?).self) { jsGroup in
                     var running = 0
                     let maxConcurrent = 10
 
-                    for (key, engine) in engineEntries {
+                    for (key, engine) in jsEntries {
                         if running >= maxConcurrent {
                             if let r = await jsGroup.next() {
                                 if let items = r.items, !items.isEmpty {
