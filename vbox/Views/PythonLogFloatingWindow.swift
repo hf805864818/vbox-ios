@@ -64,6 +64,12 @@ final class PythonLogFloatingWindow: UIWindow {
     }
 
     func show() {
+        // iOS 13+: UIWindow 必须关联到 UIWindowScene 才能显示
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }) {
+            self.windowScene = scene
+        }
         self.isHidden = false
         self.makeKeyAndVisible()
     }

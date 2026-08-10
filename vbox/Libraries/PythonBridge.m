@@ -86,6 +86,10 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         
         _pyInitialized = YES;
         PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome]);
+        
+        // ★ 关键: 释放 GIL，允许后台线程通过 PyGILState_Ensure() 获取
+        // Py_Initialize 后主线程持有 GIL，不释放的话后台线程无法安全调用 Python C API
+        PyEval_SaveThread();
     } @catch (NSException *exception) {
         PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 初始化异常: %@", exception.reason]);
     }
@@ -120,6 +124,11 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
     if (!_pyInitialized) return nil;
     
     pthread_mutex_lock(&_pyMutex);
+    
+    // ★ 关键: 获取 GIL — 后台线程调用 Python C API 必须持有 GIL
+    // Py_Initialize 在主线程执行并持有 GIL，初始化后已通过 PyEval_SaveThread 释放
+    // 此处通过 PyGILState_Ensure 在当前线程重新获取 GIL
+    PyGILState_STATE gilState = PyGILState_Ensure();
     
     NSString *result = nil;
     PyObject *globals = NULL;
@@ -226,6 +235,9 @@ cleanup:
     if (fp) fclose(fp);
     Py_XDECREF(spider);
     // 注意：不要释放 _cachedGlobals/_cachedMainModule (长期持有)
+    
+    // ★ 释放 GIL
+    PyGILState_Release(gilState);
     
     pthread_mutex_unlock(&_pyMutex);
     return result;
