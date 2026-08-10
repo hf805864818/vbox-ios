@@ -161,7 +161,6 @@ unless stdlib_file_ref
   stdlib_file_ref.path = stdlib_path
   stdlib_file_ref.source_tree = '<group>'
   stdlib_file_ref.explicit_file_type = 'folder'
-  stdlib_file_ref.include_in_index = 1
   puts "✅ 添加 python-stdlib folder reference"
 end
 # 确保 .py 文件的 folder 引用在 Copy Resources (文件夹引用打成 .lproj 或 folder)
