@@ -7,7 +7,7 @@
 //
 
 #import "PythonBridge.h"
-#import <Python/Python.h>
+#import <Python/Python.h>   // iOS framework 标准 include (对应 Python.framework/Headers/Python.h)
 #include <pthread.h>
 
 static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;

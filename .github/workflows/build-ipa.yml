@@ -98,9 +98,17 @@ jobs:
           rm -f vbox/Libraries/python-ios/libpython3.14.a
           cp /tmp/pas/${INSTALL_DIR}/Python.framework/Python vbox/Libraries/python-ios/libpython3.14.a
 
+          # 头文件: 建 Headers/ + Headers/Python/ 双布局, 支持 <Python/Python.h> 和 "Python.h"
+          rm -rf vbox/Libraries/python-ios/Headers
+          mkdir -p vbox/Libraries/python-ios/Headers/Python
+          cp -r /tmp/pas/${INSTALL_DIR}/Python.framework/Headers/* vbox/Libraries/python-ios/Headers/
+          cp /tmp/pas/${INSTALL_DIR}/Python.framework/Headers/Python.h vbox/Libraries/python-ios/Headers/Python/Python.h 2>/dev/null || true
+          find /tmp/pas/${INSTALL_DIR}/Python.framework/Headers -maxdepth 1 -type f ! -name "Python.h" -exec cp {} vbox/Libraries/python-ios/Headers/Python/ \; 2>/dev/null || true
+
           echo "✅ CPython 集成完成"
           echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
           echo "  Python.framework: $(du -sh vbox/Libraries/python-ios/Python.framework | cut -f1)"
+          echo "  Headers: $(ls vbox/Libraries/python-ios/Headers/Python.h 2>/dev/null && echo OK)"
 
       - name: 🎬 Fetch MPVKit dependencies
         run: |
