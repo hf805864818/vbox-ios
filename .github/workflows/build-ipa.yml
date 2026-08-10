@@ -233,36 +233,16 @@ jobs:
           fi
           echo "精简前: $(du -sh $STD | cut -f1)"
 
-          # 2. 删除无用大目录 (但不删基础运行必需模块)
-          #    注意: site-packages 保留(后续 requests/bs4 用); 
-          #    *test* 通配删除测试目录
+          # 2. 只删确定无用的大目录, 其余 .py 标准库全保留(避免缺模块)
+          #    保留: os.py/time.py/importlib/re/urllib 等所有标准库
+          #    site-packages 保留(后续 requests/bs4 用)
           for del in test unittest idlelib tkinter lib2to3 \
                      config-* wsgiref turtledemo xmlrpc \
                      ensurepip distutils pip venv \
                      *test*; do
             find "$STD" -path "*/$del" -exec rm -rf {} + 2>/dev/null
           done
-
-          # 2.5 白名单保护: Python 运行必需基础模块, 确保存在
-          #    (如果被误删则从原始源恢复)
-          REQUIRED_PY="os.py functools.py importlib posixpath.py genericpath.py stat.py \
-                       time.py site.py types.py enum.py abc.py io.py codecs.py \
-                       gc.py sys.py weakref.py _collections_abc.py builtins.py \
-                       threading.py _thread.py warnings.py copy.py keyword.py \
-                       operator.py reprlib.py collections math.py numbers.py \
-                       _operator.py traceback.py linecache.py tokenize.py token.py \
-                       ast.py inspect.py pathlib.py string.py struct.py"
-          if [ -n "$PAS_LIB" ] && [ -d "$PAS_LIB" ]; then
-            for m in $REQUIRED_PY; do
-              SRC="$PAS_LIB/$m"
-              DST="$STD/lib/python3.14/$m"
-              if [ ! -e "$DST" ] && [ -e "$SRC" ]; then
-                mkdir -p "$(dirname "$DST")"
-                cp -r "$SRC" "$DST"
-                echo "✅ 恢复必需模块: $m"
-              fi
-            done
-          fi
+          echo "📦 标准库 .py (保留后): $(find "$STD" -name '*.py' 2>/dev/null | wc -l) 个"
 
           # 3. 保留全部真机版 .so C 扩展 (不删除, 避免漏 _sre/_datetime/_locale 等)
           #    仅确保没有 simulator 版混入
