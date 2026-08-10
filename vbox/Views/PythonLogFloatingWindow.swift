@@ -238,17 +238,13 @@ final class PythonLogPanelViewController: UIViewController {
     @objc private func exportLogs() {
         // 检查是否有日志
         if PythonLogStore.shared().count == 0 {
-            let alert = UIAlertController(title: "提示", message: "没有日志可导出", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "好", style: .default))
-            present(alert, animated: true)
+            showAlertOnMainWindow(title: "提示", message: "没有日志可导出")
             return
         }
 
         // ★ 调用 exportToZip 压缩所有日志为 zip
         guard let zipPath = PythonLogStore.shared().exportToZip() else {
-            let alert = UIAlertController(title: "导出失败", message: "创建 zip 文件失败", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "好", style: .default))
-            present(alert, animated: true)
+            showAlertOnMainWindow(title: "导出失败", message: "创建 zip 文件失败")
             return
         }
 
@@ -258,6 +254,50 @@ final class PythonLogPanelViewController: UIViewController {
         let documentPicker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
         documentPicker.delegate = self
         present(documentPicker, animated: true)
+    }
+
+    /// ★ 在主 App 窗口上弹 Alert
+    /// 关键: 悬浮窗 windowLevel = alert + 100, 高于 UIAlertController 的 alert 级别
+    /// 如果不临时降低悬浮窗 windowLevel, alert 会被悬浮窗完全遮挡, 按钮无法点击
+    private func showAlertOnMainWindow(title: String, message: String) {
+        // 获取悬浮窗引用, 暂存原始 windowLevel
+        let floatingWindow = self.view.window as? PythonLogFloatingWindow
+        let savedLevel = floatingWindow?.windowLevel
+        // 临时降到 normal 以下, 确保 alert 在最上层
+        floatingWindow?.windowLevel = .normal - 1
+
+        // alert 关闭后恢复悬浮窗 windowLevel
+        let restoreWindow: () -> Void = {
+            floatingWindow?.windowLevel = savedLevel ?? (UIWindow.Level.alert + 100)
+        }
+
+        let presentAlert: (UIViewController) -> Void = { presenter in
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default) { _ in
+                restoreWindow()
+            })
+            presenter.present(alert, animated: true)
+        }
+
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
+              let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            // 回退: 直接在悬浮窗 present
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default) { _ in restoreWindow() })
+            present(alert, animated: true)
+            return
+        }
+
+        // 如果 rootVC 正在 present 其他控制器, 先 dismiss 再 present alert
+        if let presented = rootVC.presentedViewController, !presented.isBeingDismissed {
+            presented.dismiss(animated: true) {
+                presentAlert(rootVC)
+            }
+        } else {
+            presentAlert(rootVC)
+        }
     }
 
     private func refreshLogs() {
@@ -278,12 +318,11 @@ final class PythonLogPanelViewController: UIViewController {
 @MainActor
 extension PythonLogPanelViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        // 用户已选择保存位置, zip 已复制到目标
-        let alert = UIAlertController(title: "导出成功",
-                                      message: "日志已保存到文件",
-                                      preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "好", style: .default))
-        present(alert, animated: true)
+        // ★ 延迟 0.3s 等 documentPicker 完全 dismiss 后再弹 alert
+        // 否则 rootVC 可能仍在处理 dismiss 动画, present 会失败
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.showAlertOnMainWindow(title: "导出成功", message: "日志已保存到文件")
+        }
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
