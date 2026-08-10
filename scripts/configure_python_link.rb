@@ -119,7 +119,9 @@ end
 # 明确: PythonBridge.m → Libraries group; PythonSpiderEngine.swift → Services group
 bridge_files = {
   'PythonBridge.m' => 'Libraries',
-  'PythonSpiderEngine.swift' => 'Services'
+  'PythonSpiderEngine.swift' => 'Services',
+  'PythonLogStore.m' => 'Libraries',
+  'PythonLogFloatingWindow.swift' => 'Views'
 }
 bridge_files.each do |file_name, group_name|
   next if source_phase.files.any? { |f| f.file_ref&.path == file_name }

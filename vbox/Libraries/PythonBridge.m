@@ -7,8 +7,15 @@
 //
 
 #import "PythonBridge.h"
+#import "PythonLogStore.h"
 #import <Python/Python.h>   // iOS framework 标准 include (对应 Python.framework/Headers/Python.h)
 #include <pthread.h>
+
+// 便捷函数: 同时打 NSLog + 写入 PythonLogStore(开启时)
+static inline void PYBridgeLog(NSString *msg) {
+    NSLog(@"%@", msg);
+    [PythonLogStore appendLog:msg];
+}
 
 static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;
 static BOOL _pyInitialized = NO;
@@ -56,7 +63,7 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
     @try {
         Py_Initialize();
         if (!Py_IsInitialized()) {
-            NSLog(@"[PythonBridge] ❌ Py_Initialize 失败");
+            PYBridgeLog(@"[PythonBridge] ❌ Py_Initialize 失败");
             pthread_mutex_unlock(&_pyMutex);
             return;
         }
@@ -72,15 +79,15 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
             sitePackages, _pyHome, _pyHome];
         if (PyRun_SimpleString([initCmd UTF8String]) != 0) {
             PyErr_Print();
-            NSLog(@"[PythonBridge] ❌ sys.path 注入失败");
+            PYBridgeLog(@"[PythonBridge] ❌ sys.path 注入失败");
             pthread_mutex_unlock(&_pyMutex);
             return;
         }
         
         _pyInitialized = YES;
-        NSLog(@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome);
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome]);
     } @catch (NSException *exception) {
-        NSLog(@"[PythonBridge] ❌ 初始化异常: %@", exception.reason);
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 初始化异常: %@", exception.reason]);
     }
     pthread_mutex_unlock(&_pyMutex);
 }
@@ -95,7 +102,7 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         // 释放 Python 资源
         Py_FinalizeEx();
         _pyInitialized = NO;
-        NSLog(@"[PythonBridge] 🔚 Python 解释器已销毁");
+        PYBridgeLog(@"[PythonBridge] 🔚 Python 解释器已销毁");
     }
     pthread_mutex_unlock(&_pyMutex);
 }
@@ -134,7 +141,7 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         // === Phase 2: 加载脚本文件 ===
         fp = fopen([scriptPath UTF8String], "r");
         if (!fp) {
-            NSLog(@"[PythonBridge] ❌ 无法打开脚本: %@", scriptPath);
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 无法打开脚本: %@", scriptPath]);
             goto cleanup;
         }
         
@@ -149,7 +156,7 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
                                        Py_file_input, globals, globals);
         if (!runRet) {
             PyErr_Print();
-            NSLog(@"[PythonBridge] ❌ 脚本执行失败: %@", [scriptPath lastPathComponent]);
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 脚本执行失败: %@", [scriptPath lastPathComponent]]);
             goto cleanup;
         }
         Py_DECREF(runRet);
@@ -158,14 +165,14 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         // === Phase 3: 实例化 Spider 类 ===
         PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
         if (!spiderClass || !PyCallable_Check(spiderClass)) {
-            NSLog(@"[PythonBridge] ❌ 未找到 Spider 类: %@", [scriptPath lastPathComponent]);
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 未找到 Spider 类: %@", [scriptPath lastPathComponent]]);
             goto cleanup;
         }
         
         spider = PyObject_CallObject(spiderClass, NULL);
         if (!spider) {
             PyErr_Print();
-            NSLog(@"[PythonBridge] ❌ Spider 实例化失败");
+            PYBridgeLog(@"[PythonBridge] ❌ Spider 实例化失败");
             goto cleanup;
         }
         
@@ -183,7 +190,7 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         // === Phase 4: 调用目标方法 ===
         PyObject *method = PyObject_GetAttrString(spider, [functionName UTF8String]);
         if (!method || !PyCallable_Check(method)) {
-            NSLog(@"[PythonBridge] ❌ 未找到方法: %@.%@", [scriptPath lastPathComponent], functionName);
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 未找到方法: %@.%@", [scriptPath lastPathComponent], functionName]);
             Py_XDECREF(method);
             goto cleanup;
         }
@@ -205,14 +212,14 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
             Py_DECREF(callRet);
         } else {
             PyErr_Print();
-            NSLog(@"[PythonBridge] ❌ %@.%@ 调用失败", [scriptPath lastPathComponent], functionName);
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ %@.%@ 调用失败", [scriptPath lastPathComponent], functionName]);
         }
         
         Py_DECREF(method);
         Py_XDECREF(pyArgs);
         
     } @catch (NSException *exception) {
-        NSLog(@"[PythonBridge] ❌ 异常: %@", exception.reason);
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 异常: %@", exception.reason]);
     }
     
 cleanup:
