@@ -56,29 +56,38 @@ jobs:
           tar xf "Python-${PYTHON_VERSION}.tar.xz"
           cd "Python-${PYTHON_VERSION}"
 
-          # 3. 交叉编译 arm64 静态库
-          echo "🔧 配置 (detected arch: $(uname -m))..."
+          # 3. 编译 arm64 静态库
+          # 策略: 先在 macOS 编译 host tools, 再交叉编译 iOS arm64
+          echo "🔧 准备编译环境 (arch: $(uname -m))..."
+          
+          # 第一步: 配置并编译 host tools (用于生成 pyconfig.h)
+          export HOST_CC="clang"
+          export HOST_CFLAGS="-O2"
           export CC="xcrun -sdk iphoneos clang -arch arm64"
           export CXX="xcrun -sdk iphoneos clang++ -arch arm64"
-          export CFLAGS="-mios-version-min=15.0 -O2"
+          export CFLAGS="-mios-version-min=15.0 -O2 -fembed-bitcode"
           export LDFLAGS="-mios-version-min=15.0"
 
+          echo "📋 运行 configure (生成 Makefile 和 pyconfig.h)..."
           ./configure \
             --host=aarch64-apple-darwin \
             --build=aarch64-apple-darwin \
             --with-build-python=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
-            --enable-static \
             --disable-shared \
             --without-ensurepip \
             --without-doc-strings \
             --disable-test-modules \
-            --without-lzma \
-            --without-bz2 \
             ac_cv_file__dev_ptmx=no \
             ac_cv_file__dev_ptc=no
 
+          # configure 的 cross-compile 检测会失败在"cannot run C compiled programs"
+          # 但如果 make 能开始则说明 pyconfig.h 已生成，继续编译
           echo "🏗️ 编译中..."
-          make -j$(sysctl -n hw.ncpu) 2>&1 | tail -5
+          if ! make -j$(sysctl -n hw.ncpu) 2>&1 | tee /tmp/python-build.log | tail -30; then
+            echo "make 失败，检查日志..."
+            tail -50 /tmp/python-build.log
+            exit 1
+          fi
 
           # 复制产物
           cp libpython3.12.a ../vbox/Libraries/libpython3.12.a
