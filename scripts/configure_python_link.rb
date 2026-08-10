@@ -51,7 +51,6 @@ unless File.directory?(spec_path)
 end
 
 # 4. 添加 PBXFileReference
-framework_ref = app_target.frameworks_build_phases.files_references.elements
 file_ref = project.files.find { |f| f.path == File.join('vbox/Libraries/python-ios', 'Python.framework') }
 unless file_ref
   file_ref = project.new(File.join('vbox/Libraries/python-ios', 'Python.framework'))
