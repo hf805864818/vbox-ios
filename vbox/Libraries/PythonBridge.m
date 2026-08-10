@@ -36,15 +36,29 @@ static NSString *_pyHome = nil;
     setenv("PYTHONDONTWRITEBYTECODE", "1", 1);  // 不生成 .pyc（节省磁盘写入）
     
     // 3. 初始化 CPython 解释器
+    //    iOS 嵌入式 CPython 要求 Py_Initialize 在主线程第一次调用
+    //    否则可能触发崩溃。这里统一派发到主线程执行。
+    if ([NSThread isMainThread]) {
+        [self performMainThreadPythonInit];
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            [self performMainThreadPythonInit];
+        });
+    }
+    
+    pthread_mutex_unlock(&_pyMutex);
+}
+
++ (void)performMainThreadPythonInit {
+    // 已在主线程：执行实际初始化
     Py_Initialize();
     
     if (!Py_IsInitialized()) {
         NSLog(@"[PythonBridge] ❌ Py_Initialize 失败");
-        pthread_mutex_unlock(&_pyMutex);
         return;
     }
     
-    // 4. 注入 sys.path — 让脚本能 import requests/bs4/urllib3 等
+    // 5. 注入 sys.path — 让脚本能 import requests/bs4/urllib3 等
     NSString *sitePackages = [_pyHome stringByAppendingPathComponent:@"site-packages"];
     NSString *initCmd = [NSString stringWithFormat:
         @"import sys\n"
@@ -59,14 +73,11 @@ static NSString *_pyHome = nil;
     if (PyRun_SimpleString([initCmd UTF8String]) != 0) {
         PyErr_Print();
         NSLog(@"[PythonBridge] ❌ sys.path 注入失败");
-        pthread_mutex_unlock(&_pyMutex);
         return;
     }
     
     _pyInitialized = YES;
     NSLog(@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome);
-    
-    pthread_mutex_unlock(&_pyMutex);
 }
 
 + (BOOL)isPythonInitialized {
