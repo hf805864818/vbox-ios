@@ -86,6 +86,25 @@ app_target.build_configurations.each do |config|
   config.build_settings['HEADER_SEARCH_PATHS'] = paths
 end
 
+# ============================================================
+# [修复] 7.1. 设置 Framework Search Paths (主 target)
+# ------------------------------------------------------------
+# 根因: 链接器报错 "ld: framework 'Python' not found"
+#   原脚本设置了 LIBRARY_SEARCH_PATHS (-L) 和 HEADER_SEARCH_PATHS,
+#   但缺少 FRAMEWORK_SEARCH_PATHS (-F)。
+#   Python.framework 在 vbox/Libraries/python-ios/ 子目录下,
+#   而已注册的 -F 路径只到 vbox/Libraries/。
+# 修复: 将 $(SRCROOT)/vbox/Libraries/python-ios 添加到 FRAMEWORK_SEARCH_PATHS。
+# ============================================================
+app_target.build_configurations.each do |config|
+  config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
+  fw_paths = config.build_settings['FRAMEWORK_SEARCH_PATHS']
+  fw_paths = [fw_paths] unless fw_paths.is_a?(Array)
+  fw_paths << '$(SRCROOT)/vbox/Libraries/python-ios' unless fw_paths.include?('$(SRCROOT)/vbox/Libraries/python-ios')
+  config.build_settings['FRAMEWORK_SEARCH_PATHS'] = fw_paths
+end
+puts "✅ 添加 Framework Search Paths: $(SRCROOT)/vbox/Libraries/python-ios"
+
 # 7.5. 把 PythonBridge.m + PythonSpiderEngine.swift 加入编译源 (sources)
 source_phase = app_target.source_build_phase
 
