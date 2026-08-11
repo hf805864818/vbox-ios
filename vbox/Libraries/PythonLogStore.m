@@ -276,7 +276,7 @@ static const NSUInteger kMaxLogCount = 2000;
 
     uint32_t cdSig = 0x02014b50;
     uint16_t versionMade = 20;
-    uint16_t extAttr = 0;
+    uint32_t extAttr = 0;
     uint16_t extraLen2 = 0;
     uint16_t commentLen = 0;
     uint16_t diskNum = 0;
@@ -298,7 +298,7 @@ static const NSUInteger kMaxLogCount = 2000;
     [zip appendBytes:&commentLen length:2];
     [zip appendBytes:&diskNum length:2];
     [zip appendBytes:&intAttr length:2];
-    [zip appendBytes:&extAttr length:2];
+    [zip appendBytes:&extAttr length:4];
     [zip appendBytes:&localHeaderOffset length:4];
     [zip appendData:nameData];
 
