@@ -4161,6 +4161,39 @@ class PlayerState: ObservableObject {
             || lowerUrl.hasPrefix("udp://")
             || lowerUrl.hasPrefix("rtp://")
     }
+
+    /// 判断 URL 是否像可直接交给播放器的媒体地址。
+    /// 用于避免把普通 HTML 播放页、官方平台页或解析页当成直链塞给播放器。
+    private func isLikelyDirectMediaUrl(_ urlString: String) -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let lowerUrl = trimmed.lowercased()
+        guard isStandardPlayScheme(lowerUrl) else { return false }
+
+        if let url = URL(string: trimmed) {
+            let host = (url.host ?? "").lowercased()
+            let path = url.path.lowercased()
+            let ext = url.pathExtension.lowercased()
+
+            if host == "127.0.0.1" || host == "localhost" {
+                return true
+            }
+
+            let mediaExts = ["m3u8", "mp4", "flv", "m4v", "mov", "ts", "webm", "mkv", "avi", "m4s"]
+            if mediaExts.contains(ext) { return true }
+
+            if path.contains(".m3u8") || path.contains(".mp4") || path.contains(".flv") || path.contains(".ts") {
+                return true
+            }
+        }
+
+        let mediaMarkers = [
+            ".m3u8", ".mp4", ".flv", ".m4v", ".mov", ".ts", ".webm", ".mkv", ".avi", ".m4s",
+            "/m3u8", "m3u8?", "hls", "playlist", "streaming", "/stream", "/playurl"
+        ]
+        return mediaMarkers.contains { lowerUrl.contains($0) }
+    }
     
     /// 统一处理 playerContent 返回结果并播放（含 parse:1 二次解析和 header 透传）
     private func playFromPlayerContentResult(
