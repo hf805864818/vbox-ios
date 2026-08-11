@@ -6,6 +6,16 @@
 //  独立 UIWindow(windowLevel 高), 所有页面之上, 可拖动
 //  显示 PythonLogStore 收集的日志 + 支持导出
 //
+//  修复记录 (2026-08-10):
+//  1. 移除 makeKeyAndVisible() 调用
+//     悬浮窗不需要成为 keyWindow, 只需要显示即可
+//     之前调用 makeKeyAndVisible() 导致悬浮窗成为 keyWindow,
+//     当 UIDocumentPickerViewController dismiss 时,
+//     UIKit 会恢复 keyWindow 状态, 可能导致悬浮窗被意外隐藏
+//  2. 优化 show() 方法, 只设置 isHidden = false
+//  3. 增加 findMainAppWindow() 辅助方法, 更可靠地找到主 App 窗口
+//     优先找 windowLevel == .normal 的 keyWindow, 避免误选悬浮窗自己
+//
 
 import SwiftUI
 import UIKit
@@ -84,8 +94,13 @@ final class PythonLogFloatingWindow: UIWindow {
             .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }) {
             self.windowScene = scene
         }
+        // ★ 修复: 不调用 makeKeyAndVisible()
+        // 悬浮窗不需要成为 keyWindow, 只需要显示即可
+        // 之前 makeKeyAndVisible 导致:
+        // 1. 悬浮窗成为 keyWindow, 拦截键盘事件等
+        // 2. UIDocumentPicker dismiss 时 UIKit 恢复 keyWindow 状态,
+        //    可能导致悬浮窗被意外移除/隐藏
         self.isHidden = false
-        self.makeKeyAndVisible()
     }
 
     func hide() {
@@ -266,7 +281,8 @@ final class PythonLogPanelViewController: UIViewController {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
-              let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+              let mainWindow = findMainAppWindow(in: scene),
+              let rootVC = mainWindow.rootViewController else {
             // 回退: 直接在悬浮窗 present (可能导致悬浮窗消失, 但是没有其他选择)
             present(vc, animated: true)
             return
@@ -278,6 +294,25 @@ final class PythonLogPanelViewController: UIViewController {
             topVC = presented
         }
         topVC.present(vc, animated: true)
+    }
+
+    /// ★ 查找主 App 窗口 (排除悬浮窗自己)
+    /// 优先找 windowLevel == .normal 的 keyWindow
+    private func findMainAppWindow(in scene: UIWindowScene) -> UIWindow? {
+        // 优先级 1: keyWindow 且 windowLevel == normal (标准主窗口)
+        if let win = scene.windows.first(where: {
+            $0.isKeyWindow && $0.windowLevel == .normal
+        }) {
+            return win
+        }
+        // 优先级 2: 任意 windowLevel == normal 且可见的窗口
+        if let win = scene.windows.first(where: {
+            $0.windowLevel == .normal && !$0.isHidden
+        }) {
+            return win
+        }
+        // 优先级 3: 第一个不是悬浮窗的窗口
+        return scene.windows.first(where: { !($0 is PythonLogFloatingWindow) })
     }
 
     /// ★ 在主 App 窗口上弹 Alert
@@ -306,7 +341,8 @@ final class PythonLogPanelViewController: UIViewController {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
-              let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+              let mainWindow = findMainAppWindow(in: scene),
+              let rootVC = mainWindow.rootViewController else {
             // 回退: 直接在悬浮窗 present
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "好", style: .default) { _ in restoreWindow() })

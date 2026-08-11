@@ -8,6 +8,7 @@
 
 #import "PythonBridge.h"
 #import "PythonLogStore.h"
+#import "PythonWebViewBridge.h"
 #import <Python/Python.h>   // iOS framework 标准 include (对应 Python.framework/Headers/Python.h)
 #include <pthread.h>
 
@@ -86,6 +87,10 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         
         _pyInitialized = YES;
         PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ✅ Python 解释器初始化完成 (home: %@)", _pyHome]);
+        
+        // 注册 webview_fetch 全局函数 (WKWebView 桥接)
+        // 让 Python 脚本可以调用 WKWebView 绕过反爬验证 (如 TAC 验证码)
+        [PythonWebViewBridgeOC registerWebViewFetch];
         
         // ★ 关键: 释放 GIL，允许后台线程通过 PyGILState_Ensure() 获取
         // Py_Initialize 后主线程持有 GIL，不释放的话后台线程无法安全调用 Python C API

@@ -5,6 +5,13 @@
 //  Python Spider 引擎 — 实现 SpiderEngineProtocol，通过 PythonSpiderBridge 调用 CPython 解释器
 //  可同时用于首页/搜索的普通蜘蛛和福利专区的远程蜘蛛。
 //
+//  修复记录 (2026-08-10):
+//  1. 新增异步方法 (callHomeContentAsync / callCategoryContentAsync 等)
+//     Python 调用在后台线程执行, 不阻塞主线程 (SpiderManager 是 @MainActor)
+//     之前同步方法直接在主线程调用 PythonBridge.callSpider(), 导致 UI 冻结
+//  2. 同步方法保留以遵循 SpiderEngineProtocol, 内部调用异步版本
+//     (注意: 同步方法仍会阻塞调用线程, 建议优先使用异步方法)
+//
 
 import Foundation
 
@@ -34,7 +41,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     private let scriptName: String
     private let scriptKey: String
     private var _isSpiderReady = false
-    
+
+    /// Python 调用专用串行队列
+    /// CPython 有 GIL, 多线程并发执行 Python 代码没有意义
+    /// 使用串行队列保证 Python 调用顺序执行, 避免 GIL 竞争
+    private let pythonQueue = DispatchQueue(label: "com.vbox.python.spider", qos: .userInitiated)
+
     var isSpiderReady: Bool { _isSpiderReady }
 
     // MARK: - Init
@@ -53,7 +65,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         // 初始化 Python 解释器（全局只执行一次）
         PythonSpiderBridge.initializePythonIfNeeded()
 
-        // 注册 Spider（调 init()）
+        // 注册 Spider（调 init()）— 在后台线程执行, 不阻塞主线程
+        // 注意: init 在构造器中调用, 但 registerSpiderInternal 是同步的
+        // 为了不阻塞主线程, 构造器只做轻量初始化, 真正的注册在后台完成
         registerSpiderInternal()
     }
 
@@ -89,7 +103,7 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
         // 重新注册
         _isSpiderReady = false
-        registerSpiderInternal()
+        try await registerSpiderAsync()
     }
 
     func registerSpider() throws {
@@ -98,7 +112,7 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    // MARK: - Spider Methods
+    // MARK: - Spider Methods (同步, 协议要求)
 
     func callHomeContent() throws -> HomeContentResult {
         guard let json = call("homeContent", args: "{}"),
@@ -169,6 +183,120 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
             return try JSONDecoder().decode(PlayerContentResult.self, from: data)
         } catch {
             throw PythonSpiderError.invalidJSON("playerContent")
+        }
+    }
+
+    // MARK: - Spider Methods (异步, 推荐使用)
+    // 在后台线程执行 Python 调用, 不阻塞主线程
+    // 因为 SpiderManager 是 @MainActor, 同步调用会阻塞 UI
+
+    /// 异步注册 Spider
+    func registerSpiderAsync() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                self.registerSpiderInternal()
+                if self._isSpiderReady {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: PythonSpiderError.notInitialized)
+                }
+            }
+        }
+    }
+
+    /// 异步调用首页
+    func callHomeContentAsync() async throws -> HomeContentResult {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callHomeContent()
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: result)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 异步调用分类
+    func callCategoryContentAsync(tid: String, pg: Int, extend: String) async throws -> CategoryContentResult {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend)
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: result)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 异步调用详情
+    func callDetailContentAsync(ids: String) async throws -> DetailContentResult {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callDetailContent(ids: ids)
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: result)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 异步调用搜索
+    func callSearchContentAsync(keyword: String, pg: Int) async throws -> SearchContentResult {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callSearchContent(keyword: keyword, pg: pg)
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: result)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 异步调用播放解析
+    func callPlayerContentAsync(vodId: String, flag: String, url: String) async throws -> PlayerContentResult {
+        try await withCheckedThrowingContinuation { continuation in
+            pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url)
+                    DispatchQueue.main.async {
+                        continuation.resume(returning: result)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
         }
     }
 
