@@ -23,6 +23,7 @@
 		111921984B8291A062F394E4 /* Libharfbuzz.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		11FFC77DC15A70173DBE12E5 /* Libfreetype.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		12A1AC8CFD69FC77D785A754 /* Libass.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E9DF469611A11F5125227C37 /* PythonBridge.m */; };
 		131397EAF768968080F2390B /* Libswscale.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		15C55930D7E7595531B91B84 /* TencentVideoNativeSpider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */; };
 		18B1B3504B90430DAE0FD79C /* FuliPlatformKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */; };
@@ -60,7 +61,9 @@
 		4C54E1F2F36AA08687F86228 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4959B121CB3DFFFB86D6BEFC /* UIKit.framework */; };
 		4CDF9B1C88D4490285B1CB49 /* MysteryMovieService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */; };
 		4F5E6D7C8B9A090807060504 /* LusushequService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F708192A3B4C5 /* LusushequService.swift */; };
+		4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */; };
 		50AE505C5AB8511E02F0E454 /* Libshaderc_combined.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */; };
 		51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */; };
 		519CFD0B1832C3C94FEB4604 /* AliyunPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 		51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 352766A618B5FDE7451235BB /* Libmpv.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -73,6 +76,7 @@
 		62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		63F6E82864CC31F4573BA29E /* WelfarePlatformConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4A2F51F4D48142714B5109 /* WelfarePlatformConfig.swift */; };
 		652466BD988F1A23E25CFF70 /* Libbluray.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B0F74E8951368DECD8322237 /* Libbluray.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */ = {isa = PBXBuildFile; fileRef = D810A485ED03241B4D419B1B /* PythonLogStore.m */; };
 		6789ABCDEF01234567890123 /* KanliaoHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789ABCDEF0123456789012345 /* KanliaoHomeView.swift */; };
 		6AA3BCF3B628B51511EB3353 /* Libsmbclient.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		6CF0422718C9122B706A6918 /* AliyunPlayer.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -85,6 +89,7 @@
 		82A191E31FCDBEA32C4341D9 /* Libdav1d.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		82A741397686526AC667F3A2 /* IJKMediaFrameworkWithSSL.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		83ED61AAA66C99C616BC31AA /* IJKMediaFrameworkWithSSL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30877432D1026706D7E805DA /* PythonWebViewBridge.swift */; };
 		84CD00DB6B4B418E857E5481 /* FuliPlatformService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */; };
 		8594FA70445202F5F08A123A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFE207598530999CD737A4C6 /* Metal.framework */; };
 		86D4FD58B3D2BB6A0068080C /* RemoteWelfarePasswordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58B12E309090FC8BE8664F2 /* RemoteWelfarePasswordSheet.swift */; };
@@ -227,6 +232,7 @@
 		C1A000000000000000000003 /* CloudDriveSortManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000000000000000001 /* CloudDriveSortManager.swift */; };
 		C1A000000000000000000004 /* CloudDriveSortView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000000000000000002 /* CloudDriveSortView.swift */; };
 		C79D5E5BDB224F76AD4DA758 /* Libavfilter.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */; };
 		CAFE00000000000000000002 /* RemoteSourceConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */; };
 		CAFE00000000000000000004 /* RemoteSourceStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */; };
 		CAFE00000000000000000006 /* FeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000005 /* FeedbackService.swift */; };
@@ -274,12 +280,6 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
-		846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30877432D1026706D7E805DA /* PythonWebViewBridge.swift */; };
-		C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */; };
-		50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */; };
-		4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */; };
-		12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E9DF469611A11F5125227C37 /* PythonBridge.m */; };
-		673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */ = {isa = PBXBuildFile; fileRef = D810A485ED03241B4D419B1B /* PythonLogStore.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -351,6 +351,7 @@
 		2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxAPIService.swift; sourceTree = "<group>"; };
 		2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = lcms2.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/lcms2.xcframework; sourceTree = SOURCE_ROOT; };
 		2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeHomeView.swift; sourceTree = "<group>"; };
+		30877432D1026706D7E805DA /* PythonWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonWebViewBridge.swift; sourceTree = "<group>"; };
 		32380B218240B082EA2F91F5 /* RemoteWelfareSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWelfareSettingsView.swift; sourceTree = "<group>"; };
 		352766A618B5FDE7451235BB /* Libmpv.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libmpv.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libmpv.xcframework; sourceTree = SOURCE_ROOT; };
 		39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavdevice.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavdevice.xcframework; sourceTree = SOURCE_ROOT; };
@@ -371,13 +372,16 @@
 		56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformKit.swift; sourceTree = "<group>"; };
 		567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdav1d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework; sourceTree = SOURCE_ROOT; };
 		5810649382674CEDBAA6A2CF /* FullHDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullHDService.swift; sourceTree = "<group>"; };
+		5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonLogFloatingWindow.swift; sourceTree = "<group>"; };
 		5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SBAggregationView.swift; sourceTree = "<group>"; };
 		5F77356B6F268B826247C658 /* gnutls.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gnutls.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework; sourceTree = SOURCE_ROOT; };
 		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
 		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
 		62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieMainView.swift; sourceTree = "<group>"; };
 		67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IJKPlayerRepresentable.swift; sourceTree = "<group>"; };
+		73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonSpiderEngine.swift; sourceTree = "<group>"; };
 		789ABCDEF0123456789012345 /* KanliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoHomeView.swift; sourceTree = "<group>"; };
+		7B95E909348334896A68F812 /* PythonBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonBridge.h; sourceTree = "<group>"; };
 		7CE407BEE3E751CA4B4E00D1 /* TencentVideoNativeSpider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TencentVideoNativeSpider.swift; sourceTree = "<group>"; };
 		7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunPlayer.framework; path = vbox/Libraries/AliyunPlayer.framework; sourceTree = SOURCE_ROOT; };
 		807222ECDB74BD55495F6395 /* libz.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
@@ -519,6 +523,7 @@
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformMainView.swift; sourceTree = "<group>"; };
+		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
 		BBBB000000000000000000001 /* HeiliaoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeiliaoService.swift; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -535,6 +540,7 @@
 		CAFE00000000000000000001 /* RemoteSourceConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceConfigManager.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSourceStatusBar.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000005 /* FeedbackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackService.swift; sourceTree = "<group>"; };
+		CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonWebViewBridge.m; sourceTree = "<group>"; };
 		CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyBattleMainView.swift; sourceTree = "<group>"; };
 		CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
 		CFF33E1BB4E9046F17208D3E /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
@@ -543,13 +549,16 @@
 		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornHomeView.swift; sourceTree = "<group>"; };
+		D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonWebViewBridge.h; sourceTree = "<group>"; };
 		D62F6461A137466FAE5F133B /* DuckVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckVideoService.swift; sourceTree = "<group>"; };
+		D810A485ED03241B4D419B1B /* PythonLogStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonLogStore.m; sourceTree = "<group>"; };
 		D8815F39A6013262E7F5B211 /* PushPlayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayStore.swift; path = PushPlayStore.swift; sourceTree = "<group>"; };
 		DDDD000000000000000000001 /* HeiliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeiliaoHomeView.swift; sourceTree = "<group>"; };
 		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
 		E4B44716C2FC412BACA38D26 /* WaibiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaibiService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
 		E70363C93B7E4A60A895A08B /* MadouFreeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeService.swift; sourceTree = "<group>"; };
+		E9DF469611A11F5125227C37 /* PythonBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonBridge.m; sourceTree = "<group>"; };
 		F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDiscoveryView.swift; sourceTree = "<group>"; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
 		F3E4D5C6B7A8901234A5B6C7 /* UnsupportedPlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsupportedPlatformView.swift; sourceTree = "<group>"; };
@@ -566,15 +575,6 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
-		30877432D1026706D7E805DA /* PythonWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonWebViewBridge.swift; sourceTree = "<group>"; };
-		73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonSpiderEngine.swift; sourceTree = "<group>"; };
-		5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonLogFloatingWindow.swift; sourceTree = "<group>"; };
-		CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonWebViewBridge.m; sourceTree = "<group>"; };
-		D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonWebViewBridge.h; sourceTree = "<group>"; };
-		E9DF469611A11F5125227C37 /* PythonBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonBridge.m; sourceTree = "<group>"; };
-		7B95E909348334896A68F812 /* PythonBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonBridge.h; sourceTree = "<group>"; };
-		D810A485ED03241B4D419B1B /* PythonLogStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonLogStore.m; sourceTree = "<group>"; };
-		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -642,13 +642,13 @@
 			isa = PBXGroup;
 			children = (
 				3FD870E71397F89A0B7D93C0 /* MPV */,
-			
-			CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
-			D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
-			E9DF469611A11F5125227C37 /* PythonBridge.m */,
-			7B95E909348334896A68F812 /* PythonBridge.h */,
-			D810A485ED03241B4D419B1B /* PythonLogStore.m */,
-			B97706CA828BCA0385813DBA /* PythonLogStore.h */,);
+				CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
+				D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
+				E9DF469611A11F5125227C37 /* PythonBridge.m */,
+				7B95E909348334896A68F812 /* PythonBridge.h */,
+				D810A485ED03241B4D419B1B /* PythonLogStore.m */,
+				B97706CA828BCA0385813DBA /* PythonLogStore.h */,
+			);
 			name = Libraries;
 			sourceTree = "<group>";
 		};
@@ -849,9 +849,9 @@
 				B10161 /* RemoteCMSV10Service.swift */,
 				XIGUA1000000000000000002 /* XiguaService.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
-			
-			30877432D1026706D7E805DA /* PythonWebViewBridge.swift */,
-			73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */,);
+				30877432D1026706D7E805DA /* PythonWebViewBridge.swift */,
+				73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */,
+			);
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -911,8 +911,8 @@
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
 				F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
 				CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */,
-			
-			5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */,);
+				5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */,
+			);
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -1241,13 +1241,13 @@
 				A10159 /* AidanComicService.swift in Sources */,
 				A10161 /* RemoteCMSV10Service.swift in Sources */,
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
-			
-			846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
-			C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,
-			50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */,
-			4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */,
-			12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */,
-			673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */,);
+				846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
+				C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,
+				50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */,
+				4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */,
+				12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */,
+				673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
