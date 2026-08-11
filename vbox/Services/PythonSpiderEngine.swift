@@ -21,12 +21,14 @@ enum PythonSpiderError: LocalizedError {
     case execFailed(String)
     case invalidJSON(String)
     case notInitialized
+    case timeout(String)
 
     var errorDescription: String? {
         switch self {
         case .execFailed(let fn): return "Python Spider 方法 \(fn) 执行失败"
         case .invalidJSON(let fn): return "Python Spider 方法 \(fn) 返回非法 JSON"
         case .notInitialized: return "Python Spider 引擎未初始化"
+        case .timeout(let op): return "Python Spider \(op) 执行超时"
         }
     }
 }
@@ -192,14 +194,52 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步注册 Spider
     func registerSpiderAsync() async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("registerSpider", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 self.registerSpiderInternal()
                 if self._isSpiderReady {
-                    continuation.resume()
+                    done(.success(()))
                 } else {
-                    continuation.resume(throwing: PythonSpiderError.notInitialized)
+                    done(.failure(PythonSpiderError.notInitialized))
+                }
+            }
+        }
+    }
+
+    /// 带超时的 Python 调用容器: 串行在 pythonQueue 执行, 超过 timeout 强制返回超时错误
+    /// 解决: 脚本网络请求慢/挂起时, 分类/搜索 View 无限卡住的问题
+    private func withPythonTimeout<T>(
+        _ operation: String,
+        timeout: TimeInterval = 20.0,
+        _ body: @escaping (@escaping (Result<T, Error>) -> Void) -> Void
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let lock = NSLock()
+            var isDone = false
+
+            func finish(_ result: Result<T, Error>) {
+                lock.lock()
+                if !isDone {
+                    isDone = true
+                    lock.unlock()
+                    continuation.resume(with: result)
+                } else {
+                    lock.unlock()
+                }
+            }
+
+            // 超时保护
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                DispatchQueue.main.async {
+                    finish(.failure(PythonSpiderError.timeout(operation)))
+                }
+            }
+
+            // 实际执行
+            body { result in
+                DispatchQueue.main.async {
+                    finish(result)
                 }
             }
         }
@@ -207,18 +247,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用首页
     func callHomeContentAsync() async throws -> HomeContentResult {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("homeContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
                     let result = try self.callHomeContent()
-                    DispatchQueue.main.async {
-                        continuation.resume(returning: result)
-                    }
+                    done(.success(result))
                 } catch {
-                    DispatchQueue.main.async {
-                        continuation.resume(throwing: error)
-                    }
+                    done(.failure(error))
                 }
             }
         }
@@ -226,18 +262,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用分类
     func callCategoryContentAsync(tid: String, pg: Int, extend: String) async throws -> CategoryContentResult {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("categoryContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
                     let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend)
-                    DispatchQueue.main.async {
-                        continuation.resume(returning: result)
-                    }
+                    done(.success(result))
                 } catch {
-                    DispatchQueue.main.async {
-                        continuation.resume(throwing: error)
-                    }
+                    done(.failure(error))
                 }
             }
         }
@@ -245,18 +277,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用详情
     func callDetailContentAsync(ids: String) async throws -> DetailContentResult {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("detailContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
                     let result = try self.callDetailContent(ids: ids)
-                    DispatchQueue.main.async {
-                        continuation.resume(returning: result)
-                    }
+                    done(.success(result))
                 } catch {
-                    DispatchQueue.main.async {
-                        continuation.resume(throwing: error)
-                    }
+                    done(.failure(error))
                 }
             }
         }
@@ -264,18 +292,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用搜索
     func callSearchContentAsync(keyword: String, pg: Int) async throws -> SearchContentResult {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("searchContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
                     let result = try self.callSearchContent(keyword: keyword, pg: pg)
-                    DispatchQueue.main.async {
-                        continuation.resume(returning: result)
-                    }
+                    done(.success(result))
                 } catch {
-                    DispatchQueue.main.async {
-                        continuation.resume(throwing: error)
-                    }
+                    done(.failure(error))
                 }
             }
         }
@@ -283,18 +307,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用播放解析
     func callPlayerContentAsync(vodId: String, flag: String, url: String) async throws -> PlayerContentResult {
-        try await withCheckedThrowingContinuation { continuation in
-            pythonQueue.async { [weak self] in
+        try await withPythonTimeout("playerContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
                     let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url)
-                    DispatchQueue.main.async {
-                        continuation.resume(returning: result)
-                    }
+                    done(.success(result))
                 } catch {
-                    DispatchQueue.main.async {
-                        continuation.resume(throwing: error)
-                    }
+                    done(.failure(error))
                 }
             }
         }
