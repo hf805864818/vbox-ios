@@ -2,11 +2,20 @@
 
 修复记录:
 - 2026-08-10: Response 类增加 status_code / content / headers 属性
- 处理 HTTPError (4xx/5xx), 返回带正确 status_code 的 Response
- 修复后脚本中 r.status_code / r.content 可正常使用
+  处理 HTTPError (4xx/5xx), 返回带正确 status_code 的 Response
+  修复后脚本中 r.status_code / r.content 可正常使用
+- 2026-08-11: fetch 方法增加 SSL 上下文 (ssl._create_unverified_context)
+  解决 iOS CPython 无系统 CA 证书导致所有 HTTPS 请求失败的问题
+  此修复为统一修复，所有继承 base.spider.Spider 的脚本自动生效
+  无需在各脚本中单独覆写 fetch
 """
+import ssl
 import urllib.request
 import urllib.error
+
+# iOS CPython 没有 CA 证书包 → HTTPS 验证失败
+# 创建不验证证书的 SSL 上下文，所有请求共用
+_ssl_ctx = ssl._create_unverified_context()
 
 
 class Response:
@@ -46,11 +55,14 @@ class Spider:
         Returns:
         Response 对象, 始终包含 status_code / text / content / headers 属性
         即使 HTTP 4xx/5xx 也返回 Response（不抛异常），与 requests 库行为一致
+
+        注意: 使用 ssl._create_unverified_context() 跳过证书验证
+        iOS CPython 无系统 CA 证书，不跳过会导致所有 HTTPS 请求失败
         """
         timeout = kw.get('timeout', 15)
         req = urllib.request.Request(url, headers=headers or {})
         try:
-            r = urllib.request.urlopen(req, timeout=timeout)
+            r = urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx)
             data = r.read()
             # 获取响应头
             resp_headers = r.headers if hasattr(r, 'headers') else None
