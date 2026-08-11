@@ -274,6 +274,12 @@
 		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
 		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
 		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
+		846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30877432D1026706D7E805DA /* PythonWebViewBridge.swift */; };
+		C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */; };
+		50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */; };
+		4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */; };
+		12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E9DF469611A11F5125227C37 /* PythonBridge.m */; };
+		673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */ = {isa = PBXBuildFile; fileRef = D810A485ED03241B4D419B1B /* PythonLogStore.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -560,6 +566,15 @@
 		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
 		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
+		30877432D1026706D7E805DA /* PythonWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonWebViewBridge.swift; sourceTree = "<group>"; };
+		73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonSpiderEngine.swift; sourceTree = "<group>"; };
+		5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonLogFloatingWindow.swift; sourceTree = "<group>"; };
+		CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonWebViewBridge.m; sourceTree = "<group>"; };
+		D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonWebViewBridge.h; sourceTree = "<group>"; };
+		E9DF469611A11F5125227C37 /* PythonBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonBridge.m; sourceTree = "<group>"; };
+		7B95E909348334896A68F812 /* PythonBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonBridge.h; sourceTree = "<group>"; };
+		D810A485ED03241B4D419B1B /* PythonLogStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonLogStore.m; sourceTree = "<group>"; };
+		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -627,7 +642,13 @@
 			isa = PBXGroup;
 			children = (
 				3FD870E71397F89A0B7D93C0 /* MPV */,
-			);
+			
+			CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
+			D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
+			E9DF469611A11F5125227C37 /* PythonBridge.m */,
+			7B95E909348334896A68F812 /* PythonBridge.h */,
+			D810A485ED03241B4D419B1B /* PythonLogStore.m */,
+			B97706CA828BCA0385813DBA /* PythonLogStore.h */,);
 			name = Libraries;
 			sourceTree = "<group>";
 		};
@@ -828,7 +849,9 @@
 				B10161 /* RemoteCMSV10Service.swift */,
 				XIGUA1000000000000000002 /* XiguaService.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
-			);
+			
+			30877432D1026706D7E805DA /* PythonWebViewBridge.swift */,
+			73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */,);
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -888,7 +911,8 @@
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
 				F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
 				CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */,
-			);
+			
+			5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */,);
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -1217,7 +1241,13 @@
 				A10159 /* AidanComicService.swift in Sources */,
 				A10161 /* RemoteCMSV10Service.swift in Sources */,
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
-			);
+			
+			846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
+			C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,
+			50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */,
+			4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */,
+			12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */,
+			673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
