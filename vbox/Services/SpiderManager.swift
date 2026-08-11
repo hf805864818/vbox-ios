@@ -2213,7 +2213,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 let result: VodItem? = await withGCDTimeout(operation: "getDetail[\(engineKey)]") {
                     var itemResult: VodItem? = nil
                     do {
-                        if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                        if var item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                            item.engineKey = engineKey
                             print("[SpiderManager] getDetail 精确匹配 [\(engineKey)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
                             itemResult = item
                         } else {
@@ -2240,10 +2241,11 @@ globalThis.__JS_SPIDER__ = _spider;
             for (key, engine) in enginesSnapshot {
                 if key == tencentKey { continue }
                 do {
-                    if let item = try engine.callDetailContent(ids: idsCopy).list?.first {
+                    if var item = try engine.callDetailContent(ids: idsCopy).list?.first {
                         let hasPlayUrl = (item.vodPlayUrl ?? "").contains("$") || (item.vodPlayUrl ?? "").contains("http") || (item.vodPlayUrl ?? "").contains("/")
                         let hasPlayFrom = (item.vodPlayFrom ?? "").contains("$") || (item.vodPlayFrom ?? "").contains("$$$")
                         if hasPlayUrl || hasPlayFrom {
+                            item.engineKey = key
                             print("[SpiderManager] getDetail 成功 [\(key)]: \(item.vodName) playUrl=\(item.vodPlayUrl?.prefix(40) ?? "nil")")
                             itemResult = item
                             break

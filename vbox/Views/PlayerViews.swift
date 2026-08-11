@@ -658,7 +658,8 @@ struct VideoDetailView: View {
             vodActor: displayVideo.vodActor,
             vodContent: displayVideo.vodContent,
             vodPlayFrom: displayVideo.vodPlayFrom,
-            vodPlayUrl: episode.url
+            vodPlayUrl: episode.url,
+            engineKey: displayVideo.engineKey
         )
     }
 
