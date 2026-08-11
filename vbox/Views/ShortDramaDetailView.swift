@@ -147,7 +147,8 @@ struct ShortDramaDetailView: View {
                                 vodActor: detailItem?.vodActor ?? drama.vodActor,
                                 vodContent: detailItem?.vodContent ?? drama.vodContent,
                                 vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                                vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl
+                                vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl,
+                                engineKey: detailItem?.engineKey ?? drama.engineKey
                             )
                         }) {
                             Text(ep.number)
@@ -186,7 +187,8 @@ struct ShortDramaDetailView: View {
                     vodActor: detailItem?.vodActor ?? drama.vodActor,
                     vodContent: detailItem?.vodContent ?? drama.vodContent,
                     vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                    vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl
+                    vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl,
+                    engineKey: detailItem?.engineKey ?? drama.engineKey
                 )
             }) {
                 HStack {
@@ -211,8 +213,17 @@ struct ShortDramaDetailView: View {
 
         if episodes.isEmpty || (detailItem?.vodContent?.isEmpty ?? true) {
             Task {
-                for source in dramaService.shortDramaSources {
-                    if let detail = await dramaService.fetchDetail(vodId: drama.vodId, api: source.api) {
+                let sources: [ShortDramaSource]
+                if let engineKey = drama.engineKey {
+                    sources = dramaService.shortDramaSources.filter { $0.engineKey == engineKey }
+                        + dramaService.shortDramaSources.filter { $0.engineKey != engineKey }
+                } else {
+                    sources = dramaService.shortDramaSources.filter { $0.engineKey == nil }
+                        + dramaService.shortDramaSources.filter { $0.engineKey != nil }
+                }
+
+                for source in sources {
+                    if let detail = await dramaService.fetchDetail(vodId: drama.vodId, api: source.api, engineKey: source.engineKey) {
                         await MainActor.run {
                             detailItem = detail
                             parseEpisodes(from: detail.vodPlayUrl)
