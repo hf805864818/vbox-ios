@@ -322,6 +322,45 @@ jobs:
 
           echo "精简后: $(du -sh $STD | cut -f1)"
 
+      - name: 🐍 安装 site-packages (requests/bs4 纯Python库)
+        run: |
+          set -euo pipefail
+          echo "🐍 安装 requests/bs4 到 site-packages..."
+          STD="vbox/Resources/python-stdlib"
+          SITE_PKG="$STD/site-packages"
+          mkdir -p "$SITE_PKG"
+
+          # 使用兼容的 Python 3 来安装纯 Python 库
+          # 优先用构建 CPython 时安装的 host python3.14
+          HOST_PY=""
+          for p in /Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 python3.14 python3; do
+            if command -v "$p" >/dev/null 2>&1; then HOST_PY="$p"; break; fi
+          done
+          echo "使用 host python: ${HOST_PY:-python3}"
+          PY="${HOST_PY:-python3}"
+
+          # 安装纯 Python 库 (无 C 扩展, iOS 可用) — 加 --no-deps 避免拉入编译版
+          $PY -m pip install --no-deps --target "$SITE_PKG" \
+            requests \
+            beautifulsoup4 \
+            urllib3 \
+            certifi \
+            idna \
+            charset-normalizer \
+            soupsieve \
+            typing_extensions \
+            --quiet 2>&1 | tail -5 || echo "⚠️ 部分包安装失败, 但继续"
+
+          # 清理 .pyc / dist-info 中的二进制(可选)
+          find "$SITE_PKG" -name "*.pyc" -delete 2>/dev/null || true
+          find "$SITE_PKG" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          # 移除可能误装的 .so (C扩展, iOS 不能用)
+          find "$SITE_PKG" -name "*.so" -delete 2>/dev/null || true
+
+          echo "📦 site-packages 内容:"
+          ls "$SITE_PKG" 2>/dev/null | head -20
+          echo "site-packages 大小: $(du -sh $SITE_PKG 2>/dev/null | cut -f1)"
+
       - name: 📦 Upload CPython artifacts to Release (首次编译时)
         if: steps.python_cache.outputs.skip_build != 'true'
         continue-on-error: true
