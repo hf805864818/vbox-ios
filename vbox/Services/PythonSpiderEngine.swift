@@ -12,6 +12,12 @@
 //  2. 同步方法保留以遵循 SpiderEngineProtocol, 内部调用异步版本
 //     (注意: 同步方法仍会阻塞调用线程, 建议优先使用异步方法)
 //
+//  修复记录 (2026-08-11):
+//  3. 后台异步初始化 — 构造器不再阻塞主线程
+//     之前: init 中同步调 initializePythonIfNeeded + registerSpiderInternal → 卡 2-3 秒
+//     现在: init 只记录路径, 初始化在后台线程执行, 完成后自动标记 _isSpiderReady
+//     效果: App 启动拉取远程源不再卡顿, 用户无感知
+//
 
 import Foundation
 
@@ -57,20 +63,29 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     /// - Parameters:
     ///   - scriptPath: 本地 .py 脚本绝对路径
     ///   - key: Spider 唯一标识（用于日志）
+    ///
+    /// 修复 (2026-08-11): 后台异步初始化, 不阻塞主线程
+    /// 之前: init 中同步调 initializePythonIfNeeded + registerSpiderInternal → 卡 2-3 秒
+    /// 现在: init 只记录路径, 初始化在后台线程执行, 完成后自动标记 _isSpiderReady
     init(scriptPath: String, key: String) {
         self.scriptPath = scriptPath
         self.scriptName = URL(fileURLWithPath: scriptPath).lastPathComponent
         self.scriptKey = key
 
-        onLog?("🐍 [\(scriptKey)] 初始化 Python Spider 引擎")
+        onLog?("🐍 [\(scriptKey)] 创建 Python Spider 引擎 (后台初始化)")
 
-        // 初始化 Python 解释器（全局只执行一次）
-        PythonSpiderBridge.initializePythonIfNeeded()
+        // 后台异步初始化 — 不阻塞主线程
+        // Python 解释器初始化 (加载 15MB 标准库) + 脚本 init() 在后台执行
+        // 完成后自动标记 _isSpiderReady = true
+        pythonQueue.async { [weak self] in
+            guard let self = self else { return }
 
-        // 注册 Spider（调 init()）— 在后台线程执行, 不阻塞主线程
-        // 注意: init 在构造器中调用, 但 registerSpiderInternal 是同步的
-        // 为了不阻塞主线程, 构造器只做轻量初始化, 真正的注册在后台完成
-        registerSpiderInternal()
+            // 初始化 Python 解释器（全局只执行一次）
+            PythonSpiderBridge.initializePythonIfNeeded()
+
+            // 注册 Spider（调 init()）
+            self.registerSpiderInternal()
+        }
     }
 
     private func registerSpiderInternal() {
