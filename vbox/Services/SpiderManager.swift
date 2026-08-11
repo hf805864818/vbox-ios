@@ -409,9 +409,29 @@ globalThis.__JS_SPIDER__ = _spider;
 
     /// 重新合并远程默认源、当前订阅源、用户自定义源和可选 Bundle 内置源。
     /// 用于远程默认源刷新、Bundle 内置源开关切换、清除远程缓存之后重建源列表。
+    ///
+    /// 修复 (2026-08-11): 清缓存后 Python 资源不显示
+    /// 原因: reloadAllSources 不会清除旧的 Python 引擎, loadSitesFromSubscription 中
+    ///        `if engines[key] != nil { continue }` 会跳过已存在的引擎, 但清缓存可能
+    ///        已删除磁盘上的 .py 文件或引擎状态异常, 导致 Python 资源无法使用
+    /// 修复: reloadAllSources 时先清除所有 Python 引擎, 强制重新下载和加载
     func reloadAllSources() async {
         isLoading = true
         errorMessage = nil
+
+        // ★ 清除旧 Python 引擎，确保重新下载和加载
+        let pyKeys = engines.compactMap { (k, v) -> String? in v is PythonSpiderEngine ? k : nil }
+        for key in pyKeys {
+            engines.removeValue(forKey: key)
+            if let idx = subscribedSites.firstIndex(of: key) {
+                subscribedSites.remove(at: idx)
+            }
+            engineTypes.removeValue(forKey: key)
+        }
+        if !pyKeys.isEmpty {
+            PythonLogStore.appendLog("[SpiderManager] 🔄 清除 \(pyKeys.count) 个旧 Python 引擎，准备重新加载")
+        }
+
         if let activeURL = subManager.activeURL {
             await subManager.loadConfig(from: activeURL)
             if let error = subManager.errorMessage {
@@ -1261,9 +1281,20 @@ globalThis.__JS_SPIDER__ = _spider;
                 PythonLogStore.appendLog("[\(key)] \(msg)")
             }
 
-            // 4. 检查 Python 引擎是否就绪
+            // 4. 等待 Python 引擎异步初始化完成（最多等待 25 秒）
+            // PythonSpiderEngine.init() 在后台线程异步初始化 (Python 解释器 + 脚本 init)
+            // 这里需要轮询等待 _isSpiderReady 变为 true
+            // 修复 (2026-08-11): 之前同步检查 isSpiderReady, 但异步初始化尚未完成 → 永远返回 false
+            var waitCount = 0
+            while !engine.isSpiderReady && waitCount < 50 {  // 50 × 0.5s = 25s 超时
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                waitCount += 1
+            }
+            if engine.isSpiderReady {
+                PythonLogStore.appendLog("[SpiderManager] ✅ Python 引擎就绪 (等待 \(waitCount * 500)ms): \(site.name)")
+            }
             guard engine.isSpiderReady else {
-                PythonLogStore.appendLog("[SpiderManager] ❌ Python 引擎初始化失败: \(site.name) (isSpiderReady=false)")
+                PythonLogStore.appendLog("[SpiderManager] ❌ Python 引擎初始化超时(25s): \(site.name) (isSpiderReady=false)")
                 return false
             }
 

@@ -870,13 +870,13 @@ class PlayerState: ObservableObject {
     @Published var loadingMessage = "正在解析播放地址..."
     @Published var selectedQuality = 1
     @Published var playbackSpeed: Double = 1.0
-    @Published var showDanmaku = false
+    @Published var showDanmaku = true        // 弹幕开关默认打开
     @Published var isPortrait = false
     @Published var danmakuOpacity: Double = 0.8
     @Published var danmakuFontSize: CGFloat = 16
     @Published var danmakuArea: Double = 0.25       // 弹幕显示区域比例 0.25/0.5/0.75/1.0
     @Published var danmakuSpeed: Double = 1.0       // 弹幕滚动速度倍率 0.5/0.75/1.0/1.5/2.0
-    @Published var danmakuColorMode: Int = 0       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色
+    @Published var danmakuColorMode: Int = 7       // 0=原始颜色, 1=白色, 2=黄色, 3=绿色, 4=蓝色, 5=红色, 6=粉色, 7=随机(默认)
     @Published var isOrientationLocked = false
     @Published var isPiPActive = false
     // 三个播放器设置开关，持久化到 UserDefaults
