@@ -325,7 +325,7 @@ jobs:
       - name: 🐍 安装 site-packages (requests/bs4 纯Python库)
         run: |
           set -euo pipefail
-          echo "🐍 安装 requests/bs4 到 site-packages..."
+          echo "🐍 安装 requests/bs4/pyaes 到 site-packages..."
           STD="vbox/Resources/python-stdlib"
           SITE_PKG="$STD/site-packages"
           mkdir -p "$SITE_PKG"
@@ -349,6 +349,7 @@ jobs:
             charset-normalizer \
             soupsieve \
             typing_extensions \
+            pyaes \
             --quiet 2>&1 | tail -5 || echo "⚠️ 部分包安装失败, 但继续"
 
           # 清理 .pyc / dist-info 中的二进制(可选)
@@ -356,6 +357,14 @@ jobs:
           find "$SITE_PKG" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
           # 移除可能误装的 .so (C扩展, iOS 不能用)
           find "$SITE_PKG" -name "*.so" -delete 2>/dev/null || true
+
+          # ★ 安装 Crypto 兼容层 (pyaes + pycryptodome API 兼容)
+          # 让脚本的 from Crypto.Cipher import AES 自动走纯 Python 实现
+          echo "🐍 安装 Crypto 兼容层 (pycryptodome API 兼容)..."
+          mkdir -p "$SITE_PKG/Crypto/Cipher"
+          cp scripts/Crypto/__init__.py "$SITE_PKG/Crypto/"
+          cp scripts/Crypto/Cipher/__init__.py "$SITE_PKG/Crypto/Cipher/"
+          cp scripts/Crypto/Cipher/AES.py "$SITE_PKG/Crypto/Cipher/"
 
           echo "📦 site-packages 内容:"
           ls "$SITE_PKG" 2>/dev/null | head -20
