@@ -642,12 +642,6 @@
 			isa = PBXGroup;
 			children = (
 				3FD870E71397F89A0B7D93C0 /* MPV */,
-				CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
-				D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
-				E9DF469611A11F5125227C37 /* PythonBridge.m */,
-				7B95E909348334896A68F812 /* PythonBridge.h */,
-				D810A485ED03241B4D419B1B /* PythonLogStore.m */,
-				B97706CA828BCA0385813DBA /* PythonLogStore.h */,
 			);
 			name = Libraries;
 			sourceTree = "<group>";
@@ -940,6 +934,12 @@
 				B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */,
 				A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */,
 				B13001 /* MPVKit.xcframework */,
+				CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
+				D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
+				E9DF469611A11F5125227C37 /* PythonBridge.m */,
+				7B95E909348334896A68F812 /* PythonBridge.h */,
+				D810A485ED03241B4D419B1B /* PythonLogStore.m */,
+				B97706CA828BCA0385813DBA /* PythonLogStore.h */,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
