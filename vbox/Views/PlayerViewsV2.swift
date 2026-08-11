@@ -4296,6 +4296,25 @@ class PlayerState: ObservableObject {
         let officialDomains = ["iqiyi.com", "v.qq.com", "youku.com", "mgtv.com", "v.youku.com", "www.mgtv.com", "www.iqiyi.com"]
         let isOfficialPlatform = officialDomains.contains { urlString.contains($0) }
 
+        // 远程源可声明 playStrategy=scriptFirst，让指定 Python 蜘蛛的官方地址先走脚本自带解析。
+        // 未声明该策略的源保持原有逻辑：官方平台 URL 仍优先走全局解析器，不影响其他资源。
+        if isOfficialPlatform {
+            let playStrategy = await MainActor.run {
+                SpiderManager.shared.allSites
+                    .first { $0.key == video.engineKey }?
+                    .playStrategy?
+                    .lowercased()
+            }
+            if playStrategy == "scriptfirst" {
+                log("[PlayerV2] playStrategy=scriptFirst，优先调用脚本 playerContent")
+                if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
+                    await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders)
+                    return
+                }
+                log("[PlayerV2] ⚠️ scriptFirst playerContent 无结果，回退全局解析器")
+            }
+        }
+
         // 检查是否是直链（官方平台URL永不视为直链）
         let isDirectLink: Bool = {
             if isOfficialPlatform { return false }

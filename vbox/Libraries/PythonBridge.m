@@ -193,11 +193,16 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
         // 调 init(extend="")
         PyObject *initMethod = PyObject_GetAttrString(spider, "init");
         if (initMethod && PyCallable_Check(initMethod)) {
-            PyObject *initArgs = PyTuple_Pack(1, PyUnicode_FromString(""));
-            PyObject *initRet = PyObject_Call(initMethod, initArgs, NULL);
+            PyObject *initStandardArgs = PyTuple_Pack(1, PyUnicode_FromString(""));
+            PyObject *initArgs = [self adaptArgs:initStandardArgs
+                                     forCallable:initMethod
+                                    functionName:@"init"
+                                      scriptName:[scriptPath lastPathComponent]];
+            Py_XDECREF(initStandardArgs);
+            PyObject *initRet = initArgs ? PyObject_Call(initMethod, initArgs, NULL) : NULL;
             if (initRet) Py_DECREF(initRet);
             else { PyErr_Clear(); }
-            Py_DECREF(initArgs);
+            Py_XDECREF(initArgs);
         }
         Py_XDECREF(initMethod);
         
@@ -209,8 +214,19 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
             goto cleanup;
         }
         
-        // 构造参数 — 根据方法签名传不同格式
-        PyObject *pyArgs = [self buildArgsForFunction:functionName jsonArgs:argsJSON];
+        // 构造标准参数，再由兼容层根据脚本真实签名裁剪参数。
+        PyObject *standardArgs = [self buildArgsForFunction:functionName jsonArgs:argsJSON];
+        PyObject *pyArgs = [self adaptArgs:standardArgs
+                               forCallable:method
+                              functionName:functionName
+                                scriptName:[scriptPath lastPathComponent]];
+        Py_XDECREF(standardArgs);
+        if (!pyArgs) {
+            PyErr_Clear();
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ %@.%@ 参数构建失败", [scriptPath lastPathComponent], functionName]);
+            Py_DECREF(method);
+            goto cleanup;
+        }
         PyObject *callRet = PyObject_Call(method, pyArgs, NULL);
         
         if (callRet) {
@@ -273,6 +289,110 @@ cleanup:
 }
 
 #pragma mark - Argument Building
+
+/// 根据 Python bound method 的真实签名裁剪标准参数。
+/// 只改变参数数量，不改变参数含义；无法读取签名时保持标准参数，交给 Python 报原始错误。
++ (PyObject *)adaptArgs:(PyObject *)standardArgs
+            forCallable:(PyObject *)callable
+           functionName:(NSString *)functionName
+             scriptName:(NSString *)scriptName {
+    if (!standardArgs || !PyTuple_Check(standardArgs) || !callable) {
+        Py_XINCREF(standardArgs);
+        return standardArgs;
+    }
+
+    Py_ssize_t standardCount = PyTuple_Size(standardArgs);
+    if (standardCount <= 0) {
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    PyObject *inspectModule = PyImport_ImportModule("inspect");
+    if (!inspectModule) {
+        PyErr_Clear();
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    PyObject *signatureFunc = PyObject_GetAttrString(inspectModule, "signature");
+    if (!signatureFunc || !PyCallable_Check(signatureFunc)) {
+        Py_XDECREF(signatureFunc);
+        Py_DECREF(inspectModule);
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    PyObject *signature = PyObject_CallFunctionObjArgs(signatureFunc, callable, NULL);
+    Py_DECREF(signatureFunc);
+    Py_DECREF(inspectModule);
+
+    if (!signature) {
+        PyErr_Clear();
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    PyObject *parameters = PyObject_GetAttrString(signature, "parameters");
+    Py_DECREF(signature);
+    if (!parameters) {
+        PyErr_Clear();
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    PyObject *items = PyMapping_Items(parameters);
+    Py_DECREF(parameters);
+    if (!items) {
+        PyErr_Clear();
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    Py_ssize_t positionalCount = 0;
+    BOOL hasVarArgs = NO;
+    Py_ssize_t itemCount = PyList_Size(items);
+    for (Py_ssize_t i = 0; i < itemCount; i++) {
+        PyObject *item = PyList_GetItem(items, i);  // borrowed
+        if (!item || !PyTuple_Check(item) || PyTuple_Size(item) < 2) continue;
+
+        PyObject *param = PyTuple_GetItem(item, 1); // borrowed
+        PyObject *kindObj = PyObject_GetAttrString(param, "kind");
+        if (!kindObj) {
+            PyErr_Clear();
+            continue;
+        }
+
+        long kind = PyLong_AsLong(kindObj);
+        Py_DECREF(kindObj);
+        if (PyErr_Occurred()) {
+            PyErr_Clear();
+            continue;
+        }
+
+        // inspect.Parameter: POSITIONAL_ONLY=0, POSITIONAL_OR_KEYWORD=1, VAR_POSITIONAL=2
+        if (kind == 0 || kind == 1) {
+            positionalCount++;
+        } else if (kind == 2) {
+            hasVarArgs = YES;
+        }
+    }
+    Py_DECREF(items);
+
+    if (hasVarArgs || positionalCount >= standardCount) {
+        Py_INCREF(standardArgs);
+        return standardArgs;
+    }
+
+    if (positionalCount >= 0 && positionalCount < standardCount) {
+        PYBridgeLog([NSString stringWithFormat:
+            @"[PythonBridge] ℹ️ 方法参数适配: %@.%@ 标准%zd个 → 实际%zd个",
+            scriptName, functionName, standardCount, positionalCount]);
+        return PyTuple_GetSlice(standardArgs, 0, positionalCount);
+    }
+
+    Py_INCREF(standardArgs);
+    return standardArgs;
+}
 
 /// 根据 Spider 方法签名构建 Python 参数
 + (PyObject *)buildArgsForFunction:(NSString *)functionName jsonArgs:(NSString *)jsonArgs {

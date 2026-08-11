@@ -37,11 +37,12 @@ struct SiteConfig: Codable {
     let playerType: Int?
     let jar: String?
     let changeable: Int?
+    let playStrategy: String?
 
     init(key: String, name: String, type: Int, api: String? = nil,
          searchable: Int? = nil, quickSearch: Int? = nil, filterable: Int? = nil,
          ext: String? = nil, playerType: Int? = nil, jar: String? = nil,
-         changeable: Int? = nil) {
+         changeable: Int? = nil, playStrategy: String? = nil) {
         self.key = key
         self.name = name
         self.type = type
@@ -53,6 +54,7 @@ struct SiteConfig: Codable {
         self.playerType = playerType
         self.jar = jar
         self.changeable = changeable
+        self.playStrategy = playStrategy
     }
 
     init(from decoder: Decoder) throws {
@@ -74,6 +76,7 @@ struct SiteConfig: Codable {
         jar = try? container.decode(String.self, forKey: .jar)
         playerType = try? container.decode(Int.self, forKey: .playerType)
         changeable = try? container.decode(Int.self, forKey: .changeable)
+        playStrategy = try? container.decode(String.self, forKey: .playStrategy)
 
         // ext：兼容字符串和对象
         if let extStr = try? container.decode(String.self, forKey: .ext) {
@@ -85,6 +88,11 @@ struct SiteConfig: Codable {
         } else {
             ext = nil
         }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, name, type, api, searchable, quickSearch, filterable
+        case ext, playerType, jar, changeable, playStrategy
     }
 }
 
