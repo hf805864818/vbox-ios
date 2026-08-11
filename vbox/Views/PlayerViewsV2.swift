@@ -687,6 +687,8 @@ struct EpisodeItem: Identifiable {
     let id: Int
     let name: String
     let url: String
+    /// 来源蜘蛛 key，普通选集切换时用于继续命中远程源播放策略
+    var engineKey: String?
     /// 资源类型标记（用于切集时选择不同播放逻辑）
     var sourceType: EpisodeSourceType
     /// 百度文件索引（仅百度网盘使用）
@@ -2262,6 +2264,14 @@ class PlayerState: ObservableObject {
             }
             return
         }
+        let isSameVideo = currentVideo?.vodId == video.vodId && currentVideo?.engineKey == video.engineKey
+        let sessionId = UUID()
+        playbackSessionId = sessionId
+        isHandlingPlayUrl = false
+        if !isSameVideo {
+            episodeItems = []
+            currentEpisodeIndex = 0
+        }
         currentVideo = video
         brightness = UIScreen.main.brightness
         volume = Double(AVAudioSession.sharedInstance().outputVolume)
@@ -2285,7 +2295,7 @@ class PlayerState: ObservableObject {
 
         currentTask = Task { [weak self] in
             guard let self = self else { return }
-            await resolvePlayUrl(video: video)
+            await resolvePlayUrl(video: video, sessionId: sessionId)
         }
     }
 
@@ -3956,8 +3966,21 @@ class PlayerState: ObservableObject {
     }
     
     // MARK: - 播放地址解析
-    private func resolvePlayUrl(video: VodItem) async {
+    private func isCurrentPlaybackSession(_ sessionId: UUID?, video: VodItem) async -> Bool {
+        guard let sessionId = sessionId else { return true }
+        return await MainActor.run {
+            self.playbackSessionId == sessionId &&
+            self.currentVideo?.vodId == video.vodId &&
+            self.currentVideo?.engineKey == video.engineKey
+        }
+    }
+
+    private func resolvePlayUrl(video: VodItem, sessionId: UUID) async {
         log("[PlayerV2] 开始解析播放地址: \(video.vodId)")
+        guard await isCurrentPlaybackSession(sessionId, video: video) else {
+            log("[PlayerV2] 跳过旧播放会话的解析请求: \(video.vodId)")
+            return
+        }
         
         // 检查是否是网盘资源（通过 vodRemarks 或 vodId 判断）
         if video.vodRemarks?.contains("网盘") == true || video.vodRemarks?.hasPrefix("☁️") == true {
@@ -3998,7 +4021,7 @@ class PlayerState: ObservableObject {
         // 先直接用已有地址尝试播放（如果有）
         if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
             // 解析普通资源多集数据，填充通用集数列表
-            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl, targetEpisodeName: video.vodName)
+            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl, targetEpisodeName: video.vodName, engineKey: video.engineKey)
             
             let firstUrl: String
             if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
@@ -4014,7 +4037,7 @@ class PlayerState: ObservableObject {
                 // 注意: isHandlingPlayUrl 不会在此处复位为 false，而是由后台详情 Task
                 // 检查完毕后才复位，关闭竞态窗口（原实现在 await 间隙已复位 false）。
                 await MainActor.run { self.isHandlingPlayUrl = true }
-                await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders)
+                await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders, sessionId: sessionId)
                 // 修复: 不在此处复位 isHandlingPlayUrl，延迟到后台详情检查之后
             }
         }
@@ -4025,9 +4048,13 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 步骤1: 后台获取详情...")
             if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey),
                let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
+                guard await self.isCurrentPlaybackSession(sessionId, video: video) else {
+                    self.log("[PlayerV2] 丢弃旧播放会话的后台详情结果: \(video.vodId)")
+                    return
+                }
                 log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
                 // 后台详情返回后也更新集数列表
-                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName)
+                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName, engineKey: detail.engineKey ?? video.engineKey)
                 let newBest: String
                 if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
                     newBest = episodeItems[currentEpisodeIndex].url
@@ -4040,7 +4067,7 @@ class PlayerState: ObservableObject {
                         // 直到此处检查完毕才复位，确保后台详情不会在竞态窗口内启动第二个 handlePlayUrl
                         if (self.player == nil || self.loadError != nil) && !self.isHandlingPlayUrl {
                             self.loadError = nil
-                            Task { await self.handlePlayUrl(newBest, spider: spider, video: video) }
+                            Task { await self.handlePlayUrl(newBest, spider: spider, video: video, sessionId: sessionId) }
                         } else {
                             log("[PlayerV2] 步骤1: 已有播放器在运行或正在解析，跳过更新")
                         }
@@ -4079,7 +4106,7 @@ class PlayerState: ObservableObject {
         let bestUrl = extractBestPlayableUrl(playFrom: playFrom ?? "", playUrl: finalPlayUrl)
         log("[PlayerV2] 最佳URL: \(bestUrl.prefix(80))...")
         
-        await handlePlayUrl(bestUrl, spider: spider, video: video)
+        await handlePlayUrl(bestUrl, spider: spider, video: video, sessionId: sessionId)
     }
     
     // MARK: - 安全创建URL（处理编码）
@@ -4136,7 +4163,20 @@ class PlayerState: ObservableObject {
     }
     
     /// 统一处理 playerContent 返回结果并播放（含 parse:1 二次解析和 header 透传）
-    private func playFromPlayerContentResult(_ pr: PlayerContentResult, episodeName: String, spider: SpiderManager, baseHeaders: [String: String]? = nil) async {
+    private func playFromPlayerContentResult(
+        _ pr: PlayerContentResult,
+        episodeName: String,
+        spider: SpiderManager,
+        baseHeaders: [String: String]? = nil,
+        sessionId: UUID? = nil,
+        video: VodItem? = nil
+    ) async {
+        if let video = video {
+            guard await isCurrentPlaybackSession(sessionId, video: video) else {
+                log("[PlayerV2] 丢弃旧播放会话的 playerContent 结果: \(video.vodId)")
+                return
+            }
+        }
         // 修复: playUrl 为空字符串时回退到 url（JS侧返回 null 时 playUrl 为 nil，空字符串时也需回退）
         let pu = pr.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? pr.url
         var mergedHeaders = baseHeaders ?? [:]
@@ -4150,16 +4190,20 @@ class PlayerState: ObservableObject {
             if let reparsedUrl = await spider.parsePlayUrl(from: rawUrl) {
                 log("[PlayerV2] ✅ playerContent 二次解析成功: \(reparsedUrl.prefix(60))")
                 if let url = createURL(from: reparsedUrl) {
-                    await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                    await MainActor.run {
+                        guard sessionId == nil || playbackSessionId == sessionId else { return }
+                        initPlayer(url: url, customHeaders: mergedHeaders)
+                    }
                     return
                 }
             }
             log("[PlayerV2] ⚠️ playerContent 二次解析失败")
-            // 🔧 修复: 二次解析失败后，若原始URL是自定义协议（如 xk://），
-            // 不能当直链传给 AVPlayer（会报 -1002 不支持的URL 并卡界面10秒）
-            if let rawUrl = pu, !isStandardPlayScheme(rawUrl) {
-                log("[PlayerV2] ❌ playerContent 返回自定义协议且解析失败，不传给播放器: \(rawUrl.prefix(60))")
+            // parse=1 语义是“需要解析”。二次解析失败后，只有媒体直链才允许兜底播放；
+            // 普通播放页或自定义协议不再传给播放器，避免界面长期停在缓冲状态。
+            if let rawUrl = pu, !isLikelyDirectMediaUrl(rawUrl) {
+                log("[PlayerV2] ❌ playerContent parse=1 解析失败且不是媒体直链，不传给播放器: \(rawUrl.prefix(60))")
                 await MainActor.run {
+                    guard sessionId == nil || playbackSessionId == sessionId else { return }
                     self.failPlayback("播放地址解析失败，请尝试更换源或清晰度")
                 }
                 return
@@ -4169,6 +4213,7 @@ class PlayerState: ObservableObject {
         if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
             log("[PlayerV2] ✅ playerContent 直链成功: \(pu.prefix(60))")
             await MainActor.run {
+                guard sessionId == nil || playbackSessionId == sessionId else { return }
                 self.currentTime = 0
                 self.initPlayer(url: url, customHeaders: mergedHeaders)
                 if let video = self.currentVideo {
@@ -4256,7 +4301,11 @@ class PlayerState: ObservableObject {
     }
     
     // MARK: - 处理单个播放地址
-    private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil) async {
+    private func handlePlayUrl(_ urlString: String, spider: SpiderManager, video: VodItem, customHeaders: [String: String]? = nil, sessionId: UUID? = nil) async {
+        guard await isCurrentPlaybackSession(sessionId, video: video) else {
+            log("[PlayerV2] 跳过旧播放会话的播放地址处理: \(urlString.prefix(60))")
+            return
+        }
         log("[PlayerV2] 处理地址: \(urlString.prefix(80))...")
 
         // 修复: base64 JSON 预解码（哇哇影视等站点的 episode.url 是 base64 编码的 JSON）
@@ -4269,7 +4318,7 @@ class PlayerState: ObservableObject {
                 var mergedHdrs = customHeaders ?? [:]
                 for (k, v) in decoded.headers where !k.isEmpty { mergedHdrs[k] = v }
                 // 用解码后的 URL 递归调用，走正常的直链/解析流程
-                await handlePlayUrl(decoded.url, spider: spider, video: video, customHeaders: mergedHdrs.isEmpty ? nil : mergedHdrs)
+                await handlePlayUrl(decoded.url, spider: spider, video: video, customHeaders: mergedHdrs.isEmpty ? nil : mergedHdrs, sessionId: sessionId)
                 return
             }
             log("[PlayerV2] ⚠️ base64 JSON 预解码失败，继续走 playerContent")
@@ -4286,7 +4335,7 @@ class PlayerState: ObservableObject {
         if !isStandardScheme && !urlString.isEmpty {
             log("[PlayerV2] 检测到自定义协议，优先调用 playerContent: \(urlString.prefix(60))")
             if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
-                await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders)
+                await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders, sessionId: sessionId, video: video)
                 return
             }
             log("[PlayerV2] ⚠️ 自定义协议 playerContent 无结果，继续尝试解析器")
@@ -4308,7 +4357,7 @@ class PlayerState: ObservableObject {
             if playStrategy == "scriptfirst" {
                 log("[PlayerV2] playStrategy=scriptFirst，优先调用脚本 playerContent")
                 if let pr = await spider.getPlayerContent(vodId: video.vodId, flag: "play", url: urlString, engineKey: video.engineKey) {
-                    await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders)
+                    await self.playFromPlayerContentResult(pr, episodeName: video.vodName, spider: spider, baseHeaders: customHeaders, sessionId: sessionId, video: video)
                     return
                 }
                 log("[PlayerV2] ⚠️ scriptFirst playerContent 无结果，回退全局解析器")
@@ -4344,7 +4393,10 @@ class PlayerState: ObservableObject {
             log("[PlayerV2] 直链模式: 直接使用 URL=\(urlString.prefix(100))")
             if let url = createURL(from: urlString) {
                 log("[PlayerV2] ✅ URL创建成功, 协议=\(url.scheme ?? "nil"), 主机=\(url.host ?? "nil")")
-                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
+                await MainActor.run {
+                    guard sessionId == nil || playbackSessionId == sessionId else { return }
+                    initPlayer(url: url, customHeaders: customHeaders)
+                }
                 return
             }
             log("[PlayerV2] ❌ 直链URL创建失败, raw=\(urlString.prefix(120))")
@@ -4408,7 +4460,10 @@ class PlayerState: ObservableObject {
         if let parsedUrl = await spider.parsePlayUrl(from: urlString) {
             log("[PlayerV2] ✅ SpiderManager 解析成功: \(parsedUrl.prefix(60))")
             if let url = createURL(from: parsedUrl) {
-                await MainActor.run { initPlayer(url: url, customHeaders: customHeaders) }
+                await MainActor.run {
+                    guard sessionId == nil || playbackSessionId == sessionId else { return }
+                    initPlayer(url: url, customHeaders: customHeaders)
+                }
                 return
             }
         }
@@ -4431,23 +4486,35 @@ class PlayerState: ObservableObject {
                 if let reparsedUrl = await spider.parsePlayUrl(from: rawUrl) {
                     log("[PlayerV2] ✅ playerContent 二次解析成功: \(reparsedUrl.prefix(60))")
                     if let url = createURL(from: reparsedUrl) {
-                        await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                        await MainActor.run {
+                            guard sessionId == nil || playbackSessionId == sessionId else { return }
+                            initPlayer(url: url, customHeaders: mergedHeaders)
+                        }
                         return
                     }
                 }
-                log("[PlayerV2] ⚠️ playerContent 二次解析失败，尝试直接使用URL")
-                // 🔧 修复: 二次解析失败后，若原始URL是自定义协议（如 xk://），不传给 AVPlayer
-                if let rawUrl = pu, !isStandardPlayScheme(rawUrl) {
-                    log("[PlayerV2] ❌ 备用路径: 自定义协议且解析失败，跳过: \(rawUrl.prefix(60))")
-                    // 跳过此分支，继续尝试后续 nativeDetail 等备选方案
-                } else if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
-                    log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
-                    await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                log("[PlayerV2] ⚠️ playerContent 二次解析失败，仅媒体直链允许兜底播放")
+                if let pu = pu, !pu.isEmpty, isLikelyDirectMediaUrl(pu), let url = createURL(from: pu) {
+                    log("[PlayerV2] ✅ playerContent parse=1 兜底媒体直链: \(pu.prefix(60))")
+                    await MainActor.run {
+                        guard sessionId == nil || playbackSessionId == sessionId else { return }
+                        initPlayer(url: url, customHeaders: mergedHeaders)
+                    }
+                    return
+                } else if let rawUrl = pu, !rawUrl.isEmpty {
+                    log("[PlayerV2] ❌ 备用路径: parse=1 解析失败且不是媒体直链，不再继续兜底: \(rawUrl.prefix(60))")
+                    await MainActor.run {
+                        guard sessionId == nil || playbackSessionId == sessionId else { return }
+                        self.failPlayback("播放地址解析失败，请尝试更换源或清晰度")
+                    }
                     return
                 }
             } else if let pu = pu, !pu.isEmpty, isStandardPlayScheme(pu), let url = createURL(from: pu) {
                 log("[PlayerV2] ✅ playerContent 成功: \(pu.prefix(60))")
-                await MainActor.run { initPlayer(url: url, customHeaders: mergedHeaders) }
+                await MainActor.run {
+                    guard sessionId == nil || playbackSessionId == sessionId else { return }
+                    initPlayer(url: url, customHeaders: mergedHeaders)
+                }
                 return
             } else if let pu = pu, !pu.isEmpty {
                 log("[PlayerV2] ❌ 备用路径: playerContent 返回非标准协议，跳过: \(pu.prefix(60))")
@@ -4575,7 +4642,7 @@ class PlayerState: ObservableObject {
     }
     
     /// 解析普通资源多集数据，填充通用集数列表 episodeItems
-    private func parseNormalEpisodes(playFrom: String, playUrl: String, targetEpisodeName: String? = nil) {
+    private func parseNormalEpisodes(playFrom: String, playUrl: String, targetEpisodeName: String? = nil, engineKey: String? = nil) {
         // 如果已经有百度/夸克集数，不覆盖
         guard episodeItems.isEmpty else { return }
         
@@ -4630,6 +4697,7 @@ class PlayerState: ObservableObject {
                     id: idx,
                     name: name.isEmpty ? "第\(idx + 1)集" : name,
                     url: url,
+                    engineKey: engineKey,
                     sourceType: .normal
                 ))
             }
@@ -4665,13 +4733,23 @@ class PlayerState: ObservableObject {
         log("[PlayerV2] 切集: \(episode.name) (index=\(index), type=\(episode.sourceType))")
         
         currentTask?.cancel()
+        let sessionId = UUID()
+        playbackSessionId = sessionId
         currentTask = Task { [weak self] in
             guard let self = self else { return }
             switch episode.sourceType {
             case .normal:
-                // 普通资源：先判断 URL 是否已经是可直接播放的链接
-                if !self.shouldCallPlayerContentForEpisode(episode.url), let url = URL(string: episode.url) {
+                guard var video = self.currentVideo else {
+                    await MainActor.run { self.isSwitchingEpisode = false }
+                    return
+                }
+                if video.engineKey == nil {
+                    video.engineKey = episode.engineKey
+                }
+                // 普通资源：只有明确媒体直链才直接播放；官方平台页/非媒体地址统一走策略调度
+                if self.isLikelyDirectMediaUrl(episode.url), let url = URL(string: episode.url) {
                     await MainActor.run {
+                        guard self.playbackSessionId == sessionId else { return }
                         // 重置当前时间，避免上一集进度影响
                         self.currentTime = 0
                         self.initPlayer(url: url)
@@ -4685,28 +4763,15 @@ class PlayerState: ObservableObject {
                         }
                     }
                 } else {
-                    // 非 http 占位符（如剧迷的 vid-ep_id），调用 playerContent 解析真实地址
-                    log("[PlayerV2] 切集URL非直链，尝试 playerContent: \(episode.url.prefix(60))")
-                    guard let video = self.currentVideo else {
-                        await MainActor.run { self.isSwitchingEpisode = false }
-                        return
-                    }
-                    // 设置 loading 状态，与其他切集路径（百度/夸克/UC）保持一致
+                    // 非媒体直链（官方平台页、自定义协议、占位符等），统一回到播放策略入口
+                    log("[PlayerV2] 切集URL非媒体直链，进入播放策略调度: \(episode.url.prefix(60))")
                     await MainActor.run {
+                        guard self.playbackSessionId == sessionId else { return }
                         self.isLoading = true
                         self.loadError = nil
                         self.loadingMessage = "正在解析播放地址..."
                     }
-                    if let pr = await SpiderManager.shared.getPlayerContent(vodId: video.vodId, flag: "play", url: episode.url, engineKey: video.engineKey) {
-                        await self.playFromPlayerContentResult(pr, episodeName: episode.name, spider: SpiderManager.shared)
-                    } else {
-                        // ★ 修复: playerContent 返回 nil 时必须调用 failPlayback，
-                        // 否则 isLoading 永远为 true，界面永久卡在加载状态
-                        log("[PlayerV2] ❌ 切集 playerContent 无结果，显示错误")
-                        await MainActor.run {
-                            self.failPlayback("解析播放地址失败，请尝试更换源或清晰度")
-                        }
-                    }
+                    await self.handlePlayUrl(episode.url, spider: SpiderManager.shared, video: video, sessionId: sessionId)
                 }
             case .baidu:
                 // 百度网盘：走原有切换逻辑
