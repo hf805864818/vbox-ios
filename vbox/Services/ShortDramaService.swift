@@ -30,7 +30,7 @@ class ShortDramaService: ObservableObject {
     @Published var hasMore = true
     @Published var selectedSourceId: String?  // nil = 全部源
     
-    private let dramaKeywords = ["短剧", "剧场", "网剧", "微短剧", "爽文短剧", "擦边短剧", "短剧大全"]
+    private let dramaKeywords = ["短剧", "剧场", "网剧", "微短剧", "爽文短剧", "擦边短剧", "短剧大全", "竖屏剧", "小剧场", "迷你剧", "微剧", "短视频剧", "短片剧"]
     private var isInitialLoading = false
     
     private init() {}
