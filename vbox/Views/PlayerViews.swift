@@ -249,16 +249,18 @@ struct VideoDetailView: View {
     // MARK: - 加载真实详情（不触发UI闪跳）
     private func loadRealDetailIfNeeded() {
         guard !hasLoadedDetail, !isLoadingDetail else { return }
+        // 如果搜索结果已包含 vodPlayUrl 且已解析出集数，不需要再获取详情覆盖。
+        // API 切片平台资源搜索结果已含正确的切片地址，getDetail 可能返回不同的源（如网盘），覆盖后会丢失正确集数。
+        if !allSources.isEmpty {
+            hasLoadedDetail = true
+            return
+        }
         isLoadingDetail = true
         Task {
             let detail = await SpiderManager.shared.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey)
             await MainActor.run {
                 hasLoadedDetail = true
-                // 详情API通常返回更完整的playUrl，优先使用
                 if let detail, detail.vodPlayUrl?.isEmpty == false {
-                    // 修复: 存储 detailVideo，使 displayVideo 能返回完整的 vodPlayUrl。
-                    // 之前 detailVideo 从未赋值，导致 displayVideo 永远回退到 video（搜索结果），
-                    // 而 video.vodPlayUrl 通常为空，选集时播放器走同步获取详情分支导致卡死。
                     detailVideo = detail
                     let newSources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
                     if !newSources.isEmpty {
