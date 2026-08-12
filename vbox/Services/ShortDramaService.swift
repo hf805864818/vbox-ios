@@ -133,6 +133,10 @@ class ShortDramaService: ObservableObject {
         }
 
         // MARK: - 扫描蜘蛛源（type:3，包括 JS 和 Python）的短剧分类
+        // ★ 修复: 
+        // 1. 检查 engine.isSpiderReady (Python 引擎异步初始化, 可能尚未就绪)
+        // 2. 在后台线程执行 callHomeContent, 避免阻塞主线程 (ShortDramaService 是 @MainActor)
+        // 3. 添加 15 秒超时保护, 防止 Python 脚本网络请求卡死
         let spiderManager = SpiderManager.shared
         for site in sites where site.type == 3 {
             let engineKey = site.key.isEmpty ? site.name : site.key
@@ -141,35 +145,71 @@ class ShortDramaService: ObservableObject {
                 continue
             }
 
+            // ★ 修复: 检查引擎是否就绪 — Python 引擎在后台异步初始化, 
+            // 短剧页面打开时引擎可能尚未完成初始化 (加载 15MB 标准库 + 脚本 init)
+            if !engine.isSpiderReady {
+                print("[ShortDrama] 蜘蛛引擎未就绪: \(site.name) (\(engineKey))，跳过")
+                continue
+            }
+
             let sourceId = "spider_\(engineKey)_shortdrama"
             guard !seenSourceIds.contains(sourceId) else { continue }
             seenSourceIds.insert(sourceId)
 
-            do {
-                let result = try engine.callHomeContent()
-                let categories = result.class ?? []
-                var batch: [ShortDramaSource] = []
+            // ★ 修复: 在后台线程执行 callHomeContent, 带超时保护
+            // 原实现: 同步调用 engine.callHomeContent() → Python 脚本网络请求阻塞主线程
+            let dramaKw = self.dramaKeywords
+            let scanResult: [ShortDramaSource] = await withCheckedContinuation { continuation in
+                let lock = NSLock()
+                var hasResumed = false
 
-                for cat in categories {
-                    let catName = cat.typeName
-                    guard dramaKeywords.contains(where: { catName.contains($0) }) else { continue }
-
-                    batch.append(ShortDramaSource(
-                        id: "spider_\(engineKey)_\(cat.typeId)",
-                        name: site.name,
-                        api: site.api ?? "",
-                        categoryId: cat.typeId,
-                        categoryName: catName,
-                        totalCount: 0,
-                        sourceType: .jsSpider,
-                        engineKey: engineKey
-                    ))
-                    print("[ShortDrama] 蜘蛛源发现短剧分类: \(site.name) → \(catName)(ID=\(cat.typeId))")
+                func resumeOnce(_ result: [ShortDramaSource]) {
+                    lock.lock()
+                    if !hasResumed {
+                        hasResumed = true
+                        lock.unlock()
+                        continuation.resume(returning: result)
+                    } else {
+                        lock.unlock()
+                    }
                 }
-                appendShortDramaSources(batch, seenSourceIds: &seenSourceIds)
-            } catch {
-                print("[ShortDrama] 蜘蛛扫描失败 \(site.name): \(error.localizedDescription)")
+
+                // 超时保护 (15 秒) — Python 脚本网络请求可能很慢
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                    resumeOnce([])
+                }
+
+                // 实际执行 (后台线程, 不阻塞主线程)
+                DispatchQueue.global().async {
+                    do {
+                        let result = try engine.callHomeContent()
+                        let categories = result.class ?? []
+                        var batch: [ShortDramaSource] = []
+
+                        for cat in categories {
+                            let catName = cat.typeName
+                            guard dramaKw.contains(where: { catName.contains($0) }) else { continue }
+
+                            batch.append(ShortDramaSource(
+                                id: "spider_\(engineKey)_\(cat.typeId)",
+                                name: site.name,
+                                api: site.api ?? "",
+                                categoryId: cat.typeId,
+                                categoryName: catName,
+                                totalCount: 0,
+                                sourceType: .jsSpider,
+                                engineKey: engineKey
+                            ))
+                            print("[ShortDrama] 蜘蛛源发现短剧分类: \(site.name) → \(catName)(ID=\(cat.typeId))")
+                        }
+                        resumeOnce(batch)
+                    } catch {
+                        print("[ShortDrama] 蜘蛛扫描失败 \(site.name): \(error.localizedDescription)")
+                        resumeOnce([])
+                    }
+                }
             }
+            appendShortDramaSources(scanResult, seenSourceIds: &seenSourceIds)
         }
 
         if !shortDramaSources.isEmpty {

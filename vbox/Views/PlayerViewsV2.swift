@@ -4040,55 +4040,74 @@ class PlayerState: ObservableObject {
                 await handlePlayUrl(firstUrlClean, spider: spider, video: video, customHeaders: video.customHeaders, sessionId: sessionId)
                 // 修复: 不在此处复位 isHandlingPlayUrl，延迟到后台详情检查之后
             }
-        }
-        
-        // 后台异步获取详情，成功后更新播放地址
-        Task { [weak self] in
-            guard let self = self else { return }
-            log("[PlayerV2] 步骤1: 后台获取详情...")
-            if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey),
-               let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
-                guard await self.isCurrentPlaybackSession(sessionId, video: video) else {
-                    self.log("[PlayerV2] 丢弃旧播放会话的后台详情结果: \(video.vodId)")
-                    return
-                }
-                log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
-                // 后台详情返回后也更新集数列表
-                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName, engineKey: detail.engineKey ?? video.engineKey)
-                let newBest: String
-                if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
-                    newBest = episodeItems[currentEpisodeIndex].url
-                } else {
-                    newBest = extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
-                }
-                if !newBest.isEmpty {
-                    await MainActor.run {
-                        // 修复: isHandlingPlayUrl 在第一个 handlePlayUrl 完成后仍为 true，
-                        // 直到此处检查完毕才复位，确保后台详情不会在竞态窗口内启动第二个 handlePlayUrl
-                        if (self.player == nil || self.loadError != nil) && !self.isHandlingPlayUrl {
-                            self.loadError = nil
-                            Task { await self.handlePlayUrl(newBest, spider: spider, video: video, sessionId: sessionId) }
-                        } else {
-                            log("[PlayerV2] 步骤1: 已有播放器在运行或正在解析，跳过更新")
+            
+            // 后台异步获取详情，成功后更新播放地址（仅在已有地址时后台更新）
+            Task { [weak self] in
+                guard let self = self else { return }
+                log("[PlayerV2] 步骤1: 后台获取详情...")
+                if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey),
+                   let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
+                    guard await self.isCurrentPlaybackSession(sessionId, video: video) else {
+                        self.log("[PlayerV2] 丢弃旧播放会话的后台详情结果: \(video.vodId)")
+                        return
+                    }
+                    log("[PlayerV2] 步骤1: 后台详情成功，检查是否需要更新")
+                    // 后台详情返回后也更新集数列表
+                    self.parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName, engineKey: detail.engineKey ?? video.engineKey)
+                    let newBest: String
+                    if !self.episodeItems.isEmpty, self.currentEpisodeIndex >= 0, self.currentEpisodeIndex < self.episodeItems.count {
+                        newBest = self.episodeItems[self.currentEpisodeIndex].url
+                    } else {
+                        newBest = self.extractBestPlayableUrl(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl)
+                    }
+                    if !newBest.isEmpty {
+                        await MainActor.run {
+                            // 修复: isHandlingPlayUrl 在第一个 handlePlayUrl 完成后仍为 true，
+                            // 直到此处检查完毕才复位，确保后台详情不会在竞态窗口内启动第二个 handlePlayUrl
+                            if (self.player == nil || self.loadError != nil) && !self.isHandlingPlayUrl {
+                                self.loadError = nil
+                                Task { await self.handlePlayUrl(newBest, spider: spider, video: video, sessionId: sessionId) }
+                            } else {
+                                self.log("[PlayerV2] 步骤1: 已有播放器在运行或正在解析，跳过更新")
+                            }
+                            // 修复: 现在安全复位，后台详情检查完毕，竞态窗口关闭
+                            self.isHandlingPlayUrl = false
                         }
-                        // 修复: 现在安全复位，后台详情检查完毕，竞态窗口关闭
-                        self.isHandlingPlayUrl = false
+                    } else {
+                        // 修复: newBest 为空时也要复位
+                        await MainActor.run { self.isHandlingPlayUrl = false }
                     }
                 } else {
-                    // 修复: newBest 为空时也要复位
+                    log("[PlayerV2] 步骤1: 后台详情无结果")
+                    // 修复: 详情无结果时复位
                     await MainActor.run { self.isHandlingPlayUrl = false }
                 }
-            } else {
-                log("[PlayerV2] 步骤1: 后台详情无结果")
-                // 修复: 详情无结果时复位
-                await MainActor.run { self.isHandlingPlayUrl = false }
             }
-        }
-        
-        // 如果已有地址不能播放，后面继续等后台详情更新
-        if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
+            
+            // 已有地址时，等后台详情更新即可
             log("[PlayerV2] 步骤1: 等待后台详情更新...")
             return
+        }
+        
+        // ★ 修复: 无已有播放地址时，同步等待详情获取，避免竞态导致"服务器未返回播放地址"
+        // 原实现: 后台 Task 异步获取详情，但主流程立即检查 playUrl (为空) → 报错
+        // 修复后: 无已有地址时，主流程 await 详情获取，拿到地址后再继续播放
+        log("[PlayerV2] 步骤1: 无已有地址，同步获取详情...")
+        if let detail = await spider.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey) {
+            guard await isCurrentPlaybackSession(sessionId, video: video) else {
+                log("[PlayerV2] 丢弃旧播放会话的详情结果: \(video.vodId)")
+                return
+            }
+            playUrl = detail.vodPlayUrl
+            playFrom = detail.vodPlayFrom
+            if let newUrl = detail.vodPlayUrl, !newUrl.isEmpty {
+                log("[PlayerV2] 步骤1: 详情获取成功，解析剧集...")
+                parseNormalEpisodes(playFrom: detail.vodPlayFrom ?? "", playUrl: newUrl, targetEpisodeName: video.vodName, engineKey: detail.engineKey ?? video.engineKey)
+            } else {
+                log("[PlayerV2] 步骤1: 详情返回但无播放地址")
+            }
+        } else {
+            log("[PlayerV2] 步骤1: 详情获取失败")
         }
         
         // 步骤2: 检查 playUrl 的类型并处理

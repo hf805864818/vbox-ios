@@ -150,6 +150,12 @@ struct ShortDramaView: View {
                     await dramaService.loadInitialIfNeeded(from: SpiderManager.shared.allSites, forceRescan: true)
                 }
             }
+            // ★ 修复: Python 引擎异步初始化完成后, 重新扫描蜘蛛短剧源
+            .onReceive(NotificationCenter.default.publisher(for: .pythonSpiderDidBecomeReady)) { _ in
+                Task {
+                    await dramaService.loadInitialIfNeeded(from: SpiderManager.shared.allSites, forceRescan: true)
+                }
+            }
         }
     }
     
