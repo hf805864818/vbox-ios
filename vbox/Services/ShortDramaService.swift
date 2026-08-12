@@ -478,17 +478,17 @@ class ShortDramaService: ObservableObject {
     }
     
     // MARK: - 搜索短剧
-    
+
     func search(keyword: String) async -> [VodItem] {
         var allItems: [VodItem] = []
-        
+
         let targets: [ShortDramaSource]
         if let sourceId = selectedSourceId {
             targets = shortDramaSources.filter { $0.id == sourceId }
         } else {
             targets = shortDramaSources
         }
-        
+
         for source in targets {
             if source.sourceType == .jsSpider {
                 guard let engineKey = source.engineKey,
@@ -496,20 +496,48 @@ class ShortDramaService: ObservableObject {
                     print("[ShortDrama] 蜘蛛引擎不可用，跳过搜索: \(source.name)")
                     continue
                 }
-                do {
-                    let result = try engine.callSearchContent(keyword: keyword, pg: 1)
-                    let items = (result.list ?? []).map { item -> VodItem in
-                        var vod = item
-                        if vod.vodRemarks == nil || vod.vodRemarks?.isEmpty == true {
-                            vod.vodRemarks = source.name
+                // ★ 修复: 在后台线程执行 callSearchContent, 带超时保护
+                // 原实现: 同步调用 engine.callSearchContent() → Python 脚本网络请求阻塞主线程
+                let searchResult: [VodItem] = await withCheckedContinuation { continuation in
+                    let lock = NSLock()
+                    var hasResumed = false
+
+                    func resumeOnce(_ result: [VodItem]) {
+                        lock.lock()
+                        if !hasResumed {
+                            hasResumed = true
+                            lock.unlock()
+                            continuation.resume(returning: result)
+                        } else {
+                            lock.unlock()
                         }
-                        vod.engineKey = engineKey
-                        return vod
                     }
-                    allItems.append(contentsOf: items)
-                } catch {
-                    print("[ShortDrama] 蜘蛛搜索失败 \(source.name): \(error.localizedDescription)")
+
+                    // 超时保护 (15 秒)
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                        resumeOnce([])
+                    }
+
+                    // 实际执行 (后台线程)
+                    DispatchQueue.global().async {
+                        do {
+                            let result = try engine.callSearchContent(keyword: keyword, pg: 1)
+                            let items = (result.list ?? []).map { item -> VodItem in
+                                var vod = item
+                                if vod.vodRemarks == nil || vod.vodRemarks?.isEmpty == true {
+                                    vod.vodRemarks = source.name
+                                }
+                                vod.engineKey = engineKey
+                                return vod
+                            }
+                            resumeOnce(items)
+                        } catch {
+                            print("[ShortDrama] 蜘蛛搜索失败 \(source.name): \(error.localizedDescription)")
+                            resumeOnce([])
+                        }
+                    }
                 }
+                allItems.append(contentsOf: searchResult)
                 continue
             }
 
