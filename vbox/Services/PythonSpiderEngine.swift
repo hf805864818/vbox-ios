@@ -96,6 +96,10 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         if json != nil {
             _isSpiderReady = true
             onLog?("✅ [\(scriptKey)] Python Spider 初始化完成 (\(elapsed)ms)")
+            // ★ 通知短剧等页面: Python 引擎已就绪, 可以重新扫描蜘蛛源
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .pythonSpiderDidBecomeReady, object: nil)
+            }
         } else {
             onLog?("❌ [\(scriptKey)] Python Spider 初始化失败 (\(elapsed)ms)")
         }
@@ -199,7 +203,11 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         do {
             return try JSONDecoder().decode(PlayerContentResult.self, from: data)
         } catch {
-            throw PythonSpiderError.invalidJSON("playerContent")
+            // ★ 容错解码: Python 脚本返回的 header 可能是字符串（""、json.dumps()、
+            // "User-Agent=xxx&Referer=xxx"）而非 [String: String] 字典，
+            // 导致标准 Codable 解码失败。此容错路径与 detailContent 等方法保持一致。
+            onLog?("⚠️ [\(scriptKey)] playerContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackPlayerContent(from: data)
         }
     }
 
@@ -510,6 +518,85 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
         onLog?("📋 [\(scriptKey)] searchContent 容错解析: \(listItems.count)结果")
         return SearchContentResult(page: page, pagecount: pagecount, list: listItems)
+    }
+
+    /// 容错解码: playerContent
+    /// 兼容以下 Python 脚本非标准返回格式:
+    /// 1. header 为字符串: "" / json.dumps({...}) / "User-Agent=xxx&Referer=xxx"
+    /// 2. jx 字段替代 parse 字段 (部分脚本只返回 jx 不返回 parse)
+    /// 3. playUrl 字段缺失 (部分脚本只返回 url)
+    /// 4. header 为字典但值类型非 String (如 Int)
+    private func decodeOrFallbackPlayerContent(from data: Data) throws -> PlayerContentResult {
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            onLog?("❌ [\(scriptKey)] playerContent JSON 解析完全失败, 原始: \(raw.prefix(300))")
+            throw PythonSpiderError.invalidJSON("playerContent")
+        }
+
+        // parse 字段: 优先 parse, 其次 jx, 默认 0
+        let parse: Int
+        if let p = dict["parse"] as? Int {
+            parse = p
+        } else if let p = dict["parse"] as? String, let pi = Int(p) {
+            parse = pi
+        } else if let j = dict["jx"] as? Int {
+            parse = j
+        } else if let j = dict["jx"] as? String, let ji = Int(j) {
+            parse = ji
+        } else {
+            parse = 0
+        }
+
+        // playUrl / url 字段
+        let playUrl = extractString(dict, keys: ["playUrl", "play_url"])
+        let url = extractString(dict, keys: ["url"])
+
+        // header 字段: 兼容字典 / JSON 字符串 / 空字符串 / URL编码字符串
+        var header: [String: String]? = nil
+        if let h = dict["header"] as? [String: String] {
+            header = h
+        } else if let hDict = dict["header"] as? [String: Any] {
+            // 字典但值类型不一定是 String (如 Int)
+            var converted: [String: String] = [:]
+            for (k, v) in hDict {
+                if let s = v as? String {
+                    converted[k] = s
+                } else {
+                    converted[k] = String(describing: v)
+                }
+            }
+            header = converted.isEmpty ? nil : converted
+        } else if let hStr = dict["header"] as? String {
+            if !hStr.isEmpty {
+                // 尝试 JSON 解析 (json.dumps 格式)
+                if let hData = hStr.data(using: .utf8),
+                   let hDict = try? JSONSerialization.jsonObject(with: hData) as? [String: Any] {
+                    var converted: [String: String] = [:]
+                    for (k, v) in hDict {
+                        if let s = v as? String {
+                            converted[k] = s
+                        } else {
+                            converted[k] = String(describing: v)
+                        }
+                    }
+                    header = converted.isEmpty ? nil : converted
+                } else {
+                    // 尝试 URL 编码格式: "User-Agent=xxx&Referer=yyy"
+                    var converted: [String: String] = [:]
+                    for pair in hStr.split(separator: "&") {
+                        let kv = pair.split(separator: "=", maxSplits: 1)
+                        if kv.count == 2 {
+                            converted[String(kv[0])] = String(kv[1])
+                        }
+                    }
+                    header = converted.isEmpty ? nil : converted
+                }
+            }
+        }
+
+        let result = PlayerContentResult(parse: parse, playUrl: playUrl, url: url, header: header)
+        onLog?("📋 [\(scriptKey)] playerContent 容错解析: parse=\(parse), url=\(url?.prefix(60) ?? "nil"), header=\(header != nil ? "\(header!.count)键" : "nil")")
+        return result
     }
 }
 

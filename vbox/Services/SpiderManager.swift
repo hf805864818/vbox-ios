@@ -3,6 +3,8 @@ import SwiftUI
 
 extension Notification.Name {
     static let spiderSitesDidUpdate = Notification.Name("spiderSitesDidUpdate")
+    /// Python 蜘蛛引擎初始化完成通知 — 用于触发短剧等页面重新扫描蜘蛛源
+    static let pythonSpiderDidBecomeReady = Notification.Name("pythonSpiderDidBecomeReady")
 }
 
 /// 站点模式枚举 — 用于区分站点的实际工作模式
