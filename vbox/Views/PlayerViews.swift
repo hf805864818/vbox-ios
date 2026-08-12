@@ -647,6 +647,10 @@ struct VideoDetailView: View {
 
     // MARK: - 选集
     private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
+        // 修复: 传递完整的 vodPlayUrl（包含所有剧集的 $$$/#/$ 格式字符串），
+        // 而非单集 episode.url。这样播放器的 parseNormalEpisodes 能立即解析出全部集数，
+        // 并通过 vodName 中的集名自动定位到用户选中的那一集。
+        // 网盘资源不经过此函数（走 handleCloudVideo），不受影响。
         selectedEpisodeVideo = VodItem(
             vodId: displayVideo.vodId,
             vodName: "\(displayVideo.vodName) \(episode.name)",
@@ -658,7 +662,7 @@ struct VideoDetailView: View {
             vodActor: displayVideo.vodActor,
             vodContent: displayVideo.vodContent,
             vodPlayFrom: displayVideo.vodPlayFrom,
-            vodPlayUrl: episode.url,
+            vodPlayUrl: displayVideo.vodPlayUrl,
             engineKey: displayVideo.engineKey
         )
     }
