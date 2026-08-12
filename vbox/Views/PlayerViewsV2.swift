@@ -532,6 +532,8 @@ extension Notification.Name {
 // MARK: - 新版本播放器 (爱奇艺风格) - 简化版本，确保编译通过
 struct VideoPlayerViewV2: View {
     let video: VodItem
+    /// 详情页已解析好的集数列表，优先使用，避免播放器重复解析 vodPlayUrl 导致选源不一致和卡死
+    let preParsedEpisodes: [(name: String, url: String)]? = nil
     @StateObject private var playerState = PlayerState()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -4015,13 +4017,31 @@ class PlayerState: ObservableObject {
         var playUrl: String? = video.vodPlayUrl
         var playFrom: String? = video.vodPlayFrom
         
+        // 步骤0: 优先使用详情页传来的已解析集数，避免播放器重复解析导致选源不一致和卡死
+        if episodeItems.isEmpty, let preParsed = preParsedEpisodes, !preParsed.isEmpty {
+            episodeItems = preParsed.enumerated().map { idx, ep in
+                EpisodeItem(id: idx, name: ep.name, url: ep.url, engineKey: video.engineKey, sourceType: .normal)
+            }
+            // 根据 vodName 自动定位到当前集
+            for (idx, item) in episodeItems.enumerated() {
+                if video.vodName.contains(item.name) {
+                    currentEpisodeIndex = idx
+                    log("[PlayerV2] 步骤0: 使用预解析集数(\(episodeItems.count)集)，定位到: \(item.name)")
+                    break
+                }
+            }
+            log("[PlayerV2] 步骤0: 预解析集数填充完成，共\(episodeItems.count)集")
+        }
+        
         // 步骤1: 先用传入的播放地址尝试播放，同时后台获取详情
         log("[PlayerV2] 步骤1: 先尝试已有地址播放，后台异步获取详情...")
         
         // 先直接用已有地址尝试播放（如果有）
         if let existingUrl = video.vodPlayUrl, !existingUrl.isEmpty {
-            // 解析普通资源多集数据，填充通用集数列表
-            parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl, targetEpisodeName: video.vodName, engineKey: video.engineKey)
+            // 解析普通资源多集数据，填充通用集数列表（已有预解析集数时跳过，避免二次解析）
+            if episodeItems.isEmpty {
+                parseNormalEpisodes(playFrom: video.vodPlayFrom ?? "", playUrl: existingUrl, targetEpisodeName: video.vodName, engineKey: video.engineKey)
+            }
             
             let firstUrl: String
             if !episodeItems.isEmpty, currentEpisodeIndex >= 0, currentEpisodeIndex < episodeItems.count {
@@ -4086,6 +4106,18 @@ class PlayerState: ObservableObject {
             
             // 已有地址时，等后台详情更新即可
             log("[PlayerV2] 步骤1: 等待后台详情更新...")
+            return
+        }
+        
+        // 如果有预解析集数但无已有地址（如"立即播放"时 vodPlayUrl 为空），直接用当前集播放
+        // 避免同步获取详情导致 UI 卡死
+        if !episodeItems.isEmpty {
+            let playIdx = currentEpisodeIndex >= 0 && currentEpisodeIndex < episodeItems.count ? currentEpisodeIndex : 0
+            let directUrl = episodeItems[playIdx].url
+            log("[PlayerV2] 步骤1: 无已有地址但有预解析集数，直接播放第\(playIdx + 1)集: \(directUrl.prefix(80))...")
+            await MainActor.run { self.isHandlingPlayUrl = true }
+            await handlePlayUrl(directUrl, spider: spider, video: video, customHeaders: video.customHeaders, sessionId: sessionId)
+            await MainActor.run { self.isHandlingPlayUrl = false }
             return
         }
         

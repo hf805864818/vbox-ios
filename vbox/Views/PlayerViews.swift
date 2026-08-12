@@ -24,6 +24,14 @@ private enum DriveExpandState {
 }
 
 // MARK: - 视频详情视图 (新版：演职人员 + 修复闪跳)
+/// 播放器启动数据 - 包装 VodItem 和详情页已解析好的集数列表
+/// 避免播放器重复解析 vodPlayUrl 导致选源不一致和 UI 卡死
+struct PlayerLaunchData: Identifiable {
+    let id = UUID()
+    let video: VodItem
+    let episodes: [(name: String, url: String)]?
+}
+
 struct VideoDetailView: View {
     let video: VodItem
     let searchKeyword: String?
@@ -40,9 +48,8 @@ struct VideoDetailView: View {
     @ObservedObject private var cloudDriveSortManager = CloudDriveSortManager.shared
 
     // 播放器
-    @State private var showPlayer = false
+    @State private var playerLaunchData: PlayerLaunchData?
     @State private var selectedPanVideo: VodItem?
-    @State private var selectedEpisodeVideo: VodItem?
 
     // 网盘
     @State private var isLoadingPan = false
@@ -572,7 +579,11 @@ struct VideoDetailView: View {
                 // 没有数据也没在加载，重新触发加载
                 loadPanLinks()
             }
-        } else { showPlayer = true }
+        } else {
+            // 传递详情页已解析好的集数列表，避免播放器重复解析导致选源不一致和卡死
+            let eps = allSources.isEmpty ? [] : allSources[min(selectedSourceIndex, allSources.count - 1)].items
+            playerLaunchData = PlayerLaunchData(video: video, episodes: eps.isEmpty ? nil : eps)
+        }
     }
 
     // MARK: - 分享
@@ -651,31 +662,27 @@ struct VideoDetailView: View {
 
     // MARK: - 选集
     private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
-        // 传递完整 vodPlayUrl（包含所有剧集的 $$$/#/$ 格式字符串），使播放器的
-        // parseNormalEpisodes 能立即解析出全部集数并填充 episodeItems。
-        // vodName 含集名（如"云秀行 第13集"），parseNormalEpisodes 会自动定位到该集。
-        //
-        // 不卡死原理: parseNormalEpisodes 已修复为优先选有 http 直链的源（与 extractBestPlayableUrl
-        // 逻辑一致），不再选集数最多但非直链的源。选中直链源后:
-        // 1. episodeItems[currentEpisodeIndex].url 是直链 → handlePlayUrl 直接 initPlayer → 秒播不卡
-        // 2. episodeItems 被填充 → 播放器内显示完整集数列表，可正常切集
-        // 3. 后台 Task 异步获取详情，如需更新集数列表会检查 episodeItems.isEmpty
-        let playUrl = displayVideo.vodPlayUrl?.isEmpty == false
-            ? displayVideo.vodPlayUrl
-            : episode.url
-        selectedEpisodeVideo = VodItem(
-            vodId: displayVideo.vodId,
-            vodName: "\(displayVideo.vodName) \(episode.name)",
-            vodPic: displayVideo.vodPic,
-            vodRemarks: episode.name,
-            vodYear: displayVideo.vodYear,
-            vodArea: displayVideo.vodArea,
-            vodDirector: displayVideo.vodDirector,
-            vodActor: displayVideo.vodActor,
-            vodContent: displayVideo.vodContent,
-            vodPlayFrom: displayVideo.vodPlayFrom,
-            vodPlayUrl: playUrl,
-            engineKey: displayVideo.engineKey
+        // 传递完整 vodPlayUrl 和详情页已解析好的集数列表。
+        // 播放器优先使用 preParsedEpisodes 填充 episodeItems，跳过 parseNormalEpisodes，
+        // 彻底消除二次解析导致的选源不一致和 UI 卡死问题。
+        // vodName 含集名（如"云秀行 第13集"），播放器据此自动定位到选中集。
+        let eps = allSources.isEmpty ? [] : allSources[min(selectedSourceIndex, allSources.count - 1)].items
+        playerLaunchData = PlayerLaunchData(
+            video: VodItem(
+                vodId: displayVideo.vodId,
+                vodName: "\(displayVideo.vodName) \(episode.name)",
+                vodPic: displayVideo.vodPic,
+                vodRemarks: episode.name,
+                vodYear: displayVideo.vodYear,
+                vodArea: displayVideo.vodArea,
+                vodDirector: displayVideo.vodDirector,
+                vodActor: displayVideo.vodActor,
+                vodContent: displayVideo.vodContent,
+                vodPlayFrom: displayVideo.vodPlayFrom,
+                vodPlayUrl: displayVideo.vodPlayUrl,
+                engineKey: displayVideo.engineKey
+            ),
+            episodes: eps.isEmpty ? nil : eps
         )
     }
 
@@ -777,9 +784,10 @@ struct VideoDetailView: View {
             }
         }
         // 播放器
-        .fullScreenCover(isPresented: $showPlayer) { VideoPlayerViewV2(video: video) }
+        .fullScreenCover(item: $playerLaunchData) { data in
+            VideoPlayerViewV2(video: data.video, preParsedEpisodes: data.episodes)
+        }
         .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
-        .fullScreenCover(item: $selectedEpisodeVideo) { epVideo in VideoPlayerViewV2(video: epVideo) }
         // 选集弹窗（半屏）
         .sheet(isPresented: $showEpisodeSheet) {
             EpisodeSheetView(
