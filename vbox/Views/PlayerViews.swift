@@ -249,6 +249,10 @@ struct VideoDetailView: View {
                 hasLoadedDetail = true
                 // 详情API通常返回更完整的playUrl，优先使用
                 if let detail, detail.vodPlayUrl?.isEmpty == false {
+                    // 修复: 存储 detailVideo，使 displayVideo 能返回完整的 vodPlayUrl。
+                    // 之前 detailVideo 从未赋值，导致 displayVideo 永远回退到 video（搜索结果），
+                    // 而 video.vodPlayUrl 通常为空，选集时播放器走同步获取详情分支导致卡死。
+                    detailVideo = detail
                     let newSources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
                     if !newSources.isEmpty {
                         allSources = newSources
@@ -647,10 +651,17 @@ struct VideoDetailView: View {
 
     // MARK: - 选集
     private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
-        // 修复: 传递完整的 vodPlayUrl（包含所有剧集的 $$$/#/$ 格式字符串），
-        // 而非单集 episode.url。这样播放器的 parseNormalEpisodes 能立即解析出全部集数，
+        // 传递完整的 vodPlayUrl（包含所有剧集的 $$$/#/$ 格式字符串），
+        // 使播放器的 parseNormalEpisodes 能立即解析出全部集数，
         // 并通过 vodName 中的集名自动定位到用户选中的那一集。
         // 网盘资源不经过此函数（走 handleCloudVideo），不受影响。
+        //
+        // 修复卡死: 若详情尚未加载完成（detailVideo 为 nil），displayVideo.vodPlayUrl 为空，
+        // 播放器会走"同步获取详情"分支导致 UI 卡死。此时回退到 episode.url（单集地址），
+        // 至少能正常播放选中的集，不卡死。详情加载完成后再次选集即可获得完整集数列表。
+        let playUrl = displayVideo.vodPlayUrl?.isEmpty == false
+            ? displayVideo.vodPlayUrl
+            : episode.url
         selectedEpisodeVideo = VodItem(
             vodId: displayVideo.vodId,
             vodName: "\(displayVideo.vodName) \(episode.name)",
@@ -662,7 +673,7 @@ struct VideoDetailView: View {
             vodActor: displayVideo.vodActor,
             vodContent: displayVideo.vodContent,
             vodPlayFrom: displayVideo.vodPlayFrom,
-            vodPlayUrl: displayVideo.vodPlayUrl,
+            vodPlayUrl: playUrl,
             engineKey: displayVideo.engineKey
         )
     }
