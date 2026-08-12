@@ -894,7 +894,7 @@ globalThis.__JS_SPIDER__ = _spider;
         // 🐍 加载订阅源中的 Python 蜘蛛
         if !pySitesToLoad.isEmpty {
             PythonLogStore.appendLog("[SpiderManager] 🐍 订阅源 Python 蜘蛛待加载: \(pySitesToLoad.count) 个")
-            for item in pySitesToLoad.prefix(10) {
+            for item in pySitesToLoad {
                 let key = item.site.key.isEmpty ? item.site.name : item.site.key
                 if engines[key] != nil { continue }
                 let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
@@ -1146,10 +1146,10 @@ globalThis.__JS_SPIDER__ = _spider;
             print("[SpiderManager] 远程默认源 JS 蜘蛛加载完成: 成功 \(loaded) 个，失败 \(failed) 个")
         }
 
-        // 🐍 加载 Python 蜘蛛（最多 10 个）
+        // 🐍 加载 Python 蜘蛛
         if !pySitesToLoad.isEmpty {
             PythonLogStore.appendLog("[SpiderManager] 🐍 远程源 Python 蜘蛛待加载: \(pySitesToLoad.count) 个")
-            for item in pySitesToLoad.prefix(10) {
+            for item in pySitesToLoad {
                 let key = item.site.key.isEmpty ? item.site.name : item.site.key
                 if engines[key] != nil { continue }
                 let success = await self.loadSinglePythonSpider(site: item.site, resolvedURL: item.resolvedURL)
@@ -1912,8 +1912,9 @@ globalThis.__JS_SPIDER__ = _spider;
         // 写入搜索历史
         DatabaseManager.shared.addSearchHistory(keyword: keyword)
 
-        // ========== 四路并发搜索（网盘 + 站源 + API切片 + QuickJS 同时发起） ==========
+        // ========== 五路并发搜索（网盘 + 站源 + API切片 + JS蜘蛛 + Python蜘蛛 同时发起） ==========
         // 每一路独立通过 onBatch 实时回调，互不阻塞
+        // Python 与 JS 完全并行: GIL 管理 I/O 并发，8秒超时兜底
         // 先捕获 MainActor 上的值，避免 TaskGroup 闭包内 await self 编译错误
         let spiderAllSites = self.allSites
         let fallbackEnabled = self.fallbackEnabled
@@ -1985,7 +1986,7 @@ globalThis.__JS_SPIDER__ = _spider;
                 }
             }
 
-            // 3. QuickJS 蜘蛛 — 并发 TaskGroup，限流 10
+            // 3. JS/CMS 蜘蛛 — 并发 TaskGroup，限流 10（不再等待 Python）
             group.addTask {
                 let siteNameMap = Dictionary(uniqueKeysWithValues: spiderAllSites.compactMap { site in
                     engines.keys.contains(site.key) ? (site.key, site.name) : nil
@@ -1993,32 +1994,8 @@ globalThis.__JS_SPIDER__ = _spider;
                 let engineEntries = Array(engines)
                 guard !engineEntries.isEmpty else { return }
 
-                // ★ 方案B: 把 Python 引擎摘出并发 TaskGroup, 单独串行执行
-                //   (iOS CPython 非线程安全, 不能多线程并发; JS/CMS 保持原并发逻辑不变)
+                // ★ Python 引擎已拆到通道4，这里只处理 JS/CMS 引擎
                 let jsEntries = engineEntries.filter { !($1 is PythonSpiderEngine) }
-                let pyEntries = engineEntries.filter { $1 is PythonSpiderEngine }
-
-                // Python 引擎先串行搜索 (它们共享一个 CPython 解释器, 必须串行)
-                if !pyEntries.isEmpty {
-                    for (key, pyEngine) in pyEntries {
-                        do {
-                            if let items = try pyEngine.callSearchContent(keyword: keyword, pg: 1).list, !items.isEmpty {
-                                var taggedPython = items
-                                let pyName = siteNameMap[key] ?? key
-                                for i in 0..<taggedPython.count {
-                                    taggedPython[i].vodRemarks = pyName
-                                    taggedPython[i].engineKey = key
-                                }
-                                log("🐍 Python[\(key)] +\(taggedPython.count)条")
-                                onBatch(taggedPython)
-                            }
-                        } catch {
-                            log("🐍 Python[\(key)] \(error.localizedDescription)")
-                        }
-                    }
-                }
-
-                // JS/CMS 引擎保持原并发逻辑不变
                 guard !jsEntries.isEmpty else { return }
 
                 await withTaskGroup(of: (key: String, items: [VodItem]?, error: String?).self) { jsGroup in
@@ -2071,6 +2048,77 @@ globalThis.__JS_SPIDER__ = _spider;
                             onBatch(tagged)
                         } else if let err = r.error {
                             log("❌ QuickJS[\(r.key)] \(err)")
+                        }
+                    }
+                }
+            }
+
+            // 4. Python 蜘蛛 — 并发 TaskGroup，限流 10（与 JS 完全并行，GIL 管理 I/O 并发）
+            //   PythonBridge.m 已增加 GIL 管理 (PyGILState_Ensure/Release + PyEval_SaveThread)
+            //   每次调用创建独立 globals，不共享 __main__，避免 Spider 类互相覆盖
+            //   I/O 期间 GIL 自动释放，多线程可并发执行网络请求
+            //   每个蜘蛛 8 秒超时，慢脚本自动跳过
+            group.addTask {
+                let siteNameMap = Dictionary(uniqueKeysWithValues: spiderAllSites.compactMap { site in
+                    engines.keys.contains(site.key) ? (site.key, site.name) : nil
+                })
+                let engineEntries = Array(engines)
+                let pyEntries = engineEntries.filter { $1 is PythonSpiderEngine }
+                guard !pyEntries.isEmpty else { return }
+
+                await withTaskGroup(of: (key: String, items: [VodItem]?, error: String?).self) { pyGroup in
+                    var running = 0
+                    let maxConcurrent = 10
+
+                    for (key, engine) in pyEntries {
+                        if running >= maxConcurrent {
+                            if let r = await pyGroup.next() {
+                                if let items = r.items, !items.isEmpty {
+                                    var tagged = items
+                                    let name = siteNameMap[r.key] ?? r.key
+                                    for i in 0..<tagged.count {
+                                        tagged[i].vodRemarks = name
+                                        tagged[i].engineKey = r.key
+                                    }
+                                    log("🐍 Python[\(r.key)] +\(tagged.count)条")
+                                    onBatch(tagged)
+                                } else if let err = r.error {
+                                    log("🐍 Python[\(r.key)] \(err)")
+                                }
+                                running -= 1
+                            }
+                        }
+                        running += 1
+                        pyGroup.addTask {
+                            guard let pyEngine = engine as? PythonSpiderEngine else {
+                                return (key: key, items: nil, error: "引擎类型转换失败")
+                            }
+                            do {
+                                let result = try await pyEngine.callSearchContentAsync(keyword: keyword, pg: 1)
+                                if let items = result.list, !items.isEmpty {
+                                    var taggedItems = items
+                                    for i in 0..<taggedItems.count { taggedItems[i].engineKey = key }
+                                    return (key: key, items: taggedItems, error: nil)
+                                }
+                                return (key: key, items: nil, error: nil)
+                            } catch {
+                                return (key: key, items: nil, error: error.localizedDescription)
+                            }
+                        }
+                    }
+
+                    for await r in pyGroup {
+                        if let items = r.items, !items.isEmpty {
+                            var tagged = items
+                            let name = siteNameMap[r.key] ?? r.key
+                            for i in 0..<tagged.count {
+                                tagged[i].vodRemarks = name
+                                tagged[i].engineKey = r.key
+                            }
+                            log("🐍 Python[\(r.key)] +\(tagged.count)条")
+                            onBatch(tagged)
+                        } else if let err = r.error {
+                            log("🐍 Python[\(r.key)] \(err)")
                         }
                     }
                 }

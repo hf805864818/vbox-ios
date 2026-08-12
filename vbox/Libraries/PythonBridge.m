@@ -21,8 +21,7 @@ static inline void PYBridgeLog(NSString *msg) {
 static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;
 static BOOL _pyInitialized = NO;
 static NSString *_pyHome = nil;
-static PyObject *_cachedMainModule = NULL;   // 缓存 __main__ 模块，避免每次 PyImport_AddModule 崩溃
-static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
+// _cachedMainModule/_cachedGlobals 已移除: 每次调用创建独立 globals，支持并发
 
 @implementation PythonSpiderBridge
 
@@ -123,34 +122,35 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
                     args:(NSString *)argsJSON {
     
     if (!scriptPath || !functionName) return nil;
-    
+
     // 确保解释器已初始化
     [self initializePythonIfNeeded];
     if (!_pyInitialized) return nil;
-    
-    pthread_mutex_lock(&_pyMutex);
-    
+
+    // ★ 不再使用 pthread_mutex 锁住整个 callSpider
+    // GIL (PyGILState_Ensure/Release) 保证 Python C API 线程安全
+    // I/O 期间 GIL 自动释放，多线程可并发执行网络请求
+
     // ★ 关键: 获取 GIL — 后台线程调用 Python C API 必须持有 GIL
     // Py_Initialize 在主线程执行并持有 GIL，初始化后已通过 PyEval_SaveThread 释放
     // 此处通过 PyGILState_Ensure 在当前线程重新获取 GIL
     PyGILState_STATE gilState = PyGILState_Ensure();
-    
+
     NSString *result = nil;
     PyObject *globals = NULL;
     PyObject *spider = NULL;
     FILE *fp = NULL;
-    
+
     @try {
-        // === Phase 1: 获取/复用 __main__ globals (避免每次 PyImport_AddModule 崩溃) ===
-        // 复用缓存的 globals; 若为空则创建 __main__
-        if (_cachedGlobals == NULL) {
-            PyObject *mainModule = PyImport_AddModule("__main__");
-            if (!mainModule) goto cleanup;
-            _cachedMainModule = mainModule;
-            _cachedGlobals = PyModule_GetDict(mainModule);  // 借出引用, 不 DECREF
-        }
-        globals = _cachedGlobals;
+        // === Phase 1: 为每次调用创建独立的全局字典 ===
+        // 不再共享 __main__ globals，避免并发 callSpider 时 Spider 类互相覆盖
+        // 新字典包含 __builtins__，脚本可正常使用内置函数
+        globals = PyDict_New();
         if (!globals) goto cleanup;
+        PyObject *builtins = PyEval_GetBuiltins();
+        if (builtins) {
+            PyDict_SetItemString(globals, "__builtins__", builtins);
+        }
         
         // === Phase 2: 加载脚本文件 ===
         fp = fopen([scriptPath UTF8String], "r");
@@ -279,12 +279,11 @@ static PyObject *_cachedGlobals = NULL;      // 缓存的 globals 字典
 cleanup:
     if (fp) fclose(fp);
     Py_XDECREF(spider);
-    // 注意：不要释放 _cachedGlobals/_cachedMainModule (长期持有)
-    
-    // ★ 释放 GIL
+    Py_XDECREF(globals);   // ★ 每次调用创建的独立 globals，用完释放
+
+    // ★ 释放 GIL — 允许其他线程获取 GIL 执行 Python 代码
     PyGILState_Release(gilState);
-    
-    pthread_mutex_unlock(&_pyMutex);
+
     return result;
 }
 

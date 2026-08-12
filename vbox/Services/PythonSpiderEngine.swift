@@ -314,8 +314,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 
     /// 异步调用搜索
+    /// ★ 超时 8 秒 (搜索场景要求快速响应，慢脚本直接跳过)
     func callSearchContentAsync(keyword: String, pg: Int) async throws -> SearchContentResult {
-        try await withPythonTimeout("searchContent", timeout: 20) { done in
+        try await withPythonTimeout("searchContent", timeout: 8) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
