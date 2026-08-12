@@ -651,17 +651,18 @@ struct VideoDetailView: View {
 
     // MARK: - 选集
     private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
-        // 始终传递 episode.url（单集直链地址），不传完整 vodPlayUrl。
+        // 传递完整 vodPlayUrl（包含所有剧集的 $$$/#/$ 格式字符串），使播放器的
+        // parseNormalEpisodes 能立即解析出全部集数并填充 episodeItems。
+        // vodName 含集名（如"云秀行 第13集"），parseNormalEpisodes 会自动定位到该集。
         //
-        // 根因: 传完整 vodPlayUrl 时，播放器 parseNormalEpisodes 会选集数最多的源（可能非 m3u8），
-        // 而 extractBestPlayableUrl 优先选 m3u8 直链源。若 parseNormalEpisodes 选中非直链源，
-        // handlePlayUrl 会走 tryWKWebViewParse（@MainActor），在主线程上阻塞 WKWebView 加载，
-        // 导致 UI 完全卡死（无法操作，只能强制退出 App）。
-        //
-        // 传 episode.url（单集直链）后:
-        // 1. 播放器走"已有地址"快速路径，handlePlayUrl 检测到直链直接 initPlayer → 秒播不卡
-        // 2. 后台 Task（resolvePlayUrl 第4045行）异步获取详情，parseNormalEpisodes 填充 episodeItems
-        // 3. episodeItems 被填充后，播放器内显示完整集数列表，可正常切集
+        // 不卡死原理: parseNormalEpisodes 已修复为优先选有 http 直链的源（与 extractBestPlayableUrl
+        // 逻辑一致），不再选集数最多但非直链的源。选中直链源后:
+        // 1. episodeItems[currentEpisodeIndex].url 是直链 → handlePlayUrl 直接 initPlayer → 秒播不卡
+        // 2. episodeItems 被填充 → 播放器内显示完整集数列表，可正常切集
+        // 3. 后台 Task 异步获取详情，如需更新集数列表会检查 episodeItems.isEmpty
+        let playUrl = displayVideo.vodPlayUrl?.isEmpty == false
+            ? displayVideo.vodPlayUrl
+            : episode.url
         selectedEpisodeVideo = VodItem(
             vodId: displayVideo.vodId,
             vodName: "\(displayVideo.vodName) \(episode.name)",
@@ -673,7 +674,7 @@ struct VideoDetailView: View {
             vodActor: displayVideo.vodActor,
             vodContent: displayVideo.vodContent,
             vodPlayFrom: displayVideo.vodPlayFrom,
-            vodPlayUrl: episode.url,
+            vodPlayUrl: playUrl,
             engineKey: displayVideo.engineKey
         )
     }
