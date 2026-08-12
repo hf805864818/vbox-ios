@@ -246,7 +246,7 @@ struct VideoDetailView: View {
         selectedSourceIndex = 0
     }
 
-    // MARK: - 加载真实详情（不触发UI闪跳）
+    // MARK: - 加载真实详情（仅补充元数据，不覆盖已有剧集）
     private func loadRealDetailIfNeeded() {
         guard !hasLoadedDetail, !isLoadingDetail else { return }
         isLoadingDetail = true
@@ -254,22 +254,15 @@ struct VideoDetailView: View {
             let detail = await SpiderManager.shared.getDetail(ids: video.vodId, name: video.vodName, engineKey: video.engineKey)
             await MainActor.run {
                 hasLoadedDetail = true
-                if let detail, detail.vodPlayUrl?.isEmpty == false {
+                if let detail {
                     detailVideo = detail
-                    let newSources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
-                    if !newSources.isEmpty {
-                        // 已有集数时不覆盖，仅在新源集数更多时才更新
-                        // 避免切片资源正确的集数被 getDetail 返回的网盘源覆盖
-                        if allSources.isEmpty {
+                    // 仅当搜索结果没有带回剧集（allSources 为空）时，才从详情接口填充
+                    // 搜索结果已带剧集时直接用，不再二次刷新，避免切片资源被错误站点的数据覆盖
+                    if allSources.isEmpty {
+                        let newSources = parseAllSources(from: detail.vodPlayUrl, playFrom: detail.vodPlayFrom)
+                        if !newSources.isEmpty {
                             allSources = newSources
                             selectedSourceIndex = 0
-                        } else {
-                            let currentMaxCount = allSources.map { $0.items.count }.max() ?? 0
-                            let newMaxCount = newSources.map { $0.items.count }.max() ?? 0
-                            if newMaxCount > currentMaxCount {
-                                allSources = newSources
-                                selectedSourceIndex = 0
-                            }
                         }
                     }
                 }
