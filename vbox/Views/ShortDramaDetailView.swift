@@ -30,7 +30,7 @@ struct ShortDramaDetailView: View {
                 }
             }
             .fullScreenCover(item: $playerDrama) { playDrama in
-                VideoPlayerViewV2(video: playDrama)
+                VideoPlayerViewV2(video: playDrama, preParsedEpisodes: episodes.isEmpty ? nil : episodes.map { (name: $0.number, url: $0.url) })
             }
             .onAppear {
                 loadDetail()

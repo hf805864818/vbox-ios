@@ -32,17 +32,22 @@ class ShortDramaService: ObservableObject {
     
     private let dramaKeywords = ["短剧", "剧场", "网剧", "微短剧", "爽文短剧", "擦边短剧", "短剧大全", "竖屏剧", "小剧场", "迷你剧", "微剧", "短视频剧", "短片剧"]
     private var isInitialLoading = false
+    /// 标记扫描期间收到了重新扫描请求（如 Python 引擎就绪通知），当前扫描完成后自动重扫
+    private var pendingRescan = false
     
     private init() {}
     
     // MARK: - 扫描所有 VOD 源中的短剧分类
     
     func loadInitialIfNeeded(from sites: [SiteConfig], forceRescan: Bool = false) async {
-        guard !isInitialLoading else { return }
+        guard !isInitialLoading else {
+            // 扫描进行中时收到重新扫描请求（如 Python 引擎就绪），标记待重扫
+            if forceRescan { pendingRescan = true }
+            return
+        }
         if !forceRescan, !shortDramaSources.isEmpty, !dramas.isEmpty { return }
 
         isInitialLoading = true
-        defer { isInitialLoading = false }
 
         if forceRescan {
             currentPage = 1
@@ -61,6 +66,14 @@ class ShortDramaService: ObservableObject {
                 selectedSourceId = shortDramaSources.first?.id
             }
             await fetchDramas(refresh: true)
+        }
+
+        isInitialLoading = false
+
+        // 扫描期间收到了重新扫描请求（如 Python 引擎延迟就绪），自动重扫一次
+        if pendingRescan {
+            pendingRescan = false
+            await loadInitialIfNeeded(from: sites, forceRescan: true)
         }
     }
 
