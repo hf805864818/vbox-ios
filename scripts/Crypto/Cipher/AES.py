@@ -53,21 +53,14 @@ class _AESCipher:
         if len(plaintext) % 16 != 0:
             raise ValueError("Data must be a multiple of 16 bytes")
 
-        if self._mode == MODE_ECB:
-            encrypter = pyaes.Encrypter(
-                pyaes.AES(self._key), pyaes.MODE_ECB
-            )
-        elif self._mode == MODE_CBC:
+        if self._mode == MODE_CBC:
             if self._iv is None:
                 raise ValueError("CBC mode requires iv")
-            encrypter = pyaes.Encrypter(
-                pyaes.AES(self._key), pyaes.MODE_CBC, self._iv
-            )
-        else:
+        elif self._mode != MODE_ECB:
             raise ValueError("Unsupported mode: %d" % self._mode)
 
-        # pyaes 的 feed 会自动加 PKCS7 padding, 我们不需要
-        # 直接用底层 AES block 加密
+        # 直接用底层 AES block 加密，不走 pyaes.Encrypter。
+        # pyaes 没有 MODE_CBC 常量，且 Encrypter 会自动 padding，不符合 pycryptodome 行为。
         return self._encrypt_blocks(plaintext)
 
     def _encrypt_blocks(self, plaintext):
@@ -146,7 +139,9 @@ def new(key, mode, *args, **kwargs):
     if len(key) not in key_size:
         raise ValueError("Incorrect AES key length (%d bytes)" % len(key))
 
-    iv = kwargs.get('iv', None)
+    # pycryptodome 支持 AES.new(key, AES.MODE_CBC, iv) 位置参数写法。
+    # 很多 TVBox Python Spider 都这样传 IV，必须优先兼容。
+    iv = args[0] if args else kwargs.get('iv', None)
     if iv is not None:
         iv = bytes(iv) if not isinstance(iv, bytes) else iv
         if len(iv) != 16:
