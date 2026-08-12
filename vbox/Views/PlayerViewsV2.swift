@@ -4701,29 +4701,36 @@ class PlayerState: ObservableObject {
         // 确定使用哪个源的URL块
         let urlBlock: String
         if playUrl.contains("$$$") {
-            // 多源：选包含最多集数（#最多）的源
-            // 修复：支持占位符URL（如剧迷的 vid-ep_id|lineIdx），不只认http/m3u8/mp4
+            // 多源：优先选有 http 直链的源（集数最多），避免选中非直链源导致 handlePlayUrl
+            // 走 tryWKWebViewParse（@MainActor）卡死 UI。若无直链源则回退到集数最多的源。
             let urlBlocks = playUrl.components(separatedBy: "$$$")
-            var bestBlock = urlBlocks.first ?? ""
-            var bestEpisodeCount = 0
+            var bestDirectBlock = ""
+            var bestDirectCount = 0
+            var bestAnyBlock = urlBlocks.first ?? ""
+            var bestAnyCount = 0
             for block in urlBlocks {
-                let count = block.components(separatedBy: "#").filter { part in
+                let parts = block.components(separatedBy: "#").filter { part in
                     let trimmed = part.trimmingCharacters(in: .whitespaces)
                     guard !trimmed.isEmpty else { return false }
-                    // 检查是否包含有效的URL或占位符（支持 http直链、m3u8、mp4、以及剧迷等源的占位符格式）
                     let urlPart = extractFirstEpisodeUrl(trimmed)
                     return !urlPart.isEmpty
-                }.count
-                if count > bestEpisodeCount {
-                    bestEpisodeCount = count
-                    bestBlock = block
+                }
+                let count = parts.count
+                if count > bestAnyCount {
+                    bestAnyCount = count
+                    bestAnyBlock = block
+                }
+                // 检查该源是否有 http 直链
+                if let firstPart = parts.first {
+                    let firstUrl = extractFirstEpisodeUrl(firstPart)
+                    if firstUrl.hasPrefix("http"), count > bestDirectCount {
+                        bestDirectCount = count
+                        bestDirectBlock = block
+                    }
                 }
             }
-            if bestEpisodeCount == 0 {
-                // 没有有效集数，取第一个非空块
-                bestBlock = urlBlocks.first { !$0.isEmpty } ?? ""
-            }
-            urlBlock = bestBlock
+            // 优先使用直链源，无直链源时回退到集数最多的源
+            urlBlock = bestDirectCount > 0 ? bestDirectBlock : (bestAnyCount > 0 ? bestAnyBlock : (urlBlocks.first { !$0.isEmpty } ?? ""))
         } else {
             urlBlock = playUrl
         }
