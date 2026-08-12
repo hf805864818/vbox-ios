@@ -360,11 +360,17 @@ jobs:
 
           # ★ 安装 Crypto 兼容层 (pyaes + pycryptodome API 兼容)
           # 让脚本的 from Crypto.Cipher import AES 自动走纯 Python 实现
+          # 同时安装 Padding / RSA / PKCS1_v1_5，支持星空4K / 新韩剧网 / 臻彩4K 等脚本
           echo "🐍 安装 Crypto 兼容层 (pycryptodome API 兼容)..."
-          mkdir -p "$SITE_PKG/Crypto/Cipher"
+          mkdir -p "$SITE_PKG/Crypto/Cipher" "$SITE_PKG/Crypto/PublicKey" "$SITE_PKG/Crypto/Util"
           cp scripts/Crypto/__init__.py "$SITE_PKG/Crypto/"
           cp scripts/Crypto/Cipher/__init__.py "$SITE_PKG/Crypto/Cipher/"
           cp scripts/Crypto/Cipher/AES.py "$SITE_PKG/Crypto/Cipher/"
+          cp scripts/Crypto/Cipher/PKCS1_v1_5.py "$SITE_PKG/Crypto/Cipher/"
+          cp scripts/Crypto/PublicKey/__init__.py "$SITE_PKG/Crypto/PublicKey/"
+          cp scripts/Crypto/PublicKey/RSA.py "$SITE_PKG/Crypto/PublicKey/"
+          cp scripts/Crypto/Util/__init__.py "$SITE_PKG/Crypto/Util/"
+          cp scripts/Crypto/Util/Padding.py "$SITE_PKG/Crypto/Util/"
 
           echo "📦 site-packages 内容:"
           ls "$SITE_PKG" 2>/dev/null | head -20
