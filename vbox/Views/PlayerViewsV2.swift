@@ -533,10 +533,16 @@ extension Notification.Name {
 struct VideoPlayerViewV2: View {
     let video: VodItem
     /// 详情页已解析好的集数列表，优先使用，避免播放器重复解析 vodPlayUrl 导致选源不一致和卡死
-    let preParsedEpisodes: [(name: String, url: String)]? = nil
+    let preParsedEpisodes: [(name: String, url: String)]?
     @StateObject private var playerState = PlayerState()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+
+    init(video: VodItem, preParsedEpisodes: [(name: String, url: String)]? = nil) {
+        self.video = video
+        self.preParsedEpisodes = preParsedEpisodes
+        _playerState = StateObject(wrappedValue: PlayerState())
+    }
     // 修复: 存储 PiP 观察者 token，onDisappear 时用 token 移除
     @State private var pipRestoreObserver: NSObjectProtocol?
     @State private var pipToggleObserver: NSObjectProtocol?
@@ -607,7 +613,7 @@ struct VideoPlayerViewV2: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OrientationHelper.allowAllOrientations()
             }
-            playerState.setupPlayer(video: video)
+            playerState.setupPlayer(video: video, preParsedEpisodes: preParsedEpisodes)
             
             // 监听PiP恢复全屏和暂停/播放通知
             // 修复: 存储 token 并使用 weak 引用，防止 playerState 泄漏
@@ -926,6 +932,9 @@ class PlayerState: ObservableObject {
     
     // 通用集数列表（所有资源类型共用）
     @Published var episodeItems: [EpisodeItem] = []
+
+    /// 详情页传来的已解析集数，避免播放器重复解析 vodPlayUrl 导致选源不一致和卡死
+    var preParsedEpisodes: [(name: String, url: String)]? = nil
 
     /// 当前集资源类型（用于判断走系统画中画还是应用内小窗）
     var currentEpisodeSourceType: EpisodeItem.EpisodeSourceType {
@@ -2254,7 +2263,7 @@ class PlayerState: ObservableObject {
     /// 🔧 修复: 标记 handlePlayUrl 是否正在执行，防止后台详情任务并发启动第二个 handlePlayUrl
     private var isHandlingPlayUrl = false
     
-    func setupPlayer(video: VodItem) {
+    func setupPlayer(video: VodItem, preParsedEpisodes: [(name: String, url: String)]? = nil) {
         currentTask?.cancel()
         // 场景恢复期间不启动新播放器，避免主线程阻塞触发 watchdog
         if isRestoringFromBackground {
@@ -2262,7 +2271,7 @@ class PlayerState: ObservableObject {
             sceneRestorationTask?.cancel()
             sceneRestorationTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                await MainActor.run { self?.setupPlayer(video: video) }
+                await MainActor.run { self?.setupPlayer(video: video, preParsedEpisodes: preParsedEpisodes) }
             }
             return
         }
@@ -2274,6 +2283,7 @@ class PlayerState: ObservableObject {
             episodeItems = []
             currentEpisodeIndex = 0
         }
+        self.preParsedEpisodes = preParsedEpisodes
         currentVideo = video
         brightness = UIScreen.main.brightness
         volume = Double(AVAudioSession.sharedInstance().outputVolume)
