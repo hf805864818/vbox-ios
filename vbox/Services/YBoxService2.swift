@@ -131,6 +131,7 @@ struct YBoxComicItem2: Identifiable {
 }
 
 // MARK: - YBox 服务
+@MainActor
 class YBoxService2: ObservableObject {
     static let shared = YBoxService2()
 
