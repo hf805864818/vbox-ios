@@ -146,6 +146,9 @@ class Spider:
         每次请求前都会检查注入的 _vbox_effective_hosts 并更新 self.host，
         确保用户在设置里修改域名后能立即生效。
 
+        备用域名回退：当主域名请求失败（连接错误/超时）且存在 _backup_hosts 时，
+        自动切换到备用域名重试，直到成功或全部失败。
+
         兼容参数:
             headers: 请求头 dict
             data: POST 数据 (str/bytes/dict)
@@ -160,6 +163,46 @@ class Spider:
         # 每次请求前刷新注入的域名（用户可能在设置里改了）
         self._apply_injected_hosts()
 
+        # 收集所有待尝试的域名：主域名 + 备用域名
+        hosts_to_try = []
+        try:
+            parsed = urllib.parse.urlparse(url)
+            original_host = f"{parsed.scheme}://{parsed.netloc}"
+            hosts_to_try.append(original_host)
+            backup_hosts = getattr(self, '_backup_hosts', None) or []
+            for bh in backup_hosts:
+                if bh and bh != original_host:
+                    hosts_to_try.append(bh)
+        except Exception:
+            hosts_to_try = [url]
+
+        last_resp = None
+        for i, host in enumerate(hosts_to_try):
+            # 替换 URL 中的 host 部分
+            try:
+                parsed = urllib.parse.urlparse(url)
+                target_url = urllib.parse.urlunparse((
+                    parsed.scheme,
+                    urllib.parse.urlparse(host).netloc if '://' in host else host,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+            except Exception:
+                target_url = url
+
+            resp = self._do_request(target_url, headers, data, method, **kw)
+            # HTTP 错误（4xx/5xx）不重试 —— 服务器可达只是业务错误
+            # 只有连接失败（status_code == 599）才切换备用域名
+            if resp.status_code != 599:
+                return resp
+            last_resp = resp
+
+        return last_resp or Response(b'', status_code=599, encoding='utf-8', headers=None)
+
+    def _do_request(self, url, headers=None, data=None, method=None, **kw):
+        """单次请求实现（不含备用域名回退）"""
         headers = dict(headers or self.header)
 
         # 处理 URL 查询参数
