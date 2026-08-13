@@ -306,16 +306,24 @@ jobs:
 
           # 5. 恢复 base.spider 兼容模块
           #    从 repo 的 scripts/python-base-spider.py 复制 (不在 python-stdlib 下, 不会被 rm 删)
-          #    目标: $STD/lib/python3.14/base/spider.py
+          #    双重部署：lib/python3.14/base/ 和顶层 base/，确保两处都是 regular package
+          #    （都有 __init__.py），避免 namespace package 优先级问题导致加载旧版
           if [ -f "scripts/python-base-spider.py" ]; then
             LIBDIR="$STD/lib/python3.14"
             [ -d "$LIBDIR" ] || LIBDIR="$STD/lib"
             [ -d "$LIBDIR" ] || LIBDIR="$STD"
+            # 部署到 lib/python3.14/base/（标准库路径）
             mkdir -p "$LIBDIR/base"
             cp "scripts/python-base-spider.py" "$LIBDIR/base/spider.py"
             touch "$LIBDIR/base/__init__.py"
             echo "✅ 恢复 base/spider.py → $LIBDIR/base/spider.py"
+            # 同时部署到顶层 base/（PYTHONPATH 路径，双保险）
+            mkdir -p "$STD/base"
+            cp "scripts/python-base-spider.py" "$STD/base/spider.py"
+            touch "$STD/base/__init__.py"
+            echo "✅ 恢复 base/spider.py → $STD/base/spider.py (双保险)"
             ls -la "$LIBDIR/base/"
+            ls -la "$STD/base/"
           else
             echo "⚠️ 未找到 scripts/python-base-spider.py"
           fi
