@@ -20,16 +20,33 @@
   自动包装子类接口方法，patch requests.get/post/Session.get/Session.post
   脚本用 requests 发请求也能自动走域名替换和代理注入
   普通资源（非福利）不受影响：无注入属性 → _apply() 直接返回原始 URL
+- 2026-08-13 (v5): threading/functools 降级兼容 — iOS CPython 可能缺少这两个模块
+  导致 import base.spider 失败 → 脚本回退到 fallback 类 → 域名注入失效
+  改为 try/except 导入，缺失时用简易替代实现
 """
 import json
 import re
 import ssl
-import functools
-import threading
 import urllib.parse
 import urllib.request
 import urllib.error
 import http.cookiejar
+
+# ──────────────────────────────────────────────
+# 降级兼容：iOS CPython 可能缺少 threading / functools
+# 缺失时用简易替代，确保 base.spider 能正常导入
+# ──────────────────────────────────────────────
+try:
+    import threading as _threading_mod
+    _active_spider = _threading_mod.local()
+except ImportError:
+    _threading_mod = None
+    _active_spider = None
+
+try:
+    from functools import wraps as _functools_wraps
+except ImportError:
+    _functools_wraps = None
 
 # iOS CPython 没有 CA 证书包 → HTTPS 验证失败
 # 创建不验证证书的 SSL 上下文，所有请求共用
@@ -51,12 +68,31 @@ _PROXY_PORT = 9978
 # ──────────────────────────────────────────────
 # 线程本地存储：当前正在执行的 Spider 实例
 # 每个线程独立，100+ 平台并发不会串
-_active_spider = threading.local()
+# iOS CPython 无 threading 时降级为全局变量（单线程安全）
 
 
 def _get_active_spider():
     """获取当前线程的活跃 Spider 实例（接口方法执行期间非 None）"""
-    return getattr(_active_spider, 'spider', None)
+    if _active_spider is not None:
+        return getattr(_active_spider, 'spider', None)
+    return getattr(_active_spider_fallback, 'spider', None)
+
+
+def _set_active_spider(spider):
+    """设置当前活跃 Spider 实例"""
+    if _active_spider is not None:
+        _active_spider.spider = spider
+    else:
+        _active_spider_fallback.spider = spider
+
+
+class _FallbackLocal:
+    """threading.local 降级替代（单线程安全）"""
+    def __init__(self):
+        self.spider = None
+
+
+_active_spider_fallback = _FallbackLocal()
 
 
 def _spider_method_wrap(func):
@@ -69,9 +105,14 @@ def _spider_method_wrap(func):
     同时在方法执行前刷新注入域名（仅福利平台有注入属性时），
     确保脚本 init() 覆盖 self.host 后，下一个接口方法能恢复注入域名。
     """
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        _active_spider.spider = self
+    if _functools_wraps is not None:
+        wrapper = _functools_wraps(func)
+    else:
+        wrapper = lambda f: f  # 无 functools 时直接返回原函数
+
+    @wrapper
+    def wrapped(self, *args, **kwargs):
+        _set_active_spider(self)
         # 福利平台：每次接口方法调用前刷新注入域名
         # （脚本的 init() 可能覆盖了 self.host，需要恢复）
         if hasattr(self, '_vbox_effective_hosts'):
@@ -79,8 +120,8 @@ def _spider_method_wrap(func):
         try:
             return func(self, *args, **kwargs)
         finally:
-            _active_spider.spider = None
-    return wrapper
+            _set_active_spider(None)
+    return wrapped
 
 
 def _patch_requests():
@@ -93,7 +134,8 @@ def _patch_requests():
     安全性：
     - 普通资源（非福利）不注入 _vbox_effective_hosts，
       _apply() 返回原始 URL 和 None proxies，行为不变
-    - threading.local 确保并发安全
+    - 有 threading 时用 threading.local（并发安全）
+    - 无 threading 时用全局变量（单线程安全，iOS CPython 默认单线程）
     - 仅 patch get/post/Session.get/Session.post，不改变其他行为
     """
     try:
